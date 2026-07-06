@@ -1,0 +1,47 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+
+@theme {
+    --font-sans:    'Fira Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono:    'Fira Code', ui-monospace, monospace;
+
+    /* Seller's Hub theme — bright yellow + near-black, matching the actual office
+       signage (vivid yellow walls, gray/black accent, "SELLER'S HUB" wordmark). */
+    --color-primary:      #CA8A04;
+    --color-primary-dark: #854D0E;
+    --color-secondary:    #EAB308;
+    --color-accent:       #A16207;
+    --color-muted:        #FEFCE8;
+    --color-border:       #FEF08A;
+    --color-sidebar:      #18181B;
+}
+
+body { font-family: var(--font-sans); background: #F8FAFC; }
+
+/* Sidebar active glow */
+.nav-active {
+    background: rgba(202,138,4,0.18);
+    border-left: 3px solid #EAB308;
+    color: #fff;
+}
+.nav-item {
+    border-left: 3px solid transparent;
+    transition: all 150ms ease;
+}
+.nav-item:hover {
+    background: rgba(255,255,255,0.07);
+    color: #fff;
+}
+
+/* Stat card hover */
+.stat-card { transition: transform 150ms ease, box-shadow 150ms ease; }
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(202,138,4,0.15); }
+
+/* Table row hover */
+.tbl-row { transition: background 120ms ease; }
+.tbl-row:hover { background: #FEFCE8; }
