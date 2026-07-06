@@ -175,8 +175,7 @@ class TsaPerformanceController extends Controller
             ];
         }
 
-        $teams       = collect($teamsConfig)->map(fn($t) => $t['name']);
-        $teams->prepend('ALL', 'all');
+        $teams       = $this->teamsMenu($teamsConfig);
         $metricCols  = self::METRIC_COLUMNS;
         $totalUpsellingRate = $this->upsellingRate($totals);
 
@@ -185,6 +184,16 @@ class TsaPerformanceController extends Controller
             'teams', 'selectedTeam', 'metricCols', 'totalUpsellingRate',
             'availableProducts', 'selectedProduct'
         ));
+    }
+
+    /** Team-button menu shared by the hourly view and the ALL view, so they can
+     *  never drift into showing different button sets. */
+    private function teamsMenu(array $teamsConfig): Collection
+    {
+        $teams = collect($teamsConfig)->map(fn($t) => $t['name']);
+        $teams->prepend('ALL', 'all');
+
+        return $teams;
     }
 
     private function indexAll(string $selectedDate, Carbon $date, array $teamsConfig)
@@ -213,8 +222,7 @@ class TsaPerformanceController extends Controller
         }
         $grandTotal = array_merge($grandTotal, $this->productRates($grandTotal));
 
-        $teams = collect($teamsConfig)->map(fn($t) => $t['name']);
-        $teams->prepend('ALL', 'all');
+        $teams = $this->teamsMenu($teamsConfig);
 
         return view('tsa-performance-all', [
             'selectedDate' => $selectedDate,
