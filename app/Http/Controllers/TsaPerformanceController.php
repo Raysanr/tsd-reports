@@ -24,14 +24,6 @@ class TsaPerformanceController extends Controller
         'excess',
     ];
 
-    /** Dispositions that count as "touched" for the excess calc — every COLUMNS
-     *  entry except 'total' (the whole) and 'excess' itself (the remainder). */
-    private const DISPOSITION_KEYS = [
-        'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
-        'repeat_order_upsell', 'rude_customer', 'relatives_confirmation',
-        'dfr', 'double_order', 'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number',
-    ];
-
     /** Display metadata for the disposition columns (excludes 'total', which has its own fixed header). */
     private const METRIC_COLUMNS = [
         ['key' => 'confirmed_via_call',     'label' => 'Confirmed<br>via Call',        'group' => 'answered', 'min_width' => 72],
@@ -47,12 +39,13 @@ class TsaPerformanceController extends Controller
         ['key' => 'not_answering',          'label' => 'Not<br>Answering',             'group' => 'unanswered', 'min_width' => 72],
         ['key' => 'unattended',             'label' => 'Unat-<br>tended',              'group' => 'unanswered', 'min_width' => 72],
         ['key' => 'invalid_number',         'label' => 'Invalid<br>Number',            'group' => 'unanswered', 'min_width' => 72],
-        // Leads with no MATCHING disposition tag — covers both untouched leads (no tag
-        // yet) and leads the night-shift bulk action later tags "UNCATERED LEADS" at
-        // midnight, since that tag doesn't substring-match any of the 13 tracked
-        // dispositions above and so still falls through to here. Computed as total
-        // minus every tagged disposition, floored at 0 so a TSA over-tagging a lead
-        // (e.g. logging it under two dispositions) can't push this negative.
+        // Leads whose disposition is null or exactly "UNCATERED LEADS" — confirmed
+        // against real Pancake POS data: the night-shift bulk action tags a lead
+        // "UNCATERED LEADS" only when nothing else was ever tagged on it (any real
+        // disposition tag, including "Call in Progress", takes priority and makes it
+        // Catered instead — see extractDisposition()'s priority order). Matches how
+        // the team actually audits this in Pancake: only a pure, untouched
+        // "UNCATERED LEADS" tag counts as Excess.
         ['key' => 'excess',                 'label' => 'Excess<br>Leads',              'group' => 'excess', 'min_width' => 80],
     ];
 
@@ -163,26 +156,29 @@ class TsaPerformanceController extends Controller
                 'label'            => HourFormatter::rangeLabel($hour),
                 'rows'             => $rows,
                 'totals'           => $blockTotals,
-                'conversion_rate'  => $this->conversionRate($blockTotals),
+                'upselling_rate'   => $this->upsellingRate($blockTotals),
             ];
         }
 
         $teams       = collect($teamsConfig)->map(fn($t) => $t['name']);
         $metricCols  = self::METRIC_COLUMNS;
-        $totalConversionRate = $this->conversionRate($totals);
+        $totalUpsellingRate = $this->upsellingRate($totals);
 
         return view('tsa-performance', compact(
             'selectedDate', 'hourBlocks', 'totals', 'showEmpty',
-            'teams', 'selectedTeam', 'metricCols', 'totalConversionRate',
+            'teams', 'selectedTeam', 'metricCols', 'totalUpsellingRate',
             'availableProducts', 'selectedProduct'
         ));
     }
 
-    /** Upsell conversions as a % of total called leads — null when there were no leads at all. */
-    private function conversionRate(array $columns): ?float
+    /** Upsell w/ Confirmation as a % of (Upsell w/ Confirmation + Confirmed via Call) —
+     *  the official Upselling Rate formula (TSD Updated Formula Base, May 2026). Null
+     *  when both are zero (nothing to compute a rate from). */
+    private function upsellingRate(array $columns): ?float
     {
-        if ($columns['total'] <= 0) return null;
-        return round($columns['upsell_confirmation'] / $columns['total'] * 100, 1);
+        $denominator = $columns['upsell_confirmation'] + $columns['confirmed_via_call'];
+        if ($denominator <= 0) return null;
+        return round($columns['upsell_confirmation'] / $denominator * 100, 1);
     }
 
     private function buildRow(?TsaShift $shift, ?string $key, Collection $orders, ?string $displayNameOverride = null): array
@@ -205,10 +201,16 @@ class TsaPerformanceController extends Controller
             'invalid_number'         => $this->count($orders, 'invalid number'),
         ];
 
-        $row['catered'] = array_sum(array_intersect_key($row, array_flip(self::DISPOSITION_KEYS)));
-        $row['excess']  = max($row['total'] - $row['catered'], 0);
+        // Excess = disposition is null or exactly "UNCATERED LEADS" — see the class
+        // doc comment on the 'excess' METRIC_COLUMNS entry above for why this is the
+        // correct ground truth (confirmed directly against real Pancake POS data),
+        // rather than inferring it from which of the 13 known keywords matched.
+        $row['excess']  = $orders->filter(function ($o) {
+            return $o->disposition === null || $o->disposition === 'UNCATERED LEADS';
+        })->count();
+        $row['catered'] = $row['total'] - $row['excess'];
 
-        $row['conversion_rate'] = $this->conversionRate($row);
+        $row['upselling_rate'] = $this->upsellingRate($row);
 
         return $row;
     }

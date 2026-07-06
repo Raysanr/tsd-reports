@@ -117,8 +117,8 @@
                         {{ $row[$col['key']] ?: '' }}
                     </td>
                     @endforeach
-                    <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $row['conversion_rate'] !== null ? 'text-yellow-700' : 'text-slate-300' }}">
-                        {{ $row['conversion_rate'] !== null ? $row['conversion_rate'].'%' : '—' }}
+                    <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700' : 'text-slate-300' }}">
+                        {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
                     </td>
                 </tr>
                 @endforeach
@@ -134,7 +134,7 @@
                     </td>
                     @endforeach
                     <td class="border border-slate-600 px-3 py-2.5 text-center text-yellow-300">
-                        {{ $block['conversion_rate'] !== null ? $block['conversion_rate'].'%' : '—' }}
+                        {{ $block['upselling_rate'] !== null ? $block['upselling_rate'].'%' : '—' }}
                     </td>
                 </tr>
                 @endforeach
@@ -150,7 +150,7 @@
                     </td>
                     @endforeach
                     <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">
-                        {{ $totalConversionRate !== null ? $totalConversionRate.'%' : '—' }}
+                        {{ $totalUpsellingRate !== null ? $totalUpsellingRate.'%' : '—' }}
                     </td>
                 </tr>
 
