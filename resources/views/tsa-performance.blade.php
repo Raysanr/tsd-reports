@@ -188,7 +188,7 @@
 
     {{-- Product filter as a dropdown, not a row of toggle buttons — a team with 10
          products (SH Naturals) was overloading the topbar with buttons. --}}
-    @if(!empty($availableProducts))
+    @if($availableProducts->isNotEmpty())
     <div class="relative">
         <button type="button" id="productTrigger" aria-haspopup="listbox" aria-expanded="false"
                 class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold font-mono text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
