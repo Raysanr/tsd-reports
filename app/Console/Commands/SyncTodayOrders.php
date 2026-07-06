@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -392,16 +393,6 @@ class SyncTodayOrders extends Command
         return null;
     }
 
-    /** Mirrors TsaPerformanceController::PRODUCT_TAG_OVERRIDES — a product's actual
-     *  name (e.g. "CanPro Guyabano Herbal Drink") can be longer/differently worded than
-     *  its config/teams.php product-list entry ("CANPRO JUICE DRINK"); this maps the
-     *  config entry down to the short root both forms actually share. Keep both
-     *  overrides lists in sync if either changes. */
-    private const PRODUCT_TAG_OVERRIDES = [
-        'CANPRO JUICE DRINK' => 'CANPRO',
-        'GINSENG SERUM'      => 'GINSENG',
-    ];
-
     private function extractTsaInfo(array $tagNames, array $raw = [], ?string $productName = null): array
     {
         // Primary: explicit name tag (JULIE, GEMMA, etc.)
@@ -446,12 +437,11 @@ class SyncTodayOrders extends Command
     {
         if (!$productName) return null;
 
-        foreach (config('teams', []) as $team) {
-            foreach ($team['products'] ?? [] as $product) {
-                $keyword = self::PRODUCT_TAG_OVERRIDES[$product] ?? $product;
-                if (stripos($productName, $keyword) !== false) {
-                    return $team['order_team'];
-                }
+        // Sourced from the products table (Product Management page) instead of
+        // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
+        foreach (Product::all() as $product) {
+            if (stripos($productName, $product->effective_keyword) !== false) {
+                return $product->team;
             }
         }
 
