@@ -52,6 +52,11 @@ class TagParser
             }
 
             // --- Team + Product match ---
+            // config/teams.php no longer has a 'products' key at all (products moved
+            // to the database-backed Product model — see TsaPerformanceController and
+            // SyncTodayOrders, the actively-used sync path). The `?? []` here just
+            // stops this legacy, unscheduled command from crashing; it means this
+            // branch can no longer actually match a product tag.
             if ($result['team'] === null || $result['product'] === null) {
                 foreach ($teams as $teamKey => $teamConfig) {
                     foreach ($teamConfig['products'] ?? [] as $productSubstring) {
@@ -105,6 +110,9 @@ class TagParser
         foreach ($dispMap as $disp => $_) {
             if (str_contains($tag, $disp)) return true;
         }
+        // See the matching comment in parse() above — 'products' no longer exists in
+        // config/teams.php, so this can never actually match; the `?? []` only
+        // prevents a crash in this legacy, unscheduled command.
         foreach ($teams as $teamConfig) {
             foreach ($teamConfig['products'] ?? [] as $p) {
                 if (str_contains($tag, strtoupper($p))) return true;
