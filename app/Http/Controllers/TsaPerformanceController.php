@@ -236,11 +236,22 @@ class TsaPerformanceController extends Controller
 
     private function buildProductRow(Product $product, Collection $orders): array
     {
-        // Team-scoped as well as keyword-matched — a generic product keyword could
-        // otherwise coincidentally match an order that actually belongs to the other
-        // team, since $orders here spans both teams combined.
-        $matching = $orders->filter(fn($o) => $o->team === $product->team
-            && $o->product && stripos($o->product, $product->effective_keyword) !== false);
+        // Team-scoped, then matched primarily via raw_tags — confirmed against real
+        // POS data that this is the reliable signal (same approach the per-team
+        // product filter in index() already uses): every "Clear Sight 3.0" order
+        // carries a plain "CLEARSIGHT" tag, and every upsell add-on order (e.g.
+        // "LUMICARE OIL") carries its real base product's tag too. The `product`
+        // cart-item field is only a fallback for the rare order with no matching tag
+        // at all — matching on it alone (the original approach here) undercounted
+        // every upsold product and missed CLEARSIGHT entirely, since "Clear Sight
+        // 3.0" (the cart item name, with a space) never substring-matches "CLEARSIGHT".
+        $matching = $orders->filter(function ($o) use ($product) {
+            if ($o->team !== $product->team) return false;
+            foreach ($o->raw_tags ?? [] as $tag) {
+                if (stripos($tag, $product->effective_keyword) !== false) return true;
+            }
+            return $o->product && stripos($o->product, $product->effective_keyword) !== false;
+        });
 
         $row = [
             'display_name'           => $product->display_name,
