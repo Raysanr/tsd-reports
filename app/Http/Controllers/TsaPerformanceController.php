@@ -195,7 +195,14 @@ class TsaPerformanceController extends Controller
             ->whereIn('team', $orderTeams)
             ->get();
 
-        $products    = Product::orderBy('team')->orderBy('sort_order')->get();
+        // orderBy('team') alone would sort alphabetically ("Eyecare Team" < "SH
+        // Naturals"), putting Eyecare first — wrong. Sort by each product's team's
+        // position in $orderTeams (config order) instead, keeping sort_order as the
+        // tie-breaker within a team (sortBy() is a stable sort, so pre-sorting by
+        // sort_order first preserves that order within each team group).
+        $products    = Product::orderBy('sort_order')->get()
+            ->sortBy(fn($p) => array_search($p->team, $orderTeams))
+            ->values();
         $productRows = $products->map(fn($product) => $this->buildProductRow($product, $orders))->values();
 
         $grandTotal = array_fill_keys(self::PRODUCT_SUMMARY_COLUMNS, 0);
@@ -221,7 +228,11 @@ class TsaPerformanceController extends Controller
 
     private function buildProductRow(Product $product, Collection $orders): array
     {
-        $matching = $orders->filter(fn($o) => $o->product && stripos($o->product, $product->effective_keyword) !== false);
+        // Team-scoped as well as keyword-matched — a generic product keyword could
+        // otherwise coincidentally match an order that actually belongs to the other
+        // team, since $orders here spans both teams combined.
+        $matching = $orders->filter(fn($o) => $o->team === $product->team
+            && $o->product && stripos($o->product, $product->effective_keyword) !== false);
 
         $row = [
             'display_name'           => $product->display_name,
