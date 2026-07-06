@@ -7,6 +7,7 @@ use App\Http\Controllers\TsaPerformanceController;
 use App\Http\Controllers\ChartsController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TsaManagementController;
+use App\Http\Controllers\ProductManagementController;
 
 Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
 Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync');
@@ -19,6 +20,11 @@ Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'sear
 Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
 Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
 Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
+
+Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
+Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');
+Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
+Route::delete('/product-management/{product}',   [ProductManagementController::class, 'destroy'])->name('product-management.destroy');
 
 Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
 Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
