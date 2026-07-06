@@ -24,6 +24,17 @@ class TsaPerformanceController extends Controller
         'excess',
     ];
 
+    /** Accumulator keys for the "ALL" per-product summary (adds 'answered'/'unanswered'
+     *  subtotals, needed so the Grand Total's rates are computed from its own summed
+     *  counts — never by averaging the per-product percentages, which would be wrong). */
+    private const PRODUCT_SUMMARY_COLUMNS = [
+        'total', 'catered',
+        'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
+        'repeat_order_upsell', 'rude_customer', 'relatives_confirmation',
+        'dfr', 'double_order', 'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number',
+        'excess', 'answered', 'unanswered',
+    ];
+
     /** Display metadata for the disposition columns (excludes 'total', which has its own fixed header). */
     private const METRIC_COLUMNS = [
         ['key' => 'confirmed_via_call',     'label' => 'Confirmed<br>via Call',        'group' => 'answered', 'min_width' => 72],
@@ -56,6 +67,10 @@ class TsaPerformanceController extends Controller
         $showEmpty    = request()->boolean('show_empty');
         $selectedTeam = request('team', 'sh-naturals');
         $teamsConfig  = config('teams', []);
+
+        if ($selectedTeam === 'all') {
+            return $this->indexAll($selectedDate, $date, $teamsConfig);
+        }
 
         if (!array_key_exists($selectedTeam, $teamsConfig)) {
             $selectedTeam = 'sh-naturals';
@@ -161,6 +176,7 @@ class TsaPerformanceController extends Controller
         }
 
         $teams       = collect($teamsConfig)->map(fn($t) => $t['name']);
+        $teams->prepend('ALL', 'all');
         $metricCols  = self::METRIC_COLUMNS;
         $totalUpsellingRate = $this->upsellingRate($totals);
 
@@ -169,6 +185,88 @@ class TsaPerformanceController extends Controller
             'teams', 'selectedTeam', 'metricCols', 'totalUpsellingRate',
             'availableProducts', 'selectedProduct'
         ));
+    }
+
+    private function indexAll(string $selectedDate, Carbon $date, array $teamsConfig)
+    {
+        $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
+
+        $orders = Order::whereBetween('pancake_created_at', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
+            ->whereIn('team', $orderTeams)
+            ->get();
+
+        $products    = Product::orderBy('team')->orderBy('sort_order')->get();
+        $productRows = $products->map(fn($product) => $this->buildProductRow($product, $orders))->values();
+
+        $grandTotal = array_fill_keys(self::PRODUCT_SUMMARY_COLUMNS, 0);
+        foreach ($productRows as $row) {
+            foreach (self::PRODUCT_SUMMARY_COLUMNS as $col) {
+                $grandTotal[$col] += $row[$col];
+            }
+        }
+        $grandTotal = array_merge($grandTotal, $this->productRates($grandTotal));
+
+        $teams = collect($teamsConfig)->map(fn($t) => $t['name']);
+        $teams->prepend('ALL', 'all');
+
+        return view('tsa-performance-all', [
+            'selectedDate' => $selectedDate,
+            'productRows'  => $productRows,
+            'grandTotal'   => $grandTotal,
+            'teams'        => $teams,
+            'selectedTeam' => 'all',
+            'metricCols'   => self::METRIC_COLUMNS,
+        ]);
+    }
+
+    private function buildProductRow(Product $product, Collection $orders): array
+    {
+        $matching = $orders->filter(fn($o) => $o->product && stripos($o->product, $product->effective_keyword) !== false);
+
+        $row = [
+            'display_name'           => $product->display_name,
+            'team'                   => $product->team,
+            'total'                  => $matching->count(),
+            'confirmed_via_call'     => $this->count($matching, 'confirmed via call'),
+            'upsell_confirmation'    => $matching->where('is_upsell', true)->count(),
+            'call_back'              => $this->count($matching, 'call back'),
+            'call_dropped'           => $this->count($matching, 'call dropped'),
+            'repeat_order_upsell'    => $this->count($matching, 'repeat order'),
+            'rude_customer'          => $this->count($matching, 'rude customer'),
+            'relatives_confirmation' => $this->count($matching, 'relatives'),
+            'dfr'                    => $this->count($matching, 'dfr'),
+            'double_order'           => $this->count($matching, 'double order'),
+            'fsd_uncleared'          => $this->count($matching, 'fsd'),
+            'not_answering'          => $this->count($matching, 'not answering'),
+            'unattended'             => $this->count($matching, 'unattended'),
+            'invalid_number'         => $this->count($matching, 'invalid number'),
+        ];
+
+        $row['excess']  = $matching->filter(fn($o) => $o->disposition === null || $o->disposition === 'UNCATERED LEADS')->count();
+        $row['catered'] = $row['total'] - $row['excess'];
+
+        $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
+            + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];
+        $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']
+            + $row['unattended'] + $row['invalid_number'];
+
+        return array_merge($row, $this->productRates($row));
+    }
+
+    /** Pick-up / Conversion / Upselling rates from a row with 'answered', 'unanswered',
+     *  'upsell_confirmation', and 'confirmed_via_call' keys — shared by per-product rows
+     *  and the Grand Total row (see PRODUCT_SUMMARY_COLUMNS doc comment for why). */
+    private function productRates(array $row): array
+    {
+        $totalCalled = $row['answered'] + $row['unanswered'];
+
+        return [
+            'pick_up_rate'    => $totalCalled > 0 ? round($row['answered'] / $totalCalled * 100, 1) : null,
+            // Denominator is Answered only, NOT Answered + Unanswered — confirmed
+            // against the "TSD Updated Formula Base" reference ("Total Answered Called Leads").
+            'conversion_rate' => $row['answered'] > 0 ? round($row['upsell_confirmation'] / $row['answered'] * 100, 1) : null,
+            'upselling_rate'  => $this->upsellingRate($row),
+        ];
     }
 
     /** Upsell w/ Confirmation as a % of (Upsell w/ Confirmation + Confirmed via Call) —
