@@ -49,10 +49,12 @@
                         class="bg-red-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">
                         Unanswered Call Leads
                     </th>
-                    {{-- Leads with no matching disposition tag — covers both untouched
-                         leads and ones later tagged "UNCATERED LEADS" by the midnight
-                         bulk action, since that tag matches none of the 13 tracked
-                         dispositions and still falls through to here. --}}
+                    {{-- Leads whose disposition is null or exactly "UNCATERED LEADS" —
+                         confirmed against real Pancake POS data: the night-shift bulk
+                         action tags a lead "UNCATERED LEADS" only when nothing else was
+                         ever tagged on it (any real disposition, including "Call in
+                         Progress", takes priority and makes it Catered instead — see
+                         extractDisposition()'s priority order in SyncTodayOrders.php). --}}
                     <th colspan="1"
                         class="bg-rose-300 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-rose-900 uppercase tracking-wide">
                         Excess Leads
