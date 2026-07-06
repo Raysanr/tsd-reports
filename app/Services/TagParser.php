@@ -54,7 +54,7 @@ class TagParser
             // --- Team + Product match ---
             if ($result['team'] === null || $result['product'] === null) {
                 foreach ($teams as $teamKey => $teamConfig) {
-                    foreach ($teamConfig['products'] as $productSubstring) {
+                    foreach ($teamConfig['products'] ?? [] as $productSubstring) {
                         if (str_contains($tag, strtoupper($productSubstring))) {
                             $result['team']    = $teamKey;
                             $result['product'] = $productSubstring;
@@ -106,7 +106,7 @@ class TagParser
             if (str_contains($tag, $disp)) return true;
         }
         foreach ($teams as $teamConfig) {
-            foreach ($teamConfig['products'] as $p) {
+            foreach ($teamConfig['products'] ?? [] as $p) {
                 if (str_contains($tag, strtoupper($p))) return true;
             }
         }
