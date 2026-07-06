@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use Illuminate\Support\Carbon;
@@ -13,16 +14,6 @@ class TsaPerformanceController extends Controller
     /** Full-day window: covers overnight shifts (e.g. Marisol's 10PM–5PM) that start before 8AM. */
     private const START_HOUR = 0;
     private const END_HOUR   = 23;
-
-    /** Some products in config/teams.php are tagged in Pancake with a shorter word
-     *  than their full display name — e.g. "CANPRO JUICE DRINK" shows up in raw_tags
-     *  as just "Call In Progress - CANPRO", and "GINSENG SERUM" as "...(Ginseng)".
-     *  A tag that's shorter than the product name can never contain it as a
-     *  substring, so the product filter needs this override to actually match. */
-    private const PRODUCT_TAG_OVERRIDES = [
-        'CANPRO JUICE DRINK' => 'CANPRO',
-        'GINSENG SERUM'      => 'GINSENG',
-    ];
 
     /** Accumulator keys for per-row / per-block / grand totals. */
     private const COLUMNS = [
@@ -79,10 +70,14 @@ class TsaPerformanceController extends Controller
 
         // Per-product toggle (the sheets split each team's report into one tab per
         // pack/product — this mirrors that). 'all' means no filtering, same as before.
-        $availableProducts = $teamsConfig[$selectedTeam]['products'] ?? [];
+        // Sourced from the products table (Product Management page) instead of
+        // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
+        $availableProducts = Product::where('team', $teamsConfig[$selectedTeam]['order_team'])
+            ->orderBy('sort_order')->get();
         $selectedProduct   = request('product', 'all');
 
-        if ($selectedProduct !== 'all' && !in_array($selectedProduct, $availableProducts, true)) {
+        $selectedProductModel = $availableProducts->firstWhere('display_name', $selectedProduct);
+        if ($selectedProduct !== 'all' && !$selectedProductModel) {
             $selectedProduct = 'all';
         }
 
@@ -108,7 +103,7 @@ class TsaPerformanceController extends Controller
             ->get();
 
         if ($selectedProduct !== 'all') {
-            $matchKeyword = self::PRODUCT_TAG_OVERRIDES[$selectedProduct] ?? $selectedProduct;
+            $matchKeyword = $selectedProductModel->effective_keyword;
             $orders = $orders->filter(function ($order) use ($matchKeyword) {
                 foreach ($order->raw_tags ?? [] as $tag) {
                     if (stripos($tag, $matchKeyword) !== false) return true;

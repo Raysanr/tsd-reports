@@ -208,10 +208,10 @@
                 All Products
             </button>
             @foreach($availableProducts as $product)
-            <button type="submit" name="product" value="{{ $product }}" role="option" aria-selected="{{ $selectedProduct === $product ? 'true' : 'false' }}"
+            <button type="submit" name="product" value="{{ $product->display_name }}" role="option" aria-selected="{{ $selectedProduct === $product->display_name ? 'true' : 'false' }}"
                     class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer border-t border-slate-100
-                           {{ $selectedProduct === $product ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50' }}">
-                {{ $product }}
+                           {{ $selectedProduct === $product->display_name ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50' }}">
+                {{ $product->display_name }}
             </button>
             @endforeach
         </div>
