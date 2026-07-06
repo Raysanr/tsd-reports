@@ -27,6 +27,10 @@ class SyncTodayOrders extends Command
     // matching non-TSA accounts with common names.
     private array $sellerMap = [];
 
+    // Loaded once in handle() (same reasoning as $tsaMap/$sellerMap above — avoids
+    // re-querying the products table on every single order in inferTeamFromProduct()).
+    private ?\Illuminate\Support\Collection $products = null;
+
     /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above). */
     private function loadTsaMaps(): void
     {
@@ -47,6 +51,7 @@ class SyncTodayOrders extends Command
         ini_set('memory_limit', '-1');
         $runStart = now();
         $this->loadTsaMaps();
+        $this->products = Product::orderBy('sort_order')->get();
 
         $apiKey = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $shopId = Setting::get('shop_id', '');
@@ -439,7 +444,9 @@ class SyncTodayOrders extends Command
 
         // Sourced from the products table (Product Management page) instead of
         // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
-        foreach (Product::all() as $product) {
+        // $this->products is loaded once in handle() (same reasoning as $tsaMap/
+        // $sellerMap) so this doesn't re-query on every single order.
+        foreach ($this->products as $product) {
             if (stripos($productName, $product->effective_keyword) !== false) {
                 return $product->team;
             }
