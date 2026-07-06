@@ -94,7 +94,7 @@
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
         <div class="px-6 py-5 border-b border-slate-100">
             <h3 id="productModalTitle" class="text-sm font-bold text-slate-800">Add a new product</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Recognized starting with the next sync</p>
+            <p id="productModalSubtitle" class="text-xs text-slate-500 mt-0.5">Recognized starting with the next sync</p>
         </div>
         <form id="productForm" method="POST" action="{{ route('product-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
@@ -144,6 +144,7 @@
 (function () {
     const modal       = document.getElementById('productModal');
     const modalTitle  = document.getElementById('productModalTitle');
+    const modalSubtitle = document.getElementById('productModalSubtitle');
     const form        = document.getElementById('productForm');
     const methodInput = document.getElementById('productFormMethod');
     const nameInput   = document.getElementById('productNameInput');
@@ -162,6 +163,7 @@
         keywordInput.value = '';
         teamSelect.selectedIndex = 0;
         modalTitle.textContent = 'Add a new product';
+        modalSubtitle.textContent = 'Recognized starting with the next sync';
         submitBtn.textContent = 'Add Product';
     }
 
@@ -179,6 +181,7 @@
             teamSelect.value = btn.dataset.team || '';
             keywordInput.value = btn.dataset.matchKeyword || '';
             modalTitle.textContent = 'Edit product';
+            modalSubtitle.textContent = 'Changes apply starting with the next sync';
             submitBtn.textContent = 'Save Changes';
             openModal();
         });
