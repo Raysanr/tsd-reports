@@ -372,7 +372,11 @@ class SyncTodayOrders extends Command
             'new_orders'    => $newOrders,
             'upsell_count'  => $upsellCount,
             'upsell_sales'  => $upsellSales,
-            'duration_ms'   => $runStart->diffInMilliseconds(now()),
+            // diffInMilliseconds() can return a float (sub-millisecond precision) —
+            // MySQL silently truncated that into its integer column, but Postgres
+            // rejects non-integer text for one outright, crashing this insert on
+            // every single run there.
+            'duration_ms'   => (int) round($runStart->diffInMilliseconds(now())),
             'success'       => $success,
             'error_message' => $errorMessage,
         ]);
