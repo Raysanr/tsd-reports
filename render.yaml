@@ -47,6 +47,11 @@ services:
         value: sync
       - key: LOG_CHANNEL
         value: stack
+      # Laravel's default 'single' channel writes to a file inside the
+      # container (storage/logs/laravel.log) that Render's dashboard can
+      # never show you. stderr makes every error visible in the Logs tab.
+      - key: LOG_STACK
+        value: stderr
       - key: PANCAKE_API_KEY
         sync: false
       - key: CRON_SECRET
