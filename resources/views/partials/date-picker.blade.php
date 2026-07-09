@@ -41,24 +41,31 @@
 <input type="hidden" id="{{ $uid }}HiddenDate" name="{{ $dateField }}" value="{{ $date }}">
 @endif
 
+@if($isRange && $submitMode === 'form')
+{{-- Range equivalent of the persistent field above: keeps date_from/date_to on the
+     form so submitting it via any other control (e.g. a team-select button) doesn't
+     drop the currently selected range. Updated live as the user picks. --}}
+<input type="hidden" id="{{ $uid }}HiddenFrom" name="date_from" value="{{ $initFrom }}">
+<input type="hidden" id="{{ $uid }}HiddenTo"   name="date_to"   value="{{ $initTo }}">
+@endif
+
 <div class="relative">
+    {{-- Icon-only trigger — the selected date/range isn't shown as visible text (by
+         design, for a minimal topbar), so it's carried entirely in `title` (native
+         tooltip) and `aria-label`, both kept live-updated in JS below. A small dot
+         marks "not today" so a custom filter is still noticeable at a glance without
+         relying on color alone (the dot always pairs with the tooltip text). --}}
     <button type="button" id="{{ $uid }}Trigger"
-        class="inline-flex items-center gap-1.5 bg-yellow-50 border border-yellow-200 rounded-full px-3 py-1 hover:bg-yellow-100 transition-colors cursor-pointer">
-        <svg class="w-3.5 h-3.5 text-yellow-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        title="{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' – ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
+        aria-label="Change date{{ $isRange ? ' range' : '' }}, currently {{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' to ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
+        class="relative inline-flex items-center justify-center w-8 h-8 bg-yellow-50 border border-yellow-200 rounded-full hover:bg-yellow-100 transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
-        <span id="{{ $uid }}Label" class="text-xs font-mono font-semibold text-yellow-900">
-            {{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}
-            @if($isRange && $initFrom !== $initTo)
-                → {{ \Carbon\Carbon::parse($initTo)->format('M d, Y') }}
-            @endif
-        </span>
-        <svg class="w-3 h-3 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-        </svg>
+        <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
     </button>
 
-    <div id="{{ $uid }}Panel" class="hidden absolute right-0 top-full mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200" style="width:{{ $isRange ? '460px' : '440px' }}">
+    <div id="{{ $uid }}Panel" class="hidden absolute right-0 top-full mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200" style="width:{{ $isRange ? '700px' : '440px' }}">
         <div class="flex">
             {{-- Presets sidebar — identical list in both modes --}}
             <div class="w-28 border-r border-slate-100 py-2 shrink-0">
@@ -72,16 +79,16 @@
                 <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="monthToNow">Month to now</button>
             </div>
 
-            {{-- Inline flatpickr calendar --}}
+            {{-- Inline flatpickr calendar — dual month, editable start/end fields --}}
             <div class="flex-1 p-3">
                 <div class="flex items-center gap-2 mb-2 px-1">
-                    <input type="text" id="{{ $uid }}FromInput" placeholder="{{ $isRange ? 'Start date' : 'Date' }}" readonly
+                    <input type="text" id="{{ $uid }}FromInput" placeholder="{{ $isRange ? 'mm/dd/yyyy' : 'Date' }}" inputmode="numeric"
                         class="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @if($isRange)
                     <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
                     </svg>
-                    <input type="text" id="{{ $uid }}ToInput" placeholder="End date" readonly
+                    <input type="text" id="{{ $uid }}ToInput" placeholder="mm/dd/yyyy" inputmode="numeric"
                         class="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @endif
                 </div>
@@ -102,7 +109,7 @@
     const submitMode = '{{ $submitMode }}';
     const trigger   = document.getElementById('{{ $uid }}Trigger');
     const panel     = document.getElementById('{{ $uid }}Panel');
-    const labelEl   = document.getElementById('{{ $uid }}Label');
+    const dot       = document.getElementById('{{ $uid }}Dot');
     const fromInput = document.getElementById('{{ $uid }}FromInput');
     const toInput   = isRange ? document.getElementById('{{ $uid }}ToInput') : null;
     const applyBtn  = document.getElementById('{{ $uid }}Apply');
@@ -123,6 +130,26 @@
         return dt.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
     };
 
+    // Panel's own Start/End fields use mm/dd/yyyy, matching the reference picker —
+    // distinct from fmt() above, which is only for the pill trigger's label.
+    const fmtSlash = d => {
+        const dt = new Date(d + 'T00:00:00');
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const day = String(dt.getDate()).padStart(2, '0');
+        return `${m}/${day}/${dt.getFullYear()}`;
+    };
+
+    // Parses a typed mm/dd/yyyy (or m/d/yyyy) string back to 'YYYY-MM-DD', or null
+    // if it isn't a valid, real calendar date (e.g. "02/30/2026" is rejected).
+    const parseSlash = s => {
+        const match = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((s || '').trim());
+        if (!match) return null;
+        const [, mm, dd, yyyy] = match.map(Number);
+        const dt = new Date(yyyy, mm - 1, dd);
+        if (dt.getFullYear() !== yyyy || dt.getMonth() !== mm - 1 || dt.getDate() !== dd) return null;
+        return toLocalISO(dt);
+    };
+
     // Bug: Date -> 'YYYY-MM-DD' must read LOCAL calendar fields. toISOString()
     // converts to UTC first, which underflows into the previous day for any
     // timezone ahead of UTC (e.g. Asia/Manila, UTC+8) — clicking "Jul 2" at
@@ -136,18 +163,29 @@
     };
 
     const hiddenDateField = document.getElementById('{{ $uid }}HiddenDate');
+    const hiddenFromField = document.getElementById('{{ $uid }}HiddenFrom');
+    const hiddenToField   = document.getElementById('{{ $uid }}HiddenTo');
 
     const updateInputs = () => {
-        fromInput.value = selFrom ? fmt(selFrom) : '';
-        if (isRange) toInput.value = selTo ? fmt(selTo) : '';
+        fromInput.value = selFrom ? fmtSlash(selFrom) : '';
+        if (isRange) toInput.value = selTo ? fmtSlash(selTo) : '';
         if (hiddenDateField) hiddenDateField.value = selFrom;
+        if (hiddenFromField) hiddenFromField.value = selFrom;
+        if (hiddenToField)   hiddenToField.value   = selTo || selFrom;
     };
 
+    // Icon-only trigger: the selection isn't shown as visible text, so this keeps
+    // the tooltip/aria-label (and the "custom filter active" dot) in sync instead.
     const updateLabel = () => {
-        if (!isRange || selFrom === selTo || !selTo) {
-            labelEl.textContent = fmt(selFrom);
-        } else {
-            labelEl.textContent = fmt(selFrom) + '  →  ' + fmt(selTo);
+        const isSameDay  = !isRange || selFrom === selTo || !selTo;
+        const labelText  = isSameDay ? fmt(selFrom) : fmt(selFrom) + '  –  ' + fmt(selTo);
+        trigger.title = labelText;
+        trigger.setAttribute('aria-label', `Change date${isRange ? ' range' : ''}, currently ${labelText}`);
+
+        if (dot) {
+            const todayStr = today();
+            const isToday  = isSameDay && selFrom === todayStr;
+            dot.classList.toggle('hidden', isToday);
         }
     };
 
@@ -168,7 +206,9 @@
         fp = flatpickr(fpInput, {
             mode       : isRange ? 'range' : 'single',
             inline     : true,
-            showMonths : 1,
+            // Range mode (Dashboard) shows two months side by side for span picking;
+            // single-date report pages stay on one month.
+            showMonths : isRange ? 2 : 1,
             minDate    : '{{ $minDate }}',
             maxDate    : 'today',
             defaultDate: isRange ? [selFrom, selTo] : [selFrom],
@@ -176,7 +216,12 @@
                 if (!dates.length) return;
                 selFrom = toLocalISO(dates[0]);
                 if (isRange) {
-                    selTo = dates[1] ? toLocalISO(dates[1]) : selFrom;
+                    // Bug: clicking a new start date used to immediately set selTo =
+                    // selFrom too, so both fields showed the same date before an end
+                    // date was ever chosen — falsely presenting an in-progress range
+                    // pick as a finished one-day selection. Leave it null (End field
+                    // blank) until flatpickr actually reports a second date.
+                    selTo = dates[1] ? toLocalISO(dates[1]) : null;
                 } else {
                     selTo = selFrom;
                 }
@@ -184,6 +229,39 @@
                 publish();
             },
         });
+    }
+
+    // Typed dates: user can edit the Start/End text fields directly instead of
+    // only clicking the calendar. Commits on blur or Enter; invalid text (bad
+    // format or non-existent date) is silently ignored and the field snaps back
+    // to the last valid value via updateInputs().
+    const commitTyped = (input, isFromField) => {
+        const parsed = parseSlash(input.value);
+        if (!parsed) { updateInputs(); return; }
+
+        if (isRange) {
+            if (isFromField) {
+                selFrom = parsed;
+                if (selTo && selTo < selFrom) selTo = selFrom;
+            } else {
+                selTo = parsed;
+                if (selFrom && selFrom > selTo) selFrom = selTo;
+            }
+        } else {
+            selFrom = parsed;
+            selTo   = parsed;
+        }
+
+        if (fp) fp.setDate(isRange ? [selFrom, selTo] : [selFrom]);
+        updateInputs();
+        publish();
+    };
+
+    fromInput.addEventListener('blur', () => commitTyped(fromInput, true));
+    fromInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); fromInput.blur(); } });
+    if (isRange) {
+        toInput.addEventListener('blur', () => commitTyped(toInput, false));
+        toInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); toInput.blur(); } });
     }
 
     // Presets — same list/logic in both modes. In single mode, a range-style
@@ -244,6 +322,11 @@
     closeBtn.addEventListener('click', () => panel.classList.add('hidden'));
 
     applyBtn.addEventListener('click', () => {
+        // If Apply is clicked mid-range-pick (start chosen, end never clicked),
+        // selTo is still null — finalize it as a same-day range rather than
+        // submitting/navigating with a missing date_to.
+        if (isRange && !selTo) selTo = selFrom;
+
         panel.classList.add('hidden');
         updateLabel();
         publish();

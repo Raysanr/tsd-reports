@@ -4,12 +4,19 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\TsaShift;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class TsaPerformanceUpsellingRateTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->actingAs(User::factory()->create());
+    }
 
     public function test_upselling_rate_is_upsell_over_upsell_plus_confirmed_via_call(): void
     {

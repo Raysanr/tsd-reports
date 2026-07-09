@@ -154,10 +154,19 @@ class SyncTodayOrders extends Command
                 $tags     = $raw['tags'] ?? [];
                 $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
 
-                $disposition = $this->extractDisposition($tagNames);
-                $isUpsell    = !$isExcludedStatus
-                    && ($this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw));
-                $productName = $this->extractUpsellProduct($raw, $isUpsell);
+                $disposition  = $this->extractDisposition($tagNames);
+                $hasUpsellTag = $this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
+
+                // Cancelled upsell: the order still carries an upsell tag, but the add-on
+                // item(s) have been removed from it while the primary order kept going
+                // (remainingItemIsJustTheBase — see that method's doc comment for the
+                // exact tag-parsing rule). This is NOT the same as a void/cancelled ORDER
+                // (Order::VOID_STATUSES) — the order itself is still active, only the
+                // upsell portion was cancelled, so it's excluded from is_upsell here
+                // rather than counted as a live cross-sell.
+                $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
+                $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
+                $productName       = $this->extractUpsellProduct($raw, $isUpsell);
                 $tsaInfo     = $this->extractTsaInfo($tagNames, $raw, $productName);
                 $tsaName     = $tsaInfo['name'];
                 $team        = $tsaInfo['team'];
@@ -176,19 +185,37 @@ class SyncTodayOrders extends Command
                     ? $this->extractUpsellAmount($raw)
                     : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
 
+                // The cancelled add-on's price is gone from Pancake's own data the moment
+                // it's removed from the order — `items` simply won't list it anymore. The
+                // only place that amount still exists is our own DB row from the LAST sync
+                // that saw it as a live upsell, so capture it here before it's overwritten.
+                // Once already marked cancelled, keep carrying that preserved amount
+                // forward instead of re-deriving it (there's nothing left to derive from).
+                $cancelledUpsellAmount = 0.0;
+                if ($isCancelledUpsell) {
+                    $existing = Order::where('pancake_order_id', (string)$raw['id'])->first();
+                    if ($existing?->is_cancelled_upsell) {
+                        $cancelledUpsellAmount = (float) $existing->cancelled_upsell_amount;
+                    } elseif ($existing?->is_upsell) {
+                        $cancelledUpsellAmount = (float) $existing->amount;
+                    }
+                }
+
                 $order = Order::updateOrCreate(
                     ['pancake_order_id' => (string)$raw['id']],
                     [
-                        'team'               => $team,
-                        'tsa_name'           => $tsaName,
-                        'disposition'        => $disposition,
-                        'product'            => $productName,
-                        'amount'             => $amount,
-                        'raw_tags'           => $tagNames,
-                        'is_upsell'          => $isUpsell,
-                        'status_code'        => $statusCode,
-                        'pancake_created_at' => $workedAt,
-                        'synced_at'          => now(),
+                        'team'                    => $team,
+                        'tsa_name'                => $tsaName,
+                        'disposition'             => $disposition,
+                        'product'                 => $productName,
+                        'amount'                  => $amount,
+                        'raw_tags'                => $tagNames,
+                        'is_upsell'               => $isUpsell,
+                        'is_cancelled_upsell'     => $isCancelledUpsell,
+                        'cancelled_upsell_amount' => $cancelledUpsellAmount,
+                        'status_code'             => $statusCode,
+                        'pancake_created_at'      => $workedAt,
+                        'synced_at'               => now(),
                     ]
                 );
 

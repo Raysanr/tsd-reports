@@ -16,6 +16,24 @@
     [id$="Calendar"] .flatpickr-innerContainer { display: flex; gap: 0; }
     [id$="Calendar"] .flatpickr-rContainer { flex: 1; }
 
+    /* Day-grid width lock — applies to BOTH single and range pickers, and is what keeps
+       weekday headers and day cells column-aligned. Why it's required: the .flatpickr-day
+       rule below caps each cell at max-width:34px, and .dayContainer uses flex-wrap. At
+       flatpickr's natural 307.875px width, floor(307.875 / 34) = 9 cells wrap per row —
+       but there are only 7 weekday headers, so every date shifts out of its column. Pinning
+       the container to 270px makes floor(270 / 34) = 7 cells per row, matching the 7 headers.
+       Range mode additionally needs this so two months (2 × 270 = 540px) fit inside the panel
+       instead of overflowing at 2 × 307.875. Both the day grid and its weekday header are
+       pinned to the same 270px so their columns line up. */
+    [id$="Calendar"] .flatpickr-days,
+    [id$="Calendar"] .flatpickr-weekdays { width: auto !important; }
+    [id$="Calendar"] .dayContainer,
+    [id$="Calendar"] .flatpickr-weekdaycontainer {
+        width: 270px !important;
+        min-width: 270px !important;
+        max-width: 270px !important;
+    }
+
     /* Base day cell: circular, generous tap target, legible by default */
     .flatpickr-day {
         font-family: ui-monospace, monospace;
@@ -182,7 +200,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
-            Charts
+            Analytics
         </a>
 
         <div class="my-3 border-t border-white/10"></div>
@@ -224,14 +242,27 @@
 
     </nav>
 
-    {{-- Footer --}}
+    {{-- Footer — signed-in user + sign out. Sign out is destructive-adjacent (ends the
+         session) so it's spatially separated from the nav items above via the border
+         and lives in its own row, not mixed into the nav list. --}}
     <div class="px-4 py-4 border-t border-white/10">
-        <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center text-white text-xs font-bold">TSD</div>
-            <div>
-                <div class="text-white text-xs font-semibold">TSD Admin</div>
-                <div class="text-yellow-400 text-[10px]">Pancake POS</div>
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                {{ strtoupper(substr(auth()->user()->name ?? 'TSD', 0, 1)) }}
             </div>
+            <div class="min-w-0 flex-1">
+                <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name ?? 'TSD Admin' }}</div>
+                <div class="text-yellow-400 text-[10px] truncate">{{ auth()->user()->email ?? 'Pancake POS' }}</div>
+            </div>
+            <form method="POST" action="{{ route('logout') }}">
+                @csrf
+                <button type="submit" aria-label="Sign out" title="Sign out"
+                        class="shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                    </svg>
+                </button>
+            </form>
         </div>
     </div>
 </aside>

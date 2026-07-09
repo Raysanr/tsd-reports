@@ -15,17 +15,21 @@ class Order extends Model
         'amount',
         'raw_tags',
         'is_upsell',
+        'is_cancelled_upsell',
+        'cancelled_upsell_amount',
         'status_code',
         'pancake_created_at',
         'synced_at',
     ];
 
     protected $casts = [
-        'raw_tags'           => 'array',
-        'is_upsell'          => 'boolean',
-        'amount'             => 'decimal:2',
-        'pancake_created_at' => 'datetime',
-        'synced_at'          => 'datetime',
+        'raw_tags'                => 'array',
+        'is_upsell'               => 'boolean',
+        'is_cancelled_upsell'     => 'boolean',
+        'amount'                  => 'decimal:2',
+        'cancelled_upsell_amount' => 'decimal:2',
+        'pancake_created_at'      => 'datetime',
+        'synced_at'               => 'datetime',
     ];
 
     /** Pancake's numeric order status → display label. Source: api-docs.pancake.vn/openapi.json,
@@ -52,6 +56,15 @@ class Order extends Model
 
     /** Statuses treated as terminal/void — never counted as a confirmed sale. */
     public const VOID_STATUSES = [4, 15, 5, 6, 7, 11];
+
+    /** Not-yet-a-sale statuses: 0 = New, 17 = Waiting for confirmation. Still a raw/open
+     *  lead the customer hasn't committed to — excluded from "realized sales" alongside
+     *  VOID_STATUSES. Everything else (Confirmed, Purchased, Packaging, Shipped, Received,
+     *  Collected money, …) counts as a sold order. */
+    public const PENDING_STATUSES = [0, 17];
+
+    /** Statuses that are NOT a realized sale (open leads + voided/returned). */
+    public const NON_SALE_STATUSES = [0, 17, 4, 15, 5, 6, 7, 11];
 
     public function getStatusLabelAttribute(): ?string
     {

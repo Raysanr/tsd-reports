@@ -15,20 +15,30 @@ class DashboardController extends Controller
 {
     public function index(Request $request)
     {
-        $dateFrom = Carbon::parse($request->input('date_from', now()->toDateString()))->startOfDay();
-        $dateTo   = Carbon::parse($request->input('date_to',   $dateFrom->toDateString()))->endOfDay();
+        // Filters persist per page: reopening the Dashboard via the sidebar (no query
+        // string) restores the last date range used here. Page-specific session key so it
+        // never collides with the other reports' remembered filters.
+        $fromInput = $request->input('date_from', session('filters.dashboard.date_from', now()->toDateString()));
+        $toInput   = $request->input('date_to',   session('filters.dashboard.date_to', $fromInput));
+        session(['filters.dashboard.date_from' => $fromInput, 'filters.dashboard.date_to' => $toInput]);
+
+        $dateFrom = Carbon::parse($fromInput)->startOfDay();
+        $dateTo   = Carbon::parse($toInput)->endOfDay();
 
         $apiConnected  = !empty(Setting::get('pancake_api_key', config('services.pancake.api_key')));
         $dbError       = null;
         $hasSyncedData = false;
 
-        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true];
+        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true];
         $recentOrders   = collect();
         $syncRuns       = collect();
-        $tsaLeaderboard = collect();
-        $topProducts    = collect();
-        $hourlyActivity = collect();
-        $teamComparison = collect();
+        $tsaLeaderboard   = collect();
+        $topProducts      = collect();
+        $hourlyActivity   = collect();
+        $teamComparison   = collect();
+        $restockingByTsa  = collect();
+        $restockingByTeam = collect();
+        $topTsa           = null;
 
         try {
             $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->exists();
@@ -53,6 +63,15 @@ class DashboardController extends Controller
             $restocking = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->where('status_code', 11);
 
+            // Cancelled upsells — different from Restocking: the customer cancelled just
+            // the TSA's upsell add-on while their primary order kept going (is_upsell is
+            // already forced false for these by SyncTodayOrders, so they're automatically
+            // excluded from $grossSales/$totalOrders above with no separate subtraction
+            // needed here). cancelled_upsell_amount preserves what the add-on would have
+            // been worth, captured before Pancake's own data dropped that line item.
+            $cancelledUpsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->where('is_cancelled_upsell', true);
+
             $lastSynced     = Setting::get('last_synced');
             $syncIntervalMin = max(1, min(60, (int) Setting::get('sync_interval', 2)));
 
@@ -70,6 +89,8 @@ class DashboardController extends Controller
                 'total_orders'     => $totalOrders,
                 'restocking_count' => (clone $restocking)->count(),
                 'restocking_value' => (clone $restocking)->sum('amount'),
+                'cancelled_count'  => (clone $cancelledUpsells)->count(),
+                'cancelled_value'  => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
                 'last_synced'      => $lastSynced,
                 'sync_interval'    => $syncIntervalMin,
                 'sync_stale'       => $syncStale,
@@ -85,7 +106,7 @@ class DashboardController extends Controller
 
             $tsaLeaderboard = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereNotNull('tsa_name')
-                ->selectRaw('tsa_name, COUNT(*) as total_calls, SUM(CASE WHEN is_upsell THEN 1 ELSE 0 END) as upsell_count')
+                ->selectRaw('tsa_name, COUNT(*) as total_calls, SUM(CASE WHEN is_upsell THEN 1 ELSE 0 END) as upsell_count, SUM(CASE WHEN is_upsell THEN amount ELSE 0 END) as upsell_sales')
                 ->groupBy('tsa_name')
                 ->orderByDesc('upsell_count')
                 ->orderByDesc('total_calls')
@@ -97,6 +118,10 @@ class DashboardController extends Controller
                     $row->upsell_rate  = $row->total_calls > 0 ? round($row->upsell_count / $row->total_calls * 100, 1) : 0.0;
                     return $row;
                 });
+
+            // Top TSA by upsells — same ranking as the leaderboard below, surfaced as a
+            // KPI-row spotlight so it's visible without scrolling.
+            $topTsa = $tsaLeaderboard->first();
 
             // Top upsell products — which items are actually driving today's cross-sell
             // revenue, not just which TSA is closing them.
@@ -136,6 +161,34 @@ class DashboardController extends Controller
                 ];
             })->values();
 
+            // Restocking breakdown — same "Restocking" orders behind the Total Restocking
+            // KPI tile above, broken out per TSA and per brand instead of one lump sum.
+            $restockingByTsa = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->where('status_code', 11)
+                ->whereNotNull('tsa_name')
+                ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(amount) as restocking_value')
+                ->groupBy('tsa_name')
+                ->orderByDesc('restocking_value')
+                ->get()
+                ->map(function ($row) use ($shiftsByKey, $teamNames) {
+                    $shift = $shiftsByKey->get($row->tsa_name);
+                    $row->display_name = $shift->display_name ?? $row->tsa_name;
+                    $row->team_name    = $shift ? ($teamNames[$shift->team] ?? $shift->team) : null;
+                    return $row;
+                });
+
+            $restockingByTeam = collect(config('teams'))->map(function ($teamConfig) use ($dateFrom, $dateTo) {
+                $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                    ->where('team', $teamConfig['order_team'])
+                    ->where('status_code', 11);
+
+                return [
+                    'name'             => $teamConfig['name'],
+                    'restocking_count' => (clone $base)->count(),
+                    'restocking_value' => (clone $base)->sum('amount'),
+                ];
+            })->values();
+
         } catch (QueryException $e) {
             $dbError = 'Database schema not ready — run: php artisan migrate';
             Log::error('DashboardController DB error: ' . $e->getMessage());
@@ -144,7 +197,8 @@ class DashboardController extends Controller
         return view('dashboard', compact(
             'stats', 'recentOrders', 'apiConnected', 'dbError',
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
-            'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'teamComparison'
+            'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'teamComparison',
+            'restockingByTsa', 'restockingByTeam', 'topTsa'
         ));
     }
 

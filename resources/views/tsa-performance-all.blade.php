@@ -1,8 +1,11 @@
 @extends('layouts.app')
 @section('title', 'TSA Performance')
-@section('subtitle', 'All products · ' . $selectedDate)
+@section('subtitle', 'All products · ' . ($dateFrom === $dateTo ? $dateFrom : $dateFrom . ' → ' . $dateTo))
 
 @section('content')
+@php
+    $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
+@endphp
 
 @if($productRows->isEmpty())
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
@@ -135,7 +138,7 @@
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
 
-@if($selectedDate === now('Asia/Manila')->format('Y-m-d'))
+@if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
 @endif
 
@@ -152,12 +155,19 @@
         @endforeach
     </div>
 
-    @include('partials.date-picker', ['mode' => 'single', 'id' => 'drp', 'date' => $selectedDate, 'submit' => 'form', 'dateField' => 'date'])
+    {{-- Trailing cluster, same order on every report page: filters, then the date
+         icon, then Sync — never split across the layout differently per page. --}}
+    @include('partials.date-picker', [
+        'mode' => 'range', 'id' => 'drp',
+        'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
+        'submit' => 'form',
+    ])
 
-    <button type="submit"
-            class="px-4 py-1.5 bg-yellow-700 text-white text-xs font-semibold rounded-lg
-                   hover:bg-yellow-800 transition-colors cursor-pointer">
-        Load
+    <button type="submit" title="Sync" aria-label="Sync orders"
+            class="inline-flex items-center justify-center w-8 h-8 bg-yellow-700 hover:bg-yellow-800 text-white rounded-full transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
     </button>
 </form>
 

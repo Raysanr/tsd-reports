@@ -1,76 +1,101 @@
 @extends('layouts.app')
 @section('title', 'Team Report')
-@section('subtitle', 'Orders · Hourly Breakdown · Dispositions')
+@section('subtitle', 'Orders · Per-Product Hourly Breakdown')
 
 @section('content')
+@php
+    // Human label for the active range: a single day shows just that date; a span
+    // shows "from → to". Used in the empty-state and per-product header captions.
+    $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
+@endphp
 
-{{-- RESULTS SUMMARY --}}
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-4 mb-6 flex items-center gap-4 text-xs font-mono">
-    <span class="text-slate-500 font-semibold">{{ $totals['orders'] }} orders</span>
-    <span class="text-accent font-bold">₱{{ number_format($totals['sales'], 2) }}</span>
-</div>
+{{-- PER-PRODUCT HOURLY BREAKDOWN — one table per product (matches the source
+     sheet: a separate CANPRO/GINSENG/SINUXYL/AUDICURE tab each), replacing the old
+     team-wide Hourly Breakdown + By Disposition panels with the full disposition/
+     rate breakdown per product, per hour. --}}
+@php
+    $answeredCols   = collect($metricCols)->where('group', 'answered');
+    $unansweredCols = collect($metricCols)->where('group', 'unanswered');
+@endphp
 
-{{-- SUMMARY ROWS: Hourly + By Disposition --}}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+@forelse($productTables as $table)
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-700 font-mono">{{ $table['product']->display_name }}</h2>
+        <span class="text-xs font-mono text-slate-400">{{ $table['total']['total'] }} {{ \Illuminate\Support\Str::plural('lead', $table['total']['total']) }}</span>
+    </div>
 
-    {{-- Hourly breakdown --}}
-    <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-slate-100">
-            <h2 class="text-sm font-bold text-slate-700 font-mono">Hourly Breakdown — {{ $teams[$selectedTeam] ?? $selectedTeam }}</h2>
-        </div>
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="bg-slate-50 text-xs font-mono text-slate-400 uppercase tracking-wide">
-                    <th class="px-5 py-2.5 text-left">Hour</th>
-                    <th class="px-4 py-2.5 text-center">Orders</th>
-                    <th class="px-4 py-2.5 text-right">Sales</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-                @foreach($hourlyRows as $row)
-                @if($row['total_orders'] > 0)
-                <tr class="hover:bg-slate-50">
-                    <td class="px-5 py-2.5 font-mono text-xs font-semibold text-primary">{{ $row['hour'] }}</td>
-                    <td class="px-4 py-2.5 text-center font-mono text-xs text-slate-700">{{ $row['total_orders'] }}</td>
-                    <td class="px-4 py-2.5 text-right font-mono text-xs font-semibold text-accent">
-                        ₱{{ number_format($row['total_sales'], 2) }}
-                    </td>
-                </tr>
-                @endif
+    @if(empty($table['hourlyRows']))
+    <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
+    @else
+    <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
+        <thead>
+            <tr>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap" style="min-width:110px">Time</th>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">New<br>Leads</th>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">Called<br>Leads</th>
+                <th colspan="{{ $answeredCols->count() }}" class="bg-green-200 border border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-green-900 uppercase tracking-wide">Answered Called Leads</th>
+                <th colspan="{{ $unansweredCols->count() }}" class="bg-red-200 border border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">Unanswered Call Leads</th>
+                <th rowspan="2" class="bg-rose-300 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-rose-900 uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Excess<br>Leads</th>
+                <th rowspan="2" class="bg-blue-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 uppercase tracking-wide leading-tight" style="min-width:90px">Pick-up<br>Rate</th>
+                <th rowspan="2" class="bg-orange-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 uppercase tracking-wide leading-tight" style="min-width:90px">Conversion<br>Rate</th>
+                <th rowspan="2" class="bg-yellow-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 uppercase tracking-wide leading-tight" style="min-width:90px">Upselling<br>Rate</th>
+            </tr>
+            <tr>
+                @foreach($answeredCols as $col)
+                <th class="bg-green-50 border border-slate-200 px-2 py-2 text-center text-[10px] font-semibold text-green-800 uppercase tracking-wide leading-tight" style="min-width:{{ $col['min_width'] }}px">{!! $col['label'] !!}</th>
                 @endforeach
-                @if(collect($hourlyRows)->sum('total_orders') === 0)
-                <tr>
-                    <td colspan="3" class="px-5 py-10 text-center font-mono text-xs text-slate-400">
-                        No orders for {{ $selectedDate }}
-                    </td>
-                </tr>
-                @endif
-            </tbody>
-        </table>
-    </div>
-
-    {{-- Dispositions --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-slate-100">
-            <h2 class="text-sm font-bold text-slate-700 font-mono">By Disposition</h2>
-        </div>
-        @if($byDisposition->isEmpty())
-        <div class="py-12 text-center font-mono text-xs text-slate-400">No data</div>
-        @else
-        <div class="divide-y divide-slate-100">
-            @foreach($byDisposition as $row)
-            <div class="px-5 py-3 flex items-center justify-between">
-                <span class="text-xs font-mono text-slate-600 truncate pr-2">
-                    {{ $row->disposition ?? 'Unknown' }}
-                </span>
-                <span class="text-xs font-bold font-mono text-slate-800 shrink-0">{{ $row->count }}</span>
-            </div>
+                @foreach($unansweredCols as $col)
+                <th class="bg-red-50 border border-slate-200 px-2 py-2 text-center text-[10px] font-semibold text-red-800 uppercase tracking-wide leading-tight" style="min-width:{{ $col['min_width'] }}px">{!! $col['label'] !!}</th>
+                @endforeach
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($table['hourlyRows'] as $hour)
+            <tr class="hover:bg-slate-50 transition-colors">
+                <td class="border border-slate-200 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hour['label'] }}</td>
+                <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">{{ $hour['row']['total'] ?: '' }}</td>
+                <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">{{ $hour['row']['total_called'] ?: '' }}</td>
+                @foreach($answeredCols as $col)
+                <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : 'text-slate-700' }}">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                @endforeach
+                @foreach($unansweredCols as $col)
+                <td class="border border-slate-200 px-2 py-2.5 text-center text-slate-700">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                @endforeach
+                <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700' : 'text-slate-300' }}">{{ $hour['row']['excess'] ?: '' }}</td>
+                <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700' : 'text-slate-300' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700' : 'text-slate-300' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700' : 'text-slate-300' }}">{{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}</td>
+            </tr>
             @endforeach
-        </div>
-        @endif
-    </div>
 
+            {{-- TOTAL row --}}
+            <tr class="bg-slate-900 text-white font-bold">
+                <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $table['total']['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $table['total']['total_called'] ?: '' }}</td>
+                @foreach($answeredCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">{{ $table['total'][$col['key']] ?: '' }}</td>
+                @endforeach
+                @foreach($unansweredCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center">{{ $table['total'][$col['key']] ?: '' }}</td>
+                @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">{{ $table['total']['excess'] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $table['total']['pick_up_rate'] !== null ? $table['total']['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">{{ $table['total']['conversion_rate'] !== null ? $table['total']['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-yellow-300">{{ $table['total']['upselling_rate'] !== null ? $table['total']['upselling_rate'].'%' : '—' }}</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    @endif
 </div>
+@empty
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm py-16 text-center font-mono text-xs text-slate-400 mb-6">
+    No products configured for {{ $teams[$selectedTeam] ?? $selectedTeam }}.
+</div>
+@endforelse
 
 {{-- ORDERS TABLE --}}
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -79,7 +104,7 @@
             <h2 class="text-sm font-bold text-slate-700 font-mono">
                 Orders — {{ $teams[$selectedTeam] ?? $selectedTeam }}
             </h2>
-            <p class="text-xs text-slate-400 mt-0.5 font-mono">{{ $selectedDate }}</p>
+            <p class="text-xs text-slate-400 mt-0.5 font-mono">{{ $rangeLabel }}</p>
         </div>
         <span class="text-xs font-mono text-slate-400">{{ $currentOrders->count() }} records</span>
     </div>
@@ -96,9 +121,13 @@
         </div>
     </div>
     @else
+    {{-- Bounded height + own vertical scroll so a long order list scrolls inside this
+         card (with a sticky header) instead of stretching the whole page — makes it
+         obvious there's more to scroll through. --}}
+    <div class="overflow-y-auto" style="max-height:60vh">
     <table class="w-full text-sm">
-        <thead>
-            <tr class="bg-slate-50 text-xs font-mono text-slate-400 uppercase tracking-wide">
+        <thead class="sticky top-0 z-10">
+            <tr class="bg-slate-50 text-xs font-mono text-slate-400 uppercase tracking-wide shadow-sm">
                 <th class="px-5 py-2.5 text-left">Order ID</th>
                 <th class="px-4 py-2.5 text-left">Time</th>
                 <th class="px-4 py-2.5 text-left">TSA</th>
@@ -124,6 +153,7 @@
             @endforeach
         </tbody>
     </table>
+    </div>
     @endif
 </div>
 
@@ -132,7 +162,7 @@
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
 
-@if($selectedDate === now('Asia/Manila')->format('Y-m-d'))
+@if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
 @endif
 
@@ -151,14 +181,19 @@
         @endforeach
     </div>
 
-    {{-- Positioned last (right before the primary action), matching the Dashboard's
-         filters-then-date-then-action convention. --}}
-    @include('partials.date-picker', ['mode' => 'single', 'id' => 'drp', 'date' => $selectedDate, 'submit' => 'form', 'dateField' => 'date'])
+    {{-- Trailing cluster, same order on every report page: filters, then the date
+         icon, then Sync — never split across the layout differently per page. --}}
+    @include('partials.date-picker', [
+        'mode' => 'range', 'id' => 'drp',
+        'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
+        'submit' => 'form',
+    ])
 
-    <button type="submit"
-            class="px-4 py-1.5 bg-accent text-white text-xs font-semibold rounded-lg
-                   hover:bg-amber-600 transition-colors cursor-pointer">
-        Fetch Orders
+    <button type="submit" title="Sync" aria-label="Sync orders"
+            class="inline-flex items-center justify-center w-8 h-8 bg-yellow-700 hover:bg-yellow-800 text-white rounded-full transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
     </button>
 </form>
 

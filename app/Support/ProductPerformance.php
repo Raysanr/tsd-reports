@@ -1,0 +1,160 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\Product;
+use Illuminate\Support\Collection;
+
+/**
+ * Computes one Product's lead-count/disposition/rate row from a candidate orders
+ * collection — the shared counting logic behind both the TSA Performance "ALL"
+ * view (one row per product, whole day) and the Team Report per-product hourly
+ * breakdown (one row per product PER HOUR). Extracted so both call sites can
+ * never drift into counting the same thing two different ways — exactly how the
+ * Excess/Sales/Upselling Rate definition bugs earlier in this project happened.
+ */
+class ProductPerformance
+{
+    /** Display metadata for the disposition columns, shared by every view that
+     *  renders a product/TSA performance row (excludes 'total', which always has
+     *  its own fixed header). */
+    public const METRIC_COLUMNS = [
+        ['key' => 'confirmed_via_call',     'label' => 'Confirmed<br>via Call',        'group' => 'answered', 'min_width' => 72],
+        ['key' => 'upsell_confirmation',    'label' => 'Upsell w/<br>Confirmation',    'group' => 'answered', 'min_width' => 72, 'highlight' => true],
+        ['key' => 'call_back',              'label' => 'Call<br>Back',                 'group' => 'answered', 'min_width' => 72],
+        ['key' => 'call_dropped',           'label' => 'Call<br>Dropped',              'group' => 'answered', 'min_width' => 72],
+        ['key' => 'repeat_order_upsell',    'label' => 'Repeat Order<br>w/ Upsell',    'group' => 'answered', 'min_width' => 80],
+        ['key' => 'rude_customer',          'label' => 'Rude<br>Customer',             'group' => 'answered', 'min_width' => 72],
+        ['key' => 'relatives_confirmation', 'label' => 'Relatives<br>Confirmation',    'group' => 'answered', 'min_width' => 80],
+        ['key' => 'dfr',                    'label' => 'Duplicate<br>(DFR)',           'group' => 'unanswered', 'min_width' => 72],
+        ['key' => 'double_order',           'label' => 'Double Order<br>(System)',     'group' => 'unanswered', 'min_width' => 80],
+        ['key' => 'fsd_uncleared',          'label' => 'FSD<br>Uncleared',             'group' => 'unanswered', 'min_width' => 72],
+        ['key' => 'not_answering',          'label' => 'Not<br>Answering',             'group' => 'unanswered', 'min_width' => 72],
+        ['key' => 'unattended',             'label' => 'Unat-<br>tended',              'group' => 'unanswered', 'min_width' => 72],
+        ['key' => 'invalid_number',         'label' => 'Invalid<br>Number',            'group' => 'unanswered', 'min_width' => 72],
+        // Excess = a lead swept "UNCATERED LEADS" that NO TSA ever claimed — see
+        // buildRow()'s 'excess' line below for the full reasoning (confirmed against
+        // real Pancake POS data: a null disposition is NOT uncatered, and a stale
+        // "UNCATERED LEADS" tag on an order a TSA already worked is Catered).
+        ['key' => 'excess',                 'label' => 'Excess<br>Leads',              'group' => 'excess', 'min_width' => 80],
+    ];
+
+    /** One product's row: matches orders to this product (team + tag/cart-item),
+     *  then counts each disposition, upsell, excess, and rate. Stateless — call it
+     *  once per whole-day total, or once per hour with that hour's order subset;
+     *  either way it re-matches from scratch, so it's always correct regardless of
+     *  what slice of orders it's given. */
+    public static function buildRow(Product $product, Collection $orders): array
+    {
+        // Team-scoped, then matched primarily via raw_tags — confirmed against real
+        // POS data that this is the reliable signal: every "Clear Sight 3.0" order
+        // carries a plain "CLEARSIGHT" tag, and every upsell add-on order (e.g.
+        // "LUMICARE OIL") carries its real base product's tag too. The `product`
+        // cart-item field is only a fallback for the rare order with no matching tag
+        // at all — matching on it alone undercounts every upsold product and misses
+        // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
+        // space) never substring-matches "CLEARSIGHT".
+        $matching = $orders->filter(function ($o) use ($product) {
+            if ($o->team !== $product->team) return false;
+            foreach ($o->raw_tags ?? [] as $tag) {
+                if (stripos($tag, $product->effective_keyword) !== false) return true;
+            }
+            return $o->product && stripos($o->product, $product->effective_keyword) !== false;
+        });
+
+        $row = self::tally($matching);
+        $row['display_name'] = $product->display_name;
+        $row['team']         = $product->team;
+
+        return $row;
+    }
+
+    /** The counting/rate logic on its own, with no product-tag matching — for
+     *  team-level or company-wide aggregates (e.g. the Analytics tab's daily/hourly
+     *  trends) where there's no single product to match against. buildRow() is just
+     *  this plus a product-matching filter step beforehand. */
+    public static function tally(Collection $orders): array
+    {
+        $row = [
+            'total'                  => $orders->count(),
+            'confirmed_via_call'     => self::count($orders, 'confirmed via call'),
+            'upsell_confirmation'    => $orders->where('is_upsell', true)->count(),
+            'call_back'              => self::count($orders, 'call back'),
+            'call_dropped'           => self::count($orders, 'call dropped'),
+            'repeat_order_upsell'    => self::count($orders, 'repeat order'),
+            'rude_customer'          => self::count($orders, 'rude customer'),
+            'relatives_confirmation' => self::count($orders, 'relatives'),
+            'dfr'                    => self::count($orders, 'dfr'),
+            'double_order'           => self::count($orders, 'double order'),
+            'fsd_uncleared'          => self::count($orders, 'fsd'),
+            'not_answering'          => self::count($orders, 'not answering'),
+            'unattended'             => self::count($orders, 'unattended'),
+            'invalid_number'         => self::count($orders, 'invalid number'),
+        ];
+
+        // Excess = swept "UNCATERED LEADS" AND never claimed by a TSA. A null
+        // disposition means "no recognized disposition keyword", NOT uncatered — worked
+        // orders routinely have one because their only tags are a TSA name + product +
+        // fulfillment status, none of which are dispositions. And a stale "UNCATERED
+        // LEADS" tag on an order a TSA already worked (tsa_name !== null) is Catered.
+        $row['excess']  = $orders->filter(fn($o) => $o->disposition === 'UNCATERED LEADS' && $o->tsa_name === null)->count();
+        $row['catered'] = $row['total'] - $row['excess'];
+
+        $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
+            + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];
+        $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']
+            + $row['unattended'] + $row['invalid_number'];
+        // "Called Leads" — every lead actually called, i.e. Answered + Unanswered.
+        // Distinct from 'total' ("New Leads"): a lead can be new/catered without yet
+        // having a recognized disposition (e.g. a "Call in Progress" tag never
+        // finalized), so total_called can be smaller than total.
+        $row['total_called'] = $row['answered'] + $row['unanswered'];
+
+        return array_merge($row, self::rates($row));
+    }
+
+    /** Pick-up / Conversion / Upselling rates from a row with 'answered',
+     *  'unanswered', 'upsell_confirmation', and 'confirmed_via_call' keys. */
+    public static function rates(array $row): array
+    {
+        $totalCalled = $row['answered'] + $row['unanswered'];
+
+        return [
+            'pick_up_rate'    => $totalCalled > 0 ? round($row['answered'] / $totalCalled * 100, 1) : null,
+            // Denominator is Answered only, NOT Answered + Unanswered — confirmed
+            // against the "TSD Updated Formula Base" reference ("Total Answered Called Leads").
+            'conversion_rate' => $row['answered'] > 0 ? round($row['upsell_confirmation'] / $row['answered'] * 100, 1) : null,
+            'upselling_rate'  => self::upsellingRate($row),
+        ];
+    }
+
+    /** Upsell w/ Confirmation as a % of (Upsell w/ Confirmation + Confirmed via Call) —
+     *  the official Upselling Rate formula (TSD Updated Formula Base, May 2026). Null
+     *  when both are zero (nothing to compute a rate from). */
+    public static function upsellingRate(array $columns): ?float
+    {
+        $denominator = $columns['upsell_confirmation'] + $columns['confirmed_via_call'];
+        if ($denominator <= 0) return null;
+        return round($columns['upsell_confirmation'] / $denominator * 100, 1);
+    }
+
+    private static function count(Collection $orders, string $keyword): int
+    {
+        return self::countAny($orders, [$keyword]);
+    }
+
+    /** True if disposition matches ANY of the given keywords (case-insensitive substring). */
+    private static function countAny(Collection $orders, array $keywords): int
+    {
+        // SH Naturals' "RELATIVE'S CONFIRMATION-<product>" tags include an apostrophe
+        // that would otherwise break this substring match against the apostrophe-free
+        // keyword — strip apostrophes before matching.
+        return $orders->filter(function ($o) use ($keywords) {
+            $disposition = str_replace("'", '', $o->disposition ?? '');
+            foreach ($keywords as $kw) {
+                if (stripos($disposition, $kw) !== false) return true;
+            }
+            return false;
+        })->count();
+    }
+}

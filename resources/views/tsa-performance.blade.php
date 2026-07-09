@@ -4,6 +4,15 @@
 
 @section('content')
 
+@php
+    // This view no longer shows Excess Leads (removed per request — the hourly
+    // per-TSA breakdown only shows Total Called Leads + the 13 disposition columns
+    // + Upselling Rate). $metricCols stays untouched for the ALL view, which still
+    // shows Excess Leads.
+    $displayCols = collect($metricCols)->reject(fn($col) => $col['group'] === 'excess');
+    $rangeLabel  = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
+@endphp
+
 {{-- Empty state --}}
 @if(empty($hourBlocks))
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
@@ -11,7 +20,7 @@
         <path stroke-linecap="round" stroke-linejoin="round"
               d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
     </svg>
-    <p class="text-sm font-mono text-slate-400">No data for {{ $selectedDate }}</p>
+    <p class="text-sm font-mono text-slate-400">No data for {{ $rangeLabel }}</p>
     <p class="text-xs font-mono text-slate-300">Sync orders first, or try another date.</p>
 </div>
 @else
@@ -30,16 +39,13 @@
                         style="min-width:150px">
                         TSA's
                     </th>
+                    {{-- Single "Total Called Leads" column (matches the source sheet): the
+                         sum of the 13 disposition columns to the right, i.e. Answered +
+                         Unanswered — every lead that was actually called. Excess/uncatered
+                         leads are excluded (they have their own column). --}}
                     <th rowspan="2"
                         class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">
-                        Total<br>Leads
-                    </th>
-                    {{-- Sum of the 13 disposition columns to the right — i.e. Total minus
-                         Excess. Its own standalone column (not part of a colored group),
-                         same pattern as Total Leads. --}}
-                    <th rowspan="2"
-                        class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">
-                        Catered<br>Leads
+                        Total<br>Called Leads
                     </th>
                     <th colspan="7"
                         class="bg-green-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-green-900 uppercase tracking-wide">
@@ -48,16 +54,6 @@
                     <th colspan="6"
                         class="bg-red-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">
                         Unanswered Call Leads
-                    </th>
-                    {{-- Leads whose disposition is null or exactly "UNCATERED LEADS" —
-                         confirmed against real Pancake POS data: the night-shift bulk
-                         action tags a lead "UNCATERED LEADS" only when nothing else was
-                         ever tagged on it (any real disposition, including "Call in
-                         Progress", takes priority and makes it Catered instead — see
-                         extractDisposition()'s priority order in SyncTodayOrders.php). --}}
-                    <th colspan="1"
-                        class="bg-rose-300 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-rose-900 uppercase tracking-wide">
-                        Excess Leads
                     </th>
                     {{-- Fix: this must be defined in ROW 1 with rowspan="2" so it spans
                          DOWN through row 2 (matching TSA's / Total Leads). It was
@@ -74,11 +70,10 @@
 
                 {{-- ── Row 2: sub-column headers ── --}}
                 <tr>
-                    @foreach($metricCols as $col)
+                    @foreach($displayCols as $col)
                     @php
                         $headerColor = match($col['group']) {
                             'answered' => 'bg-green-50 text-green-800',
-                            'excess'   => 'bg-rose-50 text-rose-800',
                             default    => 'bg-red-50 text-red-800',
                         };
                     @endphp
@@ -95,27 +90,35 @@
                 @foreach($hourBlocks as $block)
                 {{-- Hour block divider --}}
                 <tr>
-                    <td colspan="18" class="border border-slate-300 bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wide">
+                    <td colspan="16" class="border border-slate-300 bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wide">
                         {{ $block['label'] }}
                     </td>
                 </tr>
 
                 @foreach($block['rows'] as $row)
                 <tr class="hover:bg-slate-50 transition-colors">
-                    {{-- Name --}}
+                    {{-- Name — linked to that TSA's individual performance page when this
+                         row has a real tsa_key (never true for a row with no key, though
+                         none currently render without one). --}}
                     <td class="border border-slate-200 px-3 py-2.5 font-semibold text-slate-700 whitespace-nowrap">
+                        @if($row['tsa_key'])
+                        <a href="{{ route('tsa-performance.individual', ['team' => $selectedTeam, 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+                           class="group inline-flex items-center gap-1 hover:text-primary transition-colors cursor-pointer">
+                            {{ $row['display_name'] }}
+                            <svg class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </a>
+                        @else
                         {{ $row['display_name'] }}
+                        @endif
                     </td>
-                    {{-- Total --}}
+                    {{-- Total Called Leads --}}
                     <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
-                        {{ $row['total'] ?: '' }}
+                        {{ $row['total_called'] ?: '' }}
                     </td>
-                    {{-- Catered --}}
-                    <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
-                        {{ $row['catered'] ?: '' }}
-                    </td>
-                    @foreach($metricCols as $col)
-                    <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 font-semibold' : 'text-slate-700') }}">
+                    @foreach($displayCols as $col)
+                    <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : 'text-slate-700' }}">
                         {{ $row[$col['key']] ?: '' }}
                     </td>
                     @endforeach
@@ -128,10 +131,9 @@
                 {{-- Hour TOTAL row --}}
                 <tr class="bg-slate-800 text-white font-bold">
                     <td class="border border-slate-600 px-3 py-2.5 uppercase tracking-wider text-[11px]">TOTAL</td>
-                    <td class="border border-slate-600 px-3 py-2.5 text-center">{{ $block['totals']['total'] ?: '' }}</td>
-                    <td class="border border-slate-600 px-3 py-2.5 text-center">{{ $block['totals']['catered'] ?: '' }}</td>
-                    @foreach($metricCols as $col)
-                    <td class="border border-slate-600 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-300' : ($col['group'] === 'excess' ? 'text-rose-300' : '') }}">
+                    <td class="border border-slate-600 px-3 py-2.5 text-center">{{ $block['totals']['total_called'] ?: '' }}</td>
+                    @foreach($displayCols as $col)
+                    <td class="border border-slate-600 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
                         {{ $block['totals'][$col['key']] ?: '' }}
                     </td>
                     @endforeach
@@ -144,10 +146,9 @@
                 {{-- GRAND TOTAL row --}}
                 <tr class="bg-slate-900 text-white font-bold">
                     <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $totals['total'] ?: '' }}</td>
-                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $totals['catered'] ?: '' }}</td>
-                    @foreach($metricCols as $col)
-                    <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : ($col['group'] === 'excess' ? 'text-rose-300' : '') }}">
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $totals['total_called'] ?: '' }}</td>
+                    @foreach($displayCols as $col)
+                    <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
                         {{ $totals[$col['key']] ?: '' }}
                     </td>
                     @endforeach
@@ -166,7 +167,7 @@
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
 
-@if($selectedDate === now('Asia/Manila')->format('Y-m-d'))
+@if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
 @endif
 
@@ -244,20 +245,25 @@
     </script>
     @endif
 
-    {{-- Positioned last (right before the primary action), matching the Dashboard's
-         filters-then-date-then-action convention. --}}
-    @include('partials.date-picker', ['mode' => 'single', 'id' => 'drp', 'date' => $selectedDate, 'submit' => 'form', 'dateField' => 'date'])
-
     <label class="flex items-center gap-1.5 text-xs font-mono text-slate-500 cursor-pointer select-none">
         <input type="checkbox" name="show_empty" value="1" {{ $showEmpty ? 'checked' : '' }}
                class="rounded border-slate-300 text-yellow-600 focus:ring-yellow-400 cursor-pointer">
         Show empty hours
     </label>
 
-    <button type="submit"
-            class="px-4 py-1.5 bg-yellow-700 text-white text-xs font-semibold rounded-lg
-                   hover:bg-yellow-800 transition-colors cursor-pointer">
-        Load
+    {{-- Trailing cluster, same order on every report page: filters, then the date
+         icon, then Sync — never split across the layout differently per page. --}}
+    @include('partials.date-picker', [
+        'mode' => 'range', 'id' => 'drp',
+        'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
+        'submit' => 'form',
+    ])
+
+    <button type="submit" title="Sync" aria-label="Sync orders"
+            class="inline-flex items-center justify-center w-8 h-8 bg-yellow-700 hover:bg-yellow-800 text-white rounded-full transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
     </button>
 
     <a href="{{ route('tsa-management') }}"

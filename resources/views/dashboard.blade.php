@@ -29,34 +29,6 @@
 </div>
 @endif
 
-{{-- Sync-run sparkline data — feeds the compact trend in the "Last Sync" KPI card. --}}
-@php
-    $syncSparkline = null;
-    if ($syncRuns->isNotEmpty()) {
-        $values  = $syncRuns->pluck('new_orders');
-        $maxVal  = max(1, $values->max());
-        $w       = 760;
-        $h       = 64;
-        $padX    = 8;
-        $stepX   = $syncRuns->count() > 1 ? ($w - 2 * $padX) / ($syncRuns->count() - 1) : 0;
-        $points  = $syncRuns->values()->map(function ($run, $i) use ($padX, $stepX, $h, $maxVal) {
-            $x = $padX + $i * $stepX;
-            $y = $h - 6 - ($run->new_orders / $maxVal) * ($h - 16);
-            return ['x' => $x, 'y' => $y, 'run' => $run];
-        });
-
-        $syncSparkline = [
-            'w'         => $w,
-            'h'         => $h,
-            'points'    => $points,
-            'polyline'  => $points->map(fn($p) => round($p['x'], 1).','.round($p['y'], 1))->implode(' '),
-            'lastPoint' => $points->last(),
-            'failCount' => $syncRuns->where('success', false)->count(),
-            'sumNew'    => $values->sum(),
-        ];
-    }
-@endphp
-
 {{-- KPI CARDS --}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
 
@@ -77,54 +49,41 @@
     </div>
 
     <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Orders Logged</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">{{ $stats['total_orders'] }}</p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">
-            {{ $dateFrom->format('M d') }}@if($dateFrom->toDateString() !== $dateTo->copy()->startOfDay()->toDateString()) → {{ $dateTo->format('M d') }}@endif, {{ $dateFrom->format('Y') }}
+        <div class="flex items-center gap-1.5 mb-2">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 1l2.39 5.51 5.99.52-4.53 3.95 1.38 5.87L10 13.77l-5.23 3.08 1.38-5.87L1.62 7.03l5.99-.52L10 1z"/>
+            </svg>
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider">Top TSA Today</p>
+        </div>
+        @if($topTsa && $topTsa->upsell_count > 0)
+        <p class="text-2xl font-bold text-slate-800 font-mono leading-none truncate" title="{{ $topTsa->display_name }}">
+            {{ $topTsa->display_name }}
         </p>
+        <p class="mt-2 text-xs text-slate-400 font-mono">
+            {{ $topTsa->team_name ?? '—' }} · {{ $topTsa->upsell_count }} {{ \Illuminate\Support\Str::plural('upsell', $topTsa->upsell_count) }} · {{ $topTsa->upsell_rate }}%
+        </p>
+        <p class="mt-1 text-sm font-bold font-mono text-accent">
+            ₱{{ number_format($topTsa->upsell_sales, 2) }}
+        </p>
+        @else
+        <p class="text-2xl font-bold text-slate-300 font-mono leading-none">—</p>
+        <p class="mt-2 text-xs text-slate-400 font-mono">No upsells logged yet</p>
+        @endif
     </div>
 
-    <div class="bg-white rounded-xl border {{ $stats['sync_stale'] ? 'border-red-200' : 'border-slate-200' }} p-5 shadow-sm">
-        <div class="flex items-center justify-between mb-2">
-            <p class="text-xs font-mono font-semibold {{ $stats['sync_stale'] ? 'text-red-500' : 'text-slate-400' }} uppercase tracking-wider">Last Sync</p>
-            <span class="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wide
-                         {{ $stats['sync_stale'] ? 'text-red-600' : 'text-emerald-600' }}">
-                <span class="w-1.5 h-1.5 rounded-full {{ $stats['sync_stale'] ? 'bg-red-500' : 'bg-emerald-500 animate-pulse' }}"></span>
-                {{ $stats['sync_stale'] ? 'Stale' : 'Live' }}
-            </span>
-        </div>
-
-        <div class="flex items-end justify-between gap-3">
-            <div>
-                <p class="text-lg font-bold text-slate-800 font-mono leading-none">
-                    {{ $stats['last_synced'] ? \Carbon\Carbon::parse($stats['last_synced'])->format('h:i A') : '—' }}
-                </p>
-                <p class="mt-2 text-xs {{ $stats['sync_stale'] ? 'text-red-500 font-semibold' : 'text-slate-400' }} font-mono">
-                    @if(!$stats['last_synced'])
-                        Never synced
-                    @elseif($stats['sync_stale'])
-                        {{ \Carbon\Carbon::parse($stats['last_synced'])->diffForHumans() }} — check scheduler
-                    @else
-                        {{ \Carbon\Carbon::parse($stats['last_synced'])->diffForHumans() }} · every {{ $stats['sync_interval'] }}min
-                    @endif
-                </p>
-            </div>
-
-            {{-- Compact trend — same series as the Sync Activity panel below, just
-                 rendered small: a stat tile reads as "analytics" once its number has
-                 a shape behind it, not just a value sitting alone. --}}
-            @if($syncSparkline)
-            <div class="text-right shrink-0">
-                <svg viewBox="0 0 {{ $syncSparkline['w'] }} {{ $syncSparkline['h'] }}" class="w-20" style="height:28px" preserveAspectRatio="none">
-                    <polyline fill="none" stroke="#CBD5E1" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"
-                               points="{{ $syncSparkline['polyline'] }}" />
-                    <circle cx="{{ $syncSparkline['lastPoint']['x'] }}" cy="{{ $syncSparkline['lastPoint']['y'] }}" r="5"
-                            fill="{{ $syncSparkline['lastPoint']['run']->success ? '#CA8A04' : '#EF4444' }}" stroke="#fff" stroke-width="2" />
-                </svg>
-                <p class="text-[10px] font-mono text-slate-400 mt-1">+{{ $syncSparkline['sumNew'] }} / {{ $syncRuns->count() }} runs</p>
-            </div>
-            @endif
-        </div>
+    {{-- Total Cancelled Orders — deliberately a different accent (rose) from Total
+         Restocking's yellow: these are NOT the same bucket. Restocking = order
+         awaiting stock. Cancelled = the customer cancelled just the TSA's upsell
+         add-on while their primary order still went through. Because is_upsell is
+         already forced false for these at sync time (SyncTodayOrders), the amount
+         is automatically excluded from Total Cross-Sell Sales above with no manual
+         subtraction — this card is purely visibility into that, not a deduction step. --}}
+    <div class="bg-white rounded-xl border border-rose-200 p-5 shadow-sm">
+        <p class="text-xs font-mono font-semibold text-rose-500 uppercase tracking-wider mb-2">Total Cancelled Orders</p>
+        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
+            ₱{{ number_format($stats['cancelled_value'], 2) }}
+        </p>
+        <p class="mt-2 text-xs text-slate-400 font-mono">{{ $stats['cancelled_count'] }} upsell {{ \Illuminate\Support\Str::plural('cancellation', $stats['cancelled_count']) }}</p>
     </div>
 
 </div>
@@ -391,6 +350,66 @@
 </div>
 @endif
 
+{{-- RESTOCKING BREAKDOWN — the "Total Restocking" KPI tile up top is one lump sum
+     across every TSA and brand; this splits it out per brand and per TSA so it's
+     clear whose/which brand's stock is actually the bottleneck. --}}
+@if($restockingByTeam->sum('restocking_count') > 0)
+<div class="mt-6">
+    <div class="flex items-center justify-between mb-3">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 font-mono">Restocking Breakdown</h2>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">Orders awaiting stock, by brand and TSA</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {{-- By brand --}}
+        <div class="bg-white rounded-xl border border-yellow-200 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h3 class="text-sm font-bold text-slate-700 font-mono">By Brand</h3>
+            </div>
+            <div class="divide-y divide-slate-100">
+                @foreach($restockingByTeam as $team)
+                <div class="px-5 py-3 flex items-center gap-4">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold font-mono text-slate-700 truncate">{{ $team['name'] }}</p>
+                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $team['restocking_count'] }} {{ \Illuminate\Support\Str::plural('order', $team['restocking_count']) }} awaiting stock</p>
+                    </div>
+                    <p class="text-sm font-bold font-mono text-yellow-600 shrink-0">₱{{ number_format($team['restocking_value'], 2) }}</p>
+                </div>
+                @endforeach
+            </div>
+        </div>
+
+        {{-- By TSA --}}
+        <div class="bg-white rounded-xl border border-yellow-200 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-100">
+                <h3 class="text-sm font-bold text-slate-700 font-mono">By TSA</h3>
+            </div>
+            @if($restockingByTsa->isEmpty())
+            <div class="py-10 flex flex-col items-center justify-center text-center gap-2">
+                <p class="text-sm font-mono text-slate-400">No restocking orders attributed to a TSA</p>
+            </div>
+            @else
+            <div class="divide-y divide-slate-100 max-h-80 overflow-y-auto">
+                @foreach($restockingByTsa as $row)
+                <div class="px-5 py-3 flex items-center gap-4">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold font-mono text-slate-700 truncate">{{ $row->display_name }}</p>
+                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $row->team_name ?? '—' }} · {{ $row->restocking_count }} {{ \Illuminate\Support\Str::plural('order', $row->restocking_count) }}</p>
+                    </div>
+                    <p class="text-sm font-bold font-mono text-yellow-600 shrink-0">₱{{ number_format($row->restocking_value, 2) }}</p>
+                </div>
+                @endforeach
+            </div>
+            @endif
+        </div>
+
+    </div>
+</div>
+@endif
+
 {{-- TODAY'S TSA LEADERBOARD + TOP UPSELL PRODUCTS --}}
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
 
@@ -468,16 +487,27 @@
         'submit' => 'navigate', 'navigateBase' => '/',
     ])
 
-    {{-- Sync button --}}
+    {{-- Sync — icon-only, matching the date picker's trigger size/shape. The stale-
+         sync health check that used to live in the "Last Sync" KPI card now lives
+         here instead: red background + warning wording in the tooltip/aria-label
+         (color is never the only signal — the text explains it too) when the
+         background cron hasn't run recently. "No data synced" stays as visible
+         text since it's a different, unrelated signal (this date range has no
+         orders yet, regardless of whether the cron itself is healthy). --}}
     @if(!$hasSyncedData)
     <span class="text-xs font-mono text-slate-400">No data synced</span>
     @endif
-    <button id="syncBtn"
-        class="inline-flex items-center gap-1.5 px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-semibold font-mono rounded-full transition-colors cursor-pointer">
-        <svg id="syncIcon" class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    @php
+        $syncTooltip = $stats['sync_stale']
+            ? 'Sync — stale, last ran ' . ($stats['last_synced'] ? \Carbon\Carbon::parse($stats['last_synced'])->diffForHumans() : 'never') . '. Check the scheduler.'
+            : 'Sync — last ran ' . \Carbon\Carbon::parse($stats['last_synced'])->diffForHumans() . ', every ' . $stats['sync_interval'] . 'min';
+    @endphp
+    <button id="syncBtn" type="button" title="{{ $syncTooltip }}"
+        aria-label="Sync orders{{ $stats['sync_stale'] ? '. Warning: background sync appears stale' : '' }}"
+        class="inline-flex items-center justify-center w-8 h-8 {{ $stats['sync_stale'] ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-600 hover:bg-yellow-700' }} text-white rounded-full transition-colors cursor-pointer shrink-0">
+        <svg id="syncIcon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
         </svg>
-        Sync
     </button>
 </div>
 @endpush

@@ -3,15 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Support\HourFormatter;
+use App\Support\ProductPerformance;
 use Illuminate\Support\Carbon;
 
 class TeamReportController extends Controller
 {
     public function index()
     {
-        $selectedDate = request('date', now()->format('Y-m-d'));
-        $selectedTeam = request('team', 'sh-naturals');
+        // Filters persist per page: when this page is reopened via the sidebar (no query
+        // string), fall back to the last team/date range used HERE — stored under a
+        // page-specific session key so it never collides with TSA Performance's remembered
+        // filters. A fresh session with no prior visit uses the defaults (today / sh-naturals).
+        $dateFrom     = request('date_from', session('filters.team_report.date_from', now()->format('Y-m-d')));
+        $dateTo       = request('date_to',   session('filters.team_report.date_to', $dateFrom));
+        $selectedTeam = request('team', session('filters.team_report.team', 'sh-naturals'));
         $teamsConfig  = config('teams', []);
         $teams        = array_map(fn($t) => $t['name'], $teamsConfig);
 
@@ -19,58 +26,60 @@ class TeamReportController extends Controller
             $selectedTeam = 'sh-naturals';
         }
 
-        $date = Carbon::parse($selectedDate);
+        session([
+            'filters.team_report.date_from' => $dateFrom,
+            'filters.team_report.date_to'   => $dateTo,
+            'filters.team_report.team'      => $selectedTeam,
+        ]);
 
-        // All orders for this team/date
-        $ordersQuery = Order::where('team', $teamsConfig[$selectedTeam]['order_team'])
-            ->whereBetween('pancake_created_at', [$date->copy()->startOfDay(), $date->copy()->endOfDay()]);
+        $from      = Carbon::parse($dateFrom)->startOfDay();
+        $to        = Carbon::parse($dateTo)->endOfDay();
+        $orderTeam = $teamsConfig[$selectedTeam]['order_team'];
 
-        // Group by hour. total_orders = every lead handled that hour; total_sales = realized
-        // revenue only (is_upsell = true) — same convention as the Dashboard and TSA Performance.
-        $byHour = (clone $ordersQuery)
-            ->selectRaw('HOUR(pancake_created_at) as hour, COUNT(*) as total_orders, SUM(CASE WHEN is_upsell THEN amount ELSE 0 END) as total_sales')
-            ->groupByRaw('HOUR(pancake_created_at)')
-            ->orderByRaw('HOUR(pancake_created_at)')
-            ->get()
-            ->keyBy('hour');
+        // All orders for this team across the selected date range. The per-hour grouping
+        // below buckets by hour-of-day (0–23), so a multi-day range naturally aggregates
+        // each hour's activity across every day in the span.
+        $ordersQuery = Order::where('team', $orderTeam)
+            ->whereBetween('pancake_created_at', [$from, $to]);
 
-        // Group by disposition
-        $byDisposition = (clone $ordersQuery)
-            ->selectRaw('disposition, COUNT(*) as count, SUM(amount) as total')
-            ->groupBy('disposition')
-            ->orderByDesc('count')
-            ->get();
+        // Per-product hourly breakdown — one table per product (matches the source sheet:
+        // a separate CANPRO/GINSENG/SINUXYL/AUDICURE tab each). Fetch all of this team's
+        // orders for the day ONCE; ProductPerformance::buildRow re-matches from whatever
+        // slice it's given, so passing it the whole day vs. one hour's subset both work
+        // correctly and consistently with how TSA Performance counts the same data.
+        $allOrders    = (clone $ordersQuery)->get();
+        $ordersByHour = $allOrders->groupBy(fn($o) => (int) $o->pancake_created_at->format('G'));
 
-        // Group by TSA
-        $byTsa = (clone $ordersQuery)
-            ->selectRaw('tsa_name, COUNT(*) as count, SUM(amount) as total')
-            ->groupBy('tsa_name')
-            ->orderByDesc('count')
-            ->get();
+        $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
-        // 'orders' = every lead handled; 'sales' = realized revenue only (is_upsell = true),
-        // matching the Dashboard's "Total Cross-Sell Sales" definition.
-        $totals = [
-            'orders' => (clone $ordersQuery)->count(),
-            'sales'  => (clone $ordersQuery)->where('is_upsell', true)->sum('amount'),
-        ];
+        $productTables = $products->map(function ($product) use ($ordersByHour, $allOrders) {
+            $hourlyRows = [];
+            for ($hour = 0; $hour <= 23; $hour++) {
+                $hourOrders = $ordersByHour->get($hour, collect());
+                if ($hourOrders->isEmpty()) continue;
 
-        // Build hourly rows for the table (8 AM – 9 PM)
-        $hourlyRows = [];
-        for ($h = 8; $h <= 21; $h++) {
-            $row = $byHour->get($h);
-            $hourlyRows[] = [
-                'hour'         => HourFormatter::label($h),
-                'total_orders' => $row?->total_orders ?? 0,
-                'total_sales'  => $row?->total_sales  ?? 0,
+                $row = ProductPerformance::buildRow($product, $hourOrders);
+                // Skip hours where THIS product had no leads at all (other products may
+                // still have had activity that hour — $hourOrders holds every product's
+                // orders, and buildRow's matching already scoped it down to this one).
+                if ($row['total'] === 0) continue;
+
+                $hourlyRows[] = ['label' => HourFormatter::rangeLabel($hour), 'row' => $row];
+            }
+
+            return [
+                'product'    => $product,
+                'hourlyRows' => $hourlyRows,
+                'total'      => ProductPerformance::buildRow($product, $allOrders),
             ];
-        }
+        })->values();
 
         $currentOrders = (clone $ordersQuery)->orderByDesc('pancake_created_at')->get();
+        $metricCols    = ProductPerformance::METRIC_COLUMNS;
 
         return view('team-report', compact(
-            'selectedDate', 'selectedTeam', 'teams',
-            'currentOrders', 'hourlyRows', 'byDisposition', 'byTsa', 'totals'
+            'dateFrom', 'dateTo', 'selectedTeam', 'teams',
+            'currentOrders', 'productTables', 'metricCols'
         ));
     }
 }
