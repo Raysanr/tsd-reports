@@ -27,8 +27,12 @@ services:
         value: production
       - key: APP_DEBUG
         value: false
+      # Set manually in the dashboard (php artisan key:generate --show).
+      # Render's generateValue makes a plain random string, but Laravel
+      # requires the base64:<32 bytes> format — a malformed key 500s every
+      # request at the cookie-encryption step, failing the health check.
       - key: APP_KEY
-        generateValue: true
+        sync: false
       - key: APP_URL
         sync: false
       - key: DB_CONNECTION
