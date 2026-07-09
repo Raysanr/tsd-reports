@@ -181,8 +181,8 @@
 
     <div class="flex rounded-lg border border-slate-200 overflow-hidden">
         @foreach($teams as $key => $label)
-        <button type="submit" name="team" value="{{ $key }}"
-                class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors
+        <button type="submit" name="team" value="{{ $key }}" data-filter-btn
+                class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200 motion-reduce:transition-none
                        {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white text-slate-500 hover:bg-slate-50' }}">
             {{ $label }}
         </button>

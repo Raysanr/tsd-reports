@@ -53,13 +53,38 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         }
 
         const scrollTop = main.scrollTop;
-        main.innerHTML  = newMain.innerHTML;
-        main.scrollTop  = scrollTop;
+
+        // Crossfade the swap (150ms out, 150ms in) instead of an instant snap —
+        // content replacement should read as one continuous transition, not a
+        // jump cut. Skipped entirely under prefers-reduced-motion.
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!reduceMotion) {
+            main.style.transition = 'opacity 150ms ease-out';
+            main.style.opacity = '0';
+            await new Promise((r) => setTimeout(r, 150));
+        }
+
+        main.innerHTML = newMain.innerHTML;
+        main.scrollTop = scrollTop;
 
         for (const { key, idx, top, left } of savedScrolls) {
             const el = [...main.querySelectorAll(key.split('|')[0])].filter(s => keyOf(s) === key)[idx];
             if (el) { el.scrollTop = top; el.scrollLeft = left; }
         }
+
+        // Header controls (team/tab filter buttons, etc.) live in
+        // @push('topbar-right') — outside <main> — so their server-computed
+        // active/inactive classes go stale here since only <main> was just
+        // swapped. Sync each one from the freshly fetched document by matching
+        // name+value (never by replacing the node, so listeners stay intact).
+        // Covers back/forward and any refresh triggered by something other
+        // than clicking the button itself (Sync, date picker, auto-refresh).
+        doc.querySelectorAll('[data-filter-btn]').forEach((fresh) => {
+            const current = document.querySelector(
+                `[data-filter-btn][name="${fresh.name}"][value="${fresh.value}"]`
+            );
+            if (current) current.className = fresh.className;
+        });
 
         doc.querySelectorAll('script[data-rerun]').forEach((orig) => {
             const s = document.createElement('script');
@@ -68,6 +93,7 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
             s.remove();
         });
 
+        if (!reduceMotion) main.style.opacity = '1';
         document.dispatchEvent(new CustomEvent('page:refreshed'));
         return true;
     } catch {
@@ -99,6 +125,22 @@ document.addEventListener('submit', (e) => {
     const form = e.target;
     if (!(form instanceof HTMLFormElement)) return;
     if (form.method.toLowerCase() !== 'get') return;
+
+    // Instant feedback: flip the clicked filter button's active state right
+    // away rather than waiting on the fetch — a state change should never
+    // sit frozen for the length of a network round-trip. softRefresh's
+    // header-sync (above) reconciles this against the server's actual
+    // response once it lands, so it's always eventually correct too.
+    const submitter = e.submitter;
+    if (submitter?.hasAttribute('data-filter-btn')) {
+        const activeClasses   = ['bg-primary', 'text-white'];
+        const inactiveClasses = ['bg-white', 'text-slate-500', 'hover:bg-slate-50'];
+        form.querySelectorAll(`[data-filter-btn][name="${submitter.name}"]`).forEach((btn) => {
+            const isNowActive = btn === submitter;
+            btn.classList.remove(...(isNowActive ? inactiveClasses : activeClasses));
+            btn.classList.add(...(isNowActive ? activeClasses : inactiveClasses));
+        });
+    }
 
     const params = new URLSearchParams(new FormData(form, e.submitter || undefined));
     const query  = params.toString();
