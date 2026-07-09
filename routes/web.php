@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CronController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\TeamReportController;
 use App\Http\Controllers\TsaPerformanceController;
@@ -22,6 +23,11 @@ Route::middleware('guest')->group(function () {
 Route::post('/logout', [AuthController::class, 'logout'])
     ->middleware('auth')
     ->name('logout');
+
+// No 'auth' middleware — this is hit by an external cron pinger, not a signed-in
+// user. Protected instead by a random token (CRON_SECRET, checked in the
+// controller) that only Render's env vars and the pinger config know.
+Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 
 // Every report/config page requires a signed-in user — this is the
 // "before the dashboard" gate the login/register pages exist for.

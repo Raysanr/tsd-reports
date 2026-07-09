@@ -19,4 +19,13 @@ Artisan::command('inspire', function () {
  * Run in prod: add to crontab → * * * * * cd /path/to/project && php artisan schedule:run >> /dev/null 2>&1
  */
 $interval = max(1, min(60, (int) Setting::get('sync_interval', 2)));
-Schedule::command(SyncTodayOrders::class)->cron("*/{$interval} * * * *")->withoutOverlapping();
+
+// Delta run: only orders updated since the last successful run (5-min overlap) —
+// a fraction of the data the old full-day run pulled every interval.
+Schedule::command(SyncTodayOrders::class, ['--delta'])->cron("*/{$interval} * * * *")->withoutOverlapping();
+
+// Full-day safety sweep: catches anything a delta window could ever miss (clock
+// skew, API hiccups). This is the same complete sync that used to run EVERY
+// interval — now it only needs to run 4x/hour. Upserts are idempotent, so an
+// occasional overlap with a delta run is harmless.
+Schedule::command(SyncTodayOrders::class)->everyFifteenMinutes()->withoutOverlapping();

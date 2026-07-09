@@ -332,7 +332,15 @@
         publish();
 
         if (submitMode === 'navigate') {
-            window.location.href = '{{ $navigateBase }}?date_from=' + selFrom + '&date_to=' + selTo;
+            const url = '{{ $navigateBase }}?date_from=' + selFrom + '&date_to=' + selTo;
+            // Soft refresh: swap the page content in place (no full reload, no
+            // scroll loss); the URL still updates via pushState. Falls back to
+            // a real navigation if the in-place refresh fails.
+            if (window.softRefresh) {
+                window.softRefresh(url, { pushUrl: true }).then(ok => { if (!ok) window.location.href = url; });
+            } else {
+                window.location.href = url;
+            }
             return;
         }
 
@@ -359,7 +367,10 @@
         } else {
             setField('{{ $dateField }}', selFrom);
         }
-        form.submit();
+        // requestSubmit (not submit) so the submit EVENT fires — app.js
+        // intercepts GET form submits there and soft-refreshes in place
+        // instead of doing a full page navigation.
+        form.requestSubmit();
     });
 })();
 </script>

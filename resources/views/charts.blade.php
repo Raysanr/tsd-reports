@@ -160,6 +160,26 @@
     <canvas id="productChart" height="110"></canvas>
 </div>
 
+{{-- PRODUCT SALES COMPARISON — same card/bar style as Upselling Rate above, but
+     measuring cross-sell REVENUE per product (₱), sorted highest to lowest. --}}
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+    <div class="flex items-center justify-between mb-5">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 font-mono">Total Upsell Sales by Product</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
+        </div>
+        <div class="flex items-center gap-4 text-xs font-mono">
+            @foreach($orderTeams as $i => $team)
+            <span class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
+                {{ $teamNames[$team] ?? $team }}
+            </span>
+            @endforeach
+        </div>
+    </div>
+    <canvas id="productSalesChart" height="110"></canvas>
+</div>
+
 @endif
 
 @endsection
@@ -185,7 +205,13 @@
 @if($hasData)
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-<script>
+{{-- data-rerun: app.js's softRefresh re-executes this (from the freshly fetched
+     page, so the @json data below is current) after swapping <main> in place —
+     the canvases these inits target live inside the swapped region. The IIFE
+     wrapper is what makes re-execution safe: without it the top-level consts
+     would collide with the first run's declarations and throw. --}}
+<script data-rerun>
+(function () {
 const dailyLabels  = @json($dailyLabels);
 const orderTeams   = @json($orderTeams);
 const teamNames    = @json($teamNames);
@@ -368,6 +394,33 @@ new Chart(document.getElementById('productChart'), {
         },
     },
 });
+
+/* --- Total Upsell Sales per product (₱, own sort — revenue order isn't rate order) --- */
+const salesRows = [...productRows].sort((a, b) => b.upsell_sales - a.upsell_sales);
+new Chart(document.getElementById('productSalesChart'), {
+    type: 'bar',
+    data: {
+        labels: salesRows.map(p => p.display_name),
+        datasets: [{
+            label: 'Upsell Sales',
+            data: salesRows.map(p => p.upsell_sales),
+            backgroundColor: salesRows.map(p => teamColors[orderTeams.indexOf(p.team) % teamColors.length]),
+            borderRadius: 4, borderSkipped: false,
+        }],
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            tooltip: { callbacks: { label: ctx => ' ₱' + Number(ctx.raw).toLocaleString('en-PH', { minimumFractionDigits: 2 }) } },
+        },
+        scales: {
+            x: { grid: { display: false } },
+            y: { grid: gridStyle, beginAtZero: true, ticks: { callback: v => '₱' + Number(v).toLocaleString('en-PH') } },
+        },
+    },
+});
+})();
 </script>
 @endpush
 @endif

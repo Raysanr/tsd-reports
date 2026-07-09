@@ -100,6 +100,11 @@ class ProductPerformance
         $row['excess']  = $orders->filter(fn($o) => $o->disposition === 'UNCATERED LEADS' && $o->tsa_name === null)->count();
         $row['catered'] = $row['total'] - $row['excess'];
 
+        // Cross-sell/upsell revenue only — the Dashboard's "Total Cross-Sell Sales"
+        // definition (add-on items' value), NOT full realized revenue. Same
+        // convention already confirmed for the Analytics daily sales trend.
+        $row['upsell_sales'] = (float) $orders->where('is_upsell', true)->sum('amount');
+
         $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
             + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];
         $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']

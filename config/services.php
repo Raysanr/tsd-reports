@@ -39,4 +39,8 @@ return [
         'api_key' => env('PANCAKE_API_KEY', ''),
     ],
 
+    'cron' => [
+        'secret' => env('CRON_SECRET'),
+    ],
+
 ];

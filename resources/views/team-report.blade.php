@@ -133,12 +133,13 @@
                 <th class="px-4 py-2.5 text-left">TSA</th>
                 <th class="px-4 py-2.5 text-left">Product</th>
                 <th class="px-4 py-2.5 text-left">Disposition</th>
+                <th class="px-4 py-2.5 text-left">Status</th>
                 <th class="px-4 py-2.5 text-right">Amount</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
             @foreach($currentOrders as $order)
-            <tr class="hover:bg-slate-50 transition-colors">
+            <tr class="hover:bg-slate-50 transition-colors {{ $order->is_void_status ? 'opacity-60' : '' }}">
                 <td class="px-5 py-3 font-mono text-xs text-primary font-semibold">#{{ $order->pancake_order_id }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-500">
                     {{ $order->pancake_created_at?->format('h:i A') ?? '—' }}
@@ -146,7 +147,21 @@
                 <td class="px-4 py-3 font-mono text-xs text-slate-700">{{ $order->tsa_name ?? '—' }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-600">{{ $order->product ?? '—' }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-500">{{ $order->disposition ?? '—' }}</td>
-                <td class="px-4 py-3 font-mono text-xs font-semibold text-right text-accent">
+                <td class="px-4 py-3">
+                    @if($order->status_label)
+                    <span @class([
+                        'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono whitespace-nowrap',
+                        'bg-yellow-100 text-yellow-700' => $order->status_code === 11,
+                        'bg-red-100 text-red-700'     => $order->is_void_status && $order->status_code !== 11,
+                        'bg-green-100 text-green-700' => !$order->is_void_status,
+                    ])>
+                        {{ $order->status_label }}
+                    </span>
+                    @else
+                    <span class="text-xs text-slate-300">—</span>
+                    @endif
+                </td>
+                <td class="px-4 py-3 font-mono text-xs font-semibold text-right {{ $order->is_void_status ? 'text-slate-400' : 'text-accent' }}">
                     ₱{{ number_format($order->amount, 2) }}
                 </td>
             </tr>

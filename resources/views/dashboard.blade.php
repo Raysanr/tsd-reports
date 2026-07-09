@@ -538,8 +538,10 @@
             body   : JSON.stringify({ date_from: range.from, date_to: range.to }),
         })
         .then(r => r.json())
-        .then(() => window.location.reload())
-        .catch(() => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); });
+        // Swap the freshly synced numbers in place — no full reload, no
+        // flicker, scroll position kept (softRefresh in resources/js/app.js).
+        .then(() => window.softRefresh())
+        .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); });
     });
 })();
 </script>

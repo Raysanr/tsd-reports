@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\Http;
 
 class SyncTodayOrders extends Command
 {
-    protected $signature   = 'pancake:sync-today {--date= : Date to sync (Y-m-d, Philippine time), defaults to today}';
+    protected $signature   = 'pancake:sync-today
+        {--date= : Date to sync (Y-m-d, Philippine time), defaults to today}
+        {--delta : Only fetch orders updated since the last successful run (5-min overlap); falls back to the full day when that anchor is stale}';
     protected $description = 'Fetch orders from Pancake POS for a given Philippine date and save to the local database';
 
     // Built from the tsa_shifts table in handle() — map POS name tag → [name, team].
@@ -70,173 +72,102 @@ class SyncTodayOrders extends Command
         $startOfDayTs = $date->copy()->startOfDay()->timestamp;
         $endOfDayTs   = $date->copy()->endOfDay()->timestamp;
 
-        $this->info("Syncing orders for: {$date->toDateString()} (Philippine Time)");
+        // Delta mode (what the scheduler uses): only fetch orders whose updated_at
+        // falls after the last successful run, with a 5-minute overlap so nothing
+        // on the boundary is ever missed. Falls back to the full day when the
+        // anchor is stale (>60 min — e.g. the scheduler was down), so gaps
+        // self-heal with a complete sweep. Manual syncs always do the full day.
+        $startTs = $startOfDayTs;
+        if ($this->option('delta') && !$this->option('date')) {
+            $lastSynced = Setting::get('last_synced');
+            if ($lastSynced) {
+                $anchor = Carbon::parse($lastSynced);
+                $since  = $anchor->copy()->subMinutes(5);
+                if ($since->timestamp > $startOfDayTs && $anchor->diffInMinutes(now()) <= 60) {
+                    $startTs = $since->timestamp;
+                }
+            }
+        }
+
+        $this->info("Syncing orders for: {$date->toDateString()} (Philippine Time)"
+            . ($startTs !== $startOfDayTs ? ' — delta since last successful run' : ''));
         $this->newLine();
 
+        $pageSize   = 100;
+        $hitPrevDay = false;
+        $apiError   = null;
+        $stats      = ['total' => 0, 'new' => 0, 'upsell_count' => 0, 'upsell_sales' => 0.0, 'tsa_count' => []];
+
+        $url         = "https://pos.pages.fm/api/v1/shops/{$shopId}/orders";
+        $fetchParams = [
+            'api_key'       => $apiKey,
+            'page_size'     => $pageSize,
+            // Fix #13: a lead can be created days before a TSA actually works it
+            // (e.g. a backlog Facebook lead) — paginating/cutting off by
+            // inserted_at (the old approach) silently drops orders worked today
+            // but created earlier, since they're buried past the "reached
+            // previous day" stop point. Fetch by *last updated* time instead, so
+            // anything touched today — regardless of age — actually gets pulled.
+            'updateStatus'  => 'updated_at',
+            'startDateTime' => $startTs,
+            'endDateTime'   => $endOfDayTs,
+            'option_sort'   => 'last_updated_order_desc',
+        ];
+        $headers = ['Accept' => 'application/json'];
+
+        // Page 1 goes alone (most delta runs fit in it entirely); further pages are
+        // fetched in concurrent batches — API round-trips, not the DB, dominate run
+        // time, so pooling cuts multi-page days to roughly 1/{$concurrency} the wait.
+        // A page returning fewer than $pageSize orders is the last one; processing
+        // stays in page order so the "reached previous day" early-stop still holds.
         $page        = 1;
-        $pageSize    = 100;
-        $totalSynced = 0;
-        $totalNew    = 0;
-        $upsellSales = 0;
-        $tsaCount    = [];
-        $upsellCount = 0;
-        $hitPrevDay  = false;
-        $apiError    = null;
+        $concurrency = 5;
+        while ($page <= 500 && !$hitPrevDay && $apiError === null) {
+            $pages = $page === 1 ? [1] : range($page, min($page + $concurrency - 1, 500));
 
-        do {
-            $response = Http::withHeaders(['Accept' => 'application/json'])
-                ->timeout(30)
-                ->get("https://pos.pages.fm/api/v1/shops/{$shopId}/orders", [
-                    'api_key'       => $apiKey,
-                    'page_number'   => $page,
-                    'page_size'     => $pageSize,
-                    // Fix #13: a lead can be created days before a TSA actually works it
-                    // (e.g. a backlog Facebook lead) — paginating/cutting off by
-                    // inserted_at (the old approach) silently drops orders worked today
-                    // but created earlier, since they're buried past the "reached
-                    // previous day" stop point. Fetch by *last updated* time instead, so
-                    // anything touched today — regardless of age — actually gets pulled.
-                    'updateStatus'  => 'updated_at',
-                    'startDateTime' => $startOfDayTs,
-                    'endDateTime'   => $endOfDayTs,
-                    'option_sort'   => 'last_updated_order_desc',
-                ]);
+            $responses = count($pages) === 1
+                ? [(string) $pages[0] => Http::withHeaders($headers)->timeout(30)->get($url, $fetchParams + ['page_number' => $pages[0]])]
+                : Http::pool(fn ($pool) => array_map(
+                    fn ($p) => $pool->as((string) $p)->withHeaders($headers)->timeout(30)->get($url, $fetchParams + ['page_number' => $p]),
+                    $pages
+                  ));
 
-            if (!$response->successful()) {
-                $apiError = "API error on page {$page}: " . $response->status();
-                $this->error($apiError);
-                break;
-            }
-
-            $body   = $response->json();
-            $orders = $body['data'] ?? [];
-
-            if (empty($orders)) break;
-
-            foreach ($orders as $raw) {
-                $createdAt = $raw['inserted_at'] ?? $raw['created_at'] ?? null;
-
-                // Fix 1: Pancake stores UTC without TZ marker — parse as UTC, convert to Manila
-                $carbonPHT = $createdAt
-                    ? Carbon::parse($createdAt, 'UTC')->setTimezone('Asia/Manila')
-                    : null;
-
-                // Fix #13: membership in "today's sync" is decided by last-updated time
-                // (matching the updateStatus=updated_at filter above), not insertion
-                // time — see note above.
-                $updatedAtRaw = $raw['updated_at'] ?? null;
-                $updatedPHT   = $updatedAtRaw
-                    ? Carbon::parse($updatedAtRaw, 'UTC')->setTimezone('Asia/Manila')
-                    : null;
-                $activityDate = $updatedPHT?->toDateString();
-
-                // Orders come most-recently-updated-first; once we reach one last
-                // touched before today, every order after it (on this page and all
-                // following pages) is even older — stop the entire loop immediately.
-                if ($activityDate && $activityDate < $date->toDateString()) {
-                    $hitPrevDay = true;
+            $sawLastPage = false;
+            foreach ($pages as $p) {
+                $response = $responses[(string) $p] ?? null;
+                if ($response instanceof \Throwable || $response === null || !$response->successful()) {
+                    $apiError = "API error on page {$p}: "
+                        . ($response instanceof \Throwable ? $response->getMessage() : ($response?->status() ?? 'no response'));
+                    $this->error($apiError);
                     break;
                 }
 
-                if ($activityDate !== $date->toDateString()) continue;
+                $orders = $response->json()['data'] ?? [];
+                if (empty($orders)) { $sawLastPage = true; break; }
 
-                // Fix #3/#9: canceled/returned/restocking orders never count as cross-sells
-                // (Order::VOID_STATUSES — the single source of truth also used to render
-                // each order's status label on the dashboard). Still upsert them (with
-                // is_upsell forced false) rather than skip — an order already saved as a
-                // valid upsell before it went void needs this re-sync to correct it, not
-                // just leave the stale row alone. Checks the numeric `status` code
-                // (reliable, matches Pancake's documented enum) rather than the
-                // free-text status_name field, which is unreliable.
-                $statusCode       = (int) ($raw['status'] ?? -1);
-                $isExcludedStatus = in_array($statusCode, Order::VOID_STATUSES, true);
+                $this->flushOrders($orders, $date, $stats, $hitPrevDay);
+                $this->line("  Page {$p} — {$stats['total']} orders found" . ($hitPrevDay ? ' (reached previous day, stopping)' : ''));
 
-                $tags     = $raw['tags'] ?? [];
-                $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
-
-                $disposition  = $this->extractDisposition($tagNames);
-                $hasUpsellTag = $this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
-
-                // Cancelled upsell: the order still carries an upsell tag, but the add-on
-                // item(s) have been removed from it while the primary order kept going
-                // (remainingItemIsJustTheBase — see that method's doc comment for the
-                // exact tag-parsing rule). This is NOT the same as a void/cancelled ORDER
-                // (Order::VOID_STATUSES) — the order itself is still active, only the
-                // upsell portion was cancelled, so it's excluded from is_upsell here
-                // rather than counted as a live cross-sell.
-                $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
-                $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
-                $productName       = $this->extractUpsellProduct($raw, $isUpsell);
-                $tsaInfo     = $this->extractTsaInfo($tagNames, $raw, $productName);
-                $tsaName     = $tsaInfo['name'];
-                $team        = $tsaInfo['team'];
-
-                // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
-                // record was first created — often an automated event (e.g. a Facebook ad
-                // lead) hours before any TSA touches it. Every hourly report in this app
-                // (TSA Performance, Team Report, Charts) reads pancake_created_at as "when
-                // this call happened", so store the moment the TSA's own tag was actually
-                // added (from Pancake's histories log) instead, falling back to insertion
-                // time when the tag was already present at creation.
-                $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? null, $carbonPHT);
-
-                // Fix 2: For upsell orders, only count the added items (not the original product)
-                $amount = $isUpsell
-                    ? $this->extractUpsellAmount($raw)
-                    : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
-
-                // The cancelled add-on's price is gone from Pancake's own data the moment
-                // it's removed from the order — `items` simply won't list it anymore. The
-                // only place that amount still exists is our own DB row from the LAST sync
-                // that saw it as a live upsell, so capture it here before it's overwritten.
-                // Once already marked cancelled, keep carrying that preserved amount
-                // forward instead of re-deriving it (there's nothing left to derive from).
-                $cancelledUpsellAmount = 0.0;
-                if ($isCancelledUpsell) {
-                    $existing = Order::where('pancake_order_id', (string)$raw['id'])->first();
-                    if ($existing?->is_cancelled_upsell) {
-                        $cancelledUpsellAmount = (float) $existing->cancelled_upsell_amount;
-                    } elseif ($existing?->is_upsell) {
-                        $cancelledUpsellAmount = (float) $existing->amount;
-                    }
-                }
-
-                $order = Order::updateOrCreate(
-                    ['pancake_order_id' => (string)$raw['id']],
-                    [
-                        'team'                    => $team,
-                        'tsa_name'                => $tsaName,
-                        'disposition'             => $disposition,
-                        'product'                 => $productName,
-                        'amount'                  => $amount,
-                        'raw_tags'                => $tagNames,
-                        'is_upsell'               => $isUpsell,
-                        'is_cancelled_upsell'     => $isCancelledUpsell,
-                        'cancelled_upsell_amount' => $cancelledUpsellAmount,
-                        'status_code'             => $statusCode,
-                        'pancake_created_at'      => $workedAt,
-                        'synced_at'               => now(),
-                    ]
-                );
-
-                if ($order->wasRecentlyCreated) $totalNew++;
-                $totalSynced++;
-                // Fix #6: only accumulate CLI counters for newly inserted rows to avoid
-                // double-counting on re-syncs (DB totals are always correct via SUM)
-                if ($isUpsell && $order->wasRecentlyCreated) {
-                    $upsellCount++;
-                    $upsellSales += $amount;
-                }
-                // Fix TSA breakdown: count only upsell orders
-                if ($tsaName && $isUpsell) $tsaCount[$tsaName] = ($tsaCount[$tsaName] ?? 0) + 1;
+                if ($hitPrevDay) break;
+                if (count($orders) < $pageSize) { $sawLastPage = true; break; }
             }
 
-            $this->line("  Page {$page} — {$totalSynced} orders found" . ($hitPrevDay ? ' (reached previous day, stopping)' : ''));
-            $page++;
+            if ($sawLastPage) break;
+            $page = end($pages) + 1;
+        }
 
-        } while (!$hitPrevDay && $page <= 500);
+        // Only advance the delta anchor on success — after a failed run the next
+        // delta window must still reach back past the failure, or those orders
+        // would be skipped forever.
+        if ($apiError === null) {
+            Setting::set('last_synced', now()->toDateTimeString());
+        }
 
-        Setting::set('last_synced', now()->toDateTimeString());
+        $totalSynced = $stats['total'];
+        $totalNew    = $stats['new'];
+        $upsellCount = $stats['upsell_count'];
+        $upsellSales = $stats['upsell_sales'];
+        $tsaCount    = $stats['tsa_count'];
 
         arsort($tsaCount);
 
@@ -267,6 +198,161 @@ class SyncTodayOrders extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Parse one API page of raw orders and write them in bulk: one SELECT covering
+     * every order on the page (replacing the old per-order cancelled-upsell lookup)
+     * and chunked upserts (replacing one updateOrCreate — two queries — per order).
+     * Sets $hitPrevDay when it reaches an order last touched before $date: orders
+     * arrive most-recently-updated-first, so everything after it is even older and
+     * the caller must stop paginating.
+     */
+    private function flushOrders(array $orders, Carbon $date, array &$stats, bool &$hitPrevDay): void
+    {
+        $parsed = [];
+
+        foreach ($orders as $raw) {
+            $createdAt = $raw['inserted_at'] ?? $raw['created_at'] ?? null;
+
+            // Fix 1: Pancake stores UTC without TZ marker — parse as UTC, convert to Manila
+            $carbonPHT = $createdAt
+                ? Carbon::parse($createdAt, 'UTC')->setTimezone('Asia/Manila')
+                : null;
+
+            // Fix #13: membership in "today's sync" is decided by last-updated time
+            // (matching the updateStatus=updated_at filter in handle()), not
+            // insertion time — see the fetch-params note there.
+            $updatedAtRaw = $raw['updated_at'] ?? null;
+            $updatedPHT   = $updatedAtRaw
+                ? Carbon::parse($updatedAtRaw, 'UTC')->setTimezone('Asia/Manila')
+                : null;
+            $activityDate = $updatedPHT?->toDateString();
+
+            if ($activityDate && $activityDate < $date->toDateString()) {
+                $hitPrevDay = true;
+                break;
+            }
+
+            if ($activityDate !== $date->toDateString()) continue;
+
+            // Fix #3/#9: canceled/returned/restocking orders never count as cross-sells
+            // (Order::VOID_STATUSES — the single source of truth also used to render
+            // each order's status label on the dashboard). Still upsert them (with
+            // is_upsell forced false) rather than skip — an order already saved as a
+            // valid upsell before it went void needs this re-sync to correct it, not
+            // just leave the stale row alone. Checks the numeric `status` code
+            // (reliable, matches Pancake's documented enum) rather than the
+            // free-text status_name field, which is unreliable.
+            $statusCode       = (int) ($raw['status'] ?? -1);
+            $isExcludedStatus = in_array($statusCode, Order::VOID_STATUSES, true);
+
+            $tags     = $raw['tags'] ?? [];
+            $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
+
+            $disposition  = $this->extractDisposition($tagNames);
+            $hasUpsellTag = $this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
+
+            // Cancelled upsell: the order still carries an upsell tag, but the add-on
+            // item(s) have been removed from it while the primary order kept going
+            // (remainingItemIsJustTheBase — see that method's doc comment for the
+            // exact tag-parsing rule). This is NOT the same as a void/cancelled ORDER
+            // (Order::VOID_STATUSES) — the order itself is still active, only the
+            // upsell portion was cancelled, so it's excluded from is_upsell here
+            // rather than counted as a live cross-sell.
+            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
+            $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
+            $productName       = $this->extractUpsellProduct($raw, $isUpsell);
+            $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName);
+
+            // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
+            // record was first created — often an automated event (e.g. a Facebook ad
+            // lead) hours before any TSA touches it. Every hourly report in this app
+            // (TSA Performance, Team Report, Charts) reads pancake_created_at as "when
+            // this call happened", so store the moment the TSA's own tag was actually
+            // added (from Pancake's histories log) instead, falling back to insertion
+            // time when the tag was already present at creation.
+            $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? null, $carbonPHT);
+
+            // Fix 2: For upsell orders, only count the added items (not the original product)
+            $amount = $isUpsell
+                ? $this->extractUpsellAmount($raw)
+                : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
+
+            $parsed[] = [
+                'pancake_order_id'        => (string)$raw['id'],
+                'team'                    => $tsaInfo['team'],
+                'tsa_name'                => $tsaInfo['name'],
+                'disposition'             => $disposition,
+                'product'                 => $productName,
+                'amount'                  => $amount,
+                'raw_tags'                => $tagNames,
+                'is_upsell'               => $isUpsell,
+                'is_cancelled_upsell'     => $isCancelledUpsell,
+                'cancelled_upsell_amount' => 0.0,
+                'status_code'             => $statusCode,
+                'pancake_created_at'      => $workedAt?->toDateTimeString(),
+                'synced_at'               => now()->toDateTimeString(),
+            ];
+        }
+
+        if (empty($parsed)) return;
+
+        // One query for every existing row on this page — replaces both the old
+        // per-order cancelled-upsell SELECT and updateOrCreate's per-order lookup.
+        $existing = Order::whereIn('pancake_order_id', array_column($parsed, 'pancake_order_id'))
+            ->get(['pancake_order_id', 'is_upsell', 'is_cancelled_upsell', 'amount', 'cancelled_upsell_amount'])
+            ->keyBy('pancake_order_id');
+
+        $rows = [];
+        foreach ($parsed as $row) {
+            $prev  = $existing->get($row['pancake_order_id']);
+            $isNew = $prev === null;
+
+            // The cancelled add-on's price is gone from Pancake's own data the moment
+            // it's removed from the order — `items` simply won't list it anymore. The
+            // only place that amount still exists is our own DB row from the LAST sync
+            // that saw it as a live upsell, so capture it here before it's overwritten.
+            // Once already marked cancelled, keep carrying that preserved amount
+            // forward instead of re-deriving it (there's nothing left to derive from).
+            if ($row['is_cancelled_upsell']) {
+                if ($prev?->is_cancelled_upsell) {
+                    $row['cancelled_upsell_amount'] = (float) $prev->cancelled_upsell_amount;
+                } elseif ($prev?->is_upsell) {
+                    $row['cancelled_upsell_amount'] = (float) $prev->amount;
+                }
+            }
+
+            $stats['total']++;
+            if ($isNew) $stats['new']++;
+            // Fix #6: only accumulate CLI counters for newly inserted rows to avoid
+            // double-counting on re-syncs (DB totals are always correct via SUM)
+            if ($row['is_upsell'] && $isNew) {
+                $stats['upsell_count']++;
+                $stats['upsell_sales'] += $row['amount'];
+            }
+            // Fix TSA breakdown: count only upsell orders
+            if ($row['tsa_name'] && $row['is_upsell']) {
+                $stats['tsa_count'][$row['tsa_name']] = ($stats['tsa_count'][$row['tsa_name']] ?? 0) + 1;
+            }
+
+            // upsert() goes through the query builder, not the model, so the
+            // raw_tags array cast doesn't apply — encode it here ourselves.
+            $row['raw_tags'] = json_encode($row['raw_tags']);
+            $rows[] = $row;
+        }
+
+        foreach (array_chunk($rows, 200) as $chunk) {
+            Order::upsert(
+                $chunk,
+                ['pancake_order_id'],
+                [
+                    'team', 'tsa_name', 'disposition', 'product', 'amount', 'raw_tags',
+                    'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
+                    'status_code', 'pancake_created_at', 'synced_at',
+                ]
+            );
+        }
     }
 
     /** Persist one row per run so the dashboard can show real sync activity over

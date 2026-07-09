@@ -9,6 +9,7 @@ use App\Models\TsaShift;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
@@ -137,9 +138,16 @@ class DashboardController extends Controller
             // Hourly activity — total calls per hour across the whole day, so shift-timing
             // gaps or coverage holes (the kind we found by hand this session) are visible
             // from the dashboard directly instead of requiring a manual DB dig.
+            // HOUR() is MySQL-only; Postgres needs EXTRACT(HOUR FROM ...) for the
+            // same thing — pick the right expression for whichever DB is connected
+            // so this works unchanged on either.
+            $hourExpr = DB::connection()->getDriverName() === 'pgsql'
+                ? 'EXTRACT(HOUR FROM pancake_created_at)'
+                : 'HOUR(pancake_created_at)';
+
             $hourlyCounts = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->selectRaw('HOUR(pancake_created_at) as hour, COUNT(*) as total')
-                ->groupByRaw('HOUR(pancake_created_at)')
+                ->selectRaw("{$hourExpr} as hour, COUNT(*) as total")
+                ->groupByRaw($hourExpr)
                 ->pluck('total', 'hour');
 
             $hourlyActivity = collect(range(0, 23))->map(fn($h) => (int) ($hourlyCounts[$h] ?? 0));

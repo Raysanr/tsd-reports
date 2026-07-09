@@ -40,11 +40,13 @@ class SettingsController extends Controller
             'sync_interval' => 'nullable|integer|min:1|max:60',
         ]);
 
+        // Settings live in the DB only — do NOT write to .env here. Rewriting .env
+        // makes the Vite dev server restart mid-redirect, which serves the settings
+        // page with no CSS/JS (the "giant unstyled logo" breakage after every save).
         Setting::set('pancake_api_key', $request->input('api_key'));
         Setting::set('shop_id',         $request->input('shop_id'));
         Setting::set('shop_name',       $request->input('shop_name', $request->input('shop_id')));
         Setting::set('sync_interval',   $request->input('sync_interval', 1));
-        $this->updateEnv('PANCAKE_API_KEY', $request->input('api_key'));
 
         $shopName = $request->input('shop_name', $request->input('shop_id'));
         return redirect()->route('settings')->with('success', "Connected to \"{$shopName}\" — settings saved.");
@@ -68,7 +70,6 @@ class SettingsController extends Controller
         Setting::set('pancake_api_key', '');
         Setting::set('shop_id', '');
         Setting::set('shop_name', '');
-        $this->updateEnv('PANCAKE_API_KEY', '');
 
         return redirect()->route('settings')->with('success', 'Disconnected.');
     }
@@ -119,20 +120,5 @@ class SettingsController extends Controller
         } catch (\Throwable $e) {
             return ['success' => false, 'message' => 'Connection failed. Check your API key.'];
         }
-    }
-
-    private function updateEnv(string $key, string $value): void
-    {
-        $envPath = base_path('.env');
-        $env     = file_get_contents($envPath);
-        $escaped = preg_quote($key, '/');
-
-        if (str_contains($env, "{$key}=")) {
-            $env = preg_replace("/^{$escaped}=.*/m", "{$key}={$value}", $env);
-        } else {
-            $env .= PHP_EOL . "{$key}={$value}";
-        }
-
-        file_put_contents($envPath, $env);
     }
 }
