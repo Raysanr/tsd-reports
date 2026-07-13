@@ -21,7 +21,7 @@
     @endif
 
     <div class="flex items-center justify-between">
-        <p class="text-xs text-slate-400 font-mono">Add, edit, or remove agents and set call shifts — all reflected immediately on TSA Performance and Team Report.</p>
+        <p class="text-xs text-slate-400 font-mono">Add, edit, or remove agents and set call shifts — all reflected immediately on TSA Performance and Leads Report.</p>
         <button type="button" id="addTsaBtn"
             class="inline-flex items-center gap-1.5 px-4 py-2 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 ml-4">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,7 +126,7 @@
         @endif
 
         <div class="bg-white rounded-xl border border-yellow-100 shadow-sm px-6 py-4 flex items-center justify-between">
-            <p class="text-xs text-slate-400 font-mono">Changes apply immediately on TSA Performance and Team Report</p>
+            <p class="text-xs text-slate-400 font-mono">Changes apply immediately on TSA Performance and Leads Report</p>
             <button type="submit"
                     class="inline-flex items-center gap-2 px-5 py-2 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
