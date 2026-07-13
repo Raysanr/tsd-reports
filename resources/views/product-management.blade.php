@@ -138,12 +138,12 @@
 
             <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">
-                    Match keyword <span class="text-slate-400 font-normal">(optional)</span>
+                    Match keywords <span class="text-slate-400 font-normal">(optional, comma-separated)</span>
                 </label>
                 <input type="text" name="match_keyword" id="productKeywordInput"
-                    placeholder="e.g. CANPRO — only needed if shorter than the display name"
+                    placeholder="e.g. PTERYGIUM, PteryFix — every cart-name variant of this product"
                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <p class="text-[11px] text-slate-400 mt-1">Leave blank to match on the display name itself.</p>
+                <p class="text-[11px] text-slate-400 mt-1">Leave blank to match on the display name itself. Matching ignores case, spaces and punctuation, and an order counts if it matches ANY keyword — add every alias the POS cart uses, or unclaimed leads for that variant won't be attributed to your team.</p>
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-2">
