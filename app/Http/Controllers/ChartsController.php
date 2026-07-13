@@ -29,7 +29,7 @@ class ChartsController extends Controller
 
         // Fetch every order in range ONCE; every chart below slices this same
         // in-memory collection (by day, by team, by hour) rather than re-querying —
-        // same pattern already established in Team Report / ProductPerformance.
+        // same pattern already established in Leads Report / ProductPerformance.
         $orders = Order::whereBetween('pancake_created_at', [$from, $to])
             ->whereIn('team', $orderTeams)
             ->get();
@@ -48,6 +48,8 @@ class ChartsController extends Controller
         $excessSeries    = [];
         $answeredSeries  = [];
         $unansweredSeries = [];
+        $deliveredSeries = [];
+        $rtsSeries       = [];
 
         foreach ($orderTeams as $team) {
             foreach ($rateSeries as $rate => $_) $rateSeries[$rate][$team] = [];
@@ -71,7 +73,7 @@ class ChartsController extends Controller
                 $calledSeries[$team][] = $tally['total_called'];
 
                 // Cross-sell/upsell revenue only — matches the Dashboard's "Total
-                // Cross-Sell Sales" definition, NOT Team Report's full-realized-revenue
+                // Cross-Sell Sales" definition, NOT Leads Report's full-realized-revenue
                 // one. Confirmed with the user: the full-revenue figure (base product +
                 // upsells) reads as implausibly large here compared to the Dashboard
                 // number they're used to, even though it isn't a miscount — it's just
@@ -84,6 +86,15 @@ class ChartsController extends Controller
             $excessSeries[]     = $combined['excess'];
             $answeredSeries[]   = $combined['answered'];
             $unansweredSeries[] = $combined['unanswered'];
+
+            // Delivered vs RTS upsell revenue, both teams combined — the trend
+            // behind the RTS/Delivered report. Delivered = upsell orders the
+            // customer received (status 3); RTS reads returned_upsell_amount, NOT
+            // amount + is_upsell, because VOID_STATUSES forces is_upsell false on
+            // Returning/Returned orders and leaves amount holding the whole
+            // shipment's price (see RtsReportController / SyncTodayOrders).
+            $deliveredSeries[] = (float) $dayOrders->where('is_upsell', true)->where('status_code', 3)->sum('amount');
+            $rtsSeries[]       = (float) $dayOrders->where('is_returned_upsell', true)->sum('returned_upsell_amount');
         }
 
         // --- Product comparison: Upselling Rate per product across the whole range ---
@@ -117,6 +128,7 @@ class ChartsController extends Controller
         return view('charts', compact(
             'dateFrom', 'dateTo', 'dailyLabels',
             'rateSeries', 'calledSeries', 'salesSeries', 'excessSeries', 'answeredSeries', 'unansweredSeries',
+            'deliveredSeries', 'rtsSeries',
             'productRows', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess',
             'orderTeams', 'teamNames'
         ));

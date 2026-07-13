@@ -85,6 +85,28 @@
         <canvas id="excessChart" height="140"></canvas>
     </div>
 
+    {{-- RTS vs DELIVERED TREND — upsell revenue that reached the customer vs came
+         back, per day, both teams combined (the trend behind the RTS/Delivered tab). --}}
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-5">
+            <div>
+                <h2 class="text-sm font-bold text-slate-700 font-mono">RTS vs Delivered Trend</h2>
+                <p class="text-xs text-slate-400 font-mono mt-0.5">Upsell revenue delivered vs returned, per day</p>
+            </div>
+            <div class="flex items-center gap-3 text-xs font-mono">
+                <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 inline-block rounded bg-green-500"></span> Delivered</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 inline-block rounded bg-rose-500"></span> RTS</span>
+            </div>
+        </div>
+        <canvas id="rtsDeliveredChart" height="140"></canvas>
+    </div>
+
+</div>
+
+{{-- Odd card out (5 charts in this region since RTS vs Delivered joined) — runs
+     full-width rather than sitting half-width beside an empty slot. --}}
+<div class="grid grid-cols-1 gap-6 mb-6">
+
     {{-- DAILY SALES --}}
     <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
@@ -222,6 +244,8 @@ const salesSeries  = @json($salesSeries);
 const excessSeries = @json($excessSeries);
 const answeredSeries   = @json($answeredSeries);
 const unansweredSeries = @json($unansweredSeries);
+const deliveredSeries  = @json($deliveredSeries);
+const rtsSeries        = @json($rtsSeries);
 const productRows  = @json($productRows);
 const hourlyLabels = @json($hourlyLabels);
 const hourlyLeads  = @json($hourlyLeads);
@@ -304,6 +328,40 @@ new Chart(document.getElementById('excessChart'), {
         responsive: true,
         plugins: { legend: { display: false } },
         scales: { x: { grid: { display: false } }, y: { grid: gridStyle, beginAtZero: true, ticks: { precision: 0 } } },
+    },
+});
+
+/* --- RTS vs Delivered trend (two lines, both teams combined) --- */
+new Chart(document.getElementById('rtsDeliveredChart'), {
+    type: 'line',
+    data: {
+        labels: dailyLabels,
+        datasets: [
+            {
+                label: 'Delivered', data: deliveredSeries,
+                borderColor: '#22c55e', backgroundColor: '#22c55e14',
+                tension: 0.35, fill: true, pointRadius: 3, borderWidth: 2,
+            },
+            {
+                label: 'RTS', data: rtsSeries,
+                borderColor: '#f43f5e', backgroundColor: '#f43f5e14',
+                tension: 0.35, fill: false, pointRadius: 3, borderWidth: 2,
+            },
+        ],
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                mode: 'index', intersect: false,
+                callbacks: { label: ctx => ` ${ctx.dataset.label}: ₱${ctx.raw.toLocaleString()}` },
+            },
+        },
+        scales: {
+            x: { grid: gridStyle },
+            y: { grid: gridStyle, beginAtZero: true, ticks: { callback: v => '₱' + v.toLocaleString() } },
+        },
     },
 });
 
