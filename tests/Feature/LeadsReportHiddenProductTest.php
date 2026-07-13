@@ -83,4 +83,20 @@ class LeadsReportHiddenProductTest extends TestCase
             return $rows->doesntContain(fn($r) => $r['display_name'] === 'SINUXYL');
         });
     }
+
+    public function test_normal_product_with_no_orders_still_shows_on_the_all_view(): void
+    {
+        // SINUXYL is left visible (is_hidden stays false) and has zero orders in
+        // range — the reject() condition requires BOTH is_hidden and a zero total,
+        // so a merely-quiet-but-visible product must never be dropped.
+        $today = now()->toDateString();
+        $response = $this->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productRows', function ($rows) {
+            return $rows->contains(fn($r) => $r['display_name'] === 'SINUXYL');
+        });
+    }
 }
