@@ -253,14 +253,18 @@ class SyncTodayOrders extends Command
             $disposition  = $this->extractDisposition($tagNames);
             $hasUpsellTag = $this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
 
-            // Cancelled upsell: the order still carries an upsell tag, but the add-on
-            // item(s) have been removed from it while the primary order kept going
-            // (remainingItemIsJustTheBase — see that method's doc comment for the
-            // exact tag-parsing rule). This is NOT the same as a void/cancelled ORDER
-            // (Order::VOID_STATUSES) — the order itself is still active, only the
-            // upsell portion was cancelled, so it's excluded from is_upsell here
-            // rather than counted as a live cross-sell.
-            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
+            // Cancelled upsell: the order still carries an upsell tag, but either
+            // (a) the add-on item(s) have been removed from it while the primary
+            // order kept going (remainingItemIsJustTheBase — see that method's doc
+            // comment for the exact tag-parsing rule), or (b) Pancake tagged the
+            // delivery/COD outcome as failed (hasFailedDeliveryTag) while the item
+            // is still on the order. Neither is the same as a void/cancelled ORDER
+            // (Order::VOID_STATUSES — these orders sit at ordinary statuses like
+            // Shipped/Received) — the order itself is still active, only the upsell
+            // portion never actually completed as revenue, so it's excluded from
+            // is_upsell here rather than counted as a live cross-sell.
+            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag
+                && ($this->remainingItemIsJustTheBase($raw) || $this->hasFailedDeliveryTag($tagNames));
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
             $productName       = $this->extractUpsellProduct($raw, $isUpsell);
             $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName);
@@ -674,6 +678,25 @@ class SyncTodayOrders extends Command
         foreach ($tagNames as $tag) {
             // "UPSELL TSD" or "TSD UPSELL" — exclude "Follow up - Upsell" (disposition, not a new order)
             if (preg_match('/\bUPSELL\s+TSD\b|\bTSD\s+UPSELL\b/i', $tag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Pancake's own courier/COD outcome tags, added after the upsell tag once
+    // delivery is attempted. Root-caused 2026-07-13: for Jul 11 2026, 20 of 69
+    // orders counted as live upsells actually carried one of these — the sale
+    // never reconciled/arrived — inflating that day's Total Cross-Sell Sales by
+    // ₱14,001 versus the team's manually reconciled tally. These orders sit at
+    // ordinary statuses like Shipped/Received (not one of Order::VOID_STATUSES),
+    // so nothing else in this method catches them.
+    private const FAILED_DELIVERY_TAGS = ['unreconciled', 'undeliverable'];
+
+    private function hasFailedDeliveryTag(array $tagNames): bool
+    {
+        foreach ($tagNames as $tag) {
+            if (in_array(strtolower(trim($tag)), self::FAILED_DELIVERY_TAGS, true)) {
                 return true;
             }
         }
