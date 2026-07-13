@@ -32,6 +32,16 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         if (pushUrl && url !== window.location.href) history.pushState({}, '', url);
         document.title = doc.title;
 
+        // The page heading + subtitle live in <header>, OUTSIDE the <main> swapped
+        // below — without this they'd go stale (e.g. TSA Performance still titled
+        // with yesterday's date after the picker changed it, making two pages showing
+        // identical data look like they disagree).
+        for (const sel of ['header h1', 'header h1 + p']) {
+            const fresh = doc.querySelector(sel);
+            const current = document.querySelector(sel);
+            if (fresh && current) current.textContent = fresh.textContent;
+        }
+
         // Nothing changed → skip the swap entirely (avoids needless chart
         // redraws on the 2-minute background refresh).
         if (newMain.innerHTML === main.innerHTML) return true;
@@ -154,3 +164,92 @@ document.addEventListener('submit', (e) => {
 
 // Back/forward after a pushState above re-renders the restored URL in place.
 window.addEventListener('popstate', () => window.softRefresh(window.location.href));
+
+// ─── Table export: CSV + PNG snapshot ────────────────────────────────────────
+// Every report table renders partials/table-actions.blade.php — two icon
+// buttons carrying data-export-csv / data-export-png with the id of the
+// wrapper whose <table> to export. Delegated from document (same reasoning as
+// the GET-form handler above: survives softRefresh's <main> swaps).
+//
+// CSV walks the live DOM rather than re-querying the server: what you see is
+// exactly what you get, filters and all. colspan cells are padded with empty
+// columns so headers stay aligned in Excel; rowspan isn't padded (only the
+// hour-label column uses it, and losing the repeat is fine in a flat file).
+function tableToCsv(table) {
+    const rows = [];
+    for (const tr of table.querySelectorAll('tr')) {
+        const cells = [];
+        for (const cell of tr.querySelectorAll('th, td')) {
+            // <br> inside header labels reads as a space, not a squashed word
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('br').forEach((br) => br.replaceWith(' '));
+            const text = clone.textContent.replace(/\s+/g, ' ').trim();
+            cells.push('"' + text.replace(/"/g, '""') + '"');
+            for (let i = 1; i < (cell.colSpan || 1); i++) cells.push('""');
+        }
+        rows.push(cells.join(','));
+    }
+    return rows.join('\r\n');
+}
+
+function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+// html2canvas-pro (NOT plain html2canvas: 1.4.1 chokes on the oklch() colors
+// Tailwind v4 emits — "unsupported color function oklch") is ~200kb — only
+// fetched the first time a snapshot is taken, never on page load. Cached
+// promise so repeat clicks don't re-inject.
+let html2canvasReady = null;
+function loadHtml2Canvas() {
+    if (window.html2canvas) return Promise.resolve();
+    if (!html2canvasReady) {
+        html2canvasReady = new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
+            s.onload = resolve;
+            s.onerror = () => { html2canvasReady = null; reject(new Error('html2canvas failed to load')); };
+            document.head.appendChild(s);
+        });
+    }
+    return html2canvasReady;
+}
+
+document.addEventListener('click', async (e) => {
+    const csvBtn = e.target.closest('[data-export-csv]');
+    const pngBtn = e.target.closest('[data-export-png]');
+    if (!csvBtn && !pngBtn) return;
+
+    const btn     = csvBtn || pngBtn;
+    const target  = document.getElementById(btn.dataset.exportCsv || btn.dataset.exportPng);
+    const table   = target?.querySelector('table') || target;
+    if (!table) return;
+
+    const name = (btn.dataset.exportName || 'export') + '-' + new Date().toISOString().slice(0, 10);
+
+    if (csvBtn) {
+        // UTF-8 BOM: Excel needs it to render ₱ signs correctly
+        downloadBlob(new Blob(['﻿' + tableToCsv(table)], { type: 'text/csv;charset=utf-8' }), name + '.csv');
+        return;
+    }
+
+    // PNG: capture the <table> element itself, not its scroll container, so a
+    // horizontally-scrolled wide table is captured in full, not cropped to the
+    // visible slice. Button shows a busy state — capture takes a beat.
+    btn.disabled = true;
+    btn.classList.add('opacity-40');
+    try {
+        await loadHtml2Canvas();
+        const canvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
+        canvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
+    } catch (err) {
+        console.error('Table snapshot failed:', err);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-40');
+    }
+});
