@@ -66,4 +66,21 @@ class LeadsReportHiddenProductTest extends TestCase
             return $tables->contains(fn($t) => $t['product']->display_name === 'SINUXYL');
         });
     }
+
+    public function test_hidden_product_with_no_orders_in_range_is_dropped_from_the_all_view(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $product->is_hidden = true;
+        $product->save();
+
+        $today = now()->toDateString();
+        $response = $this->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productRows', function ($rows) {
+            return $rows->doesntContain(fn($r) => $r['display_name'] === 'SINUXYL');
+        });
+    }
 }
