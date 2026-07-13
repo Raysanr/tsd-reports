@@ -4,9 +4,10 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CronController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\TeamReportController;
+use App\Http\Controllers\LeadsReportController;
 use App\Http\Controllers\TsaPerformanceController;
 use App\Http\Controllers\ChartsController;
+use App\Http\Controllers\RtsReportController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
@@ -37,10 +38,13 @@ Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 Route::middleware('auth')->group(function () {
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
     Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync');
-    Route::get('/team-report',     [TeamReportController::class,     'index'])->name('team-report');
+    Route::get('/leads-report',    [LeadsReportController::class,    'index'])->name('leads-report');
+    // Old URL kept alive for bookmarks/history — permanent redirect to the new name.
+    Route::redirect('/team-report', '/leads-report', 301);
     Route::get('/tsa-performance', [TsaPerformanceController::class, 'index'])->name('tsa-performance');
     Route::get('/tsa-performance/{team}/{tsaKey}', [TsaPerformanceController::class, 'showTsa'])->name('tsa-performance.individual');
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
+    Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
 
     Route::get('/tsa-management',             [TsaManagementController::class, 'index'])->name('tsa-management');
     Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');

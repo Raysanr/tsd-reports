@@ -1,13 +1,10 @@
 @extends('layouts.app')
-@section('title', 'Team Report')
+@section('title', 'Leads Report')
 @section('subtitle', 'Orders · Per-Product Hourly Breakdown')
 
 @section('content')
-@php
-    // Human label for the active range: a single day shows just that date; a span
-    // shows "from → to". Used in the empty-state and per-product header captions.
-    $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
-@endphp
+{{-- $rangeLabel comes from the controller: "Last 24h · Jul 9 5:30PM → Jul 10 5:30PM"
+     in rolling mode, or the plain date / "from → to" span in fixed-dates mode. --}}
 
 {{-- PER-PRODUCT HOURLY BREAKDOWN — one table per product (matches the source
      sheet: a separate CANPRO/GINSENG/SINUXYL/AUDICURE tab each), replacing the old
@@ -18,17 +15,77 @@
     $unansweredCols = collect($metricCols)->where('group', 'unanswered');
 @endphp
 
+{{-- GRAND TOTAL — all products combined, whole range. One tally over every order
+     (not a sum of the per-product totals below, which would double-count orders
+     matching multiple product keywords and drop ones matching none). --}}
+@if($grandTotal['total'] > 0)
+<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-700 font-mono">Grand Total — All Products</h2>
+        <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-slate-400">{{ $grandTotal['total'] }} {{ \Illuminate\Support\Str::plural('lead', $grandTotal['total']) }}</span>
+            @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam])
+        </div>
+    </div>
+    <div class="overflow-x-auto" id="grandTotalTable">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
+        <thead>
+            <tr>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap" style="min-width:110px"></th>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">New<br>Leads</th>
+                <th rowspan="2" class="bg-yellow-50 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">Called<br>Leads</th>
+                <th colspan="{{ $answeredCols->count() }}" class="bg-green-200 border border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-green-900 uppercase tracking-wide">Answered Called Leads</th>
+                <th colspan="{{ $unansweredCols->count() }}" class="bg-red-200 border border-slate-200 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">Unanswered Call Leads</th>
+                <th rowspan="2" class="bg-rose-300 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-rose-900 uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Excess<br>Leads</th>
+                <th rowspan="2" class="bg-blue-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 uppercase tracking-wide leading-tight" style="min-width:90px">Pick-up<br>Rate</th>
+                <th rowspan="2" class="bg-orange-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 uppercase tracking-wide leading-tight" style="min-width:90px">Conversion<br>Rate</th>
+                <th rowspan="2" class="bg-yellow-100 border border-slate-200 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 uppercase tracking-wide leading-tight" style="min-width:90px">Upselling<br>Rate</th>
+            </tr>
+            <tr>
+                @foreach($answeredCols as $col)
+                <th class="bg-green-50 border border-slate-200 px-2 py-2 text-center text-[10px] font-semibold text-green-800 uppercase tracking-wide leading-tight" style="min-width:{{ $col['min_width'] }}px">{!! $col['label'] !!}</th>
+                @endforeach
+                @foreach($unansweredCols as $col)
+                <th class="bg-red-50 border border-slate-200 px-2 py-2 text-center text-[10px] font-semibold text-red-800 uppercase tracking-wide leading-tight" style="min-width:{{ $col['min_width'] }}px">{!! $col['label'] !!}</th>
+                @endforeach
+            </tr>
+        </thead>
+        <tbody>
+            <tr class="bg-slate-900 text-white font-bold">
+                <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total_called'] ?: '' }}</td>
+                @foreach($answeredCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">{{ $grandTotal[$col['key']] ?: '' }}</td>
+                @endforeach
+                @foreach($unansweredCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center">{{ $grandTotal[$col['key']] ?: '' }}</td>
+                @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">{{ $grandTotal['excess'] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">{{ $grandTotal['conversion_rate'] !== null ? $grandTotal['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-yellow-300">{{ $grandTotal['upselling_rate'] !== null ? $grandTotal['upselling_rate'].'%' : '—' }}</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+</div>
+@endif
+
 @forelse($productTables as $table)
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
     <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
         <h2 class="text-sm font-bold text-slate-700 font-mono">{{ $table['product']->display_name }}</h2>
-        <span class="text-xs font-mono text-slate-400">{{ $table['total']['total'] }} {{ \Illuminate\Support\Str::plural('lead', $table['total']['total']) }}</span>
+        <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-slate-400">{{ $table['total']['total'] }} {{ \Illuminate\Support\Str::plural('lead', $table['total']['total']) }}</span>
+            @include('partials.table-actions', ['target' => 'productTable-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($table['product']->display_name)])
+        </div>
     </div>
 
     @if(empty($table['hourlyRows']))
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto" id="productTable-{{ $loop->index }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -106,7 +163,10 @@
             </h2>
             <p class="text-xs text-slate-400 mt-0.5 font-mono">{{ $rangeLabel }}</p>
         </div>
-        <span class="text-xs font-mono text-slate-400">{{ $currentOrders->count() }} records</span>
+        <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-slate-400">{{ $currentOrders->count() }} records</span>
+            @include('partials.table-actions', ['target' => 'ordersTable', 'name' => 'orders-' . $selectedTeam])
+        </div>
     </div>
 
     @if($currentOrders->isEmpty())
@@ -124,7 +184,7 @@
     {{-- Bounded height + own vertical scroll so a long order list scrolls inside this
          card (with a sticky header) instead of stretching the whole page — makes it
          obvious there's more to scroll through. --}}
-    <div class="overflow-y-auto" style="max-height:60vh">
+    <div class="overflow-y-auto" style="max-height:60vh" id="ordersTable">
     <table class="w-full text-sm">
         <thead class="sticky top-0 z-10">
             <tr class="bg-slate-50 text-xs font-mono text-slate-400 uppercase tracking-wide shadow-sm">
@@ -177,14 +237,17 @@
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
 
-@if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
+@if($mode === 'last24h' || ($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d')))
 @include('partials.live-indicator')
 @endif
 
-<form method="GET" action="{{ route('team-report') }}" class="flex items-center gap-3 flex-wrap">
-    {{-- Hidden fallback so applying the date picker (or any submit besides clicking
-         a team button directly) doesn't drop the currently selected team. --}}
+<form method="GET" action="{{ route('leads-report') }}" class="flex items-center gap-3 flex-wrap">
+    {{-- Hidden fallbacks so applying the date picker (or any submit besides clicking
+         a team button directly) doesn't drop the currently selected team or window
+         mode. The picker's Apply flips this range field to 'dates' (explicit dates
+         chosen); the Last 24h button below overrides it back as the submitter. --}}
     <input type="hidden" name="team" value="{{ $selectedTeam }}">
+    <input type="hidden" name="range" value="{{ $mode }}">
 
     <div class="flex rounded-lg border border-slate-200 overflow-hidden">
         @foreach($teams as $key => $label)

@@ -367,6 +367,14 @@
         } else {
             setField('{{ $dateField }}', selFrom);
         }
+
+        // Range-aware forms (Leads Report's rolling "Last 24h" vs explicit dates)
+        // carry a hidden [name="range"] field. Picking calendar dates is an explicit
+        // choice of fixed-dates mode — flip the field so the picked dates aren't
+        // ignored in favor of the sticky rolling window.
+        const rangeField = form.querySelector('[name="range"]');
+        if (rangeField) rangeField.value = 'dates';
+
         // requestSubmit (not submit) so the submit EVENT fires — app.js
         // intercepts GET form submits there and soft-refreshes in place
         // instead of doing a full page navigation.
