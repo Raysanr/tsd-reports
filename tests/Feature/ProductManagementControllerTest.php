@@ -79,4 +79,25 @@ class ProductManagementControllerTest extends TestCase
         $response->assertRedirect(route('product-management'));
         $this->assertDatabaseMissing('products', ['id' => $product->id]);
     }
+
+    public function test_toggle_hidden_hides_a_visible_product(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $this->assertFalse($product->is_hidden);
+
+        $response = $this->patch(route('product-management.toggle-hidden', $product));
+
+        $response->assertRedirect(route('product-management'));
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'is_hidden' => true]);
+    }
+
+    public function test_toggle_hidden_twice_unhides_it_again(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        $this->patch(route('product-management.toggle-hidden', $product));
+        $this->patch(route('product-management.toggle-hidden', $product));
+
+        $this->assertDatabaseHas('products', ['id' => $product->id, 'is_hidden' => false]);
+    }
 }

@@ -63,6 +63,17 @@ class ProductManagementController extends Controller
             ->with('success', "Removed \"{$name}\".");
     }
 
+    public function toggleHidden(Product $product)
+    {
+        $product->is_hidden = !$product->is_hidden;
+        $product->save();
+
+        $verb = $product->is_hidden ? 'Hidden' : 'Unhidden';
+
+        return redirect()->route('product-management')
+            ->with('success', "{$verb} \"{$product->display_name}\".");
+    }
+
     private function validateProduct(Request $request): array
     {
         $teamsConfig = config('teams', []);

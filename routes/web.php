@@ -52,6 +52,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');
     Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
     Route::delete('/product-management/{product}',   [ProductManagementController::class, 'destroy'])->name('product-management.destroy');
+    Route::patch('/product-management/{product}/toggle-hidden', [ProductManagementController::class, 'toggleHidden'])->name('product-management.toggle-hidden');
 
     Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
     Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
