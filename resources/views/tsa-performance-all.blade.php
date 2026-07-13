@@ -1,20 +1,25 @@
 @extends('layouts.app')
 @section('title', 'TSA Performance')
-@section('subtitle', 'All products · ' . ($dateFrom === $dateTo ? $dateFrom : $dateFrom . ' → ' . $dateTo))
+@section('subtitle', 'All TSAs · ' . ($dateFrom === $dateTo ? $dateFrom : $dateFrom . ' → ' . $dateTo))
 
 @section('content')
 @php
-    $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
+    // Excess Leads = a lead swept "UNCATERED LEADS" that NO TSA ever claimed — by
+    // definition it can never belong to any specific TSA's row, so it's excluded
+    // here the same way the per-team hourly view and its individual-TSA drill-down
+    // already exclude it (see their identical $displayCols line).
+    $displayCols = collect($metricCols)->reject(fn($col) => $col['group'] === 'excess');
+    $rangeLabel  = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
 @endphp
 
-@if($productRows->isEmpty())
+@if($tsaRows->isEmpty())
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
     <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round"
-              d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+              d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/>
     </svg>
-    <p class="text-sm font-mono text-slate-400">No products configured</p>
-    <p class="text-xs font-mono text-slate-300">Add products on the Product Management page.</p>
+    <p class="text-sm font-mono text-slate-400">No TSAs configured</p>
+    <p class="text-xs font-mono text-slate-300">Add TSAs on the TSA Management page.</p>
 </div>
 @else
 
@@ -25,7 +30,7 @@
                 <th rowspan="2"
                     class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap"
                     style="min-width:180px">
-                    Product
+                    TSA
                 </th>
                 <th rowspan="2"
                     class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">
@@ -42,10 +47,6 @@
                 <th colspan="6"
                     class="bg-red-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">
                     Unanswered Call Leads
-                </th>
-                <th colspan="1"
-                    class="bg-rose-300 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-rose-900 uppercase tracking-wide">
-                    Excess Leads
                 </th>
                 <th rowspan="2"
                     class="bg-blue-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 uppercase tracking-wide leading-tight"
@@ -64,13 +65,9 @@
                 </th>
             </tr>
             <tr>
-                @foreach($metricCols as $col)
+                @foreach($displayCols as $col)
                 @php
-                    $headerColor = match($col['group']) {
-                        'answered' => 'bg-green-50 text-green-800',
-                        'excess'   => 'bg-rose-50 text-rose-800',
-                        default    => 'bg-red-50 text-red-800',
-                    };
+                    $headerColor = $col['group'] === 'answered' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800';
                 @endphp
                 <th class="{{ $headerColor }} border border-slate-300 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
                     style="min-width:{{ $col['min_width'] }}px">
@@ -80,10 +77,17 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($productRows as $row)
+            @foreach($tsaRows as $row)
             <tr class="hover:bg-slate-50 transition-colors">
-                <td class="border border-slate-200 px-3 py-2.5 font-semibold text-slate-700 whitespace-nowrap">
-                    {{ $row['display_name'] }}
+                <td class="border border-slate-200 px-3 py-2.5 font-semibold whitespace-nowrap">
+                    @if($row['team_key'])
+                    <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+                       class="text-primary hover:underline">
+                        {{ $row['display_name'] }}
+                    </a>
+                    @else
+                    <span class="text-slate-700">{{ $row['display_name'] }}</span>
+                    @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
                 <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
@@ -92,8 +96,8 @@
                 <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
                     {{ $row['catered'] ?: '' }}
                 </td>
-                @foreach($metricCols as $col)
-                <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 font-semibold' : 'text-slate-700') }}">
+                @foreach($displayCols as $col)
+                <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : 'text-slate-700' }}">
                     {{ $row[$col['key']] ?: '' }}
                 </td>
                 @endforeach
@@ -113,8 +117,8 @@
                 <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
-                @foreach($metricCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : ($col['group'] === 'excess' ? 'text-rose-300' : '') }}">
+                @foreach($displayCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
                     {{ $grandTotal[$col['key']] ?: '' }}
                 </td>
                 @endforeach

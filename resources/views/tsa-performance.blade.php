@@ -28,7 +28,7 @@
 {{-- Pivot table — bounded height + its own scroll so the sticky header has a
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
-<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 180px)">
+<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1200px">
             <thead class="sticky top-0 z-20 shadow-sm">
 
@@ -169,6 +169,10 @@
 
 @if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
+@endif
+
+@if(!empty($hourBlocks))
+@include('partials.table-actions', ['target' => 'tsaPerfTable', 'name' => 'tsa-performance-' . $selectedTeam])
 @endif
 
 <form method="GET" action="{{ route('tsa-performance') }}" class="flex items-center gap-3 flex-wrap">

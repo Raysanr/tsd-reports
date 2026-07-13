@@ -36,17 +36,6 @@ class TsaPerformanceController extends Controller
         'excess',
     ];
 
-    /** Accumulator keys for the "ALL" per-product summary (adds 'answered'/'unanswered'
-     *  subtotals, needed so the Grand Total's rates are computed from its own summed
-     *  counts — never by averaging the per-product percentages, which would be wrong). */
-    private const PRODUCT_SUMMARY_COLUMNS = [
-        'total', 'catered',
-        'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
-        'repeat_order_upsell', 'rude_customer', 'relatives_confirmation',
-        'dfr', 'double_order', 'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number',
-        'excess', 'answered', 'unanswered',
-    ];
-
     /** Display metadata for the disposition columns — shared with the Team Report
      *  per-product breakdown via App\Support\ProductPerformance, so both pages can
      *  never render the same column under two different labels/groupings. */
@@ -225,8 +214,9 @@ class TsaPerformanceController extends Controller
 
         $summary = $this->buildRow($shift, $tsaKey, $orders);
         // Pick-up/Conversion rates need 'answered'/'unanswered' subtotals (same
-        // arithmetic as buildProductRow — this row shape is TSA-scoped, not
-        // product-scoped, so it doesn't share that method directly).
+        // arithmetic as ProductPerformance::tally() computes — this row comes from
+        // the older per-TSA buildRow() below instead, so it doesn't share that
+        // method directly).
         $summary['answered'] = $summary['confirmed_via_call'] + $summary['upsell_confirmation'] + $summary['call_back']
             + $summary['call_dropped'] + $summary['repeat_order_upsell'] + $summary['rude_customer'] + $summary['relatives_confirmation'];
         $summary['unanswered'] = $summary['dfr'] + $summary['double_order'] + $summary['fsd_uncleared']
@@ -347,38 +337,58 @@ class TsaPerformanceController extends Controller
         return $teams;
     }
 
+    /** ALL — one row per TSA, combined across every team, for the whole window (no
+     *  hourly split). Used to show one row per PRODUCT instead (identical table
+     *  shape); that view moved to the Leads Report (LeadsReportController::indexAll),
+     *  since it's a product breakdown, not a TSA one — this is its TSA-rows
+     *  counterpart, reusing the exact same ProductPerformance::tally() shape so the
+     *  view (tsa-performance-all.blade.php) barely had to change. */
     private function indexAll(string $dateFrom, string $dateTo, Carbon $from, Carbon $to, array $teamsConfig)
     {
         $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
+
+        // Order->team stores each config entry's order_team literal (e.g. "SH
+        // Naturals"), not the slug key (e.g. "sh-naturals") the individual-TSA route
+        // needs — this reverses that lookup so each row can still link out.
+        $teamKeyByOrderTeam = collect($teamsConfig)->mapWithKeys(fn($t, $key) => [$t['order_team'] => $key]);
 
         $orders = Order::whereBetween('pancake_created_at', [$from, $to])
             ->whereIn('team', $orderTeams)
             ->get();
 
-        // orderBy('team') alone would sort alphabetically ("Eyecare Team" < "SH
-        // Naturals"), putting Eyecare first — wrong. Sort by each product's team's
-        // position in $orderTeams (config order) instead, keeping sort_order as the
-        // tie-breaker within a team (sortBy() is a stable sort, so pre-sorting by
-        // sort_order first preserves that order within each team group).
-        $products    = Product::orderBy('sort_order')->get()
-            ->sortBy(fn($p) => array_search($p->team, $orderTeams))
+        // Every TSA across every team, sorted team-then-sort_order — same convention
+        // as the product ALL view this replaces (orderBy('team') alone would sort
+        // alphabetically, wrongly putting Eyecare before SH Naturals).
+        $shifts = TsaShift::whereIn('team', $orderTeams)->orderBy('sort_order')->get()
+            ->sortBy(fn($s) => array_search($s->team, $orderTeams))
             ->values();
-        $productRows = $products->map(fn($product) => $this->buildProductRow($product, $orders))->values();
 
-        $grandTotal = array_fill_keys(self::PRODUCT_SUMMARY_COLUMNS, 0);
-        foreach ($productRows as $row) {
-            foreach (self::PRODUCT_SUMMARY_COLUMNS as $col) {
-                $grandTotal[$col] += $row[$col];
-            }
-        }
-        $grandTotal = array_merge($grandTotal, $this->productRates($grandTotal));
+        $ordersByTsa = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+
+        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsa, $teamsConfig, $teamKeyByOrderTeam) {
+            $row     = ProductPerformance::tally($ordersByTsa->get($shift->tsa_key, collect()));
+            $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
+
+            $row['display_name'] = $shift->display_name;
+            $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
+            $row['team_key']     = $teamKey;
+            $row['tsa_key']      = $shift->tsa_key;
+
+            return $row;
+        })->values();
+
+        // Grand Total — tally() directly over every order in range, same reasoning as
+        // the Leads Report's Grand Total: summing the per-TSA rows above would drop
+        // any lead never claimed by a TSA (tsa_name null), since no row above
+        // represents it.
+        $grandTotal = ProductPerformance::tally($orders);
 
         $teams = $this->teamsMenu($teamsConfig);
 
         return view('tsa-performance-all', [
             'dateFrom'     => $dateFrom,
             'dateTo'       => $dateTo,
-            'productRows'  => $productRows,
+            'tsaRows'      => $tsaRows,
             'grandTotal'   => $grandTotal,
             'teams'        => $teams,
             'selectedTeam' => 'all',
@@ -386,16 +396,10 @@ class TsaPerformanceController extends Controller
         ]);
     }
 
-    /** Delegates to App\Support\ProductPerformance — shared with the Team Report
-     *  per-product hourly breakdown so both pages count the exact same way. */
-    private function buildProductRow(Product $product, Collection $orders): array
-    {
-        return ProductPerformance::buildRow($product, $orders);
-    }
-
     /** Pick-up / Conversion / Upselling rates from a row with 'answered', 'unanswered',
-     *  'upsell_confirmation', and 'confirmed_via_call' keys — shared by per-product rows
-     *  and the Grand Total row (see PRODUCT_SUMMARY_COLUMNS doc comment for why). */
+     *  'upsell_confirmation', and 'confirmed_via_call' keys — used by showTsa()'s
+     *  summary row above, which builds those subtotals itself rather than going
+     *  through ProductPerformance::tally() (which already includes these rates). */
     private function productRates(array $row): array
     {
         return ProductPerformance::rates($row);
