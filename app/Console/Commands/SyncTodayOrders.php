@@ -10,6 +10,7 @@ use App\Models\TsaShift;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SyncTodayOrders extends Command
 {
@@ -262,22 +263,53 @@ class SyncTodayOrders extends Command
             // rather than counted as a live cross-sell.
             $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
+
+            // Returned upsell: the order carries the TSA's upsell tag but its status is
+            // Returning/Returned specifically (not Cancelled/Restocking/Deleted, the other
+            // VOID_STATUSES). is_upsell above is already forced false for it like any void
+            // status, which would otherwise make it impossible to ever report "upsell
+            // revenue lost to returns" — this preserves that fact separately, the same way
+            // is_cancelled_upsell preserves the add-on-removed case. Unlike a cancelled
+            // add-on, a returned order's items array is untouched (only the shipping status
+            // changed), so extractUpsellAmount() below still isolates the correct add-on
+            // price on every sync — no carry-forward needed.
+            $isReturnedUpsell = in_array($statusCode, [4, 5], true) && $hasUpsellTag;
+
             $productName       = $this->extractUpsellProduct($raw, $isUpsell);
             $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName);
 
             // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
             // record was first created — often an automated event (e.g. a Facebook ad
             // lead) hours before any TSA touches it. Every hourly report in this app
-            // (TSA Performance, Team Report, Charts) reads pancake_created_at as "when
+            // (TSA Performance, Leads Report, Charts) reads pancake_created_at as "when
             // this call happened", so store the moment the TSA's own tag was actually
             // added (from Pancake's histories log) instead, falling back to insertion
             // time when the tag was already present at creation.
-            $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? null, $carbonPHT);
+            //
+            // Excess/uncatered leads (no TSA tag ever matched) are a special case of
+            // this same problem: Pancake's own end-of-day sweep is what actually makes
+            // a lead "Excess" by adding the UNCATERED LEADS tag, and — confirmed
+            // against live histories data across leads created hours apart — that sweep
+            // always lands within the same ~2-minute nightly window (~11:56-11:58 PM
+            // Manila), regardless of each lead's own creation time. Falling back to
+            // insertion time here would scatter Excess Leads across whatever hour each
+            // lead happened to be created in instead of the single hour it was
+            // actually swept.
+            $excessSweepTag = ($tsaInfo['name'] === null && $disposition === 'UNCATERED LEADS') ? 'UNCATERED LEADS' : null;
+            $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? $excessSweepTag, $carbonPHT);
 
             // Fix 2: For upsell orders, only count the added items (not the original product)
+            if ($isUpsell) {
+                $this->warnIfAmbiguousUpsellItems($raw);
+            }
             $amount = $isUpsell
                 ? $this->extractUpsellAmount($raw)
                 : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
+
+            // See $isReturnedUpsell comment above — this is the isolated add-on price,
+            // computed independently of $amount (which holds the whole order's total
+            // for this row, since is_upsell is forced false by the void status).
+            $returnedUpsellAmount = $isReturnedUpsell ? $this->extractUpsellAmount($raw) : 0.0;
 
             $parsed[] = [
                 'pancake_order_id'        => (string)$raw['id'],
@@ -289,7 +321,13 @@ class SyncTodayOrders extends Command
                 'raw_tags'                => $tagNames,
                 'is_upsell'               => $isUpsell,
                 'is_cancelled_upsell'     => $isCancelledUpsell,
-                'cancelled_upsell_amount' => 0.0,
+                // null = never captured (this sync never saw the order as a live
+                // upsell before Pancake's data showed it cancelled) — distinct from a
+                // confirmed ₱0. See the carry-forward logic below, which is the only
+                // place this ever gets a real value.
+                'cancelled_upsell_amount' => null,
+                'is_returned_upsell'      => $isReturnedUpsell,
+                'returned_upsell_amount'  => $returnedUpsellAmount,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
                 'synced_at'               => now()->toDateTimeString(),
@@ -317,7 +355,12 @@ class SyncTodayOrders extends Command
             // forward instead of re-deriving it (there's nothing left to derive from).
             if ($row['is_cancelled_upsell']) {
                 if ($prev?->is_cancelled_upsell) {
-                    $row['cancelled_upsell_amount'] = (float) $prev->cancelled_upsell_amount;
+                    // Carry the previous row's value through as-is — including null,
+                    // if THAT row never captured a real amount either. Casting null to
+                    // (float) would silently turn "unknown" into a false "confirmed ₱0".
+                    $row['cancelled_upsell_amount'] = $prev->cancelled_upsell_amount === null
+                        ? null
+                        : (float) $prev->cancelled_upsell_amount;
                 } elseif ($prev?->is_upsell) {
                     $row['cancelled_upsell_amount'] = (float) $prev->amount;
                 }
@@ -349,6 +392,7 @@ class SyncTodayOrders extends Command
                 [
                     'team', 'tsa_name', 'disposition', 'product', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
+                    'is_returned_upsell', 'returned_upsell_amount',
                     'status_code', 'pancake_created_at', 'synced_at',
                 ]
             );
@@ -515,6 +559,39 @@ class SyncTodayOrders extends Command
         return null;
     }
 
+    /**
+     * extractUpsellAmount()'s fallback (no "(Product Name)" tag hint) assumes the
+     * ORIGINAL item is always items[0] and everything after it is the TSA's add-on
+     * — Pancake doesn't guarantee that ordering (see Fix #7/#8 above), so when 2+
+     * items share the exact same product name, there's no name-based signal left to
+     * tell which one is really the base vs. the add-on either. Rather than silently
+     * trust array position for a case we can independently see is ambiguous, this
+     * logs it so a human can check the actual order in Pancake — the computed
+     * amount still uses the same positional fallback as always (no better rule
+     * exists to replace it with), this only makes the guess visible instead of
+     * invisible.
+     */
+    private function warnIfAmbiguousUpsellItems(array $raw): void
+    {
+        $items = $raw['items'] ?? [];
+        if (count($items) < 2) return;
+        if ($this->findItemIndexByTagHint($raw) !== null) return;
+
+        $names = array_map(function ($item) {
+            $vi = $item['variation_info'] ?? [];
+            return strtoupper(preg_replace('/[^A-Z0-9]/i', '', $vi['name'] ?? $item['product_name'] ?? ''));
+        }, $items);
+
+        $duplicated = array_filter(array_count_values(array_filter($names)), fn($count) => $count > 1);
+        if (empty($duplicated)) return;
+
+        Log::warning('SyncTodayOrders: ambiguous upsell item order — 2+ items share the same product name with no tag hint to disambiguate the add-on', [
+            'pancake_order_id' => $raw['id'] ?? null,
+            'item_names'       => array_map(fn($item) => $item['variation_info']['name'] ?? $item['product_name'] ?? null, $items),
+            'item_prices'      => array_map(fn($item) => $item['variation_info']['retail_price'] ?? null, $items),
+        ]);
+    }
+
     private function extractTsaInfo(array $tagNames, array $raw = [], ?string $productName = null): array
     {
         // Primary: explicit name tag (JULIE, GEMMA, etc.)
@@ -552,6 +629,14 @@ class SyncTodayOrders extends Command
             return ['name' => null, 'team' => $team, 'matched_tag' => null];
         }
 
+        // Cart name matched nothing — try the order's tags too (a lead sometimes
+        // carries a product tag like "CLEARSIGHT" even when nobody claimed it).
+        foreach ($tagNames as $tag) {
+            if ($team = $this->inferTeamFromProduct($tag)) {
+                return ['name' => null, 'team' => $team, 'matched_tag' => null];
+            }
+        }
+
         return ['name' => null, 'team' => null, 'matched_tag' => null];
     }
 
@@ -563,8 +648,12 @@ class SyncTodayOrders extends Command
         // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
         // $this->products is loaded once in handle() (same reasoning as $tsaMap/
         // $sellerMap) so this doesn't re-query on every single order.
+        // matchesText (not stripos on one keyword): honors every configured alias
+        // and ignores spacing/punctuation, so a cart named "Clear Sight 3.0" maps
+        // to CLEARSIGHT's team instead of leaving the lead team-NULL and therefore
+        // invisible to every report (122 such leads in the 14 days before this fix).
         foreach ($this->products as $product) {
-            if (stripos($productName, $product->effective_keyword) !== false) {
+            if ($product->matchesText($productName)) {
                 return $product->team;
             }
         }
@@ -573,12 +662,15 @@ class SyncTodayOrders extends Command
     }
 
     /**
-     * The moment the TSA actually worked this order, not when the lead/order record was
-     * created. Pancake's `histories` log records every tag-list change with a timestamp;
-     * this finds the first entry where $matchedTag newly appears, which is when the TSA's
-     * own tag was added (typically well after $insertedAt for auto-created leads). Falls
-     * back to $insertedAt when there's no tag to match, or the tag was already present at
-     * creation (no history diff to find).
+     * The moment this order's defining tag was actually added, not when the lead/order
+     * record was created. Pancake's `histories` log records every tag-list change with a
+     * timestamp; this finds the first entry where $matchedTag newly appears. Usually
+     * $matchedTag is the TSA's own name tag (typically added well after $insertedAt for
+     * auto-created leads) — but the caller also passes 'UNCATERED LEADS' here for
+     * excess/uncatered orders, since that tag's own addition time (Pancake's nightly
+     * sweep) is what should anchor those rows, not their original creation time either.
+     * Falls back to $insertedAt when there's no tag to match, or the tag was already
+     * present at creation (no history diff to find).
      */
     public static function resolveWorkedAt(array $raw, ?string $matchedTag, ?Carbon $insertedAt): ?Carbon
     {
