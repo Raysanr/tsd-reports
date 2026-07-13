@@ -10,6 +10,10 @@ class Product extends Model
         'display_name', 'match_keyword', 'team', 'sort_order',
     ];
 
+    protected $casts = [
+        'is_hidden' => 'boolean',
+    ];
+
     /** The string actually used for substring matching against a tag or a
      *  cart's product name — falls back to display_name when no shorter
      *  override keyword is set. Replaces the old PRODUCT_TAG_OVERRIDES concept. */
