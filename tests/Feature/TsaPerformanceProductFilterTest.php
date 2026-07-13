@@ -58,4 +58,18 @@ class TsaPerformanceProductFilterTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('totals', fn($totals) => $totals['total'] === 1);
     }
+
+    public function test_hidden_product_is_excluded_from_the_dropdown_regardless_of_date(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $product->is_hidden = true;
+        $product->save();
+
+        $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals']));
+
+        $response->assertOk();
+        $response->assertViewHas('availableProducts', function ($products) {
+            return $products->doesntContain(fn($p) => $p->display_name === 'SINUXYL');
+        });
+    }
 }

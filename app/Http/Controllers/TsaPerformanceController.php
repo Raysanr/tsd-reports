@@ -85,7 +85,11 @@ class TsaPerformanceController extends Controller
         // pack/product — this mirrors that). 'all' means no filtering, same as before.
         // Sourced from the products table (Product Management page) instead of
         // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
+        // Hidden products never appear in this filter dropdown, regardless of date
+        // range — it's a picker shortcut, not a data view, and "All Products" (the
+        // default) already includes their data correctly either way.
         $availableProducts = Product::where('team', $teamsConfig[$selectedTeam]['order_team'])
+            ->where('is_hidden', false)
             ->orderBy('sort_order')->get();
         $selectedProduct   = request('product', session('filters.tsa_performance.product', 'all'));
 
