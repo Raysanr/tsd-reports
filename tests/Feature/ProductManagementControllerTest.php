@@ -112,4 +112,16 @@ class ProductManagementControllerTest extends TestCase
         $response->assertOk();
         $response->assertSee('Hidden');
     }
+
+    public function test_visible_products_do_not_show_a_hidden_badge(): void
+    {
+        // Checks for the badge's rendered text specifically, not the bare
+        // substring "Hidden" — the toggle button's own CSS class
+        // ("toggleHiddenBtn") contains that substring on every row regardless
+        // of state, which would make a plain assertDontSee('Hidden') always fail.
+        $response = $this->get(route('product-management'));
+
+        $response->assertOk();
+        $response->assertDontSee('>Hidden</span>', false);
+    }
 }
