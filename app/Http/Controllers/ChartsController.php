@@ -90,8 +90,12 @@ class ChartsController extends Controller
         $products = Product::orderBy('sort_order')->get()
             ->sortBy(fn($p) => array_search($p->team, $orderTeams))
             ->values();
+        // Same hidden-product rule as Leads Report: dropped only when there's
+        // genuinely nothing to show for the selected range.
         $productRows = $products
-            ->map(fn($p) => ProductPerformance::buildRow($p, $orders))
+            ->map(fn($p) => ['product' => $p, 'row' => ProductPerformance::buildRow($p, $orders)])
+            ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
+            ->pluck('row')
             ->sortByDesc('upselling_rate')
             ->values();
 
