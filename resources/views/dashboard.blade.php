@@ -29,46 +29,66 @@
 </div>
 @endif
 
-{{-- KPI CARDS --}}
+{{-- KPI CARDS — icon-badge layout: a tinted circular icon on the left identifies
+     the metric at a glance, label/value/subtitle stack to its right. Every card
+     shares the .stat-card hover-lift (defined in app.css, previously unused
+     anywhere) and tabular-nums on the value so digits don't jitter side-to-side
+     as numbers refresh via softRefresh(). --}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
 
-    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-        <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Cross-Sell Sales</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
-            ₱{{ number_format($stats['total_sales'], 2) }}
-        </p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">{{ $stats['total_orders'] }} orders</p>
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full flex items-center justify-center shrink-0" style="background:rgba(202,138,4,0.12)">
+            <svg class="w-6 h-6" style="color:#CA8A04" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Cross-Sell Sales</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($stats['total_sales'], 2) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['total_orders'] }} {{ \Illuminate\Support\Str::plural('order', $stats['total_orders']) }}</p>
+        </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-yellow-200 p-5 shadow-sm">
-        <p class="text-xs font-mono font-semibold text-yellow-600 uppercase tracking-wider mb-2">Total Restocking</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
-            ₱{{ number_format($stats['restocking_value'], 2) }}
-        </p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">{{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('order', $stats['restocking_count']) }} awaiting stock</p>
+    <div class="stat-card bg-white rounded-xl border border-yellow-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-amber-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-yellow-600 uppercase tracking-wider mb-1">Total Restocking</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($stats['restocking_value'], 2) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('order', $stats['restocking_count']) }} awaiting stock</p>
+        </div>
     </div>
 
-    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-        <div class="flex items-center gap-1.5 mb-2">
-            <svg class="w-3.5 h-3.5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-amber-500" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 1l2.39 5.51 5.99.52-4.53 3.95 1.38 5.87L10 13.77l-5.23 3.08 1.38-5.87L1.62 7.03l5.99-.52L10 1z"/>
             </svg>
-            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider">Top TSA Today</p>
         </div>
-        @if($topTsa && $topTsa->upsell_count > 0)
-        <p class="text-2xl font-bold text-slate-800 font-mono leading-none truncate" title="{{ $topTsa->display_name }}">
-            {{ $topTsa->display_name }}
-        </p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">
-            {{ $topTsa->team_name ?? '—' }} · {{ $topTsa->upsell_count }} {{ \Illuminate\Support\Str::plural('upsell', $topTsa->upsell_count) }} · {{ $topTsa->upsell_rate }}%
-        </p>
-        <p class="mt-1 text-sm font-bold font-mono text-accent">
-            ₱{{ number_format($topTsa->upsell_sales, 2) }}
-        </p>
-        @else
-        <p class="text-2xl font-bold text-slate-300 font-mono leading-none">—</p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">No upsells logged yet</p>
-        @endif
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">Top TSA Today</p>
+            @if($topTsa && $topTsa->upsell_count > 0)
+            <p class="text-lg font-bold text-slate-800 font-mono leading-none truncate" title="{{ $topTsa->display_name }}">
+                {{ $topTsa->display_name }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">
+                {{ $topTsa->team_name ?? '—' }} · {{ $topTsa->upsell_count }} {{ \Illuminate\Support\Str::plural('upsell', $topTsa->upsell_count) }} · {{ $topTsa->upsell_rate }}%
+            </p>
+            <p class="mt-1 text-sm font-bold font-mono text-accent" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($topTsa->upsell_sales, 2) }}
+            </p>
+            @else
+            <p class="text-2xl font-bold text-slate-300 font-mono leading-none">—</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">No upsells logged yet</p>
+            @endif
+        </div>
     </div>
 
     {{-- Total Cancelled Orders — deliberately a different accent (rose) from Total
@@ -77,13 +97,105 @@
          add-on while their primary order still went through. Because is_upsell is
          already forced false for these at sync time (SyncTodayOrders), the amount
          is automatically excluded from Total Cross-Sell Sales above with no manual
-         subtraction — this card is purely visibility into that, not a deduction step. --}}
-    <div class="bg-white rounded-xl border border-rose-200 p-5 shadow-sm">
-        <p class="text-xs font-mono font-semibold text-rose-500 uppercase tracking-wider mb-2">Total Cancelled Orders</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
-            ₱{{ number_format($stats['cancelled_value'], 2) }}
-        </p>
-        <p class="mt-2 text-xs text-slate-400 font-mono">{{ $stats['cancelled_count'] }} upsell {{ \Illuminate\Support\Str::plural('cancellation', $stats['cancelled_count']) }}</p>
+         subtraction — this card is purely visibility into that, not a deduction step.
+
+         cancelled_unknown_count: Pancake's own data never retains the removed add-on's
+         price once it's gone (confirmed against its histories log, which only ever
+         carries tags/payment fields, never an items snapshot) — so when our sync never
+         caught the order while it was still a live upsell, the amount is genuinely
+         unrecoverable, not just missing. Shown as "—" rather than a misleading ₱0.00. --}}
+    @php
+        $cancelledKnownCount = $stats['cancelled_count'] - $stats['cancelled_unknown_count'];
+    @endphp
+    <div class="stat-card bg-white rounded-xl border border-rose-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-rose-500 uppercase tracking-wider mb-1">Total Cancelled Orders</p>
+            @if($stats['cancelled_count'] > 0 && $cancelledKnownCount === 0)
+            <p class="text-2xl font-bold text-slate-300 font-mono leading-none">—</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['cancelled_count'] }} upsell {{ \Illuminate\Support\Str::plural('cancellation', $stats['cancelled_count']) }} · amount unavailable</p>
+            @else
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($stats['cancelled_value'], 2) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">
+                {{ $stats['cancelled_count'] }} upsell {{ \Illuminate\Support\Str::plural('cancellation', $stats['cancelled_count']) }}
+                @if($stats['cancelled_unknown_count'] > 0)
+                · {{ $stats['cancelled_unknown_count'] }} amount unknown
+                @endif
+            </p>
+            @endif
+        </div>
+    </div>
+
+    {{-- NEW — the four call/lead funnel metrics (Total Leads → Pick-up Rate →
+         Upselling Rate → AOV) that drive every other report in this app, but were
+         previously only visible on the Leads Report / TSA Performance pages, not
+         here. Same ProductPerformance::tally() definitions as those pages, just
+         company-wide instead of one team, so these numbers can never disagree with
+         what those reports show for the same range. --}}
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">Total Leads</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                {{ number_format($stats['total_leads']) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">New leads in range</p>
+        </div>
+    </div>
+
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">Pick-up Rate</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                {{ $stats['pick_up_rate'] !== null ? $stats['pick_up_rate'].'%' : '—' }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">Answered / called leads</p>
+        </div>
+    </div>
+
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-green-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">Upselling Rate</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                {{ $stats['upselling_rate'] !== null ? $stats['upselling_rate'].'%' : '—' }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">Upsells / confirmed calls</p>
+        </div>
+    </div>
+
+    <div class="stat-card bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center shrink-0">
+            <svg class="w-6 h-6 text-violet-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+        </div>
+        <div class="min-w-0">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">AOV</p>
+            <p class="text-2xl font-bold text-slate-800 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($stats['aov'], 2) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">Average per upsell order</p>
+        </div>
     </div>
 
 </div>
@@ -92,8 +204,11 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
 
 <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
-        <div class="px-5 py-4 border-b border-slate-100">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 class="text-sm font-bold text-slate-700 font-mono">Recent Orders</h2>
+            @if(!$recentOrders->isEmpty())
+            @include('partials.table-actions', ['target' => 'recentOrdersTable', 'name' => 'recent-orders'])
+            @endif
         </div>
 
         @if($recentOrders->isEmpty())
@@ -104,7 +219,7 @@
             <p class="text-sm font-mono text-slate-400">Recent orders will appear here once synced</p>
         </div>
         @else
-        <div class="flex-1 overflow-y-auto">
+        <div class="flex-1 overflow-y-auto" id="recentOrdersTable">
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-slate-50 text-xs font-mono text-slate-400 uppercase tracking-wide">

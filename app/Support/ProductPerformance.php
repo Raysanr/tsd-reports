@@ -8,7 +8,7 @@ use Illuminate\Support\Collection;
 /**
  * Computes one Product's lead-count/disposition/rate row from a candidate orders
  * collection — the shared counting logic behind both the TSA Performance "ALL"
- * view (one row per product, whole day) and the Team Report per-product hourly
+ * view (one row per product, whole day) and the Leads Report per-product hourly
  * breakdown (one row per product PER HOUR). Extracted so both call sites can
  * never drift into counting the same thing two different ways — exactly how the
  * Excess/Sales/Upselling Rate definition bugs earlier in this project happened.
@@ -57,9 +57,9 @@ class ProductPerformance
         $matching = $orders->filter(function ($o) use ($product) {
             if ($o->team !== $product->team) return false;
             foreach ($o->raw_tags ?? [] as $tag) {
-                if (stripos($tag, $product->effective_keyword) !== false) return true;
+                if ($product->matchesText($tag)) return true;
             }
-            return $o->product && stripos($o->product, $product->effective_keyword) !== false;
+            return $product->matchesText($o->product);
         });
 
         $row = self::tally($matching);
@@ -75,21 +75,30 @@ class ProductPerformance
      *  this plus a product-matching filter step beforehand. */
     public static function tally(Collection $orders): array
     {
+        // The 12 outcome columns count NON-upsell leads only: an upsell order often
+        // still carries a disposition tag (e.g. is_upsell + "CONFIRMED VIA CALL", or
+        // a stale "Not answering" from an earlier attempt), and counting it in both
+        // its disposition column AND Upsell w/ Confirmation counted one lead twice —
+        // letting Called Leads exceed New Leads (seen live: 3 new / 4 called). The
+        // Upselling Rate formula (upsell ÷ (upsell + confirmed_via_call)) already
+        // treats these columns as mutually exclusive; this makes the counts agree.
+        $nonUpsell = $orders->where('is_upsell', false);
+
         $row = [
             'total'                  => $orders->count(),
-            'confirmed_via_call'     => self::count($orders, 'confirmed via call'),
+            'confirmed_via_call'     => self::count($nonUpsell, 'confirmed via call'),
             'upsell_confirmation'    => $orders->where('is_upsell', true)->count(),
-            'call_back'              => self::count($orders, 'call back'),
-            'call_dropped'           => self::count($orders, 'call dropped'),
-            'repeat_order_upsell'    => self::count($orders, 'repeat order'),
-            'rude_customer'          => self::count($orders, 'rude customer'),
-            'relatives_confirmation' => self::count($orders, 'relatives'),
-            'dfr'                    => self::count($orders, 'dfr'),
-            'double_order'           => self::count($orders, 'double order'),
-            'fsd_uncleared'          => self::count($orders, 'fsd'),
-            'not_answering'          => self::count($orders, 'not answering'),
-            'unattended'             => self::count($orders, 'unattended'),
-            'invalid_number'         => self::count($orders, 'invalid number'),
+            'call_back'              => self::count($nonUpsell, 'call back'),
+            'call_dropped'           => self::count($nonUpsell, 'call dropped'),
+            'repeat_order_upsell'    => self::count($nonUpsell, 'repeat order'),
+            'rude_customer'          => self::count($nonUpsell, 'rude customer'),
+            'relatives_confirmation' => self::count($nonUpsell, 'relatives'),
+            'dfr'                    => self::count($nonUpsell, 'dfr'),
+            'double_order'           => self::count($nonUpsell, 'double order'),
+            'fsd_uncleared'          => self::count($nonUpsell, 'fsd'),
+            'not_answering'          => self::count($nonUpsell, 'not answering'),
+            'unattended'             => self::count($nonUpsell, 'unattended'),
+            'invalid_number'         => self::count($nonUpsell, 'invalid number'),
         ];
 
         // Excess = swept "UNCATERED LEADS" AND never claimed by a TSA. A null
@@ -114,6 +123,14 @@ class ProductPerformance
         // having a recognized disposition (e.g. a "Call in Progress" tag never
         // finalized), so total_called can be smaller than total.
         $row['total_called'] = $row['answered'] + $row['unanswered'];
+
+        // The reconciling remainder: leads a TSA claimed but that carry no final
+        // outcome yet — mid-call ("Call in Progress" tag), an upsell parked in
+        // Restocking, or simply not yet disposition-tagged. Makes every row add up
+        // visibly: total = total_called + excess + in_progress. The three buckets
+        // are disjoint because UNCATERED LEADS isn't one of the 13 counted
+        // dispositions, so an excess lead is never inside total_called.
+        $row['in_progress'] = $row['total'] - $row['total_called'] - $row['excess'];
 
         return array_merge($row, self::rates($row));
     }

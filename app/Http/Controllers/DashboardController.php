@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
+use App\Support\ProductPerformance;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -30,7 +31,7 @@ class DashboardController extends Controller
         $dbError       = null;
         $hasSyncedData = false;
 
-        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true];
+        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
         $syncRuns       = collect();
         $tsaLeaderboard   = collect();
@@ -69,7 +70,12 @@ class DashboardController extends Controller
             // already forced false for these by SyncTodayOrders, so they're automatically
             // excluded from $grossSales/$totalOrders above with no separate subtraction
             // needed here). cancelled_upsell_amount preserves what the add-on would have
-            // been worth, captured before Pancake's own data dropped that line item.
+            // been worth, captured before Pancake's own data dropped that line item —
+            // but only when a prior sync had already seen the order as a live upsell.
+            // When that never happened, cancelled_upsell_amount is NULL (not 0): Pancake's
+            // own histories log never retains an items/price snapshot, so that value is
+            // genuinely unrecoverable, not just missing — SUM() below ignores those NULLs
+            // rather than silently treating them as a confirmed ₱0.
             $cancelledUpsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->where('is_cancelled_upsell', true);
 
@@ -90,12 +96,27 @@ class DashboardController extends Controller
                 'total_orders'     => $totalOrders,
                 'restocking_count' => (clone $restocking)->count(),
                 'restocking_value' => (clone $restocking)->sum('amount'),
-                'cancelled_count'  => (clone $cancelledUpsells)->count(),
-                'cancelled_value'  => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
+                'cancelled_count'         => (clone $cancelledUpsells)->count(),
+                'cancelled_value'         => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
+                'cancelled_unknown_count' => (clone $cancelledUpsells)->whereNull('cancelled_upsell_amount')->count(),
                 'last_synced'      => $lastSynced,
                 'sync_interval'    => $syncIntervalMin,
                 'sync_stale'       => $syncStale,
             ];
+
+            // Company-wide lead/call funnel — same counting logic as the Leads Report
+            // and TSA Performance "ALL" view (ProductPerformance::tally), just run over
+            // every team's orders in this range instead of one team, so Total Leads /
+            // Pick-up Rate / Upselling Rate on the Dashboard can never drift from how
+            // those same metrics are defined everywhere else in the app.
+            $leadTally = ProductPerformance::tally(
+                Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->get()
+            );
+
+            $stats['total_leads']    = $leadTally['total'];
+            $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
+            $stats['upselling_rate'] = $leadTally['upselling_rate'];
+            $stats['aov']            = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
 
             // Last 20 runs, oldest→newest, for the sync activity trend below.
             $syncRuns = SyncRun::orderByDesc('ran_at')->limit(20)->get()->reverse()->values();
