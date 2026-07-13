@@ -100,4 +100,16 @@ class ProductManagementControllerTest extends TestCase
 
         $this->assertDatabaseHas('products', ['id' => $product->id, 'is_hidden' => false]);
     }
+
+    public function test_hidden_products_show_a_hidden_badge_on_the_page(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $product->is_hidden = true;
+        $product->save();
+
+        $response = $this->get(route('product-management'));
+
+        $response->assertOk();
+        $response->assertSee('Hidden');
+    }
 }
