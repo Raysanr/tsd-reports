@@ -8,8 +8,39 @@ class TsaShift extends Model
 {
     protected $fillable = [
         'tsa_key', 'pos_user_id', 'display_name', 'team', 'tag_keywords', 'seller_keywords',
-        'shift_start', 'shift_end', 'sort_order',
+        'shift_start', 'shift_end', 'sort_order', 'rest_day_of_week',
     ];
+
+    public function restDays()
+    {
+        return $this->hasMany(TsaRestDay::class);
+    }
+
+    /**
+     * Whether this TSA is off on $date. An explicit tsa_rest_days row (either an
+     * extra day off, or an override back to working) always wins over the
+     * recurring rule; otherwise falls back to whether $date's weekday matches
+     * rest_day_of_week.
+     *
+     * Deliberately does NOT use Collection::firstWhere('date', ...) — the `date`
+     * attribute is Carbon-cast, and firstWhere's loose `==` comparison against a
+     * plain date string compares Carbon's default __toString() ("Y-m-d H:i:s")
+     * against a "Y-m-d" string, which never matches. Compares toDateString()
+     * explicitly instead.
+     */
+    public function isOffOn(\Illuminate\Support\Carbon $date): bool
+    {
+        $override = $this->restDays->first(
+            fn (TsaRestDay $r) => $r->date->toDateString() === $date->toDateString()
+        );
+
+        if ($override !== null) {
+            return $override->is_off;
+        }
+
+        return $this->rest_day_of_week !== null
+            && strtolower($date->format('l')) === $this->rest_day_of_week;
+    }
 
     public function getShiftRangeAttribute(): string
     {
