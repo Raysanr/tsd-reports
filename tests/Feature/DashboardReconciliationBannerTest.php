@@ -39,16 +39,31 @@ class DashboardReconciliationBannerTest extends TestCase
         $response->assertSee('sync may have missed a window', false);
     }
 
-    public function test_dashboard_shows_no_banner_when_the_setting_was_never_written(): void
+    public function test_dashboard_shows_no_banner_when_the_setting_row_has_a_null_value(): void
     {
         $this->actingAs(User::factory()->create());
 
-        // pancake:reconcile has never run — Setting::get() returns null, not '[]'.
+        // Setting::get() only ever returns raw null when a row exists with value
+        // IS NULL — a missing row instead falls back to the '[]' default passed at
+        // the DashboardController call site, so it behaves identically to the "no
+        // issues" test above. Setting::set() always writes a JSON-encoded string
+        // and can never produce this state; the `value` column is nullable though,
+        // so it's reachable via a manual DB edit or a future write path. Insert the
+        // row directly to exercise DashboardController's `?: []` fallback against a
+        // real json_decode(null, true) === null.
+        Setting::query()->create(['key' => 'reconciliation_issues', 'value' => null]);
 
         $response = $this->get(route('dashboard'));
 
         $response->assertOk();
         $response->assertDontSee('Tag drift');
         $response->assertDontSee('Completeness:');
+
+        // The HTML assertions above pass even without the `?: []` fallback, because
+        // the view guards with `@if(!empty($reconciliationIssues))` and empty(null)
+        // is also true — so they can't actually prove the fallback matters. Assert
+        // directly on the data handed to the view instead: without `?: []` this
+        // would be null (json_decode(null, true) === null), not [].
+        $response->assertViewHas('reconciliationIssues', []);
     }
 }

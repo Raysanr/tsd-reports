@@ -27,10 +27,10 @@ class DashboardController extends Controller
         $dateFrom = Carbon::parse($fromInput)->startOfDay();
         $dateTo   = Carbon::parse($toInput)->endOfDay();
 
-        $apiConnected  = !empty(Setting::get('pancake_api_key', config('services.pancake.api_key')));
-        $dbError       = null;
-        $hasSyncedData = false;
-        $reconciliationIssues = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
+        $apiConnected          = !empty(Setting::get('pancake_api_key', config('services.pancake.api_key')));
+        $dbError               = null;
+        $hasSyncedData         = false;
+        $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
 
         $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
