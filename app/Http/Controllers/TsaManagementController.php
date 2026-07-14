@@ -134,6 +134,44 @@ class TsaManagementController extends Controller
             ->with('success', "Removed \"{$name}\" from the roster.");
     }
 
+    /**
+     * Persists which TSAs are off on $date. Only writes a tsa_rest_days row when
+     * the submitted state actually differs from what rest_day_of_week alone would
+     * produce — matching or removed rows are deleted so the table only ever holds
+     * genuine exceptions (see the migration's comment on tsa_rest_days.is_off).
+     */
+    public function saveRestDays(Request $request, string $date)
+    {
+        $parsedDate  = Carbon::createFromFormat('Y-m-d', $date)->startOfDay();
+        $checkedKeys = $request->input('tsas', []);
+        $shifts      = TsaShift::with('restDays')->get();
+
+        foreach ($shifts as $shift) {
+            $defaultOff = $shift->rest_day_of_week !== null
+                && strtolower($parsedDate->format('l')) === $shift->rest_day_of_week;
+            $desiredOff = in_array($shift->tsa_key, $checkedKeys, true);
+
+            $existing = $shift->restDays->first(
+                fn (TsaRestDay $r) => $r->date->toDateString() === $parsedDate->toDateString()
+            );
+
+            if ($desiredOff === $defaultOff) {
+                $existing?->delete();
+            } elseif ($existing) {
+                $existing->update(['is_off' => $desiredOff]);
+            } else {
+                TsaRestDay::create([
+                    'tsa_shift_id' => $shift->id,
+                    'date'         => $parsedDate->toDateString(),
+                    'is_off'       => $desiredOff,
+                ]);
+            }
+        }
+
+        return redirect()->route('tsa-management', ['month' => $parsedDate->format('Y-m')])
+            ->with('success', "Updated rest days for {$parsedDate->format('M j, Y')}.");
+    }
+
     /** AJAX — search the real Pancake POS user list for the Add/Edit TSA picker. */
     public function searchPosUsers(Request $request): JsonResponse
     {

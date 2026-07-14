@@ -91,4 +91,68 @@ class TsaManagementControllerTest extends TestCase
         $response->assertSee('month=' . Carbon::createFromFormat('Y-m', $month)->subMonthNoOverflow()->format('Y-m'), false);
         $response->assertSee('month=' . Carbon::createFromFormat('Y-m', $month)->addMonthNoOverflow()->format('Y-m'), false);
     }
+
+    public function test_save_rest_days_creates_an_override_for_a_non_recurring_extra_day_off(): void
+    {
+        $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
+        $monday  = Carbon::parse('next monday');
+
+        $response = $this->post(route('tsa-management.rest-days', $monday->toDateString()), [
+            'tsas' => ['Marisol'],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('tsa_rest_days', [
+            'tsa_shift_id' => $marisol->id,
+            'date'         => $monday->toDateString(),
+            'is_off'       => true,
+        ]);
+    }
+
+    public function test_save_rest_days_does_not_create_a_row_when_it_matches_the_recurring_default(): void
+    {
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+        $sunday = Carbon::parse('next sunday');
+
+        $response = $this->post(route('tsa-management.rest-days', $sunday->toDateString()), [
+            'tsas' => ['Julie'],
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseMissing('tsa_rest_days', ['tsa_shift_id' => $julie->id, 'date' => $sunday->toDateString()]);
+    }
+
+    public function test_save_rest_days_creates_an_override_when_unchecking_a_recurring_rest_day(): void
+    {
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+        $sunday = Carbon::parse('next sunday');
+
+        $response = $this->post(route('tsa-management.rest-days', $sunday->toDateString()), [
+            'tsas' => [], // Julie unchecked despite her recurring Sunday off
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('tsa_rest_days', [
+            'tsa_shift_id' => $julie->id,
+            'date'         => $sunday->toDateString(),
+            'is_off'       => false,
+        ]);
+    }
+
+    public function test_save_rest_days_deletes_a_stale_override_that_now_matches_the_recurring_default(): void
+    {
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+        $sunday = Carbon::parse('next sunday');
+        \App\Models\TsaRestDay::create(['tsa_shift_id' => $julie->id, 'date' => $sunday->toDateString(), 'is_off' => false]);
+
+        $response = $this->post(route('tsa-management.rest-days', $sunday->toDateString()), [
+            'tsas' => ['Julie'], // checked again, matches the recurring default now
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseMissing('tsa_rest_days', ['tsa_shift_id' => $julie->id, 'date' => $sunday->toDateString()]);
+    }
 }

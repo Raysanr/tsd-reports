@@ -51,6 +51,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
     Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
     Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
+    Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 
     Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
     Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');

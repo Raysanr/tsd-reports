@@ -242,6 +242,30 @@
     @method('DELETE')
 </form>
 
+{{-- Rest Day modal — a separate modal instance from #tsaModal above, toggled the
+     same way (hidden class + click handlers), so editing a date's rest days doesn't
+     share state with the Add/Edit TSA modal. --}}
+<div id="restDayModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100">
+            <h3 id="restDayModalTitle" class="text-sm font-bold text-slate-800">Rest days</h3>
+        </div>
+        <form id="restDayForm" method="POST" class="px-6 py-5 space-y-3">
+            @csrf
+            @foreach($shifts as $shift)
+            <label class="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" name="tsas[]" value="{{ $shift->tsa_key }}" class="restDayCheckbox" data-tsa-key="{{ $shift->tsa_key }}">
+                {{ $shift->display_name }}
+            </label>
+            @endforeach
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <button type="button" id="cancelRestDayModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @push('scripts')
 <script>
 (function () {
@@ -357,6 +381,36 @@
         if (!resultsBox.contains(e.target) && e.target !== nameInput) {
             resultsBox.classList.add('hidden');
         }
+    });
+})();
+</script>
+<script>
+(function () {
+    const restDayModal      = document.getElementById('restDayModal');
+    const restDayForm       = document.getElementById('restDayForm');
+    const restDayModalTitle = document.getElementById('restDayModalTitle');
+
+    document.querySelectorAll('.restDayCell').forEach(cell => {
+        cell.addEventListener('click', () => {
+            const date    = cell.dataset.date;
+            const offKeys = cell.dataset.off ? cell.dataset.off.split(',') : [];
+
+            document.querySelectorAll('.restDayCheckbox').forEach(cb => {
+                cb.checked = offKeys.includes(cb.dataset.tsaKey);
+            });
+
+            restDayForm.action = `{{ url('/tsa-management/rest-days') }}/${date}`;
+            restDayModalTitle.textContent = 'Rest days — ' + new Date(date + 'T00:00:00')
+                .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+            restDayModal.classList.remove('hidden');
+        });
+    });
+
+    document.getElementById('cancelRestDayModal').addEventListener('click', () => {
+        restDayModal.classList.add('hidden');
+    });
+    restDayModal.addEventListener('click', (e) => {
+        if (e.target === restDayModal) restDayModal.classList.add('hidden');
     });
 })();
 </script>
