@@ -86,14 +86,15 @@ class TsaManagementController extends Controller
         $nextSort = (int) (TsaShift::max('sort_order') ?? 0) + 1;
 
         TsaShift::create([
-            'tsa_key'         => $tsaKey,
-            'pos_user_id'     => $data['pos_user_id'] ?? null,
-            'display_name'    => $data['display_name'],
-            'team'            => $data['team'],
-            'tag_keywords'    => $this->buildTagKeywords($tsaKey, $data['extra_keywords'] ?? ''),
+            'tsa_key'          => $tsaKey,
+            'pos_user_id'      => $data['pos_user_id'] ?? null,
+            'display_name'     => $data['display_name'],
+            'team'             => $data['team'],
+            'tag_keywords'     => $this->buildTagKeywords($tsaKey, $data['extra_keywords'] ?? ''),
             // Fresh record: only set if a real POS account was picked, otherwise leave null.
-            'seller_keywords' => !empty($data['pos_user_id']) ? strtolower($data['display_name']) : null,
-            'sort_order'      => $nextSort,
+            'seller_keywords'  => !empty($data['pos_user_id']) ? strtolower($data['display_name']) : null,
+            'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
+            'sort_order'       => $nextSort,
         ]);
 
         return redirect()->route('tsa-management')
@@ -114,11 +115,12 @@ class TsaManagementController extends Controller
         }
 
         $tsaShift->update([
-            'pos_user_id'     => $data['pos_user_id'] ?? $tsaShift->pos_user_id,
-            'display_name'    => $data['display_name'],
-            'team'            => $data['team'],
-            'tag_keywords'    => $this->buildTagKeywords($tsaShift->tsa_key, $data['extra_keywords'] ?? ''),
-            'seller_keywords' => $sellerKeywords,
+            'pos_user_id'      => $data['pos_user_id'] ?? $tsaShift->pos_user_id,
+            'display_name'     => $data['display_name'],
+            'team'             => $data['team'],
+            'tag_keywords'     => $this->buildTagKeywords($tsaShift->tsa_key, $data['extra_keywords'] ?? ''),
+            'seller_keywords'  => $sellerKeywords,
+            'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
         ]);
 
         return redirect()->route('tsa-management')
@@ -222,10 +224,11 @@ class TsaManagementController extends Controller
         $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
 
         return $request->validate([
-            'display_name'   => 'required|string|max:100',
-            'team'           => 'required|string|in:' . implode(',', $validTeams),
-            'pos_user_id'    => 'nullable|string|max:100',
-            'extra_keywords' => 'nullable|string|max:255',
+            'display_name'     => 'required|string|max:100',
+            'team'             => 'required|string|in:' . implode(',', $validTeams),
+            'pos_user_id'      => 'nullable|string|max:100',
+            'extra_keywords'   => 'nullable|string|max:255',
+            'rest_day_of_week' => 'nullable|string|in:sunday,monday,tuesday,wednesday,thursday,friday,saturday',
         ]);
     }
 

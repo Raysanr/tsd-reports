@@ -155,4 +155,43 @@ class TsaManagementControllerTest extends TestCase
         $response->assertRedirect();
         $this->assertDatabaseMissing('tsa_rest_days', ['tsa_shift_id' => $julie->id, 'date' => $sunday->toDateString()]);
     }
+
+    public function test_store_persists_rest_day_of_week(): void
+    {
+        $response = $this->post(route('tsa-management.store'), [
+            'display_name'     => 'New TSA',
+            'team'              => 'SH Naturals',
+            'rest_day_of_week'  => 'monday',
+        ]);
+
+        $response->assertRedirect(route('tsa-management'));
+        $this->assertDatabaseHas('tsa_shifts', ['display_name' => 'New TSA', 'rest_day_of_week' => 'monday']);
+    }
+
+    public function test_update_can_clear_rest_day_of_week(): void
+    {
+        $julie = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+
+        $response = $this->put(route('tsa-management.update', $julie), [
+            'display_name' => $julie->display_name,
+            'team'          => $julie->team,
+            // rest_day_of_week omitted entirely -> should clear back to null
+        ]);
+
+        $response->assertRedirect(route('tsa-management'));
+        $this->assertDatabaseHas('tsa_shifts', ['id' => $julie->id, 'rest_day_of_week' => null]);
+    }
+
+    public function test_store_rejects_an_invalid_rest_day_value(): void
+    {
+        $response = $this->post(route('tsa-management.store'), [
+            'display_name'     => 'Bad TSA',
+            'team'              => 'SH Naturals',
+            'rest_day_of_week'  => 'someday',
+        ]);
+
+        $response->assertSessionHasErrors('rest_day_of_week');
+        $this->assertDatabaseMissing('tsa_shifts', ['display_name' => 'Bad TSA']);
+    }
 }

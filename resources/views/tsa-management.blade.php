@@ -98,7 +98,8 @@
                             data-display-name="{{ $shift->display_name }}"
                             data-team="{{ $shift->team }}"
                             data-extra="{{ $shift->extra_tag_keywords }}"
-                            data-pos-user-id="{{ $shift->pos_user_id }}">
+                            data-pos-user-id="{{ $shift->pos_user_id }}"
+                            data-rest-day="{{ $shift->rest_day_of_week }}">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                             </svg>
@@ -228,6 +229,23 @@
                 <p class="text-[11px] text-slate-400 mt-1">Their first name is matched automatically — add this only if Pancake tags use a different spelling or nickname.</p>
             </div>
 
+            <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">
+                    Rest day <span class="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <select name="rest_day_of_week" id="tsaRestDaySelect"
+                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <option value="">None</option>
+                    <option value="sunday">Sunday</option>
+                    <option value="monday">Monday</option>
+                    <option value="tuesday">Tuesday</option>
+                    <option value="wednesday">Wednesday</option>
+                    <option value="thursday">Thursday</option>
+                    <option value="friday">Friday</option>
+                    <option value="saturday">Saturday</option>
+                </select>
+            </div>
+
             <div class="flex items-center justify-end gap-2 pt-2">
                 <button type="button" id="cancelTsaModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="tsaSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add TSA</button>
@@ -278,6 +296,7 @@
     const nameInput     = document.getElementById('tsaNameInput');
     const teamSelect    = document.getElementById('tsaTeamSelect');
     const extraInput    = document.getElementById('tsaExtraInput');
+    const restDaySelect = document.getElementById('tsaRestDaySelect');
     const submitBtn     = document.getElementById('tsaSubmitBtn');
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
@@ -292,6 +311,7 @@
         posUserIdInput.value = '';
         nameInput.value = '';
         extraInput.value = '';
+        restDaySelect.value = '';
         teamSelect.selectedIndex = 0;
         linkedHint.classList.add('hidden');
         modalTitle.textContent = 'Add a new TSA';
@@ -313,6 +333,7 @@
             nameInput.value = btn.dataset.displayName || '';
             teamSelect.value = btn.dataset.team || '';
             extraInput.value = btn.dataset.extra || '';
+            restDaySelect.value = btn.dataset.restDay || '';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.classList.remove('hidden');
             modalTitle.textContent = 'Edit TSA';
