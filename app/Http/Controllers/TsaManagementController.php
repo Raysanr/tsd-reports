@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Setting;
+use App\Models\TsaRestDay;
 use App\Models\TsaShift;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -14,7 +17,7 @@ class TsaManagementController extends Controller
     public function index()
     {
         $teamsConfig = config('teams', []);
-        $shifts      = TsaShift::orderBy('sort_order')->get();
+        $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get();
 
         // Group TSAs by team for display, using each configured team's real
         // 'order_team' string (e.g. "SH Naturals") as the grouping key.
@@ -28,7 +31,51 @@ class TsaManagementController extends Controller
         // Any TSA whose team doesn't match a configured team (data issue / manual edit)
         $unassigned = $shifts->reject(fn($s) => collect($teamsConfig)->pluck('order_team')->contains($s->team));
 
-        return view('tsa-management', compact('teamGroups', 'teamsConfig', 'unassigned'));
+        $calendar = $this->buildCalendar($shifts, request('month'));
+
+        return view('tsa-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts'));
+    }
+
+    /**
+     * Builds the month calendar grid for the rest-day sidebar: which TSAs are off on
+     * each date of the requested (or current) month. Falls back to the current month
+     * for a missing/invalid ?month= value rather than erroring.
+     */
+    private function buildCalendar(Collection $shifts, ?string $monthParam): array
+    {
+        $month = null;
+        if ($monthParam) {
+            try {
+                $month = Carbon::createFromFormat('Y-m', $monthParam)->startOfMonth();
+            } catch (\Throwable $e) {
+                $month = null;
+            }
+        }
+        $month ??= now('Asia/Manila')->startOfMonth();
+
+        $days   = [];
+        $cursor = $month->copy();
+        while ($cursor->month === $month->month) {
+            $offTsas = $shifts
+                ->filter(fn($shift) => $shift->isOffOn($cursor))
+                ->map(fn($shift) => ['tsa_key' => $shift->tsa_key, 'initials' => strtoupper(substr($shift->display_name, 0, 2))])
+                ->values();
+
+            $days[] = [
+                'date'     => $cursor->toDateString(),
+                'day'      => $cursor->day,
+                'off_tsas' => $offTsas,
+            ];
+            $cursor->addDay();
+        }
+
+        return [
+            'month_label'    => $month->format('F Y'),
+            'prev_month'     => $month->copy()->subMonthNoOverflow()->format('Y-m'),
+            'next_month'     => $month->copy()->addMonthNoOverflow()->format('Y-m'),
+            'leading_blanks' => $month->copy()->startOfMonth()->dayOfWeek,
+            'days'           => $days,
+        ];
     }
 
     public function store(Request $request)
