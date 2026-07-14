@@ -26,6 +26,7 @@ class Order extends Model
         'returned_upsell_amount',
         'status_code',
         'pancake_created_at',
+        'pancake_updated_at',
         'synced_at',
     ];
 
@@ -38,6 +39,7 @@ class Order extends Model
         'cancelled_upsell_amount' => 'decimal:2',
         'returned_upsell_amount'  => 'decimal:2',
         'pancake_created_at'      => 'datetime',
+        'pancake_updated_at'      => 'datetime',
         'synced_at'               => 'datetime',
     ];
 

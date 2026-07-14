@@ -24,6 +24,7 @@ class OrderFactory extends Factory
             'is_returned_upsell'  => false,
             'status_code'         => 3,
             'pancake_created_at'  => now(),
+            'pancake_updated_at'  => now(),
             'synced_at'           => now(),
         ];
     }
