@@ -7,6 +7,7 @@ use App\Models\TsaShift;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SettingsController extends Controller
 {
@@ -24,7 +25,7 @@ class SettingsController extends Controller
         return view('settings', compact('apiKey', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced'));
     }
 
-    /** AJAX — streams 2 KB from /shops, returns shop id + name as JSON. */
+    /** AJAX — verifies the API key against Pancake's /shops endpoint, returns shop id + name as JSON. */
     public function detect(Request $request): JsonResponse
     {
         $data   = $request->validate(['api_key' => 'required|string|min:8']);
@@ -98,16 +99,18 @@ class SettingsController extends Controller
                 return ['success' => false, 'message' => $body['message'] ?? 'No shops found for this API key.'];
             }
 
-            $first = $shops[0];
+            $first  = $shops[0];
+            $shopId = (string) ($first['id'] ?? '');
 
             return [
                 'success' => true,
                 'shops'   => [[
-                    'id'   => (string) ($first['id'] ?? ''),
-                    'name' => $first['name'] ?? (string) ($first['id'] ?? ''),
+                    'id'   => $shopId,
+                    'name' => $first['name'] ?? $shopId,
                 ]],
             ];
         } catch (\Throwable $e) {
+            Log::error('pancake:detectShop failed', ['message' => $e->getMessage()]);
             return ['success' => false, 'message' => 'Connection failed. Check your API key.'];
         }
     }

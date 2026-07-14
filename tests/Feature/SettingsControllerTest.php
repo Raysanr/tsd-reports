@@ -48,4 +48,21 @@ class SettingsControllerTest extends TestCase
         $response->assertOk();
         $response->assertJson(['success' => false]);
     }
+
+    public function test_detect_reports_failure_when_response_body_reports_failure(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops*' => Http::response([
+                'success' => false,
+                'message' => 'api_key is invalid',
+            ], 200),
+        ]);
+
+        $response = $this->postJson(route('settings.detect'), ['api_key' => 'test-key']);
+
+        $response->assertOk();
+        $response->assertJson(['success' => false]);
+    }
 }
