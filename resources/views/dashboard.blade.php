@@ -29,6 +29,21 @@
 </div>
 @endif
 
+{{-- RECONCILIATION ISSUES BANNER --}}
+@if(!empty($reconciliationIssues))
+<div class="mb-6 flex items-start gap-4 bg-orange-50 border border-orange-200 rounded-xl px-6 py-4">
+    <svg class="w-5 h-5 text-orange-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+    </svg>
+    <div class="text-sm font-mono text-orange-700 space-y-1">
+        <p class="font-bold">Reconciliation found {{ count($reconciliationIssues) }} issue{{ count($reconciliationIssues) === 1 ? '' : 's' }}:</p>
+        @foreach($reconciliationIssues as $issue)
+        <p>{{ $issue }}</p>
+        @endforeach
+    </div>
+</div>
+@endif
+
 {{-- KPI CARDS — icon-badge layout: a tinted circular icon on the left identifies
      the metric at a glance, label/value/subtitle stack to its right. Every card
      shares the .stat-card hover-lift (defined in app.css, previously unused
