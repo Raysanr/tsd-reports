@@ -42,6 +42,28 @@ class SettingsController extends Controller
             'sync_interval' => 'nullable|integer|min:1|max:60',
         ]);
 
+        // Re-verify server-side: the api_key/shop_id fields on this form are
+        // hidden inputs populated by the "Detect Shop" AJAX call, but nothing
+        // stops a stale page, a skipped detect step, or a direct POST from
+        // submitting an unverified value here. Trusting them without a second
+        // check is exactly how a placeholder ("test-key") once overwrote a
+        // working key and broke every scheduled sync for ~19 hours with no
+        // visible error until someone checked the sync-run history.
+        $verification = $this->detectShop($request->input('api_key'));
+
+        if (!$verification['success']) {
+            return back()
+                ->withErrors(['api_key' => $verification['message'] ?? 'That API key could not be verified with Pancake POS.'])
+                ->withInput();
+        }
+
+        $verifiedShopId = $verification['shops'][0]['id'] ?? null;
+        if ($verifiedShopId !== null && $verifiedShopId !== (string) $request->input('shop_id')) {
+            return back()
+                ->withErrors(['api_key' => 'This API key belongs to a different shop than the one being saved. Click "Detect Shop" again to refresh it.'])
+                ->withInput();
+        }
+
         // Settings live in the DB only — do NOT write to .env here. Rewriting .env
         // makes the Vite dev server restart mid-redirect, which serves the settings
         // page with no CSS/JS (the "giant unstyled logo" breakage after every save).
