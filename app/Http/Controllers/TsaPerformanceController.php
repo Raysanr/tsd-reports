@@ -208,6 +208,10 @@ class TsaPerformanceController extends Controller
         $from     = Carbon::parse($dateFrom)->startOfDay();
         $to       = Carbon::parse($dateTo)->endOfDay();
 
+        // Only meaningful when viewing exactly one date — a multi-day range could
+        // span both rest and working days, so a single banner would be misleading.
+        $isRestDay = $dateFrom === $dateTo && $shift->isOffOn($from);
+
         $orders = Order::where('tsa_name', $tsaKey)
             ->whereBetween('pancake_created_at', [$from, $to])
             ->get();
@@ -321,6 +325,7 @@ class TsaPerformanceController extends Controller
             'teamName'          => $teamsConfig[$team]['name'],
             'tsaKey'            => $tsaKey,
             'displayName'       => $shift->display_name,
+            'isRestDay'         => $isRestDay,
             'summary'           => $summary,
             'hourlyRows'        => $hourlyRows,
             'metricCols'        => self::METRIC_COLUMNS,

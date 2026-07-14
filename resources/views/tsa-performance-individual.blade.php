@@ -21,6 +21,15 @@
     Back to {{ $teamName }} — {{ $rangeLabel }}
 </a>
 
+@if($isRestDay)
+<div class="mb-6 flex items-center gap-3 bg-slate-100 border border-slate-200 rounded-xl px-5 py-3">
+    <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+    </svg>
+    <p class="text-sm font-mono text-slate-600">{{ $displayName }} is marked as off on {{ $rangeLabel }}.</p>
+</div>
+@endif
+
 {{-- KPI CARDS — rates not shown anywhere in the main hourly table (only Upselling
      Rate is), so these are the reason this page exists rather than just re-showing
      the same table filtered to one row. --}}
