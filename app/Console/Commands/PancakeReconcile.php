@@ -16,10 +16,10 @@ class PancakeReconcile extends Command
     protected $description = "Cross-check yesterday's synced order count and configured TSA tag keywords against Pancake's own data";
 
     // Below this fraction of Pancake's reported order count for the day, the day is
-    // flagged as incomplete. Not 100%: pancake_created_at is deliberately backdated
-    // to when a TSA's tag was actually added (SyncTodayOrders::resolveWorkedAt()),
-    // which can shift a small number of backlog orders across the day boundary —
-    // expected, not a sync gap. A large shortfall is not expected.
+    // flagged as incomplete. Not 100%: a small number of orders touched right at the
+    // day boundary may not have synced yet by the time this check runs (delta syncs
+    // run every 1-15 minutes, not instantly) — expected, not a sync gap. A large
+    // shortfall is not expected.
     private const COMPLETENESS_THRESHOLD = 0.9;
 
     public function handle(): int
@@ -58,10 +58,17 @@ class PancakeReconcile extends Command
 
     /**
      * Compares Pancake's own order count for yesterday (Asia/Manila) against how
-     * many local rows landed for that day — using the exact same updated_at-window
-     * query SyncTodayOrders itself makes, so this is apples-to-apples (see the
-     * "explicitly out of scope" note in the plan for why analytics/sale isn't used
-     * instead).
+     * many local rows have a pancake_updated_at in that same window — pancake_updated_at
+     * stores Pancake's raw update timestamp untouched (see the orders migration's
+     * comment), so this is a genuine apples-to-apples comparison against Pancake's
+     * updateStatus=updated_at count. Deliberately does NOT use pancake_created_at,
+     * which is business-adjusted to "when a TSA actually worked this" (see
+     * SyncTodayOrders::resolveWorkedAt()) and can land on a different calendar day
+     * than the same order's raw updated_at — comparing against that field was this
+     * check's original bug (confirmed empirically: for 2026-07-13, Pancake reported
+     * 494 orders touched by updated_at, but only 366 local rows had a matching
+     * pancake_created_at — pancake_created_at tracked close to Pancake's own
+     * inserted_at count of 364 instead, an entirely different, unrelated number).
      */
     private function checkCompleteness(string $apiKey, string $shopId): array
     {
@@ -90,7 +97,7 @@ class PancakeReconcile extends Command
             return [];
         }
 
-        $localCount = Order::whereBetween('pancake_created_at', [
+        $localCount = Order::whereBetween('pancake_updated_at', [
             $date->copy()->startOfDay(), $date->copy()->endOfDay(),
         ])->count();
 

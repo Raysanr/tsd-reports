@@ -48,6 +48,7 @@ class PancakeReconcileTest extends TestCase
         // Only 2 orders synced locally for yesterday...
         Order::factory()->count(2)->create([
             'pancake_created_at' => $yesterday->copy()->setTime(10, 0),
+            'pancake_updated_at' => $yesterday->copy()->setTime(10, 0),
         ]);
 
         $this->fakeEmptyTagCatalog();
@@ -76,6 +77,7 @@ class PancakeReconcileTest extends TestCase
 
         Order::factory()->count(48)->create([
             'pancake_created_at' => $yesterday->copy()->setTime(10, 0),
+            'pancake_updated_at' => $yesterday->copy()->setTime(10, 0),
         ]);
 
         $this->fakeEmptyTagCatalog();
@@ -144,5 +146,36 @@ class PancakeReconcileTest extends TestCase
 
         $issues = json_decode(Setting::get('reconciliation_issues'), true);
         $this->assertSame([], $issues, 'No TSA keyword should be flagged when every one matches a real tag');
+    }
+
+    public function test_completeness_check_follows_pancake_updated_at_not_pancake_created_at(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        $yesterday  = Carbon::now('Asia/Manila')->subDay();
+        $twoDaysAgo = $yesterday->copy()->subDay();
+
+        // A backlog-lead-like order: worked (pancake_created_at) two days ago, but
+        // Pancake's own updated_at (pancake_updated_at) says it was touched
+        // yesterday. Before this fix, the completeness check read
+        // pancake_created_at and would NOT have counted this order toward
+        // "yesterday" at all — after the fix, it must.
+        Order::factory()->count(50)->create([
+            'pancake_created_at' => $twoDaysAgo->copy()->setTime(10, 0),
+            'pancake_updated_at' => $yesterday->copy()->setTime(10, 0),
+        ]);
+
+        $this->fakeEmptyTagCatalog();
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 50, 'total_pages' => 50,
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+
+        $issues = json_decode(Setting::get('reconciliation_issues'), true);
+        $this->assertSame([], $issues, 'Orders whose pancake_updated_at falls yesterday should count toward yesterday, even if pancake_created_at does not');
     }
 }
