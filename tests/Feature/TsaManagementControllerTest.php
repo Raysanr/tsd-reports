@@ -56,4 +56,39 @@ class TsaManagementControllerTest extends TestCase
         $calendar = $response->viewData('calendar');
         $this->assertSame(now('Asia/Manila')->format('F Y'), $calendar['month_label']);
     }
+
+    public function test_calendar_cell_lists_the_tsa_key_off_on_that_date(): void
+    {
+        $julie = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+        $sunday = Carbon::parse('next sunday');
+
+        $response = $this->get(route('tsa-management', ['month' => $sunday->format('Y-m')]));
+
+        $response->assertOk();
+        $response->assertSee('data-date="' . $sunday->toDateString() . '" data-off="Julie"', false);
+    }
+
+    public function test_calendar_cell_has_no_off_tsas_on_a_normal_working_day(): void
+    {
+        $julie = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'sunday']);
+        $monday = Carbon::parse('next sunday')->addDay();
+
+        $response = $this->get(route('tsa-management', ['month' => $monday->format('Y-m')]));
+
+        $response->assertOk();
+        $response->assertSee('data-date="' . $monday->toDateString() . '" data-off=""', false);
+    }
+
+    public function test_calendar_month_navigation_links_are_present(): void
+    {
+        $month = Carbon::parse('next sunday')->format('Y-m');
+
+        $response = $this->get(route('tsa-management', ['month' => $month]));
+
+        $response->assertOk();
+        $response->assertSee('month=' . Carbon::createFromFormat('Y-m', $month)->subMonthNoOverflow()->format('Y-m'), false);
+        $response->assertSee('month=' . Carbon::createFromFormat('Y-m', $month)->addMonthNoOverflow()->format('Y-m'), false);
+    }
 }

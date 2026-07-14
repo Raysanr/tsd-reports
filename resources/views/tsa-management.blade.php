@@ -3,7 +3,9 @@
 @section('subtitle', 'Roster, teams, and shift schedules')
 
 @section('content')
-<div class="max-w-3xl space-y-6">
+<div class="max-w-6xl">
+<div class="flex flex-col lg:flex-row gap-6 items-start">
+<div class="flex-1 min-w-0 space-y-6">
 
     @if(session('success'))
     <div class="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
@@ -137,6 +139,50 @@
         </div>
     </form>
 
+</div>
+
+<div class="w-full lg:w-80 shrink-0">
+    <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <a href="{{ route('tsa-management', ['month' => $calendar['prev_month']]) }}"
+               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                </svg>
+            </a>
+            <h3 class="text-sm font-semibold text-slate-800">{{ $calendar['month_label'] }}</h3>
+            <a href="{{ route('tsa-management', ['month' => $calendar['next_month']]) }}"
+               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+        </div>
+        <div class="p-4">
+            <div class="grid grid-cols-7 gap-1 text-center text-[10px] font-mono text-slate-400 mb-2">
+                <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+            </div>
+            <div class="grid grid-cols-7 gap-1">
+                @for($i = 0; $i < $calendar['leading_blanks']; $i++)
+                <div></div>
+                @endfor
+                @foreach($calendar['days'] as $dayData)
+                <button type="button" class="restDayCell aspect-square rounded-lg border border-slate-100 hover:border-yellow-300 hover:bg-yellow-50 transition-colors cursor-pointer p-1 flex flex-col items-center justify-start"
+                    data-date="{{ $dayData['date'] }}" data-off="{{ $dayData['off_tsas']->pluck('tsa_key')->join(',') }}">
+                    <span class="text-[11px] font-mono text-slate-500">{{ $dayData['day'] }}</span>
+                    @if($dayData['off_tsas']->isNotEmpty())
+                    <span class="text-[9px] font-mono text-yellow-700 leading-tight text-center">
+                        {{ $dayData['off_tsas']->pluck('initials')->join(' ') }}
+                    </span>
+                    @endif
+                </button>
+                @endforeach
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
 </div>
 
 {{-- Shared Add / Edit modal --}}
