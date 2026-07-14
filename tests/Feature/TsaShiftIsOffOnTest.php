@@ -58,4 +58,15 @@ class TsaShiftIsOffOnTest extends TestCase
 
         $this->assertFalse($julie->isOffOn($sunday));
     }
+
+    public function test_rest_day_of_week_is_normalized_to_lowercase_on_write(): void
+    {
+        $julie = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['rest_day_of_week' => 'Sunday']);
+        $julie->refresh();
+
+        $this->assertSame('sunday', $julie->rest_day_of_week);
+        $this->assertDatabaseHas('tsa_shifts', ['id' => $julie->id, 'rest_day_of_week' => 'sunday']);
+        $this->assertTrue($julie->isOffOn(Carbon::parse('next sunday')));
+    }
 }

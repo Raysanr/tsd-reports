@@ -42,6 +42,16 @@ class TsaShift extends Model
             && strtolower($date->format('l')) === $this->rest_day_of_week;
     }
 
+    /** Normalizes rest_day_of_week to a lowercase, trimmed full day name (or null)
+     *  on write, so isOffOn()'s strtolower(date-weekday) comparison can never be
+     *  silently defeated by a caller storing e.g. "Sunday" instead of "sunday". */
+    public function setRestDayOfWeekAttribute(?string $value): void
+    {
+        $this->attributes['rest_day_of_week'] = $value !== null && $value !== ''
+            ? strtolower(trim($value))
+            : null;
+    }
+
     public function getShiftRangeAttribute(): string
     {
         if (!$this->shift_start && !$this->shift_end) return '—';
