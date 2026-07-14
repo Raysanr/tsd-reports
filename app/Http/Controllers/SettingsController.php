@@ -6,6 +6,7 @@ use App\Models\Setting;
 use App\Models\TsaShift;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Http;
 
 class SettingsController extends Controller
 {
@@ -74,47 +75,36 @@ class SettingsController extends Controller
         return redirect()->route('settings')->with('success', 'Disconnected.');
     }
 
-    /** Streams only the first 2 KB of the /shops response to extract shop id + name. */
+    /**
+     * Verifies an API key against Pancake and returns the shop it belongs to.
+     * GET /shops response shape (confirmed against Pancake's published OpenAPI
+     * spec): {"shops": [{"id": <int>, "name": <string>, ...}]} — NOT {"data": [...]}.
+     */
     private function detectShop(string $apiKey): array
     {
         try {
-            $client   = new \GuzzleHttp\Client(['timeout' => 5]);
-            $response = $client->request('GET', 'https://pos.pages.fm/api/v1/shops', [
-                'query'  => ['api_key' => $apiKey],
-                'stream' => true,
+            $response = Http::timeout(5)->get('https://pos.pages.fm/api/v1/shops', [
+                'api_key' => $apiKey,
             ]);
 
-            if ($response->getStatusCode() !== 200) {
+            if (!$response->successful()) {
                 return ['success' => false, 'message' => 'Invalid API key or connection failed.'];
             }
 
-            $chunk = '';
-            $body  = $response->getBody();
-            while (!$body->eof() && strlen($chunk) < 2048) {
-                $chunk .= $body->read(512);
-            }
-            $body->close();
+            $body  = $response->json();
+            $shops = $body['shops'] ?? [];
 
-            if (str_contains($chunk, '"success":false') || str_contains($chunk, '"success": false')) {
-                preg_match('/"message"\s*:\s*"([^"]+)"/', $chunk, $msg);
-                return ['success' => false, 'message' => $msg[1] ?? 'Invalid API key.'];
+            if (($body['success'] ?? true) === false || empty($shops)) {
+                return ['success' => false, 'message' => $body['message'] ?? 'No shops found for this API key.'];
             }
 
-            preg_match('/"id"\s*:\s*(\d+)/', $chunk, $idMatch);
-            preg_match('/"name"\s*:\s*"([^"]+)"/', $chunk, $nameMatch);
-
-            $shopId   = $idMatch[1]   ?? '';
-            $shopName = $nameMatch[1] ?? '';
-
-            if (empty($shopId)) {
-                return ['success' => false, 'message' => 'No shops found for this API key.'];
-            }
+            $first = $shops[0];
 
             return [
                 'success' => true,
                 'shops'   => [[
-                    'id'   => $shopId,
-                    'name' => $shopName ?: $shopId,
+                    'id'   => (string) ($first['id'] ?? ''),
+                    'name' => $first['name'] ?? (string) ($first['id'] ?? ''),
                 ]],
             ];
         } catch (\Throwable $e) {
