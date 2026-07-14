@@ -4,6 +4,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Console\Commands\SyncTodayOrders;
+use App\Console\Commands\PancakeReconcile;
 use App\Models\Setting;
 
 Artisan::command('inspire', function () {
@@ -29,3 +30,10 @@ Schedule::command(SyncTodayOrders::class, ['--delta'])->cron("*/{$interval} * * 
 // interval — now it only needs to run 4x/hour. Upserts are idempotent, so an
 // occasional overlap with a delta run is harmless.
 Schedule::command(SyncTodayOrders::class)->everyFifteenMinutes()->withoutOverlapping();
+
+// Reconciliation: checks yesterday's completeness + TSA tag-keyword drift against
+// Pancake's own data. Runs hourly rather than once a day at a fixed time — both
+// checks are cheap (one page_size=1 orders call, one tags call, no pagination),
+// and Carbon::now('Asia/Manila')->subDay() inside the command means "yesterday" is
+// always correct regardless of what timezone the server's cron actually fires in.
+Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping();
