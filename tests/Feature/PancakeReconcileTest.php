@@ -90,4 +90,59 @@ class PancakeReconcileTest extends TestCase
         $issues = json_decode(Setting::get('reconciliation_issues'), true);
         $this->assertSame([], $issues);
     }
+
+    public function test_flags_a_configured_tsa_keyword_that_matches_no_real_pancake_tag(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        // Simulate a typo: someone changed Julie's keyword in TSA Management.
+        \App\Models\TsaShift::where('tsa_key', 'Julie')->update(['tag_keywords' => 'JULEE']);
+
+        Http::fake([
+            // No completeness gap — matches "yesterday" order count exactly.
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 0, 'total_pages' => 0,
+            ], 200),
+            // Covers the other 5 TSAs' full keyword sets (including both spellings
+            // for Kathleen and Joana), but deliberately omits anything matching
+            // 'JULEE' — and 'JULIE' too, since Julie's row no longer has that
+            // keyword after the update() above — so the drift is genuinely detected.
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response([
+                'data' => [
+                    ['id' => 1, 'name' => 'GEMMA'],
+                    ['id' => 2, 'name' => 'MARIEL'],
+                    ['id' => 3, 'name' => 'KATH'],
+                    ['id' => 4, 'name' => 'KATHLEEN'],
+                    ['id' => 5, 'name' => 'JOANA'],
+                    ['id' => 6, 'name' => 'JOANNA'],
+                    ['id' => 7, 'name' => 'MARISOL'],
+                ],
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+
+        $issues = json_decode(Setting::get('reconciliation_issues'), true);
+        $matching = array_filter($issues, fn($i) => str_contains($i, 'JULEE'));
+        $this->assertNotEmpty($matching, 'Expected an issue mentioning the stale JULEE keyword');
+    }
+
+    public function test_does_not_flag_tsa_keywords_that_match_a_real_tag(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeEmptyTagCatalog();
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 0, 'total_pages' => 0,
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+
+        $issues = json_decode(Setting::get('reconciliation_issues'), true);
+        $this->assertSame([], $issues, 'No TSA keyword should be flagged when every one matches a real tag');
+    }
 }
