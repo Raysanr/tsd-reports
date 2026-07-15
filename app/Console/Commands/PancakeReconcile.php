@@ -109,11 +109,17 @@ class PancakeReconcile extends Command
     }
 
     /**
-     * For every configured TSA tag keyword, checks it appears in at least one real
-     * tag name from Pancake's own tag catalog. A keyword with zero matches is
-     * either a typo or references a tag that was renamed/removed on the Pancake
-     * side since it was configured. Product/seller-keyword drift is intentionally
-     * not checked here — see the "explicitly out of scope" note in the plan.
+     * For every TSA, checks that AT LEAST ONE of their tag keywords appears in a
+     * real tag name from Pancake's own tag catalog — not every keyword individually.
+     * tag_keywords always auto-includes the TSA's literal first name (see
+     * TsaManagementController::buildTagKeywords) alongside whatever "also matches"
+     * extras were configured, and that auto-name is never guaranteed to be a real
+     * Pancake tag itself (e.g. Kathleen's real tag is the abbreviation "KATH", not
+     * "KATHLEEN" — she covers this with an extra keyword, exactly as intended).
+     * Checking every keyword independently flagged that permanently, every single
+     * run, for no reason — the real failure mode worth catching is a TSA with ZERO
+     * working keywords: no way at all to attribute their orders, which is either a
+     * typo or a tag renamed/removed on the Pancake side.
      */
     private function checkTagDrift(string $apiKey, string $shopId): array
     {
@@ -134,23 +140,26 @@ class PancakeReconcile extends Command
         $issues = [];
 
         foreach (TsaShift::all() as $shift) {
-            foreach ($shift->tag_keywords_array as $keyword) {
-                $normalizedKeyword = self::normalize($keyword);
-                if ($normalizedKeyword === '') {
-                    continue;
-                }
+            $keywords = array_values(array_filter(
+                array_map(fn($k) => self::normalize($k), $shift->tag_keywords_array)
+            ));
+            if (empty($keywords)) {
+                continue;
+            }
 
-                $seen = false;
+            $anyMatch = false;
+            foreach ($keywords as $normalizedKeyword) {
                 foreach ($realTagNames as $tagName) {
                     if (str_contains($tagName, $normalizedKeyword)) {
-                        $seen = true;
-                        break;
+                        $anyMatch = true;
+                        break 2;
                     }
                 }
+            }
 
-                if (!$seen) {
-                    $issues[] = "Tag drift: TSA \"{$shift->tsa_key}\"'s tag keyword \"{$keyword}\" doesn't match any tag currently in Pancake — check TSA Management for a typo or a renamed tag.";
-                }
+            if (!$anyMatch) {
+                $configured = implode(', ', $shift->tag_keywords_array);
+                $issues[] = "Tag drift: TSA \"{$shift->tsa_key}\" has no tag keyword matching any tag currently in Pancake (configured: {$configured}) — check TSA Management for a typo or a renamed tag.";
             }
         }
 

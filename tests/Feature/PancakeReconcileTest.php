@@ -16,23 +16,21 @@ class PancakeReconcileTest extends TestCase
 
     private function fakeEmptyTagCatalog(): void
     {
-        // Tag-drift check isn't under test here — return every configured TSA
-        // keyword as a real tag so it never contributes an issue in these tests.
-        // Note: the pre-seeded tsa_shifts migration configures TWO keywords for
-        // Kathleen ("KATH,KATHLEEN") and Joana ("JOANA,JOANNA") — both spellings
-        // are listed explicitly here (rather than relying on one substring-matching
-        // the other) since "JOANA"/"JOANNA" don't contain one another as substrings.
+        // Tag-drift check isn't under test here — every TSA needs at least one
+        // matching keyword (not necessarily every keyword — see checkTagDrift's
+        // per-TSA "any match" semantics) to stay silent in these tests. Deliberately
+        // omits "KATHLEEN" (only "KATH" is here) to mirror real Pancake data, where
+        // Kathleen's real tag is the abbreviation, not her full first name — that
+        // must NOT raise an issue since her "KATH" keyword still matches.
         Http::fake([
             'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response([
                 'data' => [
                     ['id' => 1, 'name' => 'GEMMA'],
                     ['id' => 2, 'name' => 'MARIEL'],
                     ['id' => 3, 'name' => 'KATH'],
-                    ['id' => 4, 'name' => 'KATHLEEN'],
-                    ['id' => 5, 'name' => 'JULIE'],
-                    ['id' => 6, 'name' => 'JOANA'],
-                    ['id' => 7, 'name' => 'JOANNA'],
-                    ['id' => 8, 'name' => 'MARISOL'],
+                    ['id' => 4, 'name' => 'JULIE'],
+                    ['id' => 5, 'name' => 'JOANA'],
+                    ['id' => 6, 'name' => 'MARISOL'],
                 ],
             ], 200),
         ]);
@@ -106,19 +104,17 @@ class PancakeReconcileTest extends TestCase
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
                 'data' => [], 'total_entries' => 0, 'total_pages' => 0,
             ], 200),
-            // Covers the other 5 TSAs' full keyword sets (including both spellings
-            // for Kathleen and Joana), but deliberately omits anything matching
-            // 'JULEE' — and 'JULIE' too, since Julie's row no longer has that
-            // keyword after the update() above — so the drift is genuinely detected.
+            // Covers at least one keyword per other TSA, but deliberately omits
+            // anything matching 'JULEE' — and 'JULIE' too, since Julie's row no
+            // longer has that keyword after the update() above — so the drift is
+            // genuinely detected (her only keyword now matches nothing at all).
             'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response([
                 'data' => [
                     ['id' => 1, 'name' => 'GEMMA'],
                     ['id' => 2, 'name' => 'MARIEL'],
                     ['id' => 3, 'name' => 'KATH'],
-                    ['id' => 4, 'name' => 'KATHLEEN'],
-                    ['id' => 5, 'name' => 'JOANA'],
-                    ['id' => 6, 'name' => 'JOANNA'],
-                    ['id' => 7, 'name' => 'MARISOL'],
+                    ['id' => 4, 'name' => 'JOANA'],
+                    ['id' => 5, 'name' => 'MARISOL'],
                 ],
             ], 200),
         ]);
