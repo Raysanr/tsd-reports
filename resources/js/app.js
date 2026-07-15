@@ -96,6 +96,23 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
             if (current) current.className = fresh.className;
         });
 
+        // Same staleness problem, but for the topbar filter form's hidden
+        // fallback fields (team, product, range, ...) — these carry the actual
+        // VALUE a later submit through a different control (e.g. the date
+        // picker's Apply) will send, not just its visual state. Only <main>'s
+        // content was just swapped, so a hidden field living in the topbar
+        // still holds whatever it had at initial page load — meaning after
+        // clicking e.g. "Eyecare" (which only updates the button's className
+        // via the sync above, not this field), applying a date filter would
+        // silently resubmit the ORIGINAL team instead of the one currently
+        // selected. Skip anything inside <main> — that content is already
+        // fresh from the innerHTML swap above.
+        document.querySelectorAll('input[type="hidden"][name]').forEach((current) => {
+            if (main.contains(current)) return;
+            const fresh = doc.querySelector(`input[type="hidden"][name="${current.name}"]`);
+            if (fresh) current.value = fresh.value;
+        });
+
         doc.querySelectorAll('script[data-rerun]').forEach((orig) => {
             const s = document.createElement('script');
             s.textContent = orig.textContent;
@@ -152,7 +169,16 @@ document.addEventListener('submit', (e) => {
         });
     }
 
-    const params = new URLSearchParams(new FormData(form, e.submitter || undefined));
+    // A clicked filter button (e.g. a team tab) and the form's own hidden
+    // same-name fallback field (kept so OTHER submits, like the date picker's
+    // Apply, don't drop the current team) both end up in this FormData — the
+    // button's value is appended after the stale hidden one, so the LAST
+    // occurrence is always the correct new value. Query-string duplicates
+    // resolve the same way server-side, but leaving both in the URL is
+    // confusing to read and fragile to rely on — collapse to one value per key.
+    const rawParams = new URLSearchParams(new FormData(form, e.submitter || undefined));
+    const params = new URLSearchParams();
+    for (const [key, value] of rawParams) params.set(key, value);
     const query  = params.toString();
     const url    = form.action.split('?')[0] + (query ? '?' + query : '');
 
