@@ -214,6 +214,7 @@
             RTS / Delivered
         </a>
 
+        @if(auth()->user()?->isAtLeastAdmin())
         <div class="my-3 border-t border-white/10"></div>
         <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
 
@@ -237,6 +238,16 @@
             Product Management
         </a>
 
+        <a href="{{ route('user-management') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+            User Management
+        </a>
+
         <a href="{{ route('settings') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('settings*') ? 'nav-active' : '' }}">
@@ -250,6 +261,7 @@
                 <span class="ml-auto w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
             @endif
         </a>
+        @endif
 
     </nav>
 
