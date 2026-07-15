@@ -88,11 +88,6 @@
     Continue with Google
 </a>
 
-<p class="mt-7 text-center text-xs font-mono text-slate-400">
-    Don't have an account?
-    <a href="{{ route('register') }}" class="text-accent font-semibold hover:underline">Sign up</a>
-</p>
-
 @endsection
 
 @push('scripts')

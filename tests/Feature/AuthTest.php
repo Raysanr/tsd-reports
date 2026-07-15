@@ -27,33 +27,18 @@ class AuthTest extends TestCase
         $response->assertOk();
     }
 
-    public function test_register_creates_a_user_and_signs_them_in(): void
+    public function test_register_route_no_longer_exists(): void
     {
-        $response = $this->post(route('register'), [
-            'name'                  => 'Jane Doe',
-            'email'                 => 'jane@example.com',
-            'password'              => 'password123',
-            'password_confirmation' => 'password123',
-        ]);
-
-        $response->assertRedirect(route('dashboard'));
-        $this->assertAuthenticated();
-        $this->assertDatabaseHas('users', ['email' => 'jane@example.com']);
+        $this->get('/register')->assertNotFound();
+        $this->post('/register', [])->assertNotFound();
     }
 
-    public function test_register_rejects_a_duplicate_email(): void
+    public function test_login_page_has_no_sign_up_link(): void
     {
-        User::factory()->create(['email' => 'taken@example.com']);
+        $response = $this->get(route('login'));
 
-        $response = $this->post(route('register'), [
-            'name'                  => 'Jane Doe',
-            'email'                 => 'taken@example.com',
-            'password'              => 'password123',
-            'password_confirmation' => 'password123',
-        ]);
-
-        $response->assertSessionHasErrors('email');
-        $this->assertGuest();
+        $response->assertOk();
+        $response->assertDontSee('Sign up');
     }
 
     public function test_login_succeeds_with_correct_credentials(): void
@@ -76,6 +61,19 @@ class AuthTest extends TestCase
         $response = $this->post(route('login'), [
             'email'    => $user->email,
             'password' => 'wrong-password',
+        ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertGuest();
+    }
+
+    public function test_login_rejects_a_deactivated_account_even_with_correct_password(): void
+    {
+        $user = User::factory()->inactive()->create(['password' => Hash::make('secret123')]);
+
+        $response = $this->post(route('login'), [
+            'email'    => $user->email,
+            'password' => 'secret123',
         ]);
 
         $response->assertSessionHasErrors('email');

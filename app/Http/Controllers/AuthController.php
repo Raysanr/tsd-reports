@@ -33,34 +33,17 @@ class AuthController extends Controller
             ]);
         }
 
+        if (!Auth::user()->is_active) {
+            Auth::logout();
+
+            throw ValidationException::withMessages([
+                'email' => 'This account has been deactivated.',
+            ]);
+        }
+
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard'));
-    }
-
-    public function showRegister()
-    {
-        return view('auth.register');
-    }
-
-    public function register(Request $request)
-    {
-        $validated = $request->validate([
-            'name'     => ['required', 'string', 'max:255'],
-            'email'    => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
-        ]);
-
-        $user = User::create([
-            'name'     => $validated['name'],
-            'email'    => $validated['email'],
-            'password' => Hash::make($validated['password']),
-        ]);
-
-        Auth::login($user);
-        $request->session()->regenerate();
-
-        return redirect()->route('dashboard');
     }
 
     public function redirectToGoogle()
@@ -86,22 +69,25 @@ class AuthController extends Controller
         $user = User::where('google_id', $googleUser->getId())->first()
             ?? User::where('email', $googleUser->getEmail())->first();
 
-        if ($user) {
-            $user->update([
-                'google_id' => $googleUser->getId(),
-                'avatar'    => $googleUser->getAvatar(),
-            ]);
-        } else {
-            $user = User::create([
-                'name'      => $googleUser->getName() ?: $googleUser->getEmail(),
-                'email'     => $googleUser->getEmail(),
-                'google_id' => $googleUser->getId(),
-                'avatar'    => $googleUser->getAvatar(),
-                // Random unguessable password: the column is NOT NULL and
-                // these users only ever sign in through Google.
-                'password'  => Hash::make(Str::random(40)),
+        // No auto-create: accounts only ever come from User Management now. A
+        // stranger's Google account matching no existing row is not "sign up",
+        // it's a dead end — the whole point of closing public registration.
+        if (!$user) {
+            return redirect()->route('login')->withErrors([
+                'email' => 'No account found for that Google email — ask an admin to add you first.',
             ]);
         }
+
+        if (!$user->is_active) {
+            return redirect()->route('login')->withErrors([
+                'email' => 'This account has been deactivated.',
+            ]);
+        }
+
+        $user->update([
+            'google_id' => $googleUser->getId(),
+            'avatar'    => $googleUser->getAvatar(),
+        ]);
 
         Auth::login($user, remember: true);
         $request->session()->regenerate();
