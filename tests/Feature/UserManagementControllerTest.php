@@ -172,4 +172,26 @@ class UserManagementControllerTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $actingSuperAdmin->id, 'is_active' => true]);
         $this->assertSame(1, User::activeSuperAdminCount());
     }
+
+    public function test_index_hides_edit_and_deactivate_controls_for_rows_the_viewer_cannot_manage(): void
+    {
+        // canManage() is enforced server-side in update()/toggleActive() regardless
+        // of what the view renders — this test guards the view's @if(canManage())
+        // gating specifically, so a future edit to the Blade template can't quietly
+        // drift from the controller's own check without a test catching it.
+        $actingAdmin = User::factory()->admin()->create();
+        $peerAdmin   = User::factory()->admin()->create();
+        $normalUser  = User::factory()->normal()->create();
+        $this->actingAs($actingAdmin);
+
+        $response = $this->get(route('user-management'));
+
+        $response->assertOk();
+        // Neither button renders for a peer Admin (Admin cannot manage Admin)...
+        $response->assertDontSee('data-id="' . $peerAdmin->id . '"', false);
+        // ...nor for the actor's own row (no self-service editing)...
+        $response->assertDontSee('data-id="' . $actingAdmin->id . '"', false);
+        // ...but both do render for a Normal user, who the acting Admin can manage.
+        $response->assertSee('data-id="' . $normalUser->id . '"', false);
+    }
 }
