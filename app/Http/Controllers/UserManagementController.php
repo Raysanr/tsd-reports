@@ -42,10 +42,9 @@ class UserManagementController extends Controller
             'email'    => $data['email'],
             'role'     => $data['role'],
             'is_active' => true,
-            // Random unusable password — same pattern as Google-created accounts
-            // in AuthController::handleGoogleCallback(). This person signs in by
-            // doing "Sign in with Google" with this same email; there's no
-            // password-based path for accounts created here (see design spec).
+            // Random unusable password: this person signs in by doing "Sign in
+            // with Google" with this same email; there's no password-based path
+            // for accounts created here (see design spec).
             'password' => Hash::make(Str::random(40)),
         ]);
 
