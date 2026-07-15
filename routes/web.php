@@ -33,11 +33,12 @@ Route::post('/logout', [AuthController::class, 'logout'])
 // controller) that only Render's env vars and the pinger config know.
 Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 
-// Every report/config page requires a signed-in user — this is the
-// "before the dashboard" gate the login/register pages exist for.
-Route::middleware('auth')->group(function () {
+// Every report/config page requires a signed-in, active user — 'active' force-logs-out
+// anyone deactivated mid-session (see EnsureUserIsActive).
+Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
-    Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync');
+    Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync')
+        ->middleware('role:super_admin,admin,normal');
     Route::get('/leads-report',    [LeadsReportController::class,    'index'])->name('leads-report');
     // Old URL kept alive for bookmarks/history — permanent redirect to the new name.
     Route::redirect('/team-report', '/leads-report', 301);
@@ -46,23 +47,26 @@ Route::middleware('auth')->group(function () {
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
 
-    Route::get('/tsa-management',             [TsaManagementController::class, 'index'])->name('tsa-management');
-    Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
-    Route::get('/tsa-management/tags',        [TsaManagementController::class, 'searchTags'])->name('tsa-management.tags');
-    Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
-    Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
-    Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
-    Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
+    // CONFIG — Super Admin and Admin only.
+    Route::middleware('role:super_admin,admin')->group(function () {
+        Route::get('/tsa-management',             [TsaManagementController::class, 'index'])->name('tsa-management');
+        Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
+        Route::get('/tsa-management/tags',        [TsaManagementController::class, 'searchTags'])->name('tsa-management.tags');
+        Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
+        Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
+        Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
+        Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 
-    Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
-    Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');
-    Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
-    Route::delete('/product-management/{product}',   [ProductManagementController::class, 'destroy'])->name('product-management.destroy');
-    Route::patch('/product-management/{product}/toggle-hidden', [ProductManagementController::class, 'toggleHidden'])->name('product-management.toggle-hidden');
+        Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
+        Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');
+        Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
+        Route::delete('/product-management/{product}',   [ProductManagementController::class, 'destroy'])->name('product-management.destroy');
+        Route::patch('/product-management/{product}/toggle-hidden', [ProductManagementController::class, 'toggleHidden'])->name('product-management.toggle-hidden');
 
-    Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
-    Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
-    Route::post('/settings/detect',  [SettingsController::class, 'detect'])->name('settings.detect');
-    Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
-    Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
+        Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
+        Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
+        Route::post('/settings/detect',  [SettingsController::class, 'detect'])->name('settings.detect');
+        Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
+        Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
+    });
 });
