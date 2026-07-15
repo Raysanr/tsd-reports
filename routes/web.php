@@ -11,6 +11,7 @@ use App\Http\Controllers\RtsReportController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
+use App\Http\Controllers\UserManagementController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -66,5 +67,10 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::post('/settings/detect',  [SettingsController::class, 'detect'])->name('settings.detect');
         Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
         Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
+
+        Route::get('/user-management',                    [UserManagementController::class, 'index'])->name('user-management');
+        Route::post('/user-management',                    [UserManagementController::class, 'store'])->name('user-management.store');
+        Route::put('/user-management/{user}',               [UserManagementController::class, 'update'])->name('user-management.update');
+        Route::patch('/user-management/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('user-management.toggle-active');
     });
 });
