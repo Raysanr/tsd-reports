@@ -48,6 +48,7 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/tsa-management',             [TsaManagementController::class, 'index'])->name('tsa-management');
     Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
+    Route::get('/tsa-management/tags',        [TsaManagementController::class, 'searchTags'])->name('tsa-management.tags');
     Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
     Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
     Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');

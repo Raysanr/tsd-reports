@@ -95,6 +95,7 @@
                             class="editTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer"
                             title="Edit"
                             data-id="{{ $shift->id }}"
+                            data-tsa-key="{{ $shift->tsa_key }}"
                             data-display-name="{{ $shift->display_name }}"
                             data-team="{{ $shift->team }}"
                             data-extra="{{ $shift->extra_tag_keywords }}"
@@ -220,13 +221,17 @@
                 </select>
             </div>
 
-            <div>
+            <div class="relative">
                 <label class="block text-xs font-semibold text-slate-700 mb-1">
                     Also matches <span class="text-slate-400 font-normal">(optional)</span>
                 </label>
-                <input type="text" name="extra_keywords" id="tsaExtraInput" placeholder="e.g. nicknames used in Pancake tags, comma-separated"
+                <input type="hidden" name="extra_keywords" id="tsaExtraInput" value="">
+                <div id="tsaTagChips" class="hidden flex-wrap gap-1.5 mb-2"></div>
+                <input type="text" id="tsaTagSearch" autocomplete="off"
+                    placeholder="Search Pancake tags..."
                     class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <p class="text-[11px] text-slate-400 mt-1">Their first name is matched automatically — add this only if Pancake tags use a different spelling or nickname.</p>
+                <div id="tsaTagResults" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
+                <p class="text-[11px] text-slate-400 mt-1">Their first name is matched automatically — pick any other Pancake tags that should also count as theirs.</p>
             </div>
 
             <div>
@@ -296,23 +301,84 @@
     const nameInput     = document.getElementById('tsaNameInput');
     const teamSelect    = document.getElementById('tsaTeamSelect');
     const extraInput    = document.getElementById('tsaExtraInput');
+    const tagSearch     = document.getElementById('tsaTagSearch');
+    const tagResults    = document.getElementById('tsaTagResults');
+    const tagChips      = document.getElementById('tsaTagChips');
     const restDaySelect = document.getElementById('tsaRestDaySelect');
     const submitBtn     = document.getElementById('tsaSubmitBtn');
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
     const storeUrl      = form.action;
 
+    let selectedTags  = [];
+    let currentTsaKey = '';
+
+    // Their first name is always auto-matched (see TsaShift::tag_keywords), so
+    // offering it again in the "Also matches" picker is a trap: picking it looks
+    // fine in the moment (chip shows, form saves) but TsaShift::extra_tag_keywords
+    // diffs the base name back out on read, so it silently vanishes on reload —
+    // reads exactly like "my saved tag disappeared". Editing an existing TSA uses
+    // its real tsa_key (display_name can drift from it); a brand-new TSA doesn't
+    // have one yet, so this mirrors generateUniqueKey()'s derivation from the name
+    // field so far.
+    function currentBaseKey() {
+        if (currentTsaKey) return currentTsaKey.toUpperCase();
+        const firstWord = (nameInput.value.trim().split(/\s+/)[0] || '').replace(/[^A-Za-z]/g, '');
+        return firstWord.toUpperCase();
+    }
+
     function openModal() { modal.classList.remove('hidden'); }
-    function closeModal() { modal.classList.add('hidden'); resultsBox.classList.add('hidden'); }
+    function closeModal() {
+        modal.classList.add('hidden');
+        resultsBox.classList.add('hidden');
+        tagResults.classList.add('hidden');
+    }
+
+    function setSelectedTags(tags) {
+        selectedTags = tags;
+        extraInput.value = selectedTags.join(',');
+        renderTagChips();
+    }
+
+    function renderTagChips() {
+        tagChips.innerHTML = '';
+        if (!selectedTags.length) {
+            tagChips.classList.add('hidden');
+            tagChips.classList.remove('flex');
+            return;
+        }
+        tagChips.classList.remove('hidden');
+        tagChips.classList.add('flex');
+
+        selectedTags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-[11px] font-mono text-yellow-800';
+
+            const label = document.createElement('span');
+            label.textContent = tag;
+            chip.appendChild(label);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'hover:text-yellow-950 cursor-pointer leading-none';
+            removeBtn.textContent = '×';
+            removeBtn.addEventListener('click', () => setSelectedTags(selectedTags.filter(t => t !== tag)));
+            chip.appendChild(removeBtn);
+
+            tagChips.appendChild(chip);
+        });
+    }
 
     function resetForm() {
         form.action = storeUrl;
         methodInput.value = '';
         posUserIdInput.value = '';
         nameInput.value = '';
-        extraInput.value = '';
+        tagSearch.value = '';
+        setSelectedTags([]);
         restDaySelect.value = '';
         teamSelect.selectedIndex = 0;
+        currentTsaKey = '';
         linkedHint.classList.add('hidden');
         modalTitle.textContent = 'Add a new TSA';
         modalSubtitle.textContent = "They'll be recognized starting with the next sync";
@@ -330,9 +396,11 @@
             const id = btn.dataset.id;
             form.action = storeUrl + '/' + id;
             methodInput.value = 'PUT';
+            currentTsaKey = btn.dataset.tsaKey || '';
             nameInput.value = btn.dataset.displayName || '';
             teamSelect.value = btn.dataset.team || '';
-            extraInput.value = btn.dataset.extra || '';
+            const existingTags = (btn.dataset.extra || '').split(',').map(t => t.trim()).filter(Boolean);
+            setSelectedTags(existingTags);
             restDaySelect.value = btn.dataset.restDay || '';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.classList.remove('hidden');
@@ -398,9 +466,87 @@
         });
     }
 
+    // Searchable Pancake-tags picker for "Also matches"
+    let tagDebounceTimer = null;
+    let tagRequestId = 0;
+    tagSearch.addEventListener('input', () => {
+        clearTimeout(tagDebounceTimer);
+        const q = tagSearch.value.trim();
+        tagDebounceTimer = setTimeout(() => fetchTags(q), 250);
+    });
+    tagSearch.addEventListener('focus', () => {
+        if (tagSearch.value.trim() !== '') fetchTags(tagSearch.value.trim());
+    });
+
+    async function fetchTags(q) {
+        // Requests can resolve out of order (e.g. an uncached "" query outrunning
+        // a cached, later-fired one) — a stale response would otherwise clobber
+        // a newer, correctly-filtered result list. Only the most recently issued
+        // request is allowed to render.
+        const requestId = ++tagRequestId;
+        try {
+            const res = await fetch(`{{ route('tsa-management.tags') }}?q=` + encodeURIComponent(q));
+            const tags = await res.json();
+            if (requestId !== tagRequestId) return;
+            renderTagResults(tags);
+        } catch (e) {
+            if (requestId === tagRequestId) tagResults.classList.add('hidden');
+        }
+    }
+
+    function renderTagResults(tags) {
+        const base = currentBaseKey();
+        const visible = tags.filter(t => !selectedTags.includes(t.name));
+        tagResults.innerHTML = '';
+
+        if (!visible.length) { tagResults.classList.add('hidden'); return; }
+
+        visible.forEach(t => {
+            // Their own base name is always auto-matched (see TsaShift::tag_keywords)
+            // — it's a real tag and shows up here since it exists in Pancake, but
+            // picking it is a no-op that vanishes on reload (extra_tag_keywords diffs
+            // it back out). Show it, greyed out, instead of hiding it outright —
+            // hiding a tag that's visibly real in Pancake just reads as "this tool is
+            // missing data".
+            const isOwnBase = t.name.toUpperCase() === base;
+
+            const row = document.createElement('div');
+            row.className = isOwnBase
+                ? 'px-3 py-2 text-sm text-slate-400 flex items-center justify-between gap-2 cursor-default'
+                : 'px-3 py-2 text-sm text-slate-700 hover:bg-yellow-50 hover:text-yellow-700 cursor-pointer flex items-center justify-between gap-2';
+
+            const label = document.createElement('span');
+            label.textContent = t.name;
+            row.appendChild(label);
+
+            const note = document.createElement('span');
+            note.className = 'text-[10px] font-mono text-slate-300';
+            note.textContent = isOwnBase ? 'auto-matched already' : t.count;
+            row.appendChild(note);
+
+            if (!isOwnBase) {
+                // mousedown fires before the input's blur, so the click registers
+                row.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    setSelectedTags([...selectedTags, t.name]);
+                    tagSearch.value = '';
+                    tagResults.classList.add('hidden');
+                    tagSearch.focus();
+                });
+            }
+
+            tagResults.appendChild(row);
+        });
+
+        tagResults.classList.remove('hidden');
+    }
+
     document.addEventListener('click', (e) => {
         if (!resultsBox.contains(e.target) && e.target !== nameInput) {
             resultsBox.classList.add('hidden');
+        }
+        if (!tagResults.contains(e.target) && e.target !== tagSearch) {
+            tagResults.classList.add('hidden');
         }
     });
 })();

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Order;
 use App\Models\Setting;
 use App\Models\TsaRestDay;
 use App\Models\TsaShift;
@@ -185,6 +186,113 @@ class TsaManagementController extends Controller
         }
 
         return response()->json($users->take(25)->values());
+    }
+
+    /** AJAX — search the real Pancake tag list for the "Also matches" picker. */
+    public function searchTags(Request $request): JsonResponse
+    {
+        $query = trim((string) $request->input('q', ''));
+        $tags  = $this->fetchAllTags();
+
+        if ($query !== '') {
+            $tags = $tags->filter(fn($t) => stripos($t['name'], $query) !== false)->values();
+        }
+
+        return response()->json($tags->take(50)->values());
+    }
+
+    /**
+     * Merges the shop's full tag list with recent usage counts, so the picker is
+     * both complete and sorted by relevance:
+     *
+     *  - fetchShopTags(): every tag that exists in Pancake for this shop (used or
+     *    not — GET /shops/{id}/orders/tags is shop-wide, not scanned from orders).
+     *  - fetchRecentTags(): how often each tag actually appears on recent orders,
+     *    used only to rank results — the shop endpoint has no usage/frequency data.
+     */
+    private function fetchAllTags(): Collection
+    {
+        $shopTags = $this->fetchShopTags();
+        $usage    = $this->fetchRecentTags();
+
+        $countsByUpper = $usage->keyBy(fn($t) => strtoupper($t['name']));
+
+        $merged = $shopTags->map(function ($tag) use ($countsByUpper) {
+            $seen = $countsByUpper->get(strtoupper($tag['name']));
+            return ['name' => $tag['name'], 'count' => $seen['count'] ?? 0];
+        });
+
+        $shopTagsUpper = $shopTags->pluck('name')->map(fn($n) => strtoupper($n))->flip();
+        $merged = $merged->concat(
+            $usage->reject(fn($t) => $shopTagsUpper->has(strtoupper($t['name'])))
+        );
+
+        return $merged->sortByDesc('count')->values();
+    }
+
+    /**
+     * The shop's complete tag list straight from Pancake (GET /shops/{id}/orders/tags,
+     * documented at api-docs.pancake.vn) — every tag that exists for this shop,
+     * including ones never applied to an order yet. Cheap enough (one call, no
+     * pagination) to cache short-term like fetchPosUsers(), unlike the per-page
+     * "page.tags" data embedded in order responses, which is scoped to whichever
+     * Facebook page happens to own a given order and can go stale/pruned over time.
+     */
+    private function fetchShopTags(): Collection
+    {
+        return Cache::remember('pancake_shop_tags', 600, function () {
+            $apiKey = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
+            $shopId = Setting::get('shop_id', '');
+
+            if (empty($apiKey) || empty($shopId)) {
+                return collect();
+            }
+
+            $response = Http::withHeaders(['Accept' => 'application/json'])
+                ->timeout(20)
+                ->get("https://pos.pages.fm/api/v1/shops/{$shopId}/orders/tags", ['api_key' => $apiKey]);
+
+            if (!$response->successful()) {
+                return collect();
+            }
+
+            return collect($response->json('data', []))
+                ->map(fn($tag) => ['name' => trim((string) ($tag['name'] ?? ''))])
+                ->filter(fn($tag) => $tag['name'] !== '')
+                ->unique(fn($tag) => strtoupper($tag['name']))
+                ->values();
+        });
+    }
+
+    /**
+     * Distinct tags actually seen on orders in the last 120 days, most-used first —
+     * gives the "Also matches" picker real Pancake tags instead of free-typed guesses.
+     * Scoped to a recent window (not the full ~148k-row table) so the scan + cache
+     * stays cheap; older/retired tags aren't useful for new keyword matching anyway.
+     */
+    private function fetchRecentTags(): Collection
+    {
+        return Cache::remember('pancake_recent_tags', 600, function () {
+            $counts = [];
+
+            Order::where('pancake_created_at', '>=', now()->subDays(120))
+                ->whereNotNull('raw_tags')
+                ->select('raw_tags')
+                ->orderBy('id')
+                ->chunk(2000, function ($rows) use (&$counts) {
+                    foreach ($rows as $row) {
+                        foreach ($row->raw_tags ?? [] as $tag) {
+                            $tag = trim((string) $tag);
+                            if ($tag === '') continue;
+                            $counts[$tag] = ($counts[$tag] ?? 0) + 1;
+                        }
+                    }
+                });
+
+            arsort($counts);
+
+            return collect($counts)->map(fn($count, $name) => ['name' => $name, 'count' => $count])->values();
+        });
     }
 
     /** Fetch + cache the shop's full POS user list (name/id pairs), noisy system rows filtered out. */
