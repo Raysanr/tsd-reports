@@ -25,6 +25,13 @@
 </div>
 @else
 
+{{-- Export icons live with the table itself (not the shared topbar), so they
+     stay contextually tied to it regardless of which team tab is selected —
+     matches how Leads Report's per-product tables already do this. --}}
+<div class="flex items-center justify-end mb-2">
+    @include('partials.table-actions', ['target' => 'tsaPerfTable', 'name' => 'tsa-performance-' . $selectedTeam])
+</div>
+
 {{-- Pivot table — bounded height + its own scroll so the sticky header has a
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
@@ -169,10 +176,6 @@
 
 @if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
-@endif
-
-@if(!empty($hourBlocks))
-@include('partials.table-actions', ['target' => 'tsaPerfTable', 'name' => 'tsa-performance-' . $selectedTeam])
 @endif
 
 <form method="GET" action="{{ route('tsa-performance') }}" class="flex items-center gap-3 flex-wrap">

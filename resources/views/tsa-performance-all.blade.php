@@ -23,7 +23,14 @@
 </div>
 @else
 
-<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 180px)">
+{{-- Export icons live with the table itself (not the shared topbar), so they
+     stay contextually tied to it regardless of which team tab is selected —
+     matches how Leads Report's per-product tables already do this. --}}
+<div class="flex items-center justify-end mb-2">
+    @include('partials.table-actions', ['target' => 'tsaPerfAllTable', 'name' => 'tsa-performance-' . $selectedTeam])
+</div>
+
+<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfAllTable">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
