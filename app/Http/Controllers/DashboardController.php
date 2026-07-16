@@ -240,11 +240,52 @@ class DashboardController extends Controller
         $from = Carbon::parse($dateFrom);
         $to   = Carbon::parse($dateTo);
 
+        // Every Artisan::call below writes exactly one new SyncRun row
+        // (SyncTodayOrders::recordRun) — remember the high-water mark first so
+        // the rows created by THIS request can be picked out afterward without
+        // guessing how many days were in range.
+        // NOT safe against concurrent /sync requests: two overlapping requests
+        // (e.g. two users syncing at once) can each pick up rows the other one
+        // wrote, inflating one request's reported counts. Acceptable for now on
+        // this low-traffic internal admin tool; would need per-request locking
+        // or a request-scoped marker column to fix properly.
+        $lastRunIdBeforeSync = SyncRun::max('id') ?? 0;
+
         while ($from->lte($to)) {
             \Artisan::call('pancake:sync-today', ['--date' => $from->toDateString()]);
             $from->addDay();
         }
 
-        return response()->json(['success' => true, 'date_from' => $dateFrom, 'date_to' => $dateTo]);
+        $runsFromThisSync = SyncRun::where('id', '>', $lastRunIdBeforeSync)->orderBy('id')->get();
+        $firstFailure      = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
+
+        return response()->json([
+            'success'       => $firstFailure === null,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
+            'new_orders'    => (int) $runsFromThisSync->sum('new_orders'),
+            'upsell_count'  => (int) $runsFromThisSync->sum('upsell_count'),
+            'upsell_sales'  => (float) $runsFromThisSync->sum('upsell_sales'),
+            'error_message' => $firstFailure ? self::redactSecrets($firstFailure->error_message) : null,
+            // JSON_PRESERVE_ZERO_FRACTION: without it, PHP's json_encode renders a
+            // float that happens to be a whole number (e.g. upsell_sales = 0.0) as
+            // the bare integer `0`, not `0.0` — which silently turns this field
+            // into a mixed int/float type depending on the data instead of always
+            // being a float on the wire.
+        ], 200, [], JSON_PRESERVE_ZERO_FRACTION);
+    }
+
+    /** Strips any api_key query-string value from an error message before it's
+     *  returned in an HTTP response. SyncRun.error_message can contain the raw
+     *  request URI (SyncTodayOrders builds the Pancake request with api_key as
+     *  a query-string param, and Guzzle connection-exception messages —
+     *  timeouts, DNS blips — include the full request URI). This endpoint is
+     *  reachable by 'normal'-role users, who must never see the live Pancake
+     *  API key, the same key the Settings page masks from them. */
+    private static function redactSecrets(?string $message): ?string
+    {
+        return $message === null
+            ? null
+            : preg_replace('/([?&]api_key=)[^&\s]+/i', '$1REDACTED', $message);
     }
 }
