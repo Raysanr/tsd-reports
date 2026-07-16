@@ -279,3 +279,91 @@ document.addEventListener('click', async (e) => {
         btn.classList.remove('opacity-40');
     }
 });
+
+// ─── Global search ────────────────────────────────────────────────────────────
+// Topbar search box (layouts/app.blade.php) — debounced fetch to /search,
+// grouped TSA/Product results rendered as a dropdown. Click or Enter navigates;
+// Escape or clicking outside closes it. No arrow-key result navigation — matches
+// this app's existing dropdown patterns (e.g. the date-picker), which are also
+// click-only.
+(function () {
+    const input   = document.getElementById('globalSearchInput');
+    const results = document.getElementById('globalSearchResults');
+    if (!input || !results) return;
+
+    let debounceTimer = null;
+    let currentRequest = 0;
+
+    const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+
+    function renderGroup(label, items) {
+        if (!items.length) return '';
+        const rows = items.map(item => `
+            <a href="${item.url}" class="block px-3 py-2 text-sm font-mono text-slate-700 hover:bg-yellow-50 hover:text-yellow-700 transition-colors truncate">
+                ${escapeHtml(item.label)}
+            </a>
+        `).join('');
+        return `
+            <div class="px-3 pt-2 pb-1 text-[10px] font-mono font-semibold tracking-widest text-slate-400 uppercase">${label}</div>
+            ${rows}
+        `;
+    }
+
+    function showResults(data) {
+        const tsaHtml     = renderGroup('TSA Agents', data.tsas || []);
+        const productHtml = renderGroup('Products', data.products || []);
+
+        if (!tsaHtml && !productHtml) {
+            results.innerHTML = '<p class="px-3 py-3 text-sm font-mono text-slate-400">No results.</p>';
+        } else {
+            results.innerHTML = tsaHtml + productHtml;
+        }
+        results.classList.remove('hidden');
+    }
+
+    function hideResults() {
+        // Cancel any pending debounce timer and invalidate any in-flight fetch's
+        // stale-response check — every dismissal path (Escape, outside-click,
+        // clearing the input below 2 chars) routes through here, so without this
+        // a fetch kicked off just before dismissal would still land ~250ms later
+        // and re-open the dropdown right after the user explicitly closed it.
+        clearTimeout(debounceTimer);
+        currentRequest++;
+        results.classList.add('hidden');
+    }
+
+    input.addEventListener('input', () => {
+        clearTimeout(debounceTimer);
+        const query = input.value.trim();
+
+        if (query.length < 2) {
+            hideResults();
+            return;
+        }
+
+        debounceTimer = setTimeout(() => {
+            const requestId = ++currentRequest;
+            fetch('/search?q=' + encodeURIComponent(query))
+                .then(r => r.json())
+                .then(data => {
+                    // Stale-response guard: if the user kept typing, only the
+                    // latest request's result should ever render.
+                    if (requestId === currentRequest) showResults(data);
+                })
+                .catch(() => {});
+        }, 250);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            hideResults();
+            input.blur();
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!results.contains(e.target) && e.target !== input) hideResults();
+    });
+})();

@@ -309,6 +309,24 @@
                 <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Reports · Pancake POS Integration')</p>
             </div>
         </div>
+
+        {{-- Global search — TSA agents and Products only (see SearchController for why
+             orders aren't included). Debounced fetch to /search, results grouped by
+             type in a dropdown below the input. Hidden on the smallest screens
+             (sm:block) to keep the mobile header from overflowing next to the
+             hamburger button and page title. --}}
+        <div class="relative w-full sm:w-56 md:w-64 order-last sm:order-none">
+            <div class="relative">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                </svg>
+                <input type="text" id="globalSearchInput" autocomplete="off" placeholder="Search TSA or product…"
+                    aria-label="Search TSA agents and products"
+                    class="w-full pl-8 pr-3 py-1.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors">
+            </div>
+            <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-80 overflow-y-auto"></div>
+        </div>
+
         <div class="flex items-center gap-3 flex-wrap">
             @stack('topbar-right')
         </div>

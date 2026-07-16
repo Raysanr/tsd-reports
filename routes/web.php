@@ -8,6 +8,7 @@ use App\Http\Controllers\LeadsReportController;
 use App\Http\Controllers\TsaPerformanceController;
 use App\Http\Controllers\ChartsController;
 use App\Http\Controllers\RtsReportController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
@@ -45,6 +46,7 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/tsa-performance/{team}/{tsaKey}', [TsaPerformanceController::class, 'showTsa'])->name('tsa-performance.individual');
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
+    Route::get('/search',          [SearchController::class,         'search'])->name('search');
 
     // CONFIG — Super Admin and Admin only.
     Route::middleware('role:super_admin,admin')->group(function () {
