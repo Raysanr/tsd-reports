@@ -264,4 +264,17 @@ class DashboardSyncFeedbackTest extends TestCase
         $this->assertFalse($runs[1]->success);
         $this->assertStringContainsString('503', $runs[1]->error_message);
     }
+
+    public function test_dashboard_page_wires_the_sync_button_to_show_a_toast(): void
+    {
+        $response = $this->get(route('dashboard'));
+
+        $response->assertOk();
+        // Weak-but-real regression guard: PHPUnit can't execute the click
+        // handler (no browser), so this just proves the wiring is present in
+        // the shipped markup. The actual click-and-see-a-toast behavior is
+        // verified manually (see Task 6).
+        $response->assertSee('window.showToast(', false);
+        $response->assertSee('data.error_message', false);
+    }
 }

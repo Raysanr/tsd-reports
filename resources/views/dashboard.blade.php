@@ -668,9 +668,20 @@
             body   : JSON.stringify({ date_from: range.from, date_to: range.to }),
         })
         .then(r => r.json())
-        // Swap the freshly synced numbers in place — no full reload, no
-        // flicker, scroll position kept (softRefresh in resources/js/app.js).
-        .then(() => window.softRefresh())
+        .then((data) => {
+            if (data.success) {
+                const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const message = data.new_orders > 0
+                    ? `Synced — ${data.new_orders} new order${data.new_orders === 1 ? '' : 's'}, ${data.upsell_count} upsell${data.upsell_count === 1 ? '' : 's'} (₱${peso})`
+                    : 'Synced — no new orders.';
+                window.showToast(message, 'success');
+            } else {
+                window.showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+            }
+            // Swap the freshly synced numbers in place — no full reload, no
+            // flicker, scroll position kept (softRefresh in resources/js/app.js).
+            return window.softRefresh();
+        })
         .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); });
     });
 })();

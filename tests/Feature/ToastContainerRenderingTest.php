@@ -41,6 +41,6 @@ class ToastContainerRenderingTest extends TestCase
         $response = $this->get(route('dashboard'));
 
         $response->assertOk();
-        $response->assertDontSee('window.showToast(', false);
+        $response->assertDontSee("document.addEventListener('DOMContentLoaded'", false);
     }
 }
