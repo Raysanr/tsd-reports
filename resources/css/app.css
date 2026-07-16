@@ -26,6 +26,27 @@
    Saturated icon/brand colors (e.g. text-amber-500, text-primary, text-accent)
    are left unpaired — they already read fine on both light and dark surfaces. */
 
+/* Extension to the convention above, established in Part 2a (Leads Report / TSA
+   Performance / RTS Report / Charts) for cases the Dashboard didn't have: the
+   dense pivot-table group headers in those pages use tinted backgrounds beyond
+   the plain "-50 surface" / "-100 pill" cases above, plus a neutral (non-color)
+   in-card header/divider surface. Codified here so Part 2b doesn't reinvent it:
+     - group-header BANDS (distinct from the "-100 pill" case above, which stays
+       dark:bg-{color}-900/40) at "-100"-base  -> dark:bg-{color}-900/50
+                                  "-200"-base  -> dark:bg-{color}-900/60
+                                  "-300"-base  -> dark:bg-{color}-900/70
+     - header text sitting on one of those tinted/solid bands, "-900"-base
+       (e.g. text-green-900 on bg-green-200)   -> dark:text-{color}-200
+       — one step brighter than the standard "-700 -> dark:-400" rule above,
+       since -900 text needs more contrast lift to read against a dark band.
+     - bg-slate-100 used as a neutral (non-color) in-card header/divider surface
+       (e.g. a pivot table's hour-block divider row, a sub-header cell) rather
+       than the page body -> dark:bg-slate-700, NOT dark:bg-slate-950 (that
+       mapping is reserved for the actual page background per the base rule
+       above). Keep this consistent everywhere it recurs — don't mix in
+       dark:bg-slate-800 for the same neutral-surface role in some places and
+       dark:bg-slate-700 in others. */
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';

@@ -8,9 +8,9 @@
 @endphp
 
 @forelse($teamTables as $table)
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
-    <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="text-sm font-bold text-slate-700 font-mono">{{ $table['name'] }}</h2>
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $table['name'] }}</h2>
         <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-slate-400">{{ $rangeLabel }}</span>
             @include('partials.table-actions', ['target' => 'rtsTable-' . $loop->index, 'name' => 'rts-delivered-' . \Illuminate\Support\Str::slug($table['name'])])
@@ -24,17 +24,17 @@
     <table class="w-full border-collapse text-xs font-mono">
         <thead>
             <tr>
-                <th class="bg-yellow-100 border border-slate-200 px-4 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide">{{ $table['name'] }}</th>
-                <th class="bg-rose-100 border border-slate-200 px-4 py-2.5 text-right text-[11px] font-bold text-rose-900 uppercase tracking-wide" style="min-width:130px">RTS</th>
-                <th class="bg-green-100 border border-slate-200 px-4 py-2.5 text-right text-[11px] font-bold text-green-900 uppercase tracking-wide" style="min-width:130px">Delivered</th>
+                <th class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">{{ $table['name'] }}</th>
+                <th class="bg-rose-100 dark:bg-rose-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide" style="min-width:130px">RTS</th>
+                <th class="bg-green-100 dark:bg-green-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide" style="min-width:130px">Delivered</th>
             </tr>
         </thead>
         <tbody>
             @foreach($table['rows'] as $row)
-            <tr class="hover:bg-slate-50 transition-colors">
-                <td class="border border-slate-200 px-4 py-2.5 text-slate-700">{{ $row['display_name'] }}</td>
-                <td class="border border-slate-200 px-4 py-2.5 text-right text-rose-700">₱{{ number_format($row['rts_amount'], 2) }}</td>
-                <td class="border border-slate-200 px-4 py-2.5 text-right text-green-700">₱{{ number_format($row['delivered_amount'], 2) }}</td>
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-slate-700 dark:text-slate-200">{{ $row['display_name'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-rose-700 dark:text-rose-400">₱{{ number_format($row['rts_amount'], 2) }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-green-700 dark:text-green-400">₱{{ number_format($row['delivered_amount'], 2) }}</td>
             </tr>
             @endforeach
 
@@ -54,15 +54,15 @@
     @endif
 </div>
 @empty
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm py-16 text-center font-mono text-xs text-slate-400 mb-6">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-16 text-center font-mono text-xs text-slate-400 mb-6">
     No teams configured.
 </div>
 @endforelse
 
 {{-- GRAND TOTAL — both teams combined --}}
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-    <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-        <h2 class="text-sm font-bold text-slate-700 font-mono">Both Teams</h2>
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Both Teams</h2>
         @include('partials.table-actions', ['target' => 'rtsGrandTable', 'name' => 'rts-delivered-both-teams'])
     </div>
     <div id="rtsGrandTable">

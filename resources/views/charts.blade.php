@@ -18,13 +18,13 @@
 @endphp
 
 @if(!$hasData)
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
-    <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
+    <svg class="w-12 h-12 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round"
               d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
     </svg>
     <p class="text-sm font-mono text-slate-400">No data for {{ $dateFrom }} – {{ $dateTo }}</p>
-    <p class="text-xs font-mono text-slate-300">Try a wider date range, or sync orders first.</p>
+    <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Try a wider date range, or sync orders first.</p>
 </div>
 @else
 
@@ -32,13 +32,13 @@
 
     {{-- RATE TRENDS — 3 line charts, one per rate, each split by team --}}
     @foreach(['pick_up_rate' => 'Pick-up Rate', 'conversion_rate' => 'Conversion Rate', 'upselling_rate' => 'Upselling Rate'] as $rateKey => $rateLabel)
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">{{ $rateLabel }} Trend</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $rateLabel }} Trend</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}</p>
             </div>
-            <div class="flex items-center gap-4 text-xs font-mono">
+            <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
                 @foreach($orderTeams as $i => $team)
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-0.5 inline-block rounded" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
@@ -54,13 +54,13 @@
     {{-- TOTAL CALLED LEADS TREND — pairs with the 3 rate trends above (volume
          alongside "how well handled"), and fills the 4th slot in this 2x2 grid so
          Upselling Rate Trend isn't left alone with an empty gap next to it. --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">Total Called Leads Trend</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Total Called Leads Trend</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}</p>
             </div>
-            <div class="flex items-center gap-4 text-xs font-mono">
+            <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
                 @foreach($orderTeams as $i => $team)
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-0.5 inline-block rounded" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
@@ -77,9 +77,9 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
     {{-- EXCESS LEADS TREND --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="mb-5">
-            <h2 class="text-sm font-bold text-slate-700 font-mono">Excess Leads Trend</h2>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Excess Leads Trend</h2>
             <p class="text-xs text-slate-400 font-mono mt-0.5">Uncatered, unclaimed leads per day — both teams</p>
         </div>
         <canvas id="excessChart" height="140"></canvas>
@@ -87,13 +87,13 @@
 
     {{-- RTS vs DELIVERED TREND — upsell revenue that reached the customer vs came
          back, per day, both teams combined (the trend behind the RTS/Delivered tab). --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">RTS vs Delivered Trend</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">RTS vs Delivered Trend</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">Upsell revenue delivered vs returned, per day</p>
             </div>
-            <div class="flex items-center gap-3 text-xs font-mono">
+            <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
                 <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 inline-block rounded bg-green-500"></span> Delivered</span>
                 <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 inline-block rounded bg-rose-500"></span> RTS</span>
             </div>
@@ -108,13 +108,13 @@
 <div class="grid grid-cols-1 gap-6 mb-6">
 
     {{-- DAILY SALES --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">Daily Sales</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Daily Sales</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">Cross-sell/upsell revenue per day</p>
             </div>
-            <div class="flex items-center gap-4 text-xs font-mono">
+            <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
                 @foreach($orderTeams as $i => $team)
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
@@ -131,13 +131,13 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
     {{-- DISPOSITION MIX TREND --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">Lead Outcome Mix</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Lead Outcome Mix</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">Answered vs Unanswered vs Excess, per day</p>
             </div>
-            <div class="flex items-center gap-3 text-xs font-mono">
+            <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-green-500"></span> Answered</span>
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-red-400"></span> Unanswered</span>
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-rose-600"></span> Excess</span>
@@ -147,13 +147,13 @@
     </div>
 
     {{-- HOURLY LEADS VS EXCESS --}}
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
         <div class="flex items-center justify-between mb-5">
             <div>
-                <h2 class="text-sm font-bold text-slate-700 font-mono">Leads by Hour of Day</h2>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Leads by Hour of Day</h2>
                 <p class="text-xs text-slate-400 font-mono mt-0.5">Total across the range — spot when excess spikes with volume</p>
             </div>
-            <div class="flex items-center gap-3 text-xs font-mono">
+            <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:#CA8A04"></span> New Leads</span>
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-rose-600"></span> Excess</span>
             </div>
@@ -164,13 +164,13 @@
 </div>
 
 {{-- PRODUCT COMPARISON --}}
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="flex items-center justify-between mb-5">
         <div>
-            <h2 class="text-sm font-bold text-slate-700 font-mono">Upselling Rate by Product</h2>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Upselling Rate by Product</h2>
             <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
         </div>
-        <div class="flex items-center gap-4 text-xs font-mono">
+        <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
             @foreach($orderTeams as $i => $team)
             <span class="flex items-center gap-1.5">
                 <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
@@ -184,13 +184,13 @@
 
 {{-- PRODUCT SALES COMPARISON — same card/bar style as Upselling Rate above, but
      measuring cross-sell REVENUE per product (₱), sorted highest to lowest. --}}
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-6">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="flex items-center justify-between mb-5">
         <div>
-            <h2 class="text-sm font-bold text-slate-700 font-mono">Total Upsell Sales by Product</h2>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Total Upsell Sales by Product</h2>
             <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
         </div>
-        <div class="flex items-center gap-4 text-xs font-mono">
+        <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
             @foreach($orderTeams as $i => $team)
             <span class="flex items-center gap-1.5">
                 <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
@@ -231,7 +231,20 @@
      page, so the @json data below is current) after swapping <main> in place —
      the canvases these inits target live inside the swapped region. The IIFE
      wrapper is what makes re-execution safe: without it the top-level consts
-     would collide with the first run's declarations and throw. --}}
+     would collide with the first run's declarations and throw.
+
+     Dark mode: Chart.js draws to a <canvas>, so `dark:` utility classes can't
+     reach its text/gridline colors — same escape hatch as the Dashboard's
+     inline-SVG hourly chart (app.css's --chart-* custom properties), read here
+     via getComputedStyle instead of duplicating the hex values in JS. This
+     picks the right palette on initial load and on every soft-refresh
+     (date-range change, sync); it does NOT live-redraw on a theme-toggle click
+     with no navigation in between — acceptable per the same reasoning as the
+     rest of this page's charts (re-init is opt-in via [data-rerun], not a
+     persistent live-updating chart instance). Saturated series colors (team
+     cyan/emerald, green/red/rose status colors) are left unpaired throughout,
+     same as everywhere else in the app — they already read fine on both
+     surfaces. --}}
 <script data-rerun>
 (function () {
 const dailyLabels  = @json($dailyLabels);
@@ -251,11 +264,19 @@ const hourlyLabels = @json($hourlyLabels);
 const hourlyLeads  = @json($hourlyLeads);
 const hourlyExcess = @json($hourlyExcess);
 
+// Read the current theme's chart colors from the CSS custom properties defined
+// in app.css (--chart-grid / --chart-label, light + .dark values) instead of
+// hardcoding a second copy of the palette here.
+const rootStyles = getComputedStyle(document.documentElement);
+const cssVar = (name, fallback) => (rootStyles.getPropertyValue(name) || '').trim() || fallback;
+const labelColor = cssVar('--chart-label', '#94a3b8');
+const gridColor  = cssVar('--chart-grid', '#f1f5f9');
+
 Chart.defaults.font.family = "'Fira Code', monospace";
 Chart.defaults.font.size   = 11;
-Chart.defaults.color       = '#94a3b8';
+Chart.defaults.color       = labelColor;
 
-const gridStyle = { color: '#f1f5f9' };
+const gridStyle = { color: gridColor };
 
 /* --- Rate trend line charts (3x) --- */
 Object.keys(rateSeries).forEach((rateKey) => {

@@ -22,11 +22,11 @@
 </a>
 
 @if($isRestDay)
-<div class="mb-6 flex items-center gap-3 bg-slate-100 border border-slate-200 rounded-xl px-5 py-3">
+<div class="mb-6 flex items-center gap-3 bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-xl px-5 py-3">
     <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
     </svg>
-    <p class="text-sm font-mono text-slate-600">{{ $displayName }} is marked as off on {{ $rangeLabel }}.</p>
+    <p class="text-sm font-mono text-slate-600 dark:text-slate-400">{{ $displayName }} is marked as off on {{ $rangeLabel }}.</p>
 </div>
 @endif
 
@@ -35,31 +35,31 @@
      the same table filtered to one row. --}}
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
 
-    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
         <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Called Leads</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">{{ $summary['total_called'] }}</p>
+        <p class="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none">{{ $summary['total_called'] }}</p>
         <p class="mt-2 text-xs text-slate-400 font-mono">{{ $rangeLabel }}</p>
     </div>
 
-    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
         <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Pick-up Rate</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
+        <p class="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none">
             {{ $summary['pick_up_rate'] !== null ? $summary['pick_up_rate'].'%' : '—' }}
         </p>
         <p class="mt-2 text-xs text-slate-400 font-mono">Answered ÷ Total Called</p>
     </div>
 
-    <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
         <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Conversion Rate</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
+        <p class="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none">
             {{ $summary['conversion_rate'] !== null ? $summary['conversion_rate'].'%' : '—' }}
         </p>
         <p class="mt-2 text-xs text-slate-400 font-mono">Upsell ÷ Answered</p>
     </div>
 
-    <div class="bg-white rounded-xl border border-yellow-200 p-5 shadow-sm">
-        <p class="text-xs font-mono font-semibold text-yellow-600 uppercase tracking-wider mb-2">Upselling Rate</p>
-        <p class="text-3xl font-bold text-slate-800 font-mono leading-none">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-200 dark:border-yellow-900 p-5 shadow-sm">
+        <p class="text-xs font-mono font-semibold text-yellow-600 dark:text-yellow-400 uppercase tracking-wider mb-2">Upselling Rate</p>
+        <p class="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none">
             {{ $summary['upselling_rate'] !== null ? $summary['upselling_rate'].'%' : '—' }}
         </p>
         <p class="mt-2 text-xs text-slate-400 font-mono">Upsell ÷ (Upsell + CVC)</p>
@@ -69,37 +69,37 @@
 
 {{-- HOURLY BREAKDOWN --}}
 @if(empty($hourlyRows))
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
-    <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
+    <svg class="w-12 h-12 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round"
               d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
     </svg>
     <p class="text-sm font-mono text-slate-400">No called leads for {{ $rangeLabel }}</p>
 </div>
 @else
-<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 380px)">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1100px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
                 <th rowspan="2"
-                    class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap"
+                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                     style="min-width:110px">
                     Hour
                 </th>
                 <th rowspan="2"
-                    class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">
+                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Total<br>Called Leads
                 </th>
                 <th colspan="7"
-                    class="bg-green-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-green-900 uppercase tracking-wide">
+                    class="bg-green-200 dark:bg-green-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
                     Answered Called Leads
                 </th>
                 <th colspan="6"
-                    class="bg-red-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">
+                    class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
                 </th>
                 <th rowspan="2"
-                    class="bg-yellow-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 uppercase tracking-wide leading-tight"
+                    class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                     style="min-width:110px">
                     Upselling<br>Rate
                 </th>
@@ -108,11 +108,11 @@
                 @foreach($displayCols as $col)
                 @php
                     $headerColor = match($col['group']) {
-                        'answered' => 'bg-green-50 text-green-800',
-                        default    => 'bg-red-50 text-red-800',
+                        'answered' => 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400',
+                        default    => 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400',
                     };
                 @endphp
-                <th class="{{ $headerColor }} border border-slate-300 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
+                <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
                     style="min-width:{{ $col['min_width'] }}px">
                     {!! $col['label'] !!}
                 </th>
@@ -121,19 +121,19 @@
         </thead>
         <tbody>
             @foreach($hourlyRows as $hour)
-            <tr class="hover:bg-slate-50 transition-colors">
-                <td class="border border-slate-200 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
                     {{ $hour['label'] }}
                 </td>
-                <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
                     {{ $hour['row']['total_called'] ?: '' }}
                 </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : 'text-slate-700' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">
                     {{ $hour['row'][$col['key']] ?: '' }}
                 </td>
                 @endforeach
-                <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700' : 'text-slate-300' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">
                     {{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}
                 </td>
             </tr>
@@ -164,60 +164,60 @@
      than anywhere else in the app. --}}
 <div class="mt-6">
     <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-bold text-slate-700 font-mono">Per-Product Hourly Breakdown</h2>
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Per-Product Hourly Breakdown</h2>
         @if($shiftMinutes !== null)
-        <div class="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5"
+        <div class="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-1.5"
              title="Total minutes in {{ $displayName }}'s configured shift — the 100% capacity figure OPT and Unproductive Time are measured against.">
-            <span class="text-[10px] font-mono font-bold text-emerald-700 uppercase tracking-wide">Productivity Time</span>
-            <span class="text-sm font-mono font-bold text-emerald-900">{{ $shiftMinutes }}</span>
+            <span class="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Productivity Time</span>
+            <span class="text-sm font-mono font-bold text-emerald-900 dark:text-emerald-200">{{ $shiftMinutes }}</span>
         </div>
         @endif
     </div>
 
     @if(empty($productHourlyRows) || $products->isEmpty())
-    <div class="bg-white rounded-xl border border-slate-200 shadow-sm py-16 flex flex-col items-center justify-center gap-3">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-16 flex flex-col items-center justify-center gap-3">
         <p class="text-sm font-mono text-slate-400">No product data for {{ $rangeLabel }}</p>
     </div>
     @else
-    <div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 380px)">
+    <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)">
         <table class="w-full border-collapse text-xs font-mono" style="min-width:{{ 150 + $products->count() * 90 + 690 }}px">
             <thead class="sticky top-0 z-20 shadow-sm">
                 <tr>
-                    <th class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
                         Hour
                     </th>
                     @foreach($products as $product)
-                    <th class="bg-slate-100 border border-slate-300 px-2 py-2.5 text-center text-[10px] font-bold text-slate-700 uppercase tracking-wide"
+                    <th class="bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-2.5 text-center text-[10px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide"
                         style="min-width:90px">
                         {{ $product->display_name }}
                     </th>
                     @endforeach
-                    <th class="bg-yellow-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
                         Total<br>Catered Leads
                     </th>
-                    <th class="bg-slate-200 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-800 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-slate-200 dark:bg-slate-600 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
                         Total {{ $teamName }}<br>Leads/Hour
                     </th>
-                    <th class="bg-cyan-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-cyan-900 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-cyan-100 dark:bg-cyan-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-cyan-900 dark:text-cyan-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px">
                         Total<br>Answered Calls
                     </th>
-                    <th class="bg-slate-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px" title="No call-duration data exists to compute this — blank in the source sheet too">
                         Total AHT<br>Per Hour
                     </th>
-                    <th class="bg-red-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-red-100 dark:bg-red-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px">
                         Total<br>Unanswered Calls
                     </th>
-                    <th class="bg-emerald-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-emerald-100 dark:bg-emerald-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:100px" title="Answered calls x 3 minutes">
                         OPT (Order<br>Processing Time)
                     </th>
-                    <th class="bg-orange-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:100px" title="60 minutes - OPT - unanswered calls">
                         Unproductive<br>Time
                     </th>
@@ -225,34 +225,34 @@
             </thead>
             <tbody>
                 @foreach($productHourlyRows as $hour)
-                <tr class="hover:bg-slate-50 transition-colors">
-                    <td class="border border-slate-200 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
                         {{ $hour['label'] }}
                     </td>
                     @foreach($products as $product)
-                    <td class="border border-slate-200 px-2 py-2.5 text-center text-slate-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">
                         {{ $hour['counts'][$product->id] ?: '' }}
                     </td>
                     @endforeach
-                    <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
                         {{ $hour['row_total'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center font-semibold text-slate-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-semibold text-slate-700 dark:text-slate-200">
                         {{ $hour['tsa_leads'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center text-cyan-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-cyan-700 dark:text-cyan-400">
                         {{ $hour['answered'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center text-slate-300">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-300 dark:text-slate-600">
                         —
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center text-red-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-red-700 dark:text-red-400">
                         {{ $hour['unanswered'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center text-emerald-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400">
                         {{ $hour['opt'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 px-3 py-2.5 text-center text-orange-700">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">
                         {{ $hour['unproductive'] }}
                     </td>
                 </tr>

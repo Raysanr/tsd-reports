@@ -15,13 +15,13 @@
 
 {{-- Empty state --}}
 @if(empty($hourBlocks))
-<div class="bg-white rounded-xl border border-slate-200 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
-    <svg class="w-12 h-12 text-slate-200" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
+    <svg class="w-12 h-12 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round"
               d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
     </svg>
     <p class="text-sm font-mono text-slate-400">No data for {{ $rangeLabel }}</p>
-    <p class="text-xs font-mono text-slate-300">Sync orders first, or try another date.</p>
+    <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Sync orders first, or try another date.</p>
 </div>
 @else
 
@@ -35,14 +35,14 @@
 {{-- Pivot table — bounded height + its own scroll so the sticky header has a
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
-<div class="overflow-auto bg-white rounded-xl border border-slate-200 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1200px">
             <thead class="sticky top-0 z-20 shadow-sm">
 
                 {{-- ── Row 1: group headers ── --}}
                 <tr>
                     <th rowspan="2"
-                        class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap"
+                        class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:150px">
                         TSA's
                     </th>
@@ -51,15 +51,15 @@
                          Unanswered — every lead that was actually called. Excess/uncatered
                          leads are excluded (they have their own column). --}}
                     <th rowspan="2"
-                        class="bg-yellow-50 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 uppercase tracking-wide whitespace-nowrap">
+                        class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                         Total<br>Called Leads
                     </th>
                     <th colspan="7"
-                        class="bg-green-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-green-900 uppercase tracking-wide">
+                        class="bg-green-200 dark:bg-green-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
                         Answered Called Leads
                     </th>
                     <th colspan="6"
-                        class="bg-red-200 border border-slate-300 px-3 py-2 text-center text-[11px] font-bold text-red-900 uppercase tracking-wide">
+                        class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                         Unanswered Call Leads
                     </th>
                     {{-- Fix: this must be defined in ROW 1 with rowspan="2" so it spans
@@ -69,7 +69,7 @@
                          corrupting that row's column count and making a body row's cell
                          render overlapping the sticky header on scroll. --}}
                     <th rowspan="2"
-                        class="bg-yellow-100 border border-slate-300 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 uppercase tracking-wide leading-tight"
+                        class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                         style="min-width:110px">
                         Upselling<br>Rate
                     </th>
@@ -80,11 +80,11 @@
                     @foreach($displayCols as $col)
                     @php
                         $headerColor = match($col['group']) {
-                            'answered' => 'bg-green-50 text-green-800',
-                            default    => 'bg-red-50 text-red-800',
+                            'answered' => 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400',
+                            default    => 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400',
                         };
                     @endphp
-                    <th class="{{ $headerColor }} border border-slate-300 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
+                    <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
                         style="min-width:{{ $col['min_width'] }}px">
                         {!! $col['label'] !!}
                     </th>
@@ -97,17 +97,17 @@
                 @foreach($hourBlocks as $block)
                 {{-- Hour block divider --}}
                 <tr>
-                    <td colspan="16" class="border border-slate-300 bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-600 uppercase tracking-wide">
+                    <td colspan="16" class="border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
                         {{ $block['label'] }}
                     </td>
                 </tr>
 
                 @foreach($block['rows'] as $row)
-                <tr class="hover:bg-slate-50 transition-colors">
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     {{-- Name — linked to that TSA's individual performance page when this
                          row has a real tsa_key (never true for a row with no key, though
                          none currently render without one). --}}
-                    <td class="border border-slate-200 px-3 py-2.5 font-semibold text-slate-700 whitespace-nowrap">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
                         @if($row['tsa_key'])
                         <a href="{{ route('tsa-performance.individual', ['team' => $selectedTeam, 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                            class="group inline-flex items-center gap-1 hover:text-primary transition-colors cursor-pointer">
@@ -121,15 +121,15 @@
                         @endif
                     </td>
                     {{-- Total Called Leads --}}
-                    <td class="border border-slate-200 px-3 py-2.5 text-center font-bold text-slate-800">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
                         {{ $row['total_called'] ?: '' }}
                     </td>
                     @foreach($displayCols as $col)
-                    <td class="border border-slate-200 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 font-semibold' : 'text-slate-700' }}">
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">
                         {{ $row[$col['key']] ?: '' }}
                     </td>
                     @endforeach
-                    <td class="border border-slate-200 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700' : 'text-slate-300' }}">
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">
                         {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
                     </td>
                 </tr>
@@ -186,11 +186,11 @@
     <input type="hidden" name="team" value="{{ $selectedTeam }}">
     <input type="hidden" name="product" value="{{ $selectedProduct }}">
 
-    <div class="flex rounded-lg border border-slate-200 overflow-hidden">
+    <div class="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
         @foreach($teams as $key => $label)
         <button type="submit" name="team" value="{{ $key }}" data-filter-btn
                 class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200 motion-reduce:transition-none
-                       {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white text-slate-500 hover:bg-slate-50' }}">
+                       {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
             {{ $label }}
         </button>
         @endforeach
@@ -201,7 +201,7 @@
     @if($availableProducts->isNotEmpty())
     <div class="relative">
         <button type="button" id="productTrigger" aria-haspopup="listbox" aria-expanded="false"
-                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold font-mono text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer">
+                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold font-mono text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
             <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
             </svg>
@@ -211,16 +211,16 @@
             </svg>
         </button>
 
-        <div id="productPanel" role="listbox" class="hidden absolute right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 py-1 max-h-80 overflow-y-auto" style="min-width:200px">
+        <div id="productPanel" role="listbox" class="hidden absolute right-0 top-full mt-2 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1 max-h-80 overflow-y-auto" style="min-width:200px">
             <button type="submit" name="product" value="all" role="option" aria-selected="{{ $selectedProduct === 'all' ? 'true' : 'false' }}"
                     class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer
-                           {{ $selectedProduct === 'all' ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50' }}">
+                           {{ $selectedProduct === 'all' ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 All Products
             </button>
             @foreach($availableProducts as $product)
             <button type="submit" name="product" value="{{ $product->display_name }}" role="option" aria-selected="{{ $selectedProduct === $product->display_name ? 'true' : 'false' }}"
-                    class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer border-t border-slate-100
-                           {{ $selectedProduct === $product->display_name ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 hover:bg-slate-50' }}">
+                    class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer border-t border-slate-100 dark:border-slate-700
+                           {{ $selectedProduct === $product->display_name ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 {{ $product->display_name }}
             </button>
             @endforeach
@@ -252,9 +252,9 @@
     </script>
     @endif
 
-    <label class="flex items-center gap-1.5 text-xs font-mono text-slate-500 cursor-pointer select-none">
+    <label class="flex items-center gap-1.5 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-pointer select-none">
         <input type="checkbox" name="show_empty" value="1" {{ $showEmpty ? 'checked' : '' }}
-               class="rounded border-slate-300 text-yellow-600 focus:ring-yellow-400 cursor-pointer">
+               class="rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-400 cursor-pointer">
         Show empty hours
     </label>
 
