@@ -96,6 +96,22 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
             if (current) current.className = fresh.className;
         });
 
+        // Same staleness problem as [data-filter-btn] above, but for the Sync button
+        // itself (dashboard.blade.php, also in @push('topbar-right') outside <main>)
+        // — its red/yellow background, title and aria-label reflect $stats['sync_stale']
+        // as of the ORIGINAL page load. A successful sync just bumped last_synced,
+        // which the freshly-fetched document already reflects correctly (it's a real
+        // server render) — this just copies that fresh state onto the live button so
+        // its "stale" warning clears without a full reload. No-op on any page that
+        // doesn't have a #syncBtn (every page except the Dashboard).
+        const freshSyncBtn = doc.querySelector('#syncBtn');
+        const currentSyncBtn = document.querySelector('#syncBtn');
+        if (freshSyncBtn && currentSyncBtn) {
+            currentSyncBtn.className = freshSyncBtn.className;
+            currentSyncBtn.title = freshSyncBtn.title;
+            currentSyncBtn.setAttribute('aria-label', freshSyncBtn.getAttribute('aria-label'));
+        }
+
         // Same staleness problem, but for the topbar filter form's hidden
         // fallback fields (team, product, range, ...) — these carry the actual
         // VALUE a later submit through a different control (e.g. the date
