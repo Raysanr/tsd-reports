@@ -667,7 +667,10 @@
             headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
             body   : JSON.stringify({ date_from: range.from, date_to: range.to }),
         })
-        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
         .then((data) => {
             if (data.success) {
                 const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -682,6 +685,7 @@
             // flicker, scroll position kept (softRefresh in resources/js/app.js).
             return window.softRefresh();
         })
+        .catch(() => window.showToast('Sync failed: request error.', 'error'))
         .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); });
     });
 })();
