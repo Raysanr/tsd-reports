@@ -1,5 +1,31 @@
 import './bootstrap';
 
+// ─── Dark mode toggle ────────────────────────────────────────────────────────
+// The actual dark/light class is applied by an inline <head> script (before
+// paint, to avoid a flash of the wrong theme) — this just wires up the button
+// to flip it after load and persist the explicit choice. Once a user has
+// toggled at all, that stored choice always wins over the OS preference on
+// every future load (see the inline script in layouts/app.blade.php).
+(function () {
+    const toggle  = document.getElementById('themeToggle');
+    const sunIcon = document.getElementById('themeIconSun');
+    const moonIcon = document.getElementById('themeIconMoon');
+    if (!toggle) return;
+
+    function syncIcon() {
+        const isDark = document.documentElement.classList.contains('dark');
+        sunIcon?.classList.toggle('hidden', !isDark);
+        moonIcon?.classList.toggle('hidden', isDark);
+    }
+    syncIcon();
+
+    toggle.addEventListener('click', () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        syncIcon();
+    });
+})();
+
 // ─── Soft refresh ────────────────────────────────────────────────────────────
 // Fetches a page and swaps only <main>'s content in place — no full navigation,
 // so there's no white flash, no scroll loss, and header controls (date picker,
@@ -268,6 +294,15 @@ document.addEventListener('click', async (e) => {
     // visible slice. Button shows a busy state — capture takes a beat.
     btn.disabled = true;
     btn.classList.add('opacity-40');
+
+    // Exported images are meant to be shared/printed, so they're always rendered
+    // in light mode regardless of the viewer's current on-screen theme — forcing
+    // html2canvas's backgroundColor to white while the table's live computed
+    // colors are dark-mode grays/whites would otherwise produce a near-illegible,
+    // low-contrast PNG. Stripped right before capture, restored in `finally` so
+    // a capture error never leaves the page stuck in light mode.
+    const wasDark = document.documentElement.classList.contains('dark');
+    if (wasDark) document.documentElement.classList.remove('dark');
     try {
         await loadHtml2Canvas();
         const canvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
@@ -275,6 +310,7 @@ document.addEventListener('click', async (e) => {
     } catch (err) {
         console.error('Table snapshot failed:', err);
     } finally {
+        if (wasDark) document.documentElement.classList.add('dark');
         btn.disabled = false;
         btn.classList.remove('opacity-40');
     }

@@ -1,6 +1,31 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark-mode color convention, as actually practiced across the app (established
+   in commit 16192ac — Dashboard + shared layout chrome — and meant to be copied
+   as-is by every later page, not reinvented per file):
+     - "-50"-base tinted surfaces (card backgrounds, banners, icon-badge circles,
+       e.g. bg-yellow-50 / bg-red-50)        -> dark:bg-{color}-950/40
+     - "-100"-base surfaces (solid status pills, e.g. bg-yellow-100)
+                                              -> dark:bg-{color}-900/40
+     - tinted borders (e.g. border-red-200)  -> dark:border-{color}-800
+       EXCEPT yellow/amber, which uses dark:border-yellow-900 — at this brand's
+       saturation, yellow-800 read too muddy/close to the surface fill, so -900
+       is the deliberate exception, not a typo.
+     - tinted text on a tinted surface (e.g. text-red-700) -> dark:text-{color}-400
+     - bg-white (cards/panels/header)        -> dark:bg-slate-900
+     - bg-slate-100 (page body)              -> dark:bg-slate-950
+     - border-slate-200 / border-slate-100   -> dark:border-slate-700
+     - text-slate-800 / text-slate-900 (headings/primary)   -> dark:text-slate-100
+     - text-slate-700 (card titles/body, one step down from headings) -> dark:text-slate-200
+     - text-slate-500 / text-slate-600 (secondary)          -> dark:text-slate-400
+     - text-slate-400 (muted/placeholder) and shadows       -> left as-is, no pair
+     - hover:bg-slate-50 / hover:bg-slate-100 (row/item hover) -> dark:hover:bg-slate-800
+   Saturated icon/brand colors (e.g. text-amber-500, text-primary, text-accent)
+   are left unpaired — they already read fine on both light and dark surfaces. */
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
@@ -22,6 +47,27 @@
 }
 
 body { font-family: var(--font-sans); background: #F8FAFC; }
+
+/* Chart colors consumed as inline SVG fill/stroke="var(--chart-*)" (Dashboard's
+   hourly-activity radial chart, resources/views/dashboard.blade.php) — Tailwind's
+   dark: variant only works on classes, not on server-rendered SVG presentation
+   attributes, so these custom properties are the dark-mode escape hatch for that
+   one chart. Same light-mode values as before Part 1, just given names; the
+   .dark block underneath is the only new behavior. */
+:root {
+    --chart-grid:        #E2E8F0;
+    --chart-wedge:        #CBD5E1;
+    --chart-wedge-peak:  #CA8A04;
+    --chart-label:       #94A3B8;
+    --chart-label-peak:  #854D0E;
+}
+.dark {
+    --chart-grid:        #334155;
+    --chart-wedge:        #475569;
+    --chart-wedge-peak:  #EAB308;
+    --chart-label:       #64748B;
+    --chart-label-peak:  #FDE047;
+}
 
 /* Sidebar active glow */
 .nav-active {
