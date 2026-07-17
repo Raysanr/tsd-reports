@@ -6,16 +6,16 @@
 <div class="max-w-3xl space-y-6">
 
     @if(session('success'))
-    <div class="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
+    <div class="flex items-center gap-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-xl px-5 py-4">
         <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
         </svg>
-        <p class="text-sm font-mono text-green-700">{{ session('success') }}</p>
+        <p class="text-sm font-mono text-green-700 dark:text-green-400">{{ session('success') }}</p>
     </div>
     @endif
 
     @if($errors->any())
-    <div class="px-5 py-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <div class="px-5 py-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
         @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
     </div>
     @endif
@@ -32,23 +32,23 @@
     </div>
 
     @foreach($teamGroups as $group)
-    <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
-        <div class="px-6 py-4 border-b border-slate-100">
-            <h3 class="text-sm font-semibold text-slate-800">{{ $group['name'] }}</h3>
-            <p class="text-xs text-slate-500 mt-0.5">{{ $group['products']->count() }} {{ \Illuminate\Support\Str::plural('product', $group['products']->count()) }}</p>
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $group['name'] }}</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ $group['products']->count() }} {{ \Illuminate\Support\Str::plural('product', $group['products']->count()) }}</p>
         </div>
 
         @if($group['products']->isEmpty())
         <div class="py-10 text-center text-sm text-slate-400 font-mono">No products for this team yet</div>
         @else
-        <div class="divide-y divide-slate-100">
+        <div class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($group['products'] as $product)
             <div class="px-6 py-3 flex items-center gap-4 {{ $product->is_hidden ? 'opacity-50' : '' }}">
                 <div class="flex-1">
                     <div class="flex items-center gap-2">
-                        <p class="text-sm font-mono font-semibold text-slate-700">{{ $product->display_name }}</p>
+                        <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $product->display_name }}</p>
                         @if($product->is_hidden)
-                        <span class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">Hidden</span>
+                        <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">Hidden</span>
                         @endif
                     </div>
                     @if($product->match_keyword)
@@ -58,7 +58,7 @@
 
                 <div class="flex items-center gap-1 shrink-0">
                     <button type="button"
-                        class="editProductBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer"
+                        class="editProductBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
                         title="Edit"
                         data-id="{{ $product->id }}"
                         data-display-name="{{ $product->display_name }}"
@@ -69,7 +69,7 @@
                         </svg>
                     </button>
                     <button type="button"
-                        class="toggleHiddenBtn p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                        class="toggleHiddenBtn p-1.5 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                         title="{{ $product->is_hidden ? 'Unhide' : 'Hide' }}"
                         data-id="{{ $product->id }}">
                         @if($product->is_hidden)
@@ -84,7 +84,7 @@
                         @endif
                     </button>
                     <button type="button"
-                        class="deleteProductBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        class="deleteProductBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                         title="Remove"
                         data-id="{{ $product->id }}"
                         data-name="{{ $product->display_name }}">
@@ -101,9 +101,9 @@
     @endforeach
 
     @if($unassigned->isNotEmpty())
-    <div class="bg-yellow-50 border border-yellow-200 rounded-xl px-6 py-4">
-        <p class="text-xs font-semibold text-yellow-800 mb-1">Unassigned team</p>
-        <p class="text-xs text-yellow-700">{{ $unassigned->pluck('display_name')->join(', ') }} — team value doesn't match a configured team.</p>
+    <div class="bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-xl px-6 py-4">
+        <p class="text-xs font-semibold text-yellow-800 dark:text-yellow-400 mb-1">Unassigned team</p>
+        <p class="text-xs text-yellow-700 dark:text-yellow-400">{{ $unassigned->pluck('display_name')->join(', ') }} — team value doesn't match a configured team.</p>
     </div>
     @endif
 
@@ -111,25 +111,25 @@
 
 {{-- Shared Add / Edit modal --}}
 <div id="productModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100">
-            <h3 id="productModalTitle" class="text-sm font-bold text-slate-800">Add a new product</h3>
-            <p id="productModalSubtitle" class="text-xs text-slate-500 mt-0.5">Recognized starting with the next sync</p>
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <h3 id="productModalTitle" class="text-sm font-bold text-slate-800 dark:text-slate-100">Add a new product</h3>
+            <p id="productModalSubtitle" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Recognized starting with the next sync</p>
         </div>
         <form id="productForm" method="POST" action="{{ route('product-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
             <input type="hidden" name="_method" id="productFormMethod" value="">
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Display name</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Display name</label>
                 <input type="text" id="productNameInput" name="display_name" required
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Team</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Team</label>
                 <select name="team" id="productTeamSelect" required
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @foreach($teamsConfig as $team)
                     <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
                     @endforeach
@@ -137,17 +137,17 @@
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                     Match keywords <span class="text-slate-400 font-normal">(optional, comma-separated)</span>
                 </label>
                 <input type="text" name="match_keyword" id="productKeywordInput"
                     placeholder="e.g. PTERYGIUM, PteryFix — every cart-name variant of this product"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                 <p class="text-[11px] text-slate-400 mt-1">Leave blank to match on the display name itself. Matching ignores case, spaces and punctuation, and an order counts if it matches ANY keyword — add every alias the POS cart uses, or unclaimed leads for that variant won't be attributed to your team.</p>
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-2">
-                <button type="button" id="cancelProductModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                <button type="button" id="cancelProductModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="productSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add Product</button>
             </div>
         </form>

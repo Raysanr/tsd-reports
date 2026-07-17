@@ -47,6 +47,34 @@
        dark:bg-slate-800 for the same neutral-surface role in some places and
        dark:bg-slate-700 in others. */
 
+/* Extension to the convention above, established in Part 2b (Product/TSA/User
+   Management, Settings, and their Add/Edit modals) for the first form-heavy
+   pages in the app — text/select inputs, not just display surfaces:
+     - text/select input fields (typically border-slate-200/-300 with a white
+       or native-default background) -> add bg-white dark:bg-slate-800, on top
+       of the standard border-slate-200 -> dark:border-slate-700 and
+       text-slate-800/900 -> dark:text-slate-100 rules already above. This is
+       ONE STEP LIGHTER than a card's dark:bg-slate-900, deliberately, so an
+       input reads as a distinct field against the card/modal panel it sits
+       in rather than blending into it. Applied consistently to every text,
+       email, password, date, and time input, and every <select>, across all
+       4 admin pages — do not leave any of them on native/transparent bg in
+       dark mode, or they render as a glaring white box on a dark panel.
+     - focus rings/borders (focus:ring-yellow-*, focus:border-primary, etc.)
+       -> left unchanged. Brand-colored focus states already have enough
+       contrast against both a light and a dark input fill.
+     - modal/dialog overlay scrims (bg-slate-900/40 or similar) -> left
+       unchanged; a translucent dark scrim reads fine over either theme.
+     - modal/dialog PANELS (the actual card inside the scrim) -> treated
+       exactly like any other card: bg-white -> dark:bg-slate-900.
+     - disabled input surfaces: none existed yet in these 4 pages to convert,
+       but if one is added later, treat it like the neutral bg-slate-100
+       in-card surface above -> dark:bg-slate-700 (a muted/inactive field
+       reads as "recessed," the same role as a header/divider, not as an
+       active input, so it should NOT use the dark:bg-slate-800 input fill
+       above — that value is reserved for fields the user can actually type
+       into). */
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';

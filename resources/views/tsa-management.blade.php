@@ -8,16 +8,16 @@
 <div class="flex-1 min-w-0 space-y-6">
 
     @if(session('success'))
-    <div class="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
+    <div class="flex items-center gap-3 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-xl px-5 py-4">
         <svg class="w-4 h-4 text-green-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
         </svg>
-        <p class="text-sm font-mono text-green-700">{{ session('success') }}</p>
+        <p class="text-sm font-mono text-green-700 dark:text-green-400">{{ session('success') }}</p>
     </div>
     @endif
 
     @if($errors->any())
-    <div class="px-5 py-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <div class="px-5 py-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
         @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
     </div>
     @endif
@@ -37,23 +37,23 @@
         @csrf
 
         @foreach($teamGroups as $group)
-        <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
-            <div class="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
                 <div class="w-7 h-7 rounded-full bg-yellow-700 text-white text-xs font-bold flex items-center justify-center">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
                     </svg>
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-800">{{ $group['name'] }}</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">{{ $group['shifts']->count() }} {{ \Illuminate\Support\Str::plural('agent', $group['shifts']->count()) }}</p>
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $group['name'] }}</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ $group['shifts']->count() }} {{ \Illuminate\Support\Str::plural('agent', $group['shifts']->count()) }}</p>
                 </div>
             </div>
 
             @if($group['shifts']->isEmpty())
             <div class="py-10 text-center text-sm text-slate-400 font-mono">No TSAs on this team yet</div>
             @else
-            <div class="divide-y divide-slate-100">
+            <div class="divide-y divide-slate-100 dark:divide-slate-700">
                 @foreach($group['shifts'] as $shift)
                 <div class="px-6 py-3 flex items-center gap-4">
                     {{-- Avatar + name --}}
@@ -64,8 +64,8 @@
                         <div>
                             <input type="text" name="shifts[{{ $shift->tsa_key }}][display_name]"
                                    value="{{ $shift->display_name }}"
-                                   class="w-full text-sm font-mono font-semibold text-slate-700 border-0 border-b border-transparent
-                                          hover:border-slate-200 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors"
+                                   class="w-full text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
+                                          hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors"
                                    placeholder="Full name">
                             <p class="text-[10px] text-slate-400 font-mono">{{ $shift->tsa_key }}</p>
                         </div>
@@ -76,12 +76,12 @@
                         <label class="text-xs font-mono text-slate-400 shrink-0">Shift</label>
                         <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_start]"
                                value="{{ $shift->shift_start }}"
-                               class="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700
+                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200
                                       focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
                         <span class="text-xs text-slate-400">to</span>
                         <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_end]"
                                value="{{ $shift->shift_end }}"
-                               class="border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700
+                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200
                                       focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
                         @if($shift->shift_start && $shift->shift_end)
                         <span class="text-xs font-mono text-slate-400 ml-1">{{ $shift->shift_range }}</span>
@@ -92,7 +92,7 @@
                          form (browsers don't support nested <form> elements) --}}
                     <div class="flex items-center gap-1 shrink-0">
                         <button type="button"
-                            class="editTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer"
+                            class="editTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
                             title="Edit"
                             data-id="{{ $shift->id }}"
                             data-tsa-key="{{ $shift->tsa_key }}"
@@ -106,7 +106,7 @@
                             </svg>
                         </button>
                         <button type="button"
-                            class="deleteTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                            class="deleteTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                             title="Remove"
                             data-id="{{ $shift->id }}"
                             data-name="{{ $shift->display_name }}">
@@ -123,13 +123,13 @@
         @endforeach
 
         @if($unassigned->isNotEmpty())
-        <div class="bg-yellow-50 border border-yellow-200 rounded-xl px-6 py-4">
-            <p class="text-xs font-semibold text-yellow-800 mb-1">Unassigned team</p>
-            <p class="text-xs text-yellow-700">{{ $unassigned->pluck('display_name')->join(', ') }} — team value doesn't match a configured team.</p>
+        <div class="bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-xl px-6 py-4">
+            <p class="text-xs font-semibold text-yellow-800 dark:text-yellow-400 mb-1">Unassigned team</p>
+            <p class="text-xs text-yellow-700 dark:text-yellow-400">{{ $unassigned->pluck('display_name')->join(', ') }} — team value doesn't match a configured team.</p>
         </div>
         @endif
 
-        <div class="bg-white rounded-xl border border-yellow-100 shadow-sm px-6 py-4 flex items-center justify-between">
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm px-6 py-4 flex items-center justify-between">
             <p class="text-xs text-slate-400 font-mono">Changes apply immediately on TSA Performance and Leads Report</p>
             <button type="submit"
                     class="inline-flex items-center gap-2 px-5 py-2 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer">
@@ -144,17 +144,17 @@
 </div>
 
 <div class="w-full lg:w-80 shrink-0">
-    <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
             <a href="{{ route('tsa-management', ['month' => $calendar['prev_month']]) }}"
-               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer">
+               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
                 </svg>
             </a>
-            <h3 class="text-sm font-semibold text-slate-800">{{ $calendar['month_label'] }}</h3>
+            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $calendar['month_label'] }}</h3>
             <a href="{{ route('tsa-management', ['month' => $calendar['next_month']]) }}"
-               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer">
+               class="p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
                 </svg>
@@ -169,11 +169,11 @@
                 <div></div>
                 @endfor
                 @foreach($calendar['days'] as $dayData)
-                <button type="button" class="restDayCell aspect-square rounded-lg border border-slate-100 hover:border-yellow-300 hover:bg-yellow-50 transition-colors cursor-pointer p-1 flex flex-col items-center justify-start"
+                <button type="button" class="restDayCell aspect-square rounded-lg border border-slate-100 dark:border-slate-700 hover:border-yellow-300 dark:hover:border-yellow-900 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer p-1 flex flex-col items-center justify-start"
                     data-date="{{ $dayData['date'] }}" data-off="{{ $dayData['off_tsas']->pluck('tsa_key')->join(',') }}">
-                    <span class="text-[11px] font-mono text-slate-500">{{ $dayData['day'] }}</span>
+                    <span class="text-[11px] font-mono text-slate-500 dark:text-slate-400">{{ $dayData['day'] }}</span>
                     @if($dayData['off_tsas']->isNotEmpty())
-                    <span class="text-[9px] font-mono text-yellow-700 leading-tight text-center">
+                    <span class="text-[9px] font-mono text-yellow-700 dark:text-yellow-400 leading-tight text-center">
                         {{ $dayData['off_tsas']->pluck('initials')->join(' ') }}
                     </span>
                     @endif
@@ -189,10 +189,10 @@
 
 {{-- Shared Add / Edit modal --}}
 <div id="tsaModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100">
-            <h3 id="tsaModalTitle" class="text-sm font-bold text-slate-800">Add a new TSA</h3>
-            <p id="tsaModalSubtitle" class="text-xs text-slate-500 mt-0.5">They'll be recognized starting with the next sync</p>
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <h3 id="tsaModalTitle" class="text-sm font-bold text-slate-800 dark:text-slate-100">Add a new TSA</h3>
+            <p id="tsaModalSubtitle" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">They'll be recognized starting with the next sync</p>
         </div>
         <form id="tsaForm" method="POST" action="{{ route('tsa-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
@@ -200,21 +200,21 @@
             <input type="hidden" name="pos_user_id" id="tsaPosUserId" value="">
 
             <div class="relative">
-                <label class="block text-xs font-semibold text-slate-700 mb-1">TSA name</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">TSA name</label>
                 <input type="text" id="tsaNameInput" name="display_name" required autocomplete="off"
                     placeholder="Search Pancake POS accounts..."
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <div id="tsaNameResults" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
-                <p id="tsaLinkedHint" class="hidden text-[11px] text-green-600 mt-1">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                <div id="tsaNameResults" class="hidden absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
+                <p id="tsaLinkedHint" class="hidden text-[11px] text-green-600 dark:text-green-400 mt-1">
                     <svg class="w-3 h-3 inline -mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                     Linked to a real POS account
                 </p>
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Team</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Team</label>
                 <select name="team" id="tsaTeamSelect" required
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @foreach($teamsConfig as $team)
                     <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
                     @endforeach
@@ -222,24 +222,24 @@
             </div>
 
             <div class="relative">
-                <label class="block text-xs font-semibold text-slate-700 mb-1">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                     Also matches <span class="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <input type="hidden" name="extra_keywords" id="tsaExtraInput" value="">
                 <div id="tsaTagChips" class="hidden flex-wrap gap-1.5 mb-2"></div>
                 <input type="text" id="tsaTagSearch" autocomplete="off"
                     placeholder="Search Pancake tags..."
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <div id="tsaTagResults" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                <div id="tsaTagResults" class="hidden absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
                 <p class="text-[11px] text-slate-400 mt-1">Their first name is matched automatically — pick any other Pancake tags that should also count as theirs.</p>
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                     Rest day <span class="text-slate-400 font-normal">(optional)</span>
                 </label>
                 <select name="rest_day_of_week" id="tsaRestDaySelect"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     <option value="">None</option>
                     <option value="sunday">Sunday</option>
                     <option value="monday">Monday</option>
@@ -252,7 +252,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-2">
-                <button type="button" id="cancelTsaModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                <button type="button" id="cancelTsaModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="tsaSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add TSA</button>
             </div>
         </form>
@@ -269,20 +269,20 @@
      same way (hidden class + click handlers), so editing a date's rest days doesn't
      share state with the Add/Edit TSA modal. --}}
 <div id="restDayModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100">
-            <h3 id="restDayModalTitle" class="text-sm font-bold text-slate-800">Rest days</h3>
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <h3 id="restDayModalTitle" class="text-sm font-bold text-slate-800 dark:text-slate-100">Rest days</h3>
         </div>
         <form id="restDayForm" method="POST" class="px-6 py-5 space-y-3">
             @csrf
             @foreach($shifts as $shift)
-            <label class="flex items-center gap-2 text-sm text-slate-700">
+            <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input type="checkbox" name="tsas[]" value="{{ $shift->tsa_key }}" class="restDayCheckbox" data-tsa-key="{{ $shift->tsa_key }}">
                 {{ $shift->display_name }}
             </label>
             @endforeach
             <div class="flex items-center justify-end gap-2 pt-2">
-                <button type="button" id="cancelRestDayModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                <button type="button" id="cancelRestDayModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Save</button>
             </div>
         </form>
@@ -352,7 +352,7 @@
 
         selectedTags.forEach(tag => {
             const chip = document.createElement('span');
-            chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-yellow-50 border border-yellow-200 text-[11px] font-mono text-yellow-800';
+            chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 text-[11px] font-mono text-yellow-800 dark:text-yellow-400';
 
             const label = document.createElement('span');
             label.textContent = tag;
@@ -360,7 +360,7 @@
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
-            removeBtn.className = 'hover:text-yellow-950 cursor-pointer leading-none';
+            removeBtn.className = 'hover:text-yellow-950 dark:hover:text-yellow-200 cursor-pointer leading-none';
             removeBtn.textContent = '×';
             removeBtn.addEventListener('click', () => setSelectedTags(selectedTags.filter(t => t !== tag)));
             chip.appendChild(removeBtn);
@@ -448,7 +448,7 @@
     function renderResults(users) {
         if (!users.length) { resultsBox.classList.add('hidden'); resultsBox.innerHTML = ''; return; }
         resultsBox.innerHTML = users.map(u => `
-            <div class="tsaResultRow px-3 py-2 text-sm text-slate-700 hover:bg-yellow-50 hover:text-yellow-700 cursor-pointer" data-id="${u.id}" data-name="${u.name.replace(/"/g, '&quot;')}">
+            <div class="tsaResultRow px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 cursor-pointer" data-id="${u.id}" data-name="${u.name.replace(/"/g, '&quot;')}">
                 ${u.name}
             </div>
         `).join('');
@@ -513,14 +513,14 @@
             const row = document.createElement('div');
             row.className = isOwnBase
                 ? 'px-3 py-2 text-sm text-slate-400 flex items-center justify-between gap-2 cursor-default'
-                : 'px-3 py-2 text-sm text-slate-700 hover:bg-yellow-50 hover:text-yellow-700 cursor-pointer flex items-center justify-between gap-2';
+                : 'px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 cursor-pointer flex items-center justify-between gap-2';
 
             const label = document.createElement('span');
             label.textContent = t.name;
             row.appendChild(label);
 
             const note = document.createElement('span');
-            note.className = 'text-[10px] font-mono text-slate-300';
+            note.className = 'text-[10px] font-mono text-slate-300 dark:text-slate-600';
             note.textContent = isOwnBase ? 'auto-matched already' : t.count;
             row.appendChild(note);
 
