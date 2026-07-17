@@ -124,6 +124,18 @@
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-100">
 
+{{-- Toast notifications — populated by window.showToast() (resources/js/app.js).
+     z-[70]: above the sidebar (z-50) and its mobile backdrop (z-40), so a toast
+     is never hidden behind either, including with the mobile drawer open.
+     pointer-events-none on the container so the empty space around toasts
+     doesn't block clicks on the page underneath; each toast card opts back in
+     via pointer-events-auto so its own close button still works. No aria-live
+     here: each toast sets its own role (alert/status) in app.js, and nesting
+     an assertive-role toast inside a polite live-region container is a known
+     source of inconsistent screen-reader behavior across NVDA/JAWS/VoiceOver. --}}
+<div id="toastContainer"
+     class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-full max-w-sm pointer-events-none"></div>
+
 {{-- Mobile-only backdrop, shown behind the sidebar while it's open as an overlay drawer --}}
 <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/50 z-40 md:hidden"></div>
 
@@ -349,6 +361,23 @@
     });
 })();
 </script>
+
+{{-- One-shot toast for this request's flashed session message, if any — this is
+     what every controller's ->with('success', ...) now renders as (replacing
+     the old per-page inline banner blocks). Deferred to DOMContentLoaded
+     because @vite's app.js is a module script (defers like a classic `defer`
+     script): window.showToast isn't defined yet at the point this inline
+     script is parsed, only by the time DOMContentLoaded fires — module/defer
+     scripts always run before that event. --}}
+@if(session('success') || session('error') || session('info'))
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    @if(session('success')) window.showToast(@json(session('success')), 'success'); @endif
+    @if(session('error'))   window.showToast(@json(session('error')),   'error');   @endif
+    @if(session('info'))    window.showToast(@json(session('info')),    'info');    @endif
+});
+</script>
+@endif
 
 @stack('scripts')
 </body>
