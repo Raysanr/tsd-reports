@@ -35,6 +35,7 @@
         <div class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($group['products'] as $product)
             <div class="px-6 py-3 flex items-center gap-4 {{ $product->is_hidden ? 'opacity-50' : '' }}">
+                <input type="checkbox" class="productCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer shrink-0" data-id="{{ $product->id }}">
                 <div class="flex-1">
                     <div class="flex items-center gap-2">
                         <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $product->display_name }}</p>
@@ -179,6 +180,34 @@
     @method('PATCH')
 </form>
 
+<form id="bulkProductForm" method="POST" action="{{ route('product-management.bulk') }}" style="display:none">
+    @csrf
+    <input type="hidden" name="action" id="bulkProductAction" value="">
+</form>
+
+{{-- Bulk action bar — hidden until >=1 checkbox is checked, fixed to the bottom
+     of the viewport so it doesn't shift page content as it appears/disappears.
+     z-30 keeps it below the sidebar (z-50), its mobile backdrop (z-40), and the
+     toast stack (z-[70]). --}}
+<div id="bulkProductBar" class="hidden fixed bottom-0 left-0 right-0 md:left-64 z-30 px-4 py-3">
+    <div class="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3">
+        <span id="bulkProductCount" class="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">0 selected</span>
+        <button type="button" id="bulkProductClear" class="text-xs font-mono text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">Clear</button>
+        <div class="flex-1"></div>
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="bulkProductHide" class="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Hide</button>
+            <button type="button" id="bulkProductUnhide" class="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Unhide</button>
+            <select id="bulkProductTeamSelect" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                @foreach($teamsConfig as $team)
+                <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
+                @endforeach
+            </select>
+            <button type="button" id="bulkProductMove" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">Move</button>
+            <button type="button" id="bulkProductDelete" class="px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer">Delete</button>
+        </div>
+    </div>
+</div>
+
 @push('scripts')
 <script>
 (function () {
@@ -243,6 +272,72 @@
             toggleHiddenForm.action = storeUrl + '/' + btn.dataset.id + '/toggle-hidden';
             toggleHiddenForm.submit();
         });
+    });
+
+    // Bulk actions — checkbox selection + sticky action bar
+    const selectedIds     = new Set();
+    const bulkBar          = document.getElementById('bulkProductBar');
+    const bulkCount         = document.getElementById('bulkProductCount');
+    const bulkForm          = document.getElementById('bulkProductForm');
+    const bulkActionInput   = document.getElementById('bulkProductAction');
+    const bulkTeamSelect    = document.getElementById('bulkProductTeamSelect');
+
+    function updateBulkBar() {
+        const n = selectedIds.size;
+        if (n > 0) {
+            bulkBar.classList.remove('hidden');
+            bulkCount.textContent = `${n} selected`;
+        } else {
+            bulkBar.classList.add('hidden');
+        }
+    }
+
+    document.querySelectorAll('.productCheckbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const id = cb.dataset.id;
+            if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+            updateBulkBar();
+        });
+    });
+
+    document.getElementById('bulkProductClear').addEventListener('click', () => {
+        selectedIds.clear();
+        document.querySelectorAll('.productCheckbox').forEach(cb => { cb.checked = false; });
+        updateBulkBar();
+    });
+
+    function submitBulk(action, extra) {
+        // Clear out any hidden ids/team inputs from a previous submission attempt.
+        bulkForm.querySelectorAll('input[name="ids[]"], input[name="team"]').forEach(el => el.remove());
+
+        selectedIds.forEach(id => {
+            const input = document.createElement('input');
+            input.type  = 'hidden';
+            input.name  = 'ids[]';
+            input.value = id;
+            bulkForm.appendChild(input);
+        });
+
+        bulkActionInput.value = action;
+
+        if (extra && extra.team) {
+            const teamInput = document.createElement('input');
+            teamInput.type  = 'hidden';
+            teamInput.name  = 'team';
+            teamInput.value = extra.team;
+            bulkForm.appendChild(teamInput);
+        }
+
+        bulkForm.submit();
+    }
+
+    document.getElementById('bulkProductHide').addEventListener('click', () => submitBulk('hide'));
+    document.getElementById('bulkProductUnhide').addEventListener('click', () => submitBulk('unhide'));
+    document.getElementById('bulkProductMove').addEventListener('click', () => submitBulk('move', { team: bulkTeamSelect.value }));
+    document.getElementById('bulkProductDelete').addEventListener('click', () => {
+        const n = selectedIds.size;
+        if (!confirm(`Remove ${n} product(s)? You can restore them from the Removed list below.`)) return;
+        submitBulk('delete');
     });
 })();
 </script>

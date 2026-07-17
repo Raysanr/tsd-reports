@@ -97,6 +97,47 @@ class ProductManagementController extends Controller
             ->with('success', "{$verb} \"{$product->display_name}\".");
     }
 
+    public function bulk(Request $request)
+    {
+        $teamsConfig = config('teams', []);
+        $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
+
+        $data = $request->validate([
+            'ids'      => 'required|array|min:1',
+            'ids.*'    => 'integer|exists:products,id',
+            'action'   => 'required|in:hide,unhide,delete,move',
+            'team'     => 'required_if:action,move|nullable|string|in:' . implode(',', $validTeams),
+        ]);
+
+        $count = count($data['ids']);
+        $noun  = \Illuminate\Support\Str::plural('product', $count);
+
+        switch ($data['action']) {
+            case 'hide':
+                Product::whereIn('id', $data['ids'])->update(['is_hidden' => true]);
+                $message = "Hid {$count} {$noun}.";
+                break;
+            case 'unhide':
+                Product::whereIn('id', $data['ids'])->update(['is_hidden' => false]);
+                $message = "Unhid {$count} {$noun}.";
+                break;
+            case 'move':
+                Product::whereIn('id', $data['ids'])->update(['team' => $data['team']]);
+                // Same reasoning as store()/update() — a team change can affect which
+                // team-NULL leads this product's keywords now claim.
+                \Artisan::call('orders:reinfer-teams');
+                $teamName = collect($teamsConfig)->firstWhere('order_team', $data['team'])['name'] ?? $data['team'];
+                $message = "Moved {$count} {$noun} to {$teamName}.";
+                break;
+            case 'delete':
+                Product::whereIn('id', $data['ids'])->delete();
+                $message = "Removed {$count} {$noun}.";
+                break;
+        }
+
+        return redirect()->route('product-management')->with('success', $message);
+    }
+
     private function validateProduct(Request $request): array
     {
         $teamsConfig = config('teams', []);

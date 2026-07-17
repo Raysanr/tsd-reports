@@ -47,6 +47,11 @@
             <div class="divide-y divide-slate-100 dark:divide-slate-700">
                 @foreach($group['shifts'] as $shift)
                 <div class="px-6 py-3 flex items-center gap-4">
+                    {{-- Selection checkbox — reads by the bulk-action bar's JS. This is a
+                         plain input, not a nested <form>, so it's safe to sit inside the
+                         bulk-save form above; the bulk-action <form> it feeds submits
+                         separately, outside this one (see below). --}}
+                    <input type="checkbox" class="tsaCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer shrink-0" data-id="{{ $shift->id }}">
                     {{-- Avatar + name --}}
                     <div class="flex items-center gap-2.5 w-52 shrink-0">
                         <div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-[10px] font-bold shrink-0">
@@ -130,6 +135,14 @@
                 Save Schedules
             </button>
         </div>
+    </form>
+
+    {{-- Bulk-action form — kept outside the shift-schedule <form> above (same
+         nested-<form> constraint as the delete/restore forms elsewhere on this
+         page). Populated and submitted by the bulk action bar's JS below. --}}
+    <form id="bulkTsaForm" method="POST" action="{{ route('tsa-management.bulk') }}" style="display:none">
+        @csrf
+        <input type="hidden" name="action" id="bulkTsaAction" value="">
     </form>
 
     {{-- Kept outside the bulk-save <form> above — browsers don't support nested
@@ -289,6 +302,27 @@
     @csrf
     @method('DELETE')
 </form>
+
+{{-- Bulk action bar — hidden until >=1 checkbox is checked, fixed to the bottom
+     of the viewport so it doesn't shift page content as it appears/disappears.
+     z-30 keeps it below the sidebar (z-50), its mobile backdrop (z-40), and the
+     toast stack (z-[70]). --}}
+<div id="bulkTsaBar" class="hidden fixed bottom-0 left-0 right-0 md:left-64 z-30 px-4 py-3">
+    <div class="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3">
+        <span id="bulkTsaCount" class="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">0 selected</span>
+        <button type="button" id="bulkTsaClear" class="text-xs font-mono text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">Clear</button>
+        <div class="flex-1"></div>
+        <div class="flex flex-wrap items-center gap-2">
+            <select id="bulkTsaTeamSelect" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                @foreach($teamsConfig as $team)
+                <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
+                @endforeach
+            </select>
+            <button type="button" id="bulkTsaMove" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">Move</button>
+            <button type="button" id="bulkTsaDelete" class="px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer">Delete</button>
+        </div>
+    </div>
+</div>
 
 {{-- Rest Day modal — a separate modal instance from #tsaModal above, toggled the
      same way (hidden class + click handlers), so editing a date's rest days doesn't
@@ -603,6 +637,74 @@
     });
     restDayModal.addEventListener('click', (e) => {
         if (e.target === restDayModal) restDayModal.classList.add('hidden');
+    });
+})();
+</script>
+<script>
+(function () {
+    // Bulk actions — checkbox selection + sticky action bar. The bulk-action
+    // <form> this submits (#bulkTsaForm) is deliberately outside the shift-
+    // schedule <form> above, so submitting it never touches that form's fields.
+    const selectedIds   = new Set();
+    const bulkBar        = document.getElementById('bulkTsaBar');
+    const bulkCount       = document.getElementById('bulkTsaCount');
+    const bulkForm        = document.getElementById('bulkTsaForm');
+    const bulkActionInput = document.getElementById('bulkTsaAction');
+    const bulkTeamSelect  = document.getElementById('bulkTsaTeamSelect');
+
+    function updateBulkBar() {
+        const n = selectedIds.size;
+        if (n > 0) {
+            bulkBar.classList.remove('hidden');
+            bulkCount.textContent = `${n} selected`;
+        } else {
+            bulkBar.classList.add('hidden');
+        }
+    }
+
+    document.querySelectorAll('.tsaCheckbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+            const id = cb.dataset.id;
+            if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+            updateBulkBar();
+        });
+    });
+
+    document.getElementById('bulkTsaClear').addEventListener('click', () => {
+        selectedIds.clear();
+        document.querySelectorAll('.tsaCheckbox').forEach(cb => { cb.checked = false; });
+        updateBulkBar();
+    });
+
+    function submitBulk(action, extra) {
+        bulkForm.querySelectorAll('input[name="ids[]"], input[name="team"]').forEach(el => el.remove());
+
+        selectedIds.forEach(id => {
+            const input = document.createElement('input');
+            input.type  = 'hidden';
+            input.name  = 'ids[]';
+            input.value = id;
+            bulkForm.appendChild(input);
+        });
+
+        bulkActionInput.value = action;
+
+        if (extra && extra.team) {
+            const teamInput = document.createElement('input');
+            teamInput.type  = 'hidden';
+            teamInput.name  = 'team';
+            teamInput.value = extra.team;
+            bulkForm.appendChild(teamInput);
+        }
+
+        bulkForm.submit();
+    }
+
+    document.getElementById('bulkTsaMove').addEventListener('click', () => submitBulk('move', { team: bulkTeamSelect.value }));
+    document.getElementById('bulkTsaDelete').addEventListener('click', () => {
+        const n = selectedIds.size;
+        if (!confirm(`Remove ${n} TSA(s)? You can restore them from the Removed list below.`)) return;
+        submitBulk('delete');
     });
 })();
 </script>

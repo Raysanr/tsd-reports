@@ -151,6 +151,36 @@ class TsaManagementController extends Controller
             ->with('success', "Restored \"{$tsaShift->display_name}\".");
     }
 
+    public function bulk(Request $request)
+    {
+        $teamsConfig = config('teams', []);
+        $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
+
+        $data = $request->validate([
+            'ids'    => 'required|array|min:1',
+            'ids.*'  => 'integer|exists:tsa_shifts,id',
+            'action' => 'required|in:delete,move',
+            'team'   => 'required_if:action,move|nullable|string|in:' . implode(',', $validTeams),
+        ]);
+
+        $count = count($data['ids']);
+        $noun  = $count === 1 ? 'TSA' : 'TSAs';
+
+        switch ($data['action']) {
+            case 'move':
+                TsaShift::whereIn('id', $data['ids'])->update(['team' => $data['team']]);
+                $teamName = collect($teamsConfig)->firstWhere('order_team', $data['team'])['name'] ?? $data['team'];
+                $message = "Moved {$count} {$noun} to {$teamName}.";
+                break;
+            case 'delete':
+                TsaShift::whereIn('id', $data['ids'])->delete();
+                $message = "Removed {$count} {$noun}.";
+                break;
+        }
+
+        return redirect()->route('tsa-management')->with('success', $message);
+    }
+
     /**
      * Persists which TSAs are off on $date. Only writes a tsa_rest_days row when
      * the submitted state actually differs from what rest_day_of_week alone would
