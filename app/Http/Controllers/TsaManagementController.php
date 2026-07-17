@@ -34,7 +34,9 @@ class TsaManagementController extends Controller
 
         $calendar = $this->buildCalendar($shifts, request('month'));
 
-        return view('tsa-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts'));
+        $trashedShifts = TsaShift::onlyTrashed()->orderBy('display_name')->get();
+
+        return view('tsa-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts', 'trashedShifts'));
     }
 
     /**
@@ -135,6 +137,18 @@ class TsaManagementController extends Controller
 
         return redirect()->route('tsa-management')
             ->with('success', "Removed \"{$name}\" from the roster.");
+    }
+
+    // Plain {id} param (not {tsaShift}) is deliberate — implicit route-model-binding
+    // excludes soft-deleted rows by default, so a {tsaShift}-typed param would 404
+    // on exactly the trashed records this route needs to find. Resolved manually.
+    public function restore(int $id)
+    {
+        $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
+        $tsaShift->restore();
+
+        return redirect()->route('tsa-management')
+            ->with('success', "Restored \"{$tsaShift->display_name}\".");
     }
 
     /**

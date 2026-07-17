@@ -70,14 +70,18 @@ class ProductManagementControllerTest extends TestCase
         ]);
     }
 
-    public function test_destroy_removes_a_product(): void
+    public function test_destroy_soft_deletes_a_product(): void
     {
+        // Destroy now soft-deletes (see ProductSoftDeleteTest for full coverage) —
+        // the row is no longer hard-deleted, so this only checks it's gone from
+        // the active/default query, not gone from the table entirely.
         $product = Product::where('display_name', 'MINI GB')->first();
 
         $response = $this->delete(route('product-management.destroy', $product));
 
         $response->assertRedirect(route('product-management'));
-        $this->assertDatabaseMissing('products', ['id' => $product->id]);
+        $this->assertSoftDeleted('products', ['id' => $product->id]);
+        $this->assertDatabaseMissing('products', ['id' => $product->id, 'deleted_at' => null]);
     }
 
     public function test_toggle_hidden_hides_a_visible_product(): void

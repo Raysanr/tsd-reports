@@ -21,7 +21,9 @@ class ProductManagementController extends Controller
 
         $unassigned = $products->reject(fn($p) => collect($teamsConfig)->pluck('order_team')->contains($p->team));
 
-        return view('product-management', compact('teamGroups', 'teamsConfig', 'unassigned'));
+        $trashedProducts = Product::onlyTrashed()->orderBy('display_name')->get();
+
+        return view('product-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'trashedProducts'));
     }
 
     public function store(Request $request)
@@ -70,6 +72,18 @@ class ProductManagementController extends Controller
 
         return redirect()->route('product-management')
             ->with('success', "Removed \"{$name}\".");
+    }
+
+    // Plain {id} param (not {product}) is deliberate — implicit route-model-binding
+    // excludes soft-deleted rows by default, so a {product}-typed param would 404
+    // on exactly the trashed records this route needs to find. Resolved manually.
+    public function restore(int $id)
+    {
+        $product = Product::onlyTrashed()->findOrFail($id);
+        $product->restore();
+
+        return redirect()->route('product-management')
+            ->with('success', "Restored \"{$product->display_name}\".");
     }
 
     public function toggleHidden(Product $product)

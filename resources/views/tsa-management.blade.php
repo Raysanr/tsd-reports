@@ -132,6 +132,40 @@
         </div>
     </form>
 
+    {{-- Kept outside the bulk-save <form> above — browsers don't support nested
+         <form> elements, and each restore button below is its own form. --}}
+    @if($trashedShifts->isNotEmpty())
+    <details class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <summary class="px-6 py-4 cursor-pointer text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none">
+            Removed ({{ $trashedShifts->count() }})
+        </summary>
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 border-t border-slate-100 dark:border-slate-700">
+            @foreach($trashedShifts as $shift)
+            <div class="px-6 py-3 flex items-center gap-4 opacity-60">
+                <div class="flex items-center gap-2.5 w-52 shrink-0">
+                    <div class="w-7 h-7 rounded-full bg-slate-300 dark:bg-slate-700 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                        {{ strtoupper(substr($shift->display_name, 0, 2)) }}
+                    </div>
+                    <div>
+                        <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $shift->display_name }}</p>
+                        <p class="text-[10px] text-slate-400 font-mono">{{ $shift->tsa_key }}</p>
+                    </div>
+                </div>
+                <div class="flex-1">
+                    <p class="text-xs text-slate-400 font-mono">{{ $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</p>
+                </div>
+                <form method="POST" action="{{ route('tsa-management.restore', $shift->id) }}">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
+                        Restore
+                    </button>
+                </form>
+            </div>
+            @endforeach
+        </div>
+    </details>
+    @endif
+
 </div>
 
 <div class="w-full lg:w-80 shrink-0">
@@ -407,7 +441,7 @@
     document.querySelectorAll('.deleteTsaBtn').forEach(btn => {
         btn.addEventListener('click', () => {
             const name = btn.dataset.name || 'this TSA';
-            if (!confirm(`Remove "${name}" from the roster? This can't be undone.`)) return;
+            if (!confirm(`Remove "${name}" from the roster? You can restore it from the Removed list below.`)) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
         });

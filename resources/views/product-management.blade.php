@@ -91,6 +91,30 @@
     </div>
     @endforeach
 
+    @if($trashedProducts->isNotEmpty())
+    <details class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+        <summary class="px-6 py-4 cursor-pointer text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors select-none">
+            Removed ({{ $trashedProducts->count() }})
+        </summary>
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 border-t border-slate-100 dark:border-slate-700">
+            @foreach($trashedProducts as $product)
+            <div class="px-6 py-3 flex items-center gap-4 opacity-60">
+                <div class="flex-1">
+                    <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $product->display_name }}</p>
+                    <p class="text-[10px] text-slate-400 font-mono">removed {{ $product->deleted_at->diffForHumans() }}</p>
+                </div>
+                <form method="POST" action="{{ route('product-management.restore', $product->id) }}">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
+                        Restore
+                    </button>
+                </form>
+            </div>
+            @endforeach
+        </div>
+    </details>
+    @endif
+
     @if($unassigned->isNotEmpty())
     <div class="bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-xl px-6 py-4">
         <p class="text-xs font-semibold text-yellow-800 dark:text-yellow-400 mb-1">Unassigned team</p>
@@ -208,7 +232,7 @@
     document.querySelectorAll('.deleteProductBtn').forEach(btn => {
         btn.addEventListener('click', () => {
             const name = btn.dataset.name || 'this product';
-            if (!confirm(`Remove "${name}"? This can't be undone.`)) return;
+            if (!confirm(`Remove "${name}"? You can restore it from the Removed list below.`)) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
         });
