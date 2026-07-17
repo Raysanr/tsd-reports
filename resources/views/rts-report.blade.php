@@ -102,5 +102,7 @@
     'submit' => 'navigate', 'navigateBase' => route('rts-report'),
 ])
 
+@include('partials.filter-presets', ['key' => 'rts-report', 'baseUrl' => route('rts-report')])
+
 </div>
 @endpush
