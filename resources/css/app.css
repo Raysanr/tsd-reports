@@ -140,3 +140,37 @@ body { font-family: var(--font-sans); background: #F8FAFC; }
 /* Table row hover */
 .tbl-row { transition: background 120ms ease; }
 .tbl-row:hover { background: #FEFCE8; }
+
+/* Sortable report-table headers (resources/js/app.js's data-sortable-table
+   controller delegates its click listener from document and toggles
+   data-sort-active; this is the visual/interaction affordance for it — this
+   app had no existing sort-indicator pattern to copy). cursor-pointer and
+   select-none are plain CSS here rather than a JS classList.add() run once at
+   load, because a page's table can be entirely discarded and recreated by
+   window.softRefresh() (every 2 minutes via partials/live-indicator, and
+   after any team/date/product filter click) — a one-time JS class addition
+   would never reach a node created after that first run, but this attribute
+   selector applies automatically to every matching <th>, old or freshly
+   swapped-in. A faint double-chevron hints a column is sortable at rest;
+   swaps to a solid single chevron for whichever column is the active sort.
+   Uses currentColor via no explicit color, so it already matches each
+   header's own light/dark text color with no extra dark: variant needed. */
+th[data-sort-key] {
+    cursor: pointer;
+    user-select: none;
+}
+th[data-sort-key]::after {
+    content: '⇅';
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 9px;
+    opacity: 0.35;
+}
+th[data-sort-key][data-sort-active="asc"]::after {
+    content: '▲';
+    opacity: 1;
+}
+th[data-sort-key][data-sort-active="desc"]::after {
+    content: '▼';
+    opacity: 1;
+}

@@ -26,24 +26,26 @@
 {{-- Export icons live with the table itself (not the shared topbar), so they
      stay contextually tied to it regardless of which team tab is selected —
      matches how Leads Report's per-product tables already do this. --}}
-<div class="flex items-center justify-end mb-2">
+<div class="flex items-center justify-end gap-3 mb-2">
+    <input type="text" data-table-filter="tsaPerfAllTable" placeholder="Filter…" aria-label="Filter TSAs"
+           class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
     @include('partials.table-actions', ['target' => 'tsaPerfAllTable', 'name' => 'tsa-performance-' . $selectedTeam])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfAllTable">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfAllTable" data-sortable-table>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="tsa"
                     class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                     style="min-width:180px">
                     TSA
                 </th>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="total"
                     class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Total<br>Leads
                 </th>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="catered"
                     class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Catered<br>Leads
                 </th>
@@ -55,17 +57,17 @@
                     class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
                 </th>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="pickUpRate"
                     class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Pick-up<br>Rate
                 </th>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="conversionRate"
                     class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Conversion<br>Rate
                 </th>
-                <th rowspan="2"
+                <th rowspan="2" data-sort-key="upsellingRate"
                     class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Upselling<br>Rate
@@ -77,7 +79,7 @@
                     $headerColor = $col['group'] === 'answered' ? 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400';
                 @endphp
                 <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
-                    style="min-width:{{ $col['min_width'] }}px">
+                    style="min-width:{{ $col['min_width'] }}px" data-sort-key="{{ $col['key'] }}">
                     {!! $col['label'] !!}
                 </th>
                 @endforeach
@@ -86,7 +88,7 @@
         <tbody>
             @foreach($tsaRows as $row)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
                     @if($row['team_key'])
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                        class="text-primary hover:underline">
@@ -97,29 +99,33 @@
                     @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="total" data-sort-value="{{ $row['total'] }}">
                     {{ $row['total'] ?: '' }}
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}">
                     {{ $row['catered'] ?: '' }}
                 </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}">
                     {{ $row[$col['key']] ?: '' }}
                 </td>
                 @endforeach
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="pickUpRate" data-sort-value="{{ $row['pick_up_rate'] ?? '' }}">
                     {{ $row['pick_up_rate'] !== null ? $row['pick_up_rate'].'%' : '—' }}
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="conversionRate" data-sort-value="{{ $row['conversion_rate'] ?? '' }}">
                     {{ $row['conversion_rate'] !== null ? $row['conversion_rate'].'%' : '—' }}
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="upsellingRate" data-sort-value="{{ $row['upselling_rate'] ?? '' }}">
                     {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
                 </td>
             </tr>
             @endforeach
-
+        </tbody>
+        {{-- Grand Total lives in tfoot, not tbody, so a client-side column sort
+             (which only re-orders <tbody> rows — see app.js) never shuffles this
+             row into the middle of the sorted TSA list. --}}
+        <tfoot>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
@@ -139,7 +145,7 @@
                     {{ $grandTotal['upselling_rate'] !== null ? $grandTotal['upselling_rate'].'%' : '—' }}
                 </td>
             </tr>
-        </tbody>
+        </tfoot>
     </table>
 </div>
 

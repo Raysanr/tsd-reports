@@ -246,6 +246,13 @@ window.addEventListener('popstate', () => window.softRefresh(window.location.hre
 function tableToCsv(table) {
     const rows = [];
     for (const tr of table.querySelectorAll('tr')) {
+        // Skip rows hidden by the sortable-table live filter (data-table-filter,
+        // added later in this file) — "what you see is exactly what you get,
+        // filters and all" above was written before that filter existed, but a
+        // hidden row is still a real <tr> in the DOM, so without this check it
+        // would silently leak into the export despite being filtered out on
+        // screen.
+        if (tr.classList.contains('hidden')) continue;
         const cells = [];
         for (const cell of tr.querySelectorAll('th, td')) {
             // <br> inside header labels reads as a space, not a squashed word
@@ -531,3 +538,98 @@ window.showToast = function (message, variant = 'success') {
         if (!results.contains(e.target) && e.target !== input) hideResults();
     });
 })();
+
+// ─── Sortable + filterable tables ────────────────────────────────────────────
+// Opt-in via data-sortable-table on a wrapper div containing exactly one
+// <table>. Click a <th data-sort-key="..."> to sort by that column (client-side,
+// re-sorts the DOM rows already rendered — no server round-trip). A sibling
+// input[data-table-filter="<wrapper-id>"] live-filters rows by substring match
+// across the row's visible text. Both are independent — a table can have
+// sort only, filter only, both, or (for time-pivot/hourly tables) neither.
+//
+// Delegated from document, like the CSV/PNG export buttons and the GET-form
+// interceptor above — NOT bound directly to the <th>/<input> nodes. Every page
+// these tables live on renders partials/live-indicator, which calls
+// window.softRefresh() every 2 minutes AND after any team/date/product filter
+// click on the page (see the GET-form handler above); softRefresh replaces
+// main.innerHTML wholesale, discarding and recreating every node inside
+// <main> — including this table and its header cells. A listener bound
+// directly to those nodes at initial script-run time would silently stop
+// firing the first time that happens (no error, nothing visibly broken, sort
+// just quietly stops working). Delegating from document sidesteps this
+// entirely: document itself is never replaced, so the listener keeps matching
+// freshly-swapped-in nodes via e.target.closest() forever.
+//
+// Sort direction is likewise state that must survive a swap, so it can't live
+// in a closure variable captured once at script-run time (a fresh table after
+// a swap would have no memory of a prior click) — it's persisted on the
+// <table> element itself via data-sort-key/data-sort-dir, re-read fresh on
+// every click. cursor-pointer/select-none and the sort-direction chevron are
+// plain CSS (th[data-sort-key] in app.css), for the same reason: a JS
+// classList.add() run once at load would never reach a node created later by
+// softRefresh, but a CSS attribute-selector rule applies to it automatically.
+//
+// Sort-value lookup: each sortable <td> carries BOTH data-sort-key (matching
+// its column's <th>) and data-sort-value (the raw comparable value — a plain
+// number or an ISO-ish sortable string, never the formatted display text, e.g.
+// a "₱1,000.00" cell carries data-sort-value="1000.00" so it sorts numerically
+// instead of alphabetically). Looked up per-row via
+// row.querySelector('[data-sort-key="<key>"]').dataset.sortValue — falling
+// back to the cell's own text if a particular row is missing the attribute.
+document.addEventListener('click', (e) => {
+    const th = e.target.closest('[data-sortable-table] th[data-sort-key]');
+    if (!th) return;
+
+    const table = th.closest('table');
+    const tbody = table?.querySelector('tbody');
+    if (!tbody) return;
+
+    const key     = th.dataset.sortKey;
+    const prevKey = table.dataset.sortKey;
+    const prevDir = parseInt(table.dataset.sortDir || '1', 10);
+    const dir     = (prevKey === key) ? -prevDir : 1; // 1 = ascending, -1 = descending
+    table.dataset.sortKey = key;
+    table.dataset.sortDir = String(dir);
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+        const cellA = a.querySelector(`[data-sort-key="${key}"]`);
+        const cellB = b.querySelector(`[data-sort-key="${key}"]`);
+        const valA = cellA ? (cellA.dataset.sortValue ?? cellA.textContent.trim()) : '';
+        const valB = cellB ? (cellB.dataset.sortValue ?? cellB.textContent.trim()) : '';
+
+        // Guardrail for future columns: parseFloat expects a bare number and
+        // stops at the first non-numeric character, so a comma-formatted raw
+        // value like "1,000.00" would silently parse as just 1 and misorder.
+        // Not a live bug today — every data-sort-value this app emits is
+        // already a plain unformatted number/string (see the block comment
+        // above) — but never put thousands-separators in data-sort-value,
+        // only in the cell's visible display text.
+        const numA = parseFloat(valA);
+        const numB = parseFloat(valB);
+        const bothNumeric = valA.trim() !== '' && valB.trim() !== '' && !isNaN(numA) && !isNaN(numB);
+
+        const cmp = bothNumeric
+            ? (numA - numB)
+            : valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        return cmp * dir;
+    });
+    rows.forEach((row) => tbody.appendChild(row));
+
+    table.querySelectorAll('th[data-sort-key]').forEach((h) => h.removeAttribute('data-sort-active'));
+    th.setAttribute('data-sort-active', dir === 1 ? 'asc' : 'desc');
+});
+
+document.addEventListener('input', (e) => {
+    const input = e.target.closest('[data-table-filter]');
+    if (!input) return;
+
+    const wrapper = document.getElementById(input.dataset.tableFilter);
+    if (!wrapper) return;
+
+    const query = input.value.trim().toLowerCase();
+    wrapper.querySelectorAll('tbody tr').forEach((row) => {
+        const matches = !query || row.textContent.toLowerCase().includes(query);
+        row.classList.toggle('hidden', !matches);
+    });
+});
