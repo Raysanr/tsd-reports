@@ -5,11 +5,11 @@
 
 @section('content')
 
-<h2 class="text-xl font-bold font-mono text-slate-800 mb-1">Sign in</h2>
+<h2 class="text-xl font-bold font-mono text-slate-800 dark:text-slate-100 mb-1">Sign in</h2>
 <p class="text-sm text-slate-400 font-mono mb-7">Enter your credentials to continue.</p>
 
 @if(session('status'))
-<div class="mb-5 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5 text-xs font-mono text-emerald-700">
+<div class="mb-5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-4 py-2.5 text-xs font-mono text-emerald-700 dark:text-emerald-400">
     {{ session('status') }}
 </div>
 @endif
@@ -18,28 +18,28 @@
     @csrf
 
     <div>
-        <label for="email" class="block text-xs font-mono font-semibold text-slate-600 mb-1.5">Email address</label>
+        <label for="email" class="block text-xs font-mono font-semibold text-slate-600 dark:text-slate-400 mb-1.5">Email address</label>
         <input type="email" id="email" name="email" value="{{ old('email') }}"
                autocomplete="email" required
                @if(!$errors->has('email')) autofocus @endif
-               class="w-full rounded-lg border {{ $errors->has('email') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 focus:border-primary focus:ring-yellow-100' }} px-3.5 py-2.5 text-sm font-mono text-slate-800 focus:outline-none focus:ring-4 transition-colors">
+               class="w-full rounded-lg border {{ $errors->has('email') ? 'border-red-300 dark:border-red-800 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 dark:border-slate-700 focus:border-primary focus:ring-yellow-100' }} bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-4 transition-colors">
         @error('email')
-        <p class="mt-1.5 text-xs font-mono text-red-600" role="alert">{{ $message }}</p>
+        <p class="mt-1.5 text-xs font-mono text-red-600 dark:text-red-400" role="alert">{{ $message }}</p>
         @enderror
     </div>
 
     <div>
         <div class="flex items-center justify-between mb-1.5">
-            <label for="password" class="block text-xs font-mono font-semibold text-slate-600">Password</label>
+            <label for="password" class="block text-xs font-mono font-semibold text-slate-600 dark:text-slate-400">Password</label>
         </div>
         <div class="relative">
             <input type="password" id="password" name="password"
                    autocomplete="current-password" required
                    @if($errors->has('password') && !$errors->has('email')) autofocus @endif
-                   class="w-full rounded-lg border {{ $errors->has('password') ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 focus:border-primary focus:ring-yellow-100' }} px-3.5 py-2.5 pr-11 text-sm font-mono text-slate-800 focus:outline-none focus:ring-4 transition-colors">
+                   class="w-full rounded-lg border {{ $errors->has('password') ? 'border-red-300 dark:border-red-800 focus:border-red-400 focus:ring-red-100' : 'border-slate-200 dark:border-slate-700 focus:border-primary focus:ring-yellow-100' }} bg-white dark:bg-slate-800 px-3.5 py-2.5 pr-11 text-sm font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-4 transition-colors">
             <button type="button" data-toggle-password="password"
                     aria-label="Show password"
-                    class="absolute right-0 top-0 h-full w-11 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer">
+                    class="absolute right-0 top-0 h-full w-11 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">
                 <svg class="w-4.5 h-4.5" data-icon-show fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639l4.43-6.573a1 1 0 011.66 0l4.43 6.573a1.012 1.012 0 010 .639l-4.43 6.573a1 1 0 01-1.66 0l-4.43-6.573z" style="display:none"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
@@ -51,13 +51,13 @@
             </button>
         </div>
         @error('password')
-        <p class="mt-1.5 text-xs font-mono text-red-600" role="alert">{{ $message }}</p>
+        <p class="mt-1.5 text-xs font-mono text-red-600 dark:text-red-400" role="alert">{{ $message }}</p>
         @enderror
     </div>
 
-    <label class="flex items-center gap-2 text-xs font-mono text-slate-500 cursor-pointer select-none">
+    <label class="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-slate-400 cursor-pointer select-none">
         <input type="checkbox" name="remember" value="1"
-               class="rounded border-slate-300 text-primary focus:ring-yellow-400 cursor-pointer">
+               class="rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-400 cursor-pointer">
         Keep me signed in
     </label>
 
@@ -72,13 +72,13 @@
 </form>
 
 <div class="my-6 flex items-center gap-3">
-    <div class="h-px flex-1 bg-slate-200"></div>
+    <div class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div>
     <span class="text-[11px] font-mono uppercase tracking-wider text-slate-400">or</span>
-    <div class="h-px flex-1 bg-slate-200"></div>
+    <div class="h-px flex-1 bg-slate-200 dark:bg-slate-700"></div>
 </div>
 
 <a href="{{ route('google.redirect') }}"
-   class="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 border border-slate-200 bg-white text-sm font-semibold font-mono text-slate-700 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors">
+   class="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
     <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
         <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09C3.26 21.3 7.31 24 12 24z"/>

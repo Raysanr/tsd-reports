@@ -1,6 +1,80 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark-mode color convention, as actually practiced across the app (established
+   in commit 16192ac — Dashboard + shared layout chrome — and meant to be copied
+   as-is by every later page, not reinvented per file):
+     - "-50"-base tinted surfaces (card backgrounds, banners, icon-badge circles,
+       e.g. bg-yellow-50 / bg-red-50)        -> dark:bg-{color}-950/40
+     - "-100"-base surfaces (solid status pills, e.g. bg-yellow-100)
+                                              -> dark:bg-{color}-900/40
+     - tinted borders (e.g. border-red-200)  -> dark:border-{color}-800
+       EXCEPT yellow/amber, which uses dark:border-yellow-900 — at this brand's
+       saturation, yellow-800 read too muddy/close to the surface fill, so -900
+       is the deliberate exception, not a typo.
+     - tinted text on a tinted surface (e.g. text-red-700) -> dark:text-{color}-400
+     - bg-white (cards/panels/header)        -> dark:bg-slate-900
+     - bg-slate-100 (page body)              -> dark:bg-slate-950
+     - border-slate-200 / border-slate-100   -> dark:border-slate-700
+     - text-slate-800 / text-slate-900 (headings/primary)   -> dark:text-slate-100
+     - text-slate-700 (card titles/body, one step down from headings) -> dark:text-slate-200
+     - text-slate-500 / text-slate-600 (secondary)          -> dark:text-slate-400
+     - text-slate-400 (muted/placeholder) and shadows       -> left as-is, no pair
+     - hover:bg-slate-50 / hover:bg-slate-100 (row/item hover) -> dark:hover:bg-slate-800
+   Saturated icon/brand colors (e.g. text-amber-500, text-primary, text-accent)
+   are left unpaired — they already read fine on both light and dark surfaces. */
+
+/* Extension to the convention above, established in Part 2a (Leads Report / TSA
+   Performance / RTS Report / Charts) for cases the Dashboard didn't have: the
+   dense pivot-table group headers in those pages use tinted backgrounds beyond
+   the plain "-50 surface" / "-100 pill" cases above, plus a neutral (non-color)
+   in-card header/divider surface. Codified here so Part 2b doesn't reinvent it:
+     - group-header BANDS (distinct from the "-100 pill" case above, which stays
+       dark:bg-{color}-900/40) at "-100"-base  -> dark:bg-{color}-900/50
+                                  "-200"-base  -> dark:bg-{color}-900/60
+                                  "-300"-base  -> dark:bg-{color}-900/70
+     - header text sitting on one of those tinted/solid bands, "-900"-base
+       (e.g. text-green-900 on bg-green-200)   -> dark:text-{color}-200
+       — one step brighter than the standard "-700 -> dark:-400" rule above,
+       since -900 text needs more contrast lift to read against a dark band.
+     - bg-slate-100 used as a neutral (non-color) in-card header/divider surface
+       (e.g. a pivot table's hour-block divider row, a sub-header cell) rather
+       than the page body -> dark:bg-slate-700, NOT dark:bg-slate-950 (that
+       mapping is reserved for the actual page background per the base rule
+       above). Keep this consistent everywhere it recurs — don't mix in
+       dark:bg-slate-800 for the same neutral-surface role in some places and
+       dark:bg-slate-700 in others. */
+
+/* Extension to the convention above, established in Part 2b (Product/TSA/User
+   Management, Settings, and their Add/Edit modals) for the first form-heavy
+   pages in the app — text/select inputs, not just display surfaces:
+     - text/select input fields (typically border-slate-200/-300 with a white
+       or native-default background) -> add bg-white dark:bg-slate-800, on top
+       of the standard border-slate-200 -> dark:border-slate-700 and
+       text-slate-800/900 -> dark:text-slate-100 rules already above. This is
+       ONE STEP LIGHTER than a card's dark:bg-slate-900, deliberately, so an
+       input reads as a distinct field against the card/modal panel it sits
+       in rather than blending into it. Applied consistently to every text,
+       email, password, date, and time input, and every <select>, across all
+       4 admin pages — do not leave any of them on native/transparent bg in
+       dark mode, or they render as a glaring white box on a dark panel.
+     - focus rings/borders (focus:ring-yellow-*, focus:border-primary, etc.)
+       -> left unchanged. Brand-colored focus states already have enough
+       contrast against both a light and a dark input fill.
+     - modal/dialog overlay scrims (bg-slate-900/40 or similar) -> left
+       unchanged; a translucent dark scrim reads fine over either theme.
+     - modal/dialog PANELS (the actual card inside the scrim) -> treated
+       exactly like any other card: bg-white -> dark:bg-slate-900.
+     - disabled input surfaces: none existed yet in these 4 pages to convert,
+       but if one is added later, treat it like the neutral bg-slate-100
+       in-card surface above -> dark:bg-slate-700 (a muted/inactive field
+       reads as "recessed," the same role as a header/divider, not as an
+       active input, so it should NOT use the dark:bg-slate-800 input fill
+       above — that value is reserved for fields the user can actually type
+       into). */
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
@@ -22,6 +96,27 @@
 }
 
 body { font-family: var(--font-sans); background: #F8FAFC; }
+
+/* Chart colors consumed as inline SVG fill/stroke="var(--chart-*)" (Dashboard's
+   hourly-activity radial chart, resources/views/dashboard.blade.php) — Tailwind's
+   dark: variant only works on classes, not on server-rendered SVG presentation
+   attributes, so these custom properties are the dark-mode escape hatch for that
+   one chart. Same light-mode values as before Part 1, just given names; the
+   .dark block underneath is the only new behavior. */
+:root {
+    --chart-grid:        #E2E8F0;
+    --chart-wedge:        #CBD5E1;
+    --chart-wedge-peak:  #CA8A04;
+    --chart-label:       #94A3B8;
+    --chart-label-peak:  #854D0E;
+}
+.dark {
+    --chart-grid:        #334155;
+    --chart-wedge:        #475569;
+    --chart-wedge-peak:  #EAB308;
+    --chart-label:       #64748B;
+    --chart-label-peak:  #FDE047;
+}
 
 /* Sidebar active glow */
 .nav-active {

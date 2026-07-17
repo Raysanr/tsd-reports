@@ -6,13 +6,13 @@
 <div class="max-w-2xl space-y-6">
 
     {{-- Step 1: Paste API Key --}}
-    <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
             <div class="flex items-center gap-3">
                 <div class="w-7 h-7 rounded-full bg-yellow-700 text-white text-xs font-bold flex items-center justify-center">1</div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-800">Paste your Pancake POS API Key</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">Settings → App Settings → API Key → Create</p>
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">Paste your Pancake POS API Key</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Settings → App Settings → API Key → Create</p>
                 </div>
             </div>
         </div>
@@ -22,7 +22,7 @@
                     <input type="password" id="apiKeyInput"
                         placeholder="Paste your API key here..."
                         value="{{ $apiKey }}"
-                        class="w-full rounded-lg border border-slate-200 px-3.5 py-2.5 pr-10 text-sm font-mono text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent">
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 pr-10 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent">
                     <button type="button"
                         onclick="(function(){
                             var inp=document.getElementById('apiKeyInput');
@@ -49,13 +49,13 @@
     </div>
 
     {{-- Step 2: Shop confirmation (shown after detect or when already connected) --}}
-    <div id="step2-card" class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden {{ $shopId ? '' : 'hidden' }}">
-        <div class="px-6 py-5 border-b border-slate-100">
+    <div id="step2-card" class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden {{ $shopId ? '' : 'hidden' }}">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
             <div class="flex items-center gap-3">
                 <div class="w-7 h-7 rounded-full bg-yellow-700 text-white text-xs font-bold flex items-center justify-center">2</div>
                 <div>
-                    <h3 class="text-sm font-semibold text-slate-800">Confirm your shop</h3>
-                    <p class="text-xs text-slate-500 mt-0.5">All information is auto-detected from your API key</p>
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">Confirm your shop</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">All information is auto-detected from your API key</p>
                 </div>
             </div>
         </div>
@@ -63,19 +63,19 @@
         {{-- Shop info display (read-only, NOT inside the save form) --}}
         <div id="shopInfoDisplay" class="px-6 pt-5">
             @if($shopId)
-            <div class="flex items-start gap-4 p-4 bg-green-50 border border-green-200 rounded-xl">
-                <div class="w-12 h-12 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0 text-yellow-700 font-bold text-lg">
+            <div class="flex items-start gap-4 p-4 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-xl">
+                <div class="w-12 h-12 rounded-xl bg-yellow-100 dark:bg-yellow-900/40 flex items-center justify-center flex-shrink-0 text-yellow-700 dark:text-yellow-400 font-bold text-lg">
                     {{ strtoupper(substr($shopName ?: 'S', 0, 1)) }}
                 </div>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
-                        <p class="text-sm font-bold text-slate-900">{{ $shopName }}</p>
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                        <p class="text-sm font-bold text-slate-900 dark:text-slate-100">{{ $shopName }}</p>
+                        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400">
                             <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                             Connected
                         </span>
                     </div>
-                    <p class="text-xs text-slate-500 mt-0.5 font-mono">Shop ID: {{ $shopId }}</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">Shop ID: {{ $shopId }}</p>
                     @if($lastSynced)
                     <p class="text-xs text-slate-400 mt-0.5">Last synced: {{ \Carbon\Carbon::parse($lastSynced)->diffForHumans() }}</p>
                     @else
@@ -86,7 +86,7 @@
                 <form method="POST" action="{{ route('settings.clear') }}">
                     @csrf
                     <button type="submit"
-                            class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 border border-red-200 rounded-lg hover:bg-red-50 transition-colors cursor-pointer">
+                            class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
                         Disconnect
                     </button>
                 </form>
@@ -106,15 +106,15 @@
             <input type="hidden" name="shop_name" id="formShopName" value="{{ $shopName }}">
 
             @if($errors->any())
-            <div class="mx-6 mt-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            <div class="mx-6 mt-4 px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
                 @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
             </div>
             @endif
 
-            <div class="px-6 py-5 flex items-center gap-3 border-t border-slate-100 mt-4">
+            <div class="px-6 py-5 flex items-center gap-3 border-t border-slate-100 dark:border-slate-700 mt-4">
                 <div class="flex-1">
-                    <label class="block text-xs font-semibold text-slate-700 mb-1">Sync interval (minutes)</label>
-                    <select name="sync_interval" class="block w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Sync interval (minutes)</label>
+                    <select name="sync_interval" class="block w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                         <option value="1"  {{ $syncInterval == 1  ? 'selected' : '' }}>Every minute</option>
                         <option value="5"  {{ $syncInterval == 5  ? 'selected' : '' }}>Every 5 minutes</option>
                         <option value="15" {{ $syncInterval == 15 ? 'selected' : '' }}>Every 15 minutes</option>
@@ -134,23 +134,23 @@
     </div>
 
     {{-- How to get API Key --}}
-    <div class="bg-yellow-50 border border-yellow-100 rounded-xl p-5">
-        <h4 class="text-xs font-semibold text-yellow-800 uppercase tracking-wider mb-3">How to get your Pancake POS API Key</h4>
-        <ol class="space-y-2 text-xs text-yellow-700">
+    <div class="bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-100 dark:border-yellow-900 rounded-xl p-5">
+        <h4 class="text-xs font-semibold text-yellow-800 dark:text-yellow-400 uppercase tracking-wider mb-3">How to get your Pancake POS API Key</h4>
+        <ol class="space-y-2 text-xs text-yellow-700 dark:text-yellow-400">
             <li class="flex gap-2.5">
-                <span class="w-5 h-5 rounded-full bg-yellow-200 text-yellow-800 font-bold flex-shrink-0 flex items-center justify-center">1</span>
+                <span class="w-5 h-5 rounded-full bg-yellow-200 dark:bg-yellow-900/60 text-yellow-800 dark:text-yellow-200 font-bold flex-shrink-0 flex items-center justify-center">1</span>
                 Log in to <strong>pos.pages.fm</strong> and open your shop
             </li>
             <li class="flex gap-2.5">
-                <span class="w-5 h-5 rounded-full bg-yellow-200 text-yellow-800 font-bold flex-shrink-0 flex items-center justify-center">2</span>
+                <span class="w-5 h-5 rounded-full bg-yellow-200 dark:bg-yellow-900/60 text-yellow-800 dark:text-yellow-200 font-bold flex-shrink-0 flex items-center justify-center">2</span>
                 Go to <strong>Settings → App Settings → API Key</strong>
             </li>
             <li class="flex gap-2.5">
-                <span class="w-5 h-5 rounded-full bg-yellow-200 text-yellow-800 font-bold flex-shrink-0 flex items-center justify-center">3</span>
+                <span class="w-5 h-5 rounded-full bg-yellow-200 dark:bg-yellow-900/60 text-yellow-800 dark:text-yellow-200 font-bold flex-shrink-0 flex items-center justify-center">3</span>
                 Click <strong>Create</strong> to generate your key, then copy it
             </li>
             <li class="flex gap-2.5">
-                <span class="w-5 h-5 rounded-full bg-yellow-200 text-yellow-800 font-bold flex-shrink-0 flex items-center justify-center">4</span>
+                <span class="w-5 h-5 rounded-full bg-yellow-200 dark:bg-yellow-900/60 text-yellow-800 dark:text-yellow-200 font-bold flex-shrink-0 flex items-center justify-center">4</span>
                 Paste it above — your shop info will be <strong>auto-detected</strong>
             </li>
         </ol>
@@ -216,27 +216,27 @@ detectBtn.addEventListener('click', async () => {
 
 function buildShopCard(shop) {
     return `
-    <div class="flex items-start gap-4 p-4 bg-green-50 border border-green-200 rounded-xl">
-        <div class="w-12 h-12 rounded-xl bg-yellow-100 flex items-center justify-center flex-shrink-0 text-yellow-700 font-bold text-lg">
+    <div class="flex items-start gap-4 p-4 bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-xl">
+        <div class="w-12 h-12 rounded-xl bg-yellow-100 dark:bg-yellow-900/40 flex items-center justify-center flex-shrink-0 text-yellow-700 dark:text-yellow-400 font-bold text-lg">
             ${shop.name.charAt(0).toUpperCase()}
         </div>
         <div>
             <div class="flex items-center gap-2">
-                <p class="text-sm font-bold text-slate-900">${shop.name}</p>
-                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                <p class="text-sm font-bold text-slate-900 dark:text-slate-100">${shop.name}</p>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400">
                     <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                     Detected
                 </span>
             </div>
-            <p class="text-xs text-slate-500 mt-0.5 font-mono">Shop ID: ${shop.id}</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-mono">Shop ID: ${shop.id}</p>
         </div>
     </div>`;
 }
 
 function showStatus(type, msg) {
     statusEl.classList.remove('hidden');
-    const styles = { loading: 'text-yellow-600', success: 'text-green-600', error: 'text-red-600' };
-    statusEl.className = `mt-3 text-xs ${styles[type] ?? 'text-slate-600'}`;
+    const styles = { loading: 'text-yellow-600 dark:text-yellow-400', success: 'text-green-600 dark:text-green-400', error: 'text-red-600 dark:text-red-400' };
+    statusEl.className = `mt-3 text-xs ${styles[type] ?? 'text-slate-600 dark:text-slate-400'}`;
     statusEl.textContent = msg;
 }
 </script>

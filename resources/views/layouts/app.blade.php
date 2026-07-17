@@ -2,6 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <script>
+    (function () {
+        const stored = localStorage.getItem('theme');
+        const isDark = stored === 'dark' || (stored === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (isDark) document.documentElement.classList.add('dark');
+    })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>TSD Reports — @yield('title', 'Dashboard')</title>
@@ -119,10 +126,62 @@
         font-weight: 700;
         text-transform: uppercase;
     }
+
+    /* ─── Dark mode ───────────────────────────────────────────────────────────
+       Same rules as above, mirrored for a dark surface. The calendar's own
+       background stays transparent in light mode because it sits on the white
+       date-picker panel (partials/date-picker.blade.php); in dark mode that
+       panel is dark (bg-slate-900), so these overrides just re-tune text/fill
+       colors for legibility — the transparent background itself is unchanged. */
+    .dark .flatpickr-day { color: #e2e8f0 !important; }
+    .dark .flatpickr-day:hover {
+        background: rgba(202,138,4,0.18) !important;
+        color: #fde047 !important;
+    }
+
+    .dark .flatpickr-day.flatpickr-disabled,
+    .dark .flatpickr-day.flatpickr-disabled:hover {
+        color: #475569 !important;
+        background: transparent !important;
+    }
+    .dark .flatpickr-day.prevMonthDay,
+    .dark .flatpickr-day.nextMonthDay {
+        color: #475569 !important;
+    }
+
+    .dark .flatpickr-day.today {
+        border-color: #ca8a04 !important;
+        color: #fde047 !important;
+    }
+    .dark .flatpickr-day.today:hover { background: rgba(202,138,4,0.18) !important; }
+
+    .dark .flatpickr-day.inRange {
+        background: rgba(202,138,4,0.22) !important;
+        box-shadow: -5px 0 0 rgba(202,138,4,0.22), 5px 0 0 rgba(202,138,4,0.22) !important;
+        color: #fde047 !important;
+    }
+    .dark .flatpickr-day.startRange,
+    .dark .flatpickr-day.endRange,
+    .dark .flatpickr-day.selected {
+        background: linear-gradient(135deg, #ca8a04, #a16207) !important;
+        border-color: #eab308 !important;
+        color: #fff !important;
+    }
+
+    .dark .flatpickr-months .flatpickr-month { color: #e2e8f0 !important; }
+    .dark .flatpickr-current-month .cur-month { color: #e2e8f0 !important; }
+    .dark .flatpickr-months .flatpickr-prev-month:hover,
+    .dark .flatpickr-months .flatpickr-next-month:hover { background: rgba(202,138,4,0.18) !important; }
+    .dark .flatpickr-months .flatpickr-prev-month svg,
+    .dark .flatpickr-months .flatpickr-next-month svg { fill: #94a3b8 !important; }
+
+    .dark .flatpickr-weekday {
+        color: #64748b !important;
+    }
     </style>
     @stack('head')
 </head>
-<body class="flex h-screen overflow-hidden bg-slate-100">
+<body class="flex h-screen overflow-hidden bg-slate-100 dark:bg-slate-950">
 
 {{-- Toast notifications — populated by window.showToast() (resources/js/app.js).
      z-[70]: above the sidebar (z-50) and its mobile backdrop (z-40), so a toast
@@ -289,6 +348,15 @@
                 <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name ?? 'TSD Admin' }}</div>
                 <div class="text-yellow-400 text-[10px] truncate">{{ auth()->user()->email ?? 'Pancake POS' }}</div>
             </div>
+            <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"
+                    class="shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer">
+                <svg id="themeIconSun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg id="themeIconMoon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+            </button>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
                 <button type="submit" aria-label="Sign out" title="Sign out"
@@ -308,16 +376,16 @@
 <div class="flex-1 flex flex-col min-h-0 min-w-0">
 
     {{-- Top bar --}}
-    <header class="bg-white border-b border-slate-200 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-sm">
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-sm">
         <div class="flex items-center gap-3 min-w-0">
             <button id="sidebarToggle" type="button" aria-label="Open menu"
-                    class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer">
+                    class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
             <div class="min-w-0">
-                <h1 class="text-lg font-bold text-slate-800 font-mono truncate">@yield('title', 'Dashboard')</h1>
+                <h1 class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">@yield('title', 'Dashboard')</h1>
                 <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Reports · Pancake POS Integration')</p>
             </div>
         </div>

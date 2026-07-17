@@ -58,46 +58,46 @@
     <button type="button" id="{{ $uid }}Trigger"
         title="{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' – ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
         aria-label="Change date{{ $isRange ? ' range' : '' }}, currently {{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' to ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
-        class="relative inline-flex items-center justify-center w-8 h-8 bg-yellow-50 border border-yellow-200 rounded-full hover:bg-yellow-100 transition-colors cursor-pointer shrink-0">
-        <svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        class="relative inline-flex items-center justify-center w-8 h-8 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-full hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
         <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
     </button>
 
-    <div id="{{ $uid }}Panel" class="hidden absolute right-0 top-full mt-2 z-50 bg-white rounded-2xl shadow-2xl border border-slate-200" style="width:{{ $isRange ? '700px' : '440px' }}">
+    <div id="{{ $uid }}Panel" class="hidden absolute right-0 top-full mt-2 z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700" style="width:{{ $isRange ? '700px' : '440px' }}">
         <div class="flex">
             {{-- Presets sidebar — identical list in both modes --}}
-            <div class="w-28 border-r border-slate-100 py-2 shrink-0">
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="today">Today</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="yesterday">Yesterday</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="last7">Last 7 days</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="last30">Last 30 days</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="thisMonth">This month</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="lastMonth">Last month</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="weekToNow">Week to now</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 hover:bg-yellow-50 hover:text-yellow-700 transition-colors" data-preset="monthToNow">Month to now</button>
+            <div class="w-28 border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="today">Today</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="yesterday">Yesterday</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last7">Last 7 days</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last30">Last 30 days</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="thisMonth">This month</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="lastMonth">Last month</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="weekToNow">Week to now</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="monthToNow">Month to now</button>
             </div>
 
             {{-- Inline flatpickr calendar — dual month, editable start/end fields --}}
             <div class="flex-1 p-3">
                 <div class="flex items-center gap-2 mb-2 px-1">
                     <input type="text" id="{{ $uid }}FromInput" placeholder="{{ $isRange ? 'mm/dd/yyyy' : 'Date' }}" inputmode="numeric"
-                        class="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        class="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @if($isRange)
                     <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
                     </svg>
                     <input type="text" id="{{ $uid }}ToInput" placeholder="mm/dd/yyyy" inputmode="numeric"
-                        class="flex-1 border border-slate-200 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        class="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @endif
                 </div>
                 <div id="{{ $uid }}Calendar"></div>
             </div>
         </div>
 
-        <div class="flex items-center justify-end gap-2 border-t border-slate-100 px-4 py-2 bg-slate-50">
-            <button type="button" id="{{ $uid }}Close" class="px-3 py-1 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-md hover:bg-white transition-colors cursor-pointer">Close</button>
+        <div class="flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-700 px-4 py-2 bg-slate-50 dark:bg-slate-800">
+            <button type="button" id="{{ $uid }}Close" class="px-3 py-1 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-md hover:bg-white dark:hover:bg-slate-900 transition-colors cursor-pointer">Close</button>
             <button type="button" id="{{ $uid }}Apply" class="px-4 py-1 text-xs font-mono font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-md transition-colors cursor-pointer">Apply</button>
         </div>
     </div>

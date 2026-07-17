@@ -6,7 +6,7 @@
 <div class="max-w-3xl space-y-6">
 
     @if($errors->any())
-    <div class="px-5 py-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+    <div class="px-5 py-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
         @foreach($errors->all() as $error)<div>{{ $error }}</div>@endforeach
     </div>
     @endif
@@ -22,16 +22,16 @@
         </button>
     </div>
 
-    <div class="bg-white rounded-xl border border-yellow-100 shadow-sm overflow-hidden">
-        <div class="divide-y divide-slate-100">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+        <div class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($users as $user)
             <div class="px-6 py-3 flex items-center gap-4 {{ $user->is_active ? '' : 'opacity-50' }}">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
-                        <p class="text-sm font-mono font-semibold text-slate-700 truncate">{{ $user->name }}</p>
-                        <span class="text-[10px] font-semibold text-yellow-800 bg-yellow-100 px-1.5 py-0.5 rounded shrink-0">{{ \App\Models\User::ROLE_LABELS[$user->role] ?? $user->role }}</span>
+                        <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 truncate">{{ $user->name }}</p>
+                        <span class="text-[10px] font-semibold text-yellow-800 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/40 px-1.5 py-0.5 rounded shrink-0">{{ \App\Models\User::ROLE_LABELS[$user->role] ?? $user->role }}</span>
                         @if(!$user->is_active)
-                        <span class="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">Deactivated</span>
+                        <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded shrink-0">Deactivated</span>
                         @endif
                     </div>
                     <p class="text-[11px] text-slate-400 font-mono truncate">{{ $user->email }}</p>
@@ -40,7 +40,7 @@
                 @if(auth()->user()->canManage($user))
                 <div class="flex items-center gap-1 shrink-0">
                     <button type="button"
-                        class="editUserBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 transition-colors cursor-pointer"
+                        class="editUserBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
                         title="Edit"
                         data-id="{{ $user->id }}"
                         data-name="{{ $user->name }}"
@@ -51,7 +51,7 @@
                         </svg>
                     </button>
                     <button type="button"
-                        class="toggleActiveBtn p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                        class="toggleActiveBtn p-1.5 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                         title="{{ $user->is_active ? 'Deactivate' : 'Reactivate' }}"
                         data-id="{{ $user->id }}">
                         @if($user->is_active)
@@ -74,33 +74,33 @@
 
 {{-- Shared Add / Edit modal --}}
 <div id="userModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-        <div class="px-6 py-5 border-b border-slate-100">
-            <h3 id="userModalTitle" class="text-sm font-bold text-slate-800">Add a new user</h3>
-            <p id="userModalSubtitle" class="text-xs text-slate-500 mt-0.5">They sign in with "Sign in with Google" using this email</p>
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <h3 id="userModalTitle" class="text-sm font-bold text-slate-800 dark:text-slate-100">Add a new user</h3>
+            <p id="userModalSubtitle" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">They sign in with "Sign in with Google" using this email</p>
         </div>
         <form id="userForm" method="POST" action="{{ route('user-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
             <input type="hidden" name="_method" id="userFormMethod" value="">
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Full name</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Full name</label>
                 <input type="text" id="userNameInput" name="name" required
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Google account email</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Google account email</label>
                 <input type="email" id="userEmailInput" name="email" required
                     placeholder="their.name@gmail.com"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                 <p class="text-[11px] text-slate-400 mt-1">Must be the exact email on their Google account — that's how they'll sign in.</p>
             </div>
 
             <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Role</label>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Role</label>
                 <select name="role" id="userRoleSelect" required
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     <option value="" disabled selected>Select a role…</option>
                     @foreach($assignableRoles as $role)
                     <option value="{{ $role }}">{{ \App\Models\User::ROLE_LABELS[$role] }}</option>
@@ -109,7 +109,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-2">
-                <button type="button" id="cancelUserModal" class="px-3 py-2 text-xs font-mono text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer">Cancel</button>
+                <button type="button" id="cancelUserModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="userSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add User</button>
             </div>
         </form>
