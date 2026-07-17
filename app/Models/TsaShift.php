@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TsaShift extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'tsa_key', 'pos_user_id', 'display_name', 'team', 'tag_keywords', 'seller_keywords',
         'shift_start', 'shift_end', 'sort_order', 'rest_day_of_week',

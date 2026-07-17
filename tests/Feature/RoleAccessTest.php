@@ -27,6 +27,24 @@ class RoleAccessTest extends TestCase
         $this->get(route('settings'))->assertForbidden();
     }
 
+    public function test_normal_user_cannot_access_bulk_action_routes(): void
+    {
+        $this->actingAs(User::factory()->normal()->create());
+
+        $product = \App\Models\Product::first();
+        $tsaShift = \App\Models\TsaShift::first();
+
+        $this->post(route('product-management.bulk'), [
+            'ids'    => [$product->id],
+            'action' => 'hide',
+        ])->assertForbidden();
+
+        $this->post(route('tsa-management.bulk'), [
+            'ids'    => [$tsaShift->id],
+            'action' => 'delete',
+        ])->assertForbidden();
+    }
+
     public function test_guest_role_is_forbidden_from_config_pages(): void
     {
         $this->actingAs(User::factory()->guestRole()->create());

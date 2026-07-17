@@ -194,4 +194,47 @@ class TsaManagementControllerTest extends TestCase
         $response->assertSessionHasErrors('rest_day_of_week');
         $this->assertDatabaseMissing('tsa_shifts', ['display_name' => 'Bad TSA']);
     }
+
+    public function test_bulk_move_changes_team_for_multiple_shifts(): void
+    {
+        $ids = TsaShift::whereIn('tsa_key', ['Julie', 'Marisol'])->pluck('id');
+
+        $response = $this->post(route('tsa-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'move',
+            'team'   => 'Eyecare Team',
+        ]);
+
+        $response->assertRedirect(route('tsa-management'));
+        foreach ($ids as $id) {
+            $this->assertDatabaseHas('tsa_shifts', ['id' => $id, 'team' => 'Eyecare Team']);
+        }
+    }
+
+    public function test_bulk_delete_soft_deletes_multiple_shifts(): void
+    {
+        $ids = TsaShift::whereIn('tsa_key', ['Julie', 'Marisol'])->pluck('id');
+
+        $response = $this->post(route('tsa-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'delete',
+        ]);
+
+        $response->assertRedirect(route('tsa-management'));
+        foreach ($ids as $id) {
+            $this->assertSoftDeleted('tsa_shifts', ['id' => $id]);
+        }
+    }
+
+    public function test_bulk_move_without_a_team_fails_validation(): void
+    {
+        $ids = TsaShift::whereIn('tsa_key', ['Julie', 'Marisol'])->pluck('id');
+
+        $response = $this->post(route('tsa-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'move',
+        ]);
+
+        $response->assertSessionHasErrors('team');
+    }
 }

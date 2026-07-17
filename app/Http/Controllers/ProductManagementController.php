@@ -21,7 +21,9 @@ class ProductManagementController extends Controller
 
         $unassigned = $products->reject(fn($p) => collect($teamsConfig)->pluck('order_team')->contains($p->team));
 
-        return view('product-management', compact('teamGroups', 'teamsConfig', 'unassigned'));
+        $trashedProducts = Product::onlyTrashed()->orderBy('display_name')->get();
+
+        return view('product-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'trashedProducts'));
     }
 
     public function store(Request $request)
@@ -72,6 +74,18 @@ class ProductManagementController extends Controller
             ->with('success', "Removed \"{$name}\".");
     }
 
+    // Plain {id} param (not {product}) is deliberate — implicit route-model-binding
+    // excludes soft-deleted rows by default, so a {product}-typed param would 404
+    // on exactly the trashed records this route needs to find. Resolved manually.
+    public function restore(int $id)
+    {
+        $product = Product::onlyTrashed()->findOrFail($id);
+        $product->restore();
+
+        return redirect()->route('product-management')
+            ->with('success', "Restored \"{$product->display_name}\".");
+    }
+
     public function toggleHidden(Product $product)
     {
         $product->is_hidden = !$product->is_hidden;
@@ -81,6 +95,47 @@ class ProductManagementController extends Controller
 
         return redirect()->route('product-management')
             ->with('success', "{$verb} \"{$product->display_name}\".");
+    }
+
+    public function bulk(Request $request)
+    {
+        $teamsConfig = config('teams', []);
+        $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
+
+        $data = $request->validate([
+            'ids'      => 'required|array|min:1',
+            'ids.*'    => 'integer|exists:products,id',
+            'action'   => 'required|in:hide,unhide,delete,move',
+            'team'     => 'required_if:action,move|nullable|string|in:' . implode(',', $validTeams),
+        ]);
+
+        $count = count($data['ids']);
+        $noun  = \Illuminate\Support\Str::plural('product', $count);
+
+        switch ($data['action']) {
+            case 'hide':
+                Product::whereIn('id', $data['ids'])->update(['is_hidden' => true]);
+                $message = "Hid {$count} {$noun}.";
+                break;
+            case 'unhide':
+                Product::whereIn('id', $data['ids'])->update(['is_hidden' => false]);
+                $message = "Unhid {$count} {$noun}.";
+                break;
+            case 'move':
+                Product::whereIn('id', $data['ids'])->update(['team' => $data['team']]);
+                // Same reasoning as store()/update() — a team change can affect which
+                // team-NULL leads this product's keywords now claim.
+                \Artisan::call('orders:reinfer-teams');
+                $teamName = collect($teamsConfig)->firstWhere('order_team', $data['team'])['name'] ?? $data['team'];
+                $message = "Moved {$count} {$noun} to {$teamName}.";
+                break;
+            case 'delete':
+                Product::whereIn('id', $data['ids'])->delete();
+                $message = "Removed {$count} {$noun}.";
+                break;
+        }
+
+        return redirect()->route('product-management')->with('success', $message);
     }
 
     private function validateProduct(Request $request): array

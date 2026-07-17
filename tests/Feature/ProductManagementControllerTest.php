@@ -70,14 +70,18 @@ class ProductManagementControllerTest extends TestCase
         ]);
     }
 
-    public function test_destroy_removes_a_product(): void
+    public function test_destroy_soft_deletes_a_product(): void
     {
+        // Destroy now soft-deletes (see ProductSoftDeleteTest for full coverage) —
+        // the row is no longer hard-deleted, so this only checks it's gone from
+        // the active/default query, not gone from the table entirely.
         $product = Product::where('display_name', 'MINI GB')->first();
 
         $response = $this->delete(route('product-management.destroy', $product));
 
         $response->assertRedirect(route('product-management'));
-        $this->assertDatabaseMissing('products', ['id' => $product->id]);
+        $this->assertSoftDeleted('products', ['id' => $product->id]);
+        $this->assertDatabaseMissing('products', ['id' => $product->id, 'deleted_at' => null]);
     }
 
     public function test_toggle_hidden_hides_a_visible_product(): void
@@ -123,5 +127,81 @@ class ProductManagementControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertDontSee('>Hidden</span>', false);
+    }
+
+    public function test_bulk_hide_hides_multiple_products(): void
+    {
+        $ids = Product::whereIn('display_name', ['SINUXYL', 'SINUVEX'])->pluck('id');
+
+        $response = $this->post(route('product-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'hide',
+        ]);
+
+        $response->assertRedirect(route('product-management'));
+        foreach ($ids as $id) {
+            $this->assertDatabaseHas('products', ['id' => $id, 'is_hidden' => true]);
+        }
+    }
+
+    public function test_bulk_unhide_unhides_multiple_products(): void
+    {
+        $ids = Product::whereIn('display_name', ['SINUXYL', 'SINUVEX'])->pluck('id');
+        Product::whereIn('id', $ids)->update(['is_hidden' => true]);
+
+        $response = $this->post(route('product-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'unhide',
+        ]);
+
+        $response->assertRedirect(route('product-management'));
+        foreach ($ids as $id) {
+            $this->assertDatabaseHas('products', ['id' => $id, 'is_hidden' => false]);
+        }
+    }
+
+    public function test_bulk_move_changes_team_for_multiple_products(): void
+    {
+        $ids = Product::whereIn('display_name', ['SINUXYL', 'SINUVEX'])->pluck('id');
+        $this->assertDatabaseHas('products', ['id' => $ids->first(), 'team' => 'SH Naturals']);
+
+        $response = $this->post(route('product-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'move',
+            'team'   => 'Eyecare Team',
+        ]);
+
+        $response->assertRedirect(route('product-management'));
+        foreach ($ids as $id) {
+            $this->assertDatabaseHas('products', ['id' => $id, 'team' => 'Eyecare Team']);
+        }
+    }
+
+    public function test_bulk_delete_soft_deletes_multiple_products(): void
+    {
+        $ids = Product::whereIn('display_name', ['SINUXYL', 'SINUVEX'])->pluck('id');
+
+        $response = $this->post(route('product-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'delete',
+        ]);
+
+        $response->assertRedirect(route('product-management'));
+        foreach ($ids as $id) {
+            $this->assertSoftDeleted('products', ['id' => $id]);
+        }
+    }
+
+    public function test_bulk_move_without_a_team_fails_validation(): void
+    {
+        $ids = Product::whereIn('display_name', ['SINUXYL', 'SINUVEX'])->pluck('id');
+
+        $response = $this->post(route('product-management.bulk'), [
+            'ids'    => $ids->all(),
+            'action' => 'move',
+        ]);
+
+        $response->assertSessionHasErrors('team');
+        $this->assertDatabaseHas('products', ['id' => $ids->first(), 'team' => 'SH Naturals']);
     }
 }
