@@ -309,6 +309,15 @@
             Product Management
         </a>
 
+        <a href="{{ route('sync-health') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('sync-health*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12h3l2.25-7.5 4.5 15L16.5 12H19.5"/>
+            </svg>
+            Sync Health
+        </a>
+
         <a href="{{ route('user-management') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">

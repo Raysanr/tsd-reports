@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
 use App\Support\ProductPerformance;
+use App\Support\SyncHealth;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -80,17 +81,10 @@ class DashboardController extends Controller
             $cancelledUpsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->where('is_cancelled_upsell', true);
 
-            $lastSynced     = Setting::get('last_synced');
-            $syncIntervalMin = max(1, min(60, (int) Setting::get('sync_interval', 2)));
-
-            // The scheduler (routes/console.php) re-syncs every $syncIntervalMin minutes.
-            // If nothing landed for 3x that interval, the cron has likely stopped firing
-            // (server down, schedule:run not wired up, API key revoked, etc.) — a plain
-            // timestamp can't tell you that at a glance, so surface it as a health flag
-            // instead of just "X minutes ago", which reads the same whether that's normal
-            // or a silent outage.
-            $syncStale = !$lastSynced
-                || Carbon::parse($lastSynced)->diffInMinutes(now()) > ($syncIntervalMin * 3);
+            // Extracted into App\Support\SyncHealth so this page and the dedicated
+            // Sync Health page (SyncHealthController) can never drift out of sync
+            // on what counts as "stale".
+            $syncHealth = SyncHealth::status();
 
             $stats = [
                 'total_sales'      => $grossSales,
@@ -100,9 +94,9 @@ class DashboardController extends Controller
                 'cancelled_count'         => (clone $cancelledUpsells)->count(),
                 'cancelled_value'         => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
                 'cancelled_unknown_count' => (clone $cancelledUpsells)->whereNull('cancelled_upsell_amount')->count(),
-                'last_synced'      => $lastSynced,
-                'sync_interval'    => $syncIntervalMin,
-                'sync_stale'       => $syncStale,
+                'last_synced'      => $syncHealth['last_synced'],
+                'sync_interval'    => $syncHealth['sync_interval'],
+                'sync_stale'       => $syncHealth['sync_stale'],
             ];
 
             // Company-wide lead/call funnel — same counting logic as the Leads Report
@@ -266,26 +260,12 @@ class DashboardController extends Controller
             'new_orders'    => (int) $runsFromThisSync->sum('new_orders'),
             'upsell_count'  => (int) $runsFromThisSync->sum('upsell_count'),
             'upsell_sales'  => (float) $runsFromThisSync->sum('upsell_sales'),
-            'error_message' => $firstFailure ? self::redactSecrets($firstFailure->error_message) : null,
+            'error_message' => $firstFailure ? SyncHealth::redactSecrets($firstFailure->error_message) : null,
             // JSON_PRESERVE_ZERO_FRACTION: without it, PHP's json_encode renders a
             // float that happens to be a whole number (e.g. upsell_sales = 0.0) as
             // the bare integer `0`, not `0.0` — which silently turns this field
             // into a mixed int/float type depending on the data instead of always
             // being a float on the wire.
         ], 200, [], JSON_PRESERVE_ZERO_FRACTION);
-    }
-
-    /** Strips any api_key query-string value from an error message before it's
-     *  returned in an HTTP response. SyncRun.error_message can contain the raw
-     *  request URI (SyncTodayOrders builds the Pancake request with api_key as
-     *  a query-string param, and Guzzle connection-exception messages —
-     *  timeouts, DNS blips — include the full request URI). This endpoint is
-     *  reachable by 'normal'-role users, who must never see the live Pancake
-     *  API key, the same key the Settings page masks from them. */
-    private static function redactSecrets(?string $message): ?string
-    {
-        return $message === null
-            ? null
-            : preg_replace('/([?&]api_key=)[^&\s]+/i', '$1REDACTED', $message);
     }
 }
