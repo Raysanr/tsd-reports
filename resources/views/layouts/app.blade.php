@@ -340,6 +340,16 @@
             Unmatched Orders
         </a>
 
+        <a href="{{ route('keyword-diagnostics') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('keyword-diagnostics*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 10.5l1.19 1.19a.75.75 0 001.06 0l1.94-1.94M10.5 6.75v.008"/>
+            </svg>
+            Keyword Diagnostics
+        </a>
+
         <a href="{{ route('user-management') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">

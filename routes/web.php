@@ -16,6 +16,7 @@ use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
+use App\Http\Controllers\KeywordDiagnosticsController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -78,6 +79,9 @@ Route::middleware(['auth', 'active'])->group(function () {
 
         Route::get('/unmatched-orders',          [UnmatchedOrdersController::class, 'index'])->name('unmatched-orders');
         Route::post('/unmatched-orders/reinfer', [UnmatchedOrdersController::class, 'reinfer'])->name('unmatched-orders.reinfer');
+
+        Route::get('/keyword-diagnostics',       [KeywordDiagnosticsController::class, 'index'])->name('keyword-diagnostics');
+        Route::get('/keyword-diagnostics/test',  [KeywordDiagnosticsController::class, 'test'])->name('keyword-diagnostics.test');
 
         Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
