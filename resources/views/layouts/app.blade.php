@@ -329,6 +329,17 @@
             Audit Log
         </a>
 
+        <a href="{{ route('unmatched-orders') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('unmatched-orders*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75c0-1.036.84-1.875 1.875-1.875h.75c1.036 0 1.875.84 1.875 1.875v.375c0 .621-.334 1.115-.807 1.454-.548.393-.943.978-.943 1.671v.25"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5h.008v.008H12V16.5z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"/>
+            </svg>
+            Unmatched Orders
+        </a>
+
         <a href="{{ route('user-management') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">
