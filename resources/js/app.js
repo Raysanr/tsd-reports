@@ -246,6 +246,13 @@ window.addEventListener('popstate', () => window.softRefresh(window.location.hre
 function tableToCsv(table) {
     const rows = [];
     for (const tr of table.querySelectorAll('tr')) {
+        // Skip rows hidden by the sortable-table live filter (data-table-filter,
+        // added later in this file) — "what you see is exactly what you get,
+        // filters and all" above was written before that filter existed, but a
+        // hidden row is still a real <tr> in the DOM, so without this check it
+        // would silently leak into the export despite being filtered out on
+        // screen.
+        if (tr.classList.contains('hidden')) continue;
         const cells = [];
         for (const cell of tr.querySelectorAll('th, td')) {
             // <br> inside header labels reads as a space, not a squashed word
@@ -531,3 +538,277 @@ window.showToast = function (message, variant = 'success') {
         if (!results.contains(e.target) && e.target !== input) hideResults();
     });
 })();
+
+// ─── Sortable + filterable tables ────────────────────────────────────────────
+// Opt-in via data-sortable-table on a wrapper div containing exactly one
+// <table>. Click a <th data-sort-key="..."> to sort by that column (client-side,
+// re-sorts the DOM rows already rendered — no server round-trip). A sibling
+// input[data-table-filter="<wrapper-id>"] live-filters rows by substring match
+// across the row's visible text. Both are independent — a table can have
+// sort only, filter only, both, or (for time-pivot/hourly tables) neither.
+//
+// Delegated from document, like the CSV/PNG export buttons and the GET-form
+// interceptor above — NOT bound directly to the <th>/<input> nodes. Every page
+// these tables live on renders partials/live-indicator, which calls
+// window.softRefresh() every 2 minutes AND after any team/date/product filter
+// click on the page (see the GET-form handler above); softRefresh replaces
+// main.innerHTML wholesale, discarding and recreating every node inside
+// <main> — including this table and its header cells. A listener bound
+// directly to those nodes at initial script-run time would silently stop
+// firing the first time that happens (no error, nothing visibly broken, sort
+// just quietly stops working). Delegating from document sidesteps this
+// entirely: document itself is never replaced, so the listener keeps matching
+// freshly-swapped-in nodes via e.target.closest() forever.
+//
+// Sort direction is likewise state that must survive a swap, so it can't live
+// in a closure variable captured once at script-run time (a fresh table after
+// a swap would have no memory of a prior click) — it's persisted on the
+// <table> element itself via data-sort-key/data-sort-dir, re-read fresh on
+// every click. cursor-pointer/select-none and the sort-direction chevron are
+// plain CSS (th[data-sort-key] in app.css), for the same reason: a JS
+// classList.add() run once at load would never reach a node created later by
+// softRefresh, but a CSS attribute-selector rule applies to it automatically.
+//
+// Sort-value lookup: each sortable <td> carries BOTH data-sort-key (matching
+// its column's <th>) and data-sort-value (the raw comparable value — a plain
+// number or an ISO-ish sortable string, never the formatted display text, e.g.
+// a "₱1,000.00" cell carries data-sort-value="1000.00" so it sorts numerically
+// instead of alphabetically). Looked up per-row via
+// row.querySelector('[data-sort-key="<key>"]').dataset.sortValue — falling
+// back to the cell's own text if a particular row is missing the attribute.
+document.addEventListener('click', (e) => {
+    const th = e.target.closest('[data-sortable-table] th[data-sort-key]');
+    if (!th) return;
+
+    const table = th.closest('table');
+    const tbody = table?.querySelector('tbody');
+    if (!tbody) return;
+
+    const key     = th.dataset.sortKey;
+    const prevKey = table.dataset.sortKey;
+    const prevDir = parseInt(table.dataset.sortDir || '1', 10);
+    const dir     = (prevKey === key) ? -prevDir : 1; // 1 = ascending, -1 = descending
+    table.dataset.sortKey = key;
+    table.dataset.sortDir = String(dir);
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    rows.sort((a, b) => {
+        const cellA = a.querySelector(`[data-sort-key="${key}"]`);
+        const cellB = b.querySelector(`[data-sort-key="${key}"]`);
+        const valA = cellA ? (cellA.dataset.sortValue ?? cellA.textContent.trim()) : '';
+        const valB = cellB ? (cellB.dataset.sortValue ?? cellB.textContent.trim()) : '';
+
+        // Guardrail for future columns: parseFloat expects a bare number and
+        // stops at the first non-numeric character, so a comma-formatted raw
+        // value like "1,000.00" would silently parse as just 1 and misorder.
+        // Not a live bug today — every data-sort-value this app emits is
+        // already a plain unformatted number/string (see the block comment
+        // above) — but never put thousands-separators in data-sort-value,
+        // only in the cell's visible display text.
+        const numA = parseFloat(valA);
+        const numB = parseFloat(valB);
+        const bothNumeric = valA.trim() !== '' && valB.trim() !== '' && !isNaN(numA) && !isNaN(numB);
+
+        const cmp = bothNumeric
+            ? (numA - numB)
+            : valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        return cmp * dir;
+    });
+    rows.forEach((row) => tbody.appendChild(row));
+
+    table.querySelectorAll('th[data-sort-key]').forEach((h) => h.removeAttribute('data-sort-active'));
+    th.setAttribute('data-sort-active', dir === 1 ? 'asc' : 'desc');
+});
+
+document.addEventListener('input', (e) => {
+    const input = e.target.closest('[data-table-filter]');
+    if (!input) return;
+
+    const wrapper = document.getElementById(input.dataset.tableFilter);
+    if (!wrapper) return;
+
+    const query = input.value.trim().toLowerCase();
+    wrapper.querySelectorAll('tbody tr').forEach((row) => {
+        const matches = !query || row.textContent.toLowerCase().includes(query);
+        row.classList.toggle('hidden', !matches);
+    });
+});
+
+// ─── Saved filter presets ────────────────────────────────────────────────────
+// "Presets" dropdown next to each report's other topbar filter controls (Leads
+// Report, TSA Performance, RTS Report) — lets a user save the page's current
+// TOP-LEVEL filters (team, date range, product — whatever's in the URL query
+// string) under a name and reapply them in one click, instead of re-clicking
+// the same combination every visit. Entirely client-side: a preset is just
+// { name, query } (query = a captured window.location.search), stored in
+// localStorage under `filterPresets:<key>` — one array per page, keyed by the
+// trigger button's data-preset-key (e.g. "leads-report"), so Leads Report's
+// saved views never bleed into TSA Performance's list or vice versa. No
+// backend/database involvement.
+//
+// One shared implementation drives every page's dropdown — each trigger button
+// carries data-preset-key (the localStorage key) and data-preset-base-url (the
+// page's own route, e.g. {{ route('leads-report') }}) — rather than duplicating
+// this logic per view.
+//
+// Delegated from document, for consistency with this file's other
+// dropdown-closing patterns (e.g. the global-search dropdown above) — NOT
+// because it's required to survive softRefresh: @push('topbar-right') content
+// (which is where every one of these dropdowns lives) renders inside <header>,
+// outside <main>, and softRefresh only ever replaces main.innerHTML.
+const PRESET_STORAGE_PREFIX = 'filterPresets:';
+
+function getPresets(key) {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(PRESET_STORAGE_PREFIX + key) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function setPresets(key, presets) {
+    try {
+        localStorage.setItem(PRESET_STORAGE_PREFIX + key, JSON.stringify(presets));
+    } catch {
+        // Storage unavailable/full (e.g. private browsing) — fail silently,
+        // same spirit as showToast's "no container, do nothing" guard.
+    }
+}
+
+// Same-name save overwrites in place (no duplicate-name confirmation) — the
+// simplest reasonable behavior per this feature's scope.
+function savePreset(key, name, query) {
+    const presets = getPresets(key).filter((p) => p.name !== name);
+    presets.push({ name, query });
+    setPresets(key, presets);
+}
+
+function deletePreset(key, name) {
+    setPresets(key, getPresets(key).filter((p) => p.name !== name));
+}
+
+function escapePresetHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+}
+
+// Rebuilds a dropdown panel's contents from localStorage — called on open, and
+// again after any save/delete so the list reflects the change immediately.
+function renderPresetPanel(panel, key) {
+    const presets = getPresets(key);
+
+    const rows = presets.map((p) => `
+        <div class="flex items-center" data-preset-row data-preset-name="${escapePresetHtml(p.name)}">
+            <button type="button" data-preset-apply
+                class="flex-1 min-w-0 text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors truncate cursor-pointer">
+                ${escapePresetHtml(p.name)}
+            </button>
+            <button type="button" data-preset-delete aria-label="Delete preset ${escapePresetHtml(p.name)}"
+                class="px-2 text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors cursor-pointer shrink-0">&times;</button>
+        </div>
+    `).join('');
+
+    panel.innerHTML = `
+        ${presets.length
+            ? '<div class="px-3 pt-2 pb-1 text-[10px] font-mono font-semibold tracking-widest text-slate-400 uppercase">Saved Views</div>'
+            : '<p class="px-3 pt-2 pb-1 text-xs font-mono text-slate-400">No saved views yet</p>'}
+        ${rows}
+        <div class="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
+            <button type="button" data-preset-save
+                class="w-full text-left px-3 py-1.5 text-xs font-mono text-yellow-700 dark:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
+                + Save current filters...
+            </button>
+        </div>
+    `;
+}
+
+// Click-outside-to-close lives in THIS same listener, as the final fallthrough
+// branch below, rather than a second document 'click' listener — the two used
+// to be separate, but save/delete both re-render the panel via
+// panel.innerHTML (see renderPresetPanel), which detaches the just-clicked
+// button from the DOM. A second listener running afterward on that same click
+// event would call e.target.closest('[data-preset-widget]') on the
+// now-detached button, get null back, and immediately hide the panel it had
+// just re-rendered open — so every save/delete looked like it silently did
+// nothing. Keeping every branch (including the outside-click check) as
+// mutually-exclusive early-return checks on ONE listener means a save/delete
+// click can never also fall through to the "outside click" branch within the
+// same dispatch.
+document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-preset-trigger]');
+    if (trigger) {
+        const panel = trigger.closest('[data-preset-widget]')?.querySelector('[data-preset-panel]');
+        if (!panel) return;
+        const isHidden = panel.classList.contains('hidden');
+        // Only one preset panel is ever on a page, but close-all-first keeps
+        // this correct even if that ever changes (same guard the date-picker
+        // pattern doesn't need, since each of its instances owns its own panel).
+        document.querySelectorAll('[data-preset-panel]').forEach((p) => p.classList.add('hidden'));
+        document.querySelectorAll('[data-preset-trigger]').forEach((t) => t.setAttribute('aria-expanded', 'false'));
+        if (isHidden) {
+            renderPresetPanel(panel, trigger.dataset.presetKey);
+            panel.classList.remove('hidden');
+            trigger.setAttribute('aria-expanded', 'true');
+        }
+        return;
+    }
+
+    const applyBtn = e.target.closest('[data-preset-apply]');
+    if (applyBtn) {
+        const widget = applyBtn.closest('[data-preset-widget]');
+        const widgetTrigger = widget?.querySelector('[data-preset-trigger]');
+        const row = applyBtn.closest('[data-preset-row]');
+        if (!widgetTrigger || !row) return;
+        const preset = getPresets(widgetTrigger.dataset.presetKey).find((p) => p.name === row.dataset.presetName);
+        // Plain navigation, not softRefresh: applying a preset can change the
+        // team (a different route segment's worth of data entirely, e.g.
+        // leads-report-all vs leads-report), which softRefresh's in-place
+        // <main> swap isn't guaranteed to render correctly for — a full
+        // navigation is the same trade every other filter control on this
+        // page already makes when its target view differs from the current one.
+        if (preset) window.location.href = widgetTrigger.dataset.presetBaseUrl + preset.query;
+        return;
+    }
+
+    const deleteBtn = e.target.closest('[data-preset-delete]');
+    if (deleteBtn) {
+        const widget = deleteBtn.closest('[data-preset-widget]');
+        const widgetTrigger = widget?.querySelector('[data-preset-trigger]');
+        const panel = widget?.querySelector('[data-preset-panel]');
+        const row = deleteBtn.closest('[data-preset-row]');
+        if (!widgetTrigger || !panel || !row) return;
+        const name = row.dataset.presetName;
+        if (!confirm(`Delete saved view "${name}"?`)) return;
+        deletePreset(widgetTrigger.dataset.presetKey, name);
+        renderPresetPanel(panel, widgetTrigger.dataset.presetKey);
+        return;
+    }
+
+    const saveBtn = e.target.closest('[data-preset-save]');
+    if (saveBtn) {
+        const widget = saveBtn.closest('[data-preset-widget]');
+        const widgetTrigger = widget?.querySelector('[data-preset-trigger]');
+        const panel = widget?.querySelector('[data-preset-panel]');
+        if (!widgetTrigger || !panel) return;
+        const name = (prompt('Name this preset:') || '').trim();
+        if (!name) return;
+        savePreset(widgetTrigger.dataset.presetKey, name, window.location.search);
+        renderPresetPanel(panel, widgetTrigger.dataset.presetKey);
+        return;
+    }
+
+    // Outside click: only reached if none of the branches above matched —
+    // i.e. the click wasn't on a trigger/apply/delete/save control (whether
+    // or not that control is still attached to the DOM by this point).
+    if (e.target.closest('[data-preset-widget]')) return;
+    document.querySelectorAll('[data-preset-panel]:not(.hidden)').forEach((p) => p.classList.add('hidden'));
+    document.querySelectorAll('[data-preset-trigger]').forEach((t) => t.setAttribute('aria-expanded', 'false'));
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('[data-preset-panel]:not(.hidden)').forEach((p) => p.classList.add('hidden'));
+    document.querySelectorAll('[data-preset-trigger]').forEach((t) => t.setAttribute('aria-expanded', 'false'));
+});

@@ -164,6 +164,8 @@
             <p class="text-xs text-slate-400 mt-0.5 font-mono">{{ $rangeLabel }}</p>
         </div>
         <div class="flex items-center gap-3">
+            <input type="text" data-table-filter="ordersTable" placeholder="Filter…" aria-label="Filter orders"
+                   class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             <span class="text-xs font-mono text-slate-400">{{ $currentOrders->count() }} records</span>
             @include('partials.table-actions', ['target' => 'ordersTable', 'name' => 'orders-' . $selectedTeam])
         </div>
@@ -184,29 +186,32 @@
     {{-- Bounded height + own vertical scroll so a long order list scrolls inside this
          card (with a sticky header) instead of stretching the whole page — makes it
          obvious there's more to scroll through. --}}
-    <div class="overflow-y-auto" style="max-height:60vh" id="ordersTable">
+    <div class="overflow-y-auto" style="max-height:60vh" id="ordersTable" data-sortable-table>
     <table class="w-full text-sm">
         <thead class="sticky top-0 z-10">
             <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide shadow-sm">
-                <th class="px-5 py-2.5 text-left">Order ID</th>
-                <th class="px-4 py-2.5 text-left">Time</th>
-                <th class="px-4 py-2.5 text-left">TSA</th>
-                <th class="px-4 py-2.5 text-left">Product</th>
-                <th class="px-4 py-2.5 text-left">Disposition</th>
+                <th class="px-5 py-2.5 text-left" data-sort-key="orderId">Order ID</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="time">Time</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="tsa">TSA</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="product">Product</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="disposition">Disposition</th>
+                {{-- Status is a badge with no natural sort order (Delivered/RTS/Pending
+                     aren't ranked) — left unsortable, same reasoning as the Excess
+                     column's "highlight" boolean elsewhere in this app. --}}
                 <th class="px-4 py-2.5 text-left">Status</th>
-                <th class="px-4 py-2.5 text-right">Amount</th>
+                <th class="px-4 py-2.5 text-right" data-sort-key="amount">Amount</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($currentOrders as $order)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors {{ $order->is_void_status ? 'opacity-60' : '' }}">
-                <td class="px-5 py-3 font-mono text-xs text-primary font-semibold">#{{ $order->pancake_order_id }}</td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
+                <td class="px-5 py-3 font-mono text-xs text-primary font-semibold" data-sort-key="orderId" data-sort-value="{{ $order->pancake_order_id }}">#{{ $order->pancake_order_id }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400" data-sort-key="time" data-sort-value="{{ $order->pancake_created_at?->format('Y-m-d H:i:s') }}">
                     {{ $order->pancake_created_at?->format('h:i A') ?? '—' }}
                 </td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200">{{ $order->tsa_name ?? '—' }}</td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400">{{ $order->product ?? '—' }}</td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{{ $order->disposition ?? '—' }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200" data-sort-key="tsa" data-sort-value="{{ $order->tsa_name ?? '' }}">{{ $order->tsa_name ?? '—' }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400" data-sort-key="product" data-sort-value="{{ $order->product ?? '' }}">{{ $order->product ?? '—' }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400" data-sort-key="disposition" data-sort-value="{{ $order->disposition ?? '' }}">{{ $order->disposition ?? '—' }}</td>
                 <td class="px-4 py-3">
                     @if($order->status_label)
                     <span @class([
@@ -221,7 +226,7 @@
                     <span class="text-xs text-slate-300 dark:text-slate-600">—</span>
                     @endif
                 </td>
-                <td class="px-4 py-3 font-mono text-xs font-semibold text-right {{ $order->is_void_status ? 'text-slate-400' : 'text-accent' }}">
+                <td class="px-4 py-3 font-mono text-xs font-semibold text-right {{ $order->is_void_status ? 'text-slate-400' : 'text-accent' }}" data-sort-key="amount" data-sort-value="{{ $order->amount }}">
                     ₱{{ number_format($order->amount, 2) }}
                 </td>
             </tr>
@@ -266,6 +271,8 @@
         'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
         'submit' => 'form',
     ])
+
+    @include('partials.filter-presets', ['key' => 'leads-report', 'baseUrl' => route('leads-report')])
 
     <button type="submit" title="Sync" aria-label="Sync orders"
             class="inline-flex items-center justify-center w-8 h-8 bg-yellow-700 hover:bg-yellow-800 text-white rounded-full transition-colors cursor-pointer shrink-0">
