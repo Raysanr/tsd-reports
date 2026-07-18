@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -37,7 +38,7 @@ class UserManagementController extends Controller
         $actor = $request->user();
         $data  = $this->validateUser($request, $actor);
 
-        User::create([
+        $user = User::create([
             'name'     => $data['name'],
             'email'    => $data['email'],
             'role'     => $data['role'],
@@ -48,8 +49,11 @@ class UserManagementController extends Controller
             'password' => Hash::make(Str::random(40)),
         ]);
 
+        $message = "Added \"{$data['name']}\".";
+        ActivityLogger::log('user.created', $user, $message);
+
         return redirect()->route('user-management')
-            ->with('success', "Added \"{$data['name']}\".");
+            ->with('success', $message);
     }
 
     public function update(Request $request, User $user)
@@ -65,8 +69,11 @@ class UserManagementController extends Controller
             'role'  => $data['role'],
         ]);
 
+        $message = "Updated \"{$data['name']}\".";
+        ActivityLogger::log('user.updated', $user, $message);
+
         return redirect()->route('user-management')
-            ->with('success', "Updated \"{$data['name']}\".");
+            ->with('success', $message);
     }
 
     /**
@@ -86,10 +93,14 @@ class UserManagementController extends Controller
         $user->is_active = !$user->is_active;
         $user->save();
 
-        $verb = $user->is_active ? 'Reactivated' : 'Deactivated';
+        $verb   = $user->is_active ? 'Reactivated' : 'Deactivated';
+        $action = $user->is_active ? 'user.activated' : 'user.deactivated';
+
+        $message = "{$verb} \"{$user->name}\".";
+        ActivityLogger::log($action, $user, $message);
 
         return redirect()->route('user-management')
-            ->with('success', "{$verb} \"{$user->name}\".");
+            ->with('success', $message);
     }
 
     private function validateUser(Request $request, User $actor, ?User $target = null): array

@@ -318,6 +318,17 @@
             Sync Health
         </a>
 
+        <a href="{{ route('audit-log') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('audit-log*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M9 12h3.75M9 15h3.75M9 18h3.75M3.75 4.5h10.5M3.75 4.5v15A2.25 2.25 0 006 21.75h12A2.25 2.25 0 0020.25 19.5V8.25a2.25 2.25 0 00-.659-1.591l-3.5-3.5A2.25 2.25 0 0014.5 2.5h-8.75A2.25 2.25 0 003.5 4.75z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 3v3.75a1.5 1.5 0 001.5 1.5h3.75"/>
+            </svg>
+            Audit Log
+        </a>
+
         <a href="{{ route('user-management') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">

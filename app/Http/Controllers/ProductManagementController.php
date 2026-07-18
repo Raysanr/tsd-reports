@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 
 class ProductManagementController extends Controller
@@ -31,7 +32,7 @@ class ProductManagementController extends Controller
         $data = $this->validateProduct($request);
         $nextSort = (int) (Product::max('sort_order') ?? 0) + 1;
 
-        Product::create([
+        $product = Product::create([
             'display_name'  => $data['display_name'],
             'match_keyword' => $data['match_keyword'] ?: null,
             'team'          => $data['team'],
@@ -43,8 +44,11 @@ class ProductManagementController extends Controller
         // manual command run. Only scans unclaimed team-NULL rows, so it's cheap.
         \Artisan::call('orders:reinfer-teams');
 
+        $message = "Added \"{$data['display_name']}\".";
+        ActivityLogger::log('product.created', $product, $message);
+
         return redirect()->route('product-management')
-            ->with('success', "Added \"{$data['display_name']}\".");
+            ->with('success', $message);
     }
 
     public function update(Request $request, Product $product)
@@ -61,8 +65,11 @@ class ProductManagementController extends Controller
         // matching team-NULL leads into this team's reports.
         \Artisan::call('orders:reinfer-teams');
 
+        $message = "Updated \"{$data['display_name']}\".";
+        ActivityLogger::log('product.updated', $product, $message);
+
         return redirect()->route('product-management')
-            ->with('success', "Updated \"{$data['display_name']}\".");
+            ->with('success', $message);
     }
 
     public function destroy(Product $product)
@@ -70,8 +77,11 @@ class ProductManagementController extends Controller
         $name = $product->display_name;
         $product->delete();
 
+        $message = "Removed \"{$name}\".";
+        ActivityLogger::log('product.deleted', $product, $message);
+
         return redirect()->route('product-management')
-            ->with('success', "Removed \"{$name}\".");
+            ->with('success', $message);
     }
 
     // Plain {id} param (not {product}) is deliberate — implicit route-model-binding
@@ -82,8 +92,11 @@ class ProductManagementController extends Controller
         $product = Product::onlyTrashed()->findOrFail($id);
         $product->restore();
 
+        $message = "Restored \"{$product->display_name}\".";
+        ActivityLogger::log('product.restored', $product, $message);
+
         return redirect()->route('product-management')
-            ->with('success', "Restored \"{$product->display_name}\".");
+            ->with('success', $message);
     }
 
     public function toggleHidden(Product $product)
@@ -134,6 +147,10 @@ class ProductManagementController extends Controller
                 $message = "Removed {$count} {$noun}.";
                 break;
         }
+
+        // One entry per bulk operation, not one per affected row — that would be noisy.
+        // No single subject (it affected multiple rows), so subject is null.
+        ActivityLogger::log("product.bulk_{$data['action']}", null, $message);
 
         return redirect()->route('product-management')->with('success', $message);
     }

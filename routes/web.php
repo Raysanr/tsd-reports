@@ -14,6 +14,7 @@ use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
+use App\Http\Controllers\ActivityLogController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -71,6 +72,8 @@ Route::middleware(['auth', 'active'])->group(function () {
 
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
+
+        Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 
         Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
