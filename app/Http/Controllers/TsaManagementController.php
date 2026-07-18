@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Setting;
 use App\Models\TsaRestDay;
 use App\Models\TsaShift;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -88,7 +89,7 @@ class TsaManagementController extends Controller
         $tsaKey = $this->generateUniqueKey($data['display_name']);
         $nextSort = (int) (TsaShift::max('sort_order') ?? 0) + 1;
 
-        TsaShift::create([
+        $tsaShift = TsaShift::create([
             'tsa_key'          => $tsaKey,
             'pos_user_id'      => $data['pos_user_id'] ?? null,
             'display_name'     => $data['display_name'],
@@ -100,8 +101,11 @@ class TsaManagementController extends Controller
             'sort_order'       => $nextSort,
         ]);
 
+        $message = "Added \"{$data['display_name']}\" to {$data['team']}.";
+        ActivityLogger::log('tsa.created', $tsaShift, $message);
+
         return redirect()->route('tsa-management')
-            ->with('success', "Added \"{$data['display_name']}\" to {$data['team']}.");
+            ->with('success', $message);
     }
 
     public function update(Request $request, TsaShift $tsaShift)
@@ -126,8 +130,11 @@ class TsaManagementController extends Controller
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
         ]);
 
+        $message = "Updated \"{$data['display_name']}\".";
+        ActivityLogger::log('tsa.updated', $tsaShift, $message);
+
         return redirect()->route('tsa-management')
-            ->with('success', "Updated \"{$data['display_name']}\".");
+            ->with('success', $message);
     }
 
     public function destroy(TsaShift $tsaShift)
@@ -135,8 +142,11 @@ class TsaManagementController extends Controller
         $name = $tsaShift->display_name;
         $tsaShift->delete();
 
+        $message = "Removed \"{$name}\" from the roster.";
+        ActivityLogger::log('tsa.deleted', $tsaShift, $message);
+
         return redirect()->route('tsa-management')
-            ->with('success', "Removed \"{$name}\" from the roster.");
+            ->with('success', $message);
     }
 
     // Plain {id} param (not {tsaShift}) is deliberate — implicit route-model-binding
@@ -147,8 +157,11 @@ class TsaManagementController extends Controller
         $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
         $tsaShift->restore();
 
+        $message = "Restored \"{$tsaShift->display_name}\".";
+        ActivityLogger::log('tsa.restored', $tsaShift, $message);
+
         return redirect()->route('tsa-management')
-            ->with('success', "Restored \"{$tsaShift->display_name}\".");
+            ->with('success', $message);
     }
 
     public function bulk(Request $request)
@@ -177,6 +190,10 @@ class TsaManagementController extends Controller
                 $message = "Removed {$count} {$noun}.";
                 break;
         }
+
+        // One entry per bulk operation, not one per affected row — that would be noisy.
+        // No single subject (it affected multiple rows), so subject is null.
+        ActivityLogger::log("tsa.bulk_{$data['action']}", null, $message);
 
         return redirect()->route('tsa-management')->with('success', $message);
     }

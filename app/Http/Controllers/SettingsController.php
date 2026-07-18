@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
@@ -73,7 +74,14 @@ class SettingsController extends Controller
         Setting::set('sync_interval',   $request->input('sync_interval', 1));
 
         $shopName = $request->input('shop_name', $request->input('shop_id'));
-        return redirect()->route('settings')->with('success', "Connected to \"{$shopName}\" — settings saved.");
+        $message  = "Connected to \"{$shopName}\" — settings saved.";
+
+        // Subject is null (Setting isn't a per-row auditable model in this app's
+        // schema). Critically: only the shop name is ever logged here, never the
+        // API key itself — same as the flash message this description mirrors.
+        ActivityLogger::log('settings.pancake_connected', null, $message);
+
+        return redirect()->route('settings')->with('success', $message);
     }
 
     public function saveShifts(Request $request)
@@ -95,7 +103,10 @@ class SettingsController extends Controller
         Setting::set('shop_id', '');
         Setting::set('shop_name', '');
 
-        return redirect()->route('settings')->with('success', 'Disconnected.');
+        $message = 'Disconnected.';
+        ActivityLogger::log('settings.pancake_disconnected', null, $message);
+
+        return redirect()->route('settings')->with('success', $message);
     }
 
     /**
