@@ -409,15 +409,6 @@
                 <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name ?? 'TSD Admin' }}</div>
                 <div class="text-yellow-400 text-[10px] truncate">{{ auth()->user()->email ?? 'Pancake POS' }}</div>
             </div>
-            <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"
-                    class="shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 hover:text-white transition-colors cursor-pointer">
-                <svg id="themeIconSun" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-                </svg>
-                <svg id="themeIconMoon" class="w-4 h-4 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
-                </svg>
-            </button>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
                 <button type="submit" aria-label="Sign out" title="Sign out"
@@ -436,8 +427,17 @@
      inside pushes the whole page wider than the viewport instead of scrolling internally. --}}
 <div class="flex-1 flex flex-col min-h-0 min-w-0">
 
-    {{-- Top bar --}}
-    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-sm">
+    {{-- Top bar — a fixed 3-column grid at md+ (title | search | controls), NOT a
+         free-flowing flex row: every page pushes a different amount of content into
+         @stack('topbar-right') (Dashboard: 2 icons; TSA Performance: team pills +
+         product dropdown + checkbox + date picker + presets + sync + settings link),
+         and with plain flex+justify-between the search bar's position shifted
+         left/right depending on how wide that varies per page. Grid columns are
+         sized independently of their content (both outer columns are equal
+         minmax(0,1fr) tracks), so the search bar's column is always the same width
+         and always centered, and the controls column always right-aligns and wraps
+         within its own space instead of dragging the search bar around. --}}
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap md:flex-nowrap md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-4 shrink-0 shadow-sm">
         <div class="flex items-center gap-3 min-w-0">
             <button id="sidebarToggle" type="button" aria-label="Open menu"
                     class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
@@ -456,7 +456,7 @@
              type in a dropdown below the input. Hidden on the smallest screens
              (sm:block) to keep the mobile header from overflowing next to the
              hamburger button and page title. --}}
-        <div class="relative w-full sm:w-56 md:w-64 order-last sm:order-none">
+        <div class="relative w-full sm:w-56 md:w-64 order-last sm:order-none md:justify-self-center">
             <div class="relative">
                 <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
@@ -468,8 +468,25 @@
             <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-80 overflow-y-auto"></div>
         </div>
 
-        <div class="flex items-center gap-3 flex-wrap">
+        {{-- No flex-wrap at THIS level — the pushed content below wraps itself
+             internally (every page's topbar-right block sets its own flex-wrap),
+             so it shrinks to fit rather than growing to full width and shoving
+             the toggle onto an isolated line far below it. --}}
+        <div class="flex items-center justify-end gap-3 md:justify-self-end">
             @stack('topbar-right')
+
+            {{-- Dark mode — a fixed, always-present control (unlike the stack above,
+                 which varies per page), so it's in the same spot everywhere instead
+                 of living down in the sidebar footer where it was easy to miss. --}}
+            <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"
+                    class="shrink-0 p-2 rounded-lg text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer">
+                <svg id="themeIconSun" class="w-4.5 h-4.5 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg id="themeIconMoon" class="w-4.5 h-4.5 hidden" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+            </button>
         </div>
     </header>
 

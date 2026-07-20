@@ -207,7 +207,7 @@
 @endsection
 
 @push('topbar-right')
-<div class="flex items-center gap-4">
+<div class="flex items-center gap-4 flex-wrap">
 
 @if($dateTo === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')

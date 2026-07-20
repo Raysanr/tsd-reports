@@ -356,6 +356,28 @@
                     fill="none" stroke="var(--chart-grid)" stroke-width="1" />
             @endforeach
 
+            {{-- Clock-face bezel + hour ticks — drawn BEFORE the data wedges so this
+                 unmistakably reads as a clock face first, with the data as an overlay
+                 on top of it, not a generic radial/rose chart. A bolder ring right at
+                 the data boundary stands in for the clock's rim; short ticks at each
+                 hour (longer/bolder at the 12/3/6/9 o'clock positions, same as a real
+                 analog clock's quarter marks) reinforce it further. --}}
+            <circle cx="{{ $cx }}" cy="{{ $cy }}" r="{{ $maxRadius }}"
+                    fill="none" stroke="var(--chart-grid)" stroke-width="2" />
+            @foreach($slices as $s)
+            @php
+                $tickAngle = deg2rad(-90 + $s['hour'] * 15);
+                $isMajorTick = $s['hour'] % 6 === 0; // 12/3/6/9 o'clock positions
+                $tickLen     = $isMajorTick ? 10 : 5;
+                $tx1 = $cx + $maxRadius * cos($tickAngle);
+                $ty1 = $cy + $maxRadius * sin($tickAngle);
+                $tx2 = $cx + ($maxRadius + $tickLen) * cos($tickAngle);
+                $ty2 = $cy + ($maxRadius + $tickLen) * sin($tickAngle);
+            @endphp
+            <line x1="{{ $tx1 }}" y1="{{ $ty1 }}" x2="{{ $tx2 }}" y2="{{ $ty2 }}"
+                  stroke="var(--chart-grid)" stroke-width="{{ $isMajorTick ? 2 : 1 }}" />
+            @endforeach
+
             @foreach($slices as $s)
             <path class="hourly-wedge" data-hour="{{ \App\Support\HourFormatter::label($s['hour']) }}" data-count="{{ $s['count'] }}"
                   style="cursor:pointer; transition: opacity 150ms ease"
@@ -368,6 +390,10 @@
                 <title>{{ \App\Support\HourFormatter::label($s['hour']) }} — {{ $s['count'] }} {{ \Illuminate\Support\Str::plural('call', $s['count']) }}</title>
             </path>
             @endforeach
+
+            {{-- Center hub — the clock's "center pin", closing off the inner hole
+                 the wedges leave open. --}}
+            <circle cx="{{ $cx }}" cy="{{ $cy }}" r="5" fill="var(--chart-grid)" />
 
             {{-- Hour labels — 12-hour clock format, around the outside of the ring --}}
             @foreach($slices as $s)
@@ -608,7 +634,7 @@
 @endsection
 
 @push('topbar-right')
-<div class="flex items-center gap-3">
+<div class="flex items-center gap-3 flex-wrap">
 
     {{-- Live refresh indicator — only when viewing today --}}
     @if($dateFrom->isToday() && $dateTo->copy()->startOfDay()->isToday())
