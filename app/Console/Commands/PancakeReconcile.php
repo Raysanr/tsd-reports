@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Order;
+use App\Models\ReconciliationRun;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use Illuminate\Console\Command;
@@ -32,8 +33,9 @@ class PancakeReconcile extends Command
             return self::FAILURE;
         }
 
-        $issues = array_merge(
-            $this->checkCompleteness($apiKey, $shopId),
+        $completeness = $this->checkCompleteness($apiKey, $shopId);
+        $issues       = array_merge(
+            $completeness['issues'],
             $this->checkTagDrift($apiKey, $shopId),
         );
 
@@ -43,6 +45,19 @@ class PancakeReconcile extends Command
 
         Setting::set('reconciliation_last_run', now()->toIso8601String());
         Setting::set('reconciliation_issues', json_encode($issues));
+
+        // One row per run (mirrors SyncRun/SyncTodayOrders::recordRun) instead of the
+        // Setting blob above, which the next run always overwrites — this is what lets
+        // the /reconciliation page show history instead of only the latest run.
+        ReconciliationRun::create([
+            'ran_at'        => now(),
+            'checked_date'  => $completeness['checked_date'],
+            'local_count'   => $completeness['local_count'],
+            'pancake_count' => $completeness['pancake_count'],
+            'issues'        => $issues,
+            'issue_count'   => count($issues),
+            'has_issues'    => !empty($issues),
+        ]);
 
         if (empty($issues)) {
             $this->info('No issues found.');
@@ -69,6 +84,12 @@ class PancakeReconcile extends Command
      * 494 orders touched by updated_at, but only 366 local rows had a matching
      * pancake_created_at — pancake_created_at tracked close to Pancake's own
      * inserted_at count of 364 instead, an entirely different, unrelated number).
+     *
+     * Returns the raw counts alongside the formatted issue string(s), not just the
+     * string, so ReconciliationRun can persist them for a detail view — 'local_count'/
+     * 'pancake_count' are null (not 0) whenever a real count was never obtained (API
+     * error, or Pancake itself reporting nothing for the day), so a drill-down page can
+     * tell "no data" apart from a genuine zero.
      */
     private function checkCompleteness(string $apiKey, string $shopId): array
     {
@@ -88,24 +109,42 @@ class PancakeReconcile extends Command
             ]
         );
 
+        $checkedDate = $date->toDateString();
+
         if (!$response->successful()) {
-            return ["Completeness check for {$date->toDateString()} failed: API error " . $response->status()];
+            return [
+                'issues'        => ["Completeness check for {$checkedDate} failed: API error " . $response->status()],
+                'checked_date'  => $checkedDate,
+                'local_count'   => null,
+                'pancake_count' => null,
+            ];
         }
 
         $pancakeCount = (int) ($response->json()['total_entries'] ?? 0);
         if ($pancakeCount === 0) {
-            return [];
+            return [
+                'issues'        => [],
+                'checked_date'  => $checkedDate,
+                'local_count'   => null,
+                'pancake_count' => 0,
+            ];
         }
 
         $localCount = Order::whereBetween('pancake_updated_at', [
             $date->copy()->startOfDay(), $date->copy()->endOfDay(),
         ])->count();
 
+        $issues = [];
         if ($localCount < $pancakeCount * self::COMPLETENESS_THRESHOLD) {
-            return ["Completeness: Pancake reports {$pancakeCount} orders touched on {$date->toDateString()}, but only {$localCount} are synced locally — sync may have missed a window that day."];
+            $issues[] = "Completeness: Pancake reports {$pancakeCount} orders touched on {$checkedDate}, but only {$localCount} are synced locally — sync may have missed a window that day.";
         }
 
-        return [];
+        return [
+            'issues'        => $issues,
+            'checked_date'  => $checkedDate,
+            'local_count'   => $localCount,
+            'pancake_count' => $pancakeCount,
+        ];
     }
 
     /**

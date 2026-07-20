@@ -14,6 +14,7 @@ use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
+use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
 use App\Http\Controllers\KeywordDiagnosticsController;
@@ -74,6 +75,9 @@ Route::middleware(['auth', 'active'])->group(function () {
 
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
+
+        Route::get('/reconciliation',            [ReconciliationController::class, 'index'])->name('reconciliation');
+        Route::get('/reconciliation/{reconciliationRun}', [ReconciliationController::class, 'show'])->name('reconciliation.show');
 
         Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 
