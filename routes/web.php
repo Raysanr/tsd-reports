@@ -18,6 +18,7 @@ use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
 use App\Http\Controllers\KeywordDiagnosticsController;
+use App\Http\Controllers\TagConflictReviewController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -86,6 +87,10 @@ Route::middleware(['auth', 'active'])->group(function () {
 
         Route::get('/keyword-diagnostics',       [KeywordDiagnosticsController::class, 'index'])->name('keyword-diagnostics');
         Route::get('/keyword-diagnostics/test',  [KeywordDiagnosticsController::class, 'test'])->name('keyword-diagnostics.test');
+
+        Route::get('/tag-conflicts',                  [TagConflictReviewController::class, 'index'])->name('tag-conflicts');
+        Route::post('/tag-conflicts/{order}/review',   [TagConflictReviewController::class, 'review'])->name('tag-conflicts.review');
+        Route::delete('/tag-conflicts/{order}/review', [TagConflictReviewController::class, 'unreview'])->name('tag-conflicts.unreview');
 
         Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
