@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Order;
 use App\Models\Product;
 use Illuminate\Support\Collection;
 
@@ -66,16 +67,11 @@ class ProductPerformance
             // DIFFERENT team product (confirmed in production: mostly Pterygium
             // orders still carrying a leftover CLEARSIGHT tag from an earlier stage
             // of the conversation) — the tag alone would double-count that order
-            // under both products. A legitimate upsell add-on (LUMICARE OIL, etc.)
-            // never matches another team product's own keyword, so this only
-            // filters genuine mismatches, not real upsells.
-            if ($teamProducts && !$product->matchesText($o->product)) {
-                $conflictsWithAnotherProduct = $teamProducts->contains(
-                    fn($other) => $other->id !== $product->id
-                        && $other->team === $product->team
-                        && $other->matchesText($o->product)
-                );
-                if ($conflictsWithAnotherProduct) return false;
+            // under both products. See conflictingProduct() for the shared check
+            // (also used by the tag-conflict review queue, which needs to know
+            // WHICH other product it is, not just that there's a conflict).
+            if ($teamProducts && self::conflictingProduct($product, $o, $teamProducts)) {
+                return false;
             }
 
             foreach ($o->raw_tags ?? [] as $tag) {
@@ -89,6 +85,27 @@ class ProductPerformance
         $row['team']         = $product->team;
 
         return $row;
+    }
+
+    /** True when $product's own keyword does NOT match the order's cart item
+     *  (`product` column) but a DIFFERENT same-team product's keyword DOES —
+     *  the stale-tag mismatch pattern: a TSA left an old/wrong tag on the order
+     *  in Pancake POS itself (this app has no way to edit Pancake's tags), so
+     *  the tag says one product while the actual cart item says another.
+     *  Extracted so buildRow()'s counting guard and the tag-conflict review
+     *  queue (Support\TagConflicts) share the exact same definition of "this is
+     *  a conflict" and can never drift apart.
+     *
+     *  Returns the conflicting Product, or null when there's no conflict —
+     *  either $product's own keyword DOES match the cart item (a real, if
+     *  oddly-tagged, match), or no other same-team product matches it either. */
+    public static function conflictingProduct(Product $product, Order $order, Collection $teamProducts): ?Product
+    {
+        if ($product->matchesText($order->product)) return null;
+
+        return $teamProducts->first(fn ($other) => $other->id !== $product->id
+            && $other->team === $product->team
+            && $other->matchesText($order->product));
     }
 
     /** The counting/rate logic on its own, with no product-tag matching — for
