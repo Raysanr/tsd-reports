@@ -265,8 +265,8 @@ class TsaPerformanceController extends Controller
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
 
-            $counts   = $products->mapWithKeys(function ($product) use ($hourOrders) {
-                return [$product->id => ProductPerformance::buildRow($product, $hourOrders)['total']];
+            $counts   = $products->mapWithKeys(function ($product) use ($hourOrders, $products) {
+                return [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)['total']];
             });
             $rowTotal = $counts->sum();
 

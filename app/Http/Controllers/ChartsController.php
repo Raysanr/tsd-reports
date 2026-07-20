@@ -104,7 +104,7 @@ class ChartsController extends Controller
         // Same hidden-product rule as Leads Report: dropped only when there's
         // genuinely nothing to show for the selected range.
         $productRows = $products
-            ->map(fn($p) => ['product' => $p, 'row' => ProductPerformance::buildRow($p, $orders)])
+            ->map(fn($p) => ['product' => $p, 'row' => ProductPerformance::buildRow($p, $orders, $products)])
             ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
             ->pluck('row')
             ->sortByDesc('upselling_rate')

@@ -26,6 +26,7 @@ class Order extends Model
         'returned_upsell_amount',
         'status_code',
         'pancake_created_at',
+        'pancake_inserted_at',
         'pancake_updated_at',
         'synced_at',
     ];
@@ -39,6 +40,7 @@ class Order extends Model
         'cancelled_upsell_amount' => 'decimal:2',
         'returned_upsell_amount'  => 'decimal:2',
         'pancake_created_at'      => 'datetime',
+        'pancake_inserted_at'     => 'datetime',
         'pancake_updated_at'      => 'datetime',
         'synced_at'               => 'datetime',
     ];
@@ -85,5 +87,16 @@ class Order extends Model
     public function getIsVoidStatusAttribute(): bool
     {
         return in_array($this->status_code, self::VOID_STATUSES, true);
+    }
+
+    /** Pancake's real order-creation date when we have it, falling back to the
+     *  business-adjusted "worked at" timestamp for older rows synced before
+     *  pancake_inserted_at existed (see that column's migration). Leads Report
+     *  uses this so its per-day totals match what POS's own Created-At filter
+     *  would show; TSA Performance/Charts intentionally keep reading
+     *  pancake_created_at directly instead — see SyncTodayOrders::resolveWorkedAt(). */
+    public function getEffectiveCreatedAtAttribute(): ?\Illuminate\Support\Carbon
+    {
+        return $this->pancake_inserted_at ?? $this->pancake_created_at;
     }
 }

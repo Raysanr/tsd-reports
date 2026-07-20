@@ -330,6 +330,10 @@ class SyncTodayOrders extends Command
                 'returned_upsell_amount'  => $returnedUpsellAmount,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
+                // Pancake's raw inserted_at, untouched — see the orders migration's
+                // comment on this column for why it's kept separate from
+                // pancake_created_at above.
+                'pancake_inserted_at'     => $carbonPHT?->toDateTimeString(),
                 'pancake_updated_at'      => $updatedPHT?->toDateTimeString(),
                 'synced_at'               => now()->toDateTimeString(),
             ];
@@ -394,7 +398,8 @@ class SyncTodayOrders extends Command
                     'team', 'tsa_name', 'disposition', 'product', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
-                    'status_code', 'pancake_created_at', 'pancake_updated_at', 'synced_at',
+                    'status_code', 'pancake_created_at', 'pancake_inserted_at',
+                    'pancake_updated_at', 'synced_at',
                 ]
             );
         }

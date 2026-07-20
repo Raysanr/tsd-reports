@@ -206,8 +206,8 @@
             @foreach($currentOrders as $order)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors {{ $order->is_void_status ? 'opacity-60' : '' }}">
                 <td class="px-5 py-3 font-mono text-xs text-primary font-semibold" data-sort-key="orderId" data-sort-value="{{ $order->pancake_order_id }}">#{{ $order->pancake_order_id }}</td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400" data-sort-key="time" data-sort-value="{{ $order->pancake_created_at?->format('Y-m-d H:i:s') }}">
-                    {{ $order->pancake_created_at?->format('h:i A') ?? '—' }}
+                <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400" data-sort-key="time" data-sort-value="{{ $order->effective_created_at?->format('Y-m-d H:i:s') }}">
+                    {{ $order->effective_created_at?->format('h:i A') ?? '—' }}
                 </td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200" data-sort-key="tsa" data-sort-value="{{ $order->tsa_name ?? '' }}">{{ $order->tsa_name ?? '—' }}</td>
                 <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400" data-sort-key="product" data-sort-value="{{ $order->product ?? '' }}">{{ $order->product ?? '—' }}</td>

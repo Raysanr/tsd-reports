@@ -75,8 +75,15 @@ class LeadsReportController extends Controller
 
         $orderTeam = $teamsConfig[$selectedTeam]['order_team'];
 
+        // Filtered by the real order-creation date (falling back to worked-at for
+        // older rows synced before pancake_inserted_at existed — see Order::
+        // getEffectiveCreatedAtAttribute()), NOT pancake_created_at directly, so a
+        // day's total here matches what POS's own Created-At filter shows for the
+        // same day. TSA Performance/Charts deliberately still use pancake_created_at
+        // (worked-at) — that's what makes a backlog lead count toward the TSA who
+        // actually worked it, on the day they worked it.
         $ordersQuery = Order::where('team', $orderTeam)
-            ->whereBetween('pancake_created_at', [$from, $to]);
+            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to]);
 
         // Hour slots for the breakdown rows. 'dates' mode: hour-of-day buckets 0–23,
         // so a multi-day range aggregates each hour's activity across every day (the
@@ -97,12 +104,12 @@ class LeadsReportController extends Controller
                     'label' => $day->format('M j') . ' · ' . HourFormatter::rangeLabel($hour),
                 ];
             }
-            $slotKeyOf = fn($o) => $o->pancake_created_at->format('Y-m-d G');
+            $slotKeyOf = fn($o) => $o->effective_created_at->format('Y-m-d G');
         } else {
             for ($hour = 0; $hour <= 23; $hour++) {
                 $slots[] = ['key' => $hour, 'label' => HourFormatter::rangeLabel($hour)];
             }
-            $slotKeyOf = fn($o) => (int) $o->pancake_created_at->format('G');
+            $slotKeyOf = fn($o) => (int) $o->effective_created_at->format('G');
         }
 
         // Per-product hourly breakdown — one table per product (matches the source sheet:
@@ -115,13 +122,13 @@ class LeadsReportController extends Controller
 
         $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
-        $productTables = $products->map(function ($product) use ($slots, $ordersBySlot, $allOrders) {
+        $productTables = $products->map(function ($product) use ($slots, $ordersBySlot, $allOrders, $products) {
             $hourlyRows = [];
             foreach ($slots as $slot) {
                 $hourOrders = $ordersBySlot->get($slot['key'], collect());
                 if ($hourOrders->isEmpty()) continue;
 
-                $row = ProductPerformance::buildRow($product, $hourOrders);
+                $row = ProductPerformance::buildRow($product, $hourOrders, $products);
                 // Skip hours where THIS product had no leads at all (other products may
                 // still have had activity that hour — $hourOrders holds every product's
                 // orders, and buildRow's matching already scoped it down to this one).
@@ -133,7 +140,7 @@ class LeadsReportController extends Controller
             return [
                 'product'    => $product,
                 'hourlyRows' => $hourlyRows,
-                'total'      => ProductPerformance::buildRow($product, $allOrders),
+                'total'      => ProductPerformance::buildRow($product, $allOrders, $products),
             ];
         })->values();
 
@@ -151,7 +158,9 @@ class LeadsReportController extends Controller
         // per-product totals above would double-count the former and drop the latter.
         $grandTotal = ProductPerformance::tally($allOrders);
 
-        $currentOrders = (clone $ordersQuery)->orderByDesc('pancake_created_at')->get();
+        $currentOrders = (clone $ordersQuery)
+            ->orderByRaw('COALESCE(pancake_inserted_at, pancake_created_at) DESC')
+            ->get();
         $metricCols    = ProductPerformance::METRIC_COLUMNS;
 
         return view('leads-report', compact(
@@ -170,7 +179,9 @@ class LeadsReportController extends Controller
     ) {
         $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
 
-        $orders = Order::whereBetween('pancake_created_at', [$from, $to])
+        // See the per-team branch above for why this reads the effective
+        // (creation-date-first) column instead of pancake_created_at directly.
+        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->whereIn('team', $orderTeams)
             ->get();
 
@@ -186,7 +197,7 @@ class LeadsReportController extends Controller
         // Same hidden-product rule as the per-team view above: dropped only when
         // there's genuinely nothing to show for the selected range.
         $productRows = $products
-            ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders)])
+            ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders, $products)])
             ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
             ->pluck('row')
             ->values();

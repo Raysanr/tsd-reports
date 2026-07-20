@@ -43,8 +43,13 @@ class ProductPerformance
      *  then counts each disposition, upsell, excess, and rate. Stateless — call it
      *  once per whole-day total, or once per hour with that hour's order subset;
      *  either way it re-matches from scratch, so it's always correct regardless of
-     *  what slice of orders it's given. */
-    public static function buildRow(Product $product, Collection $orders): array
+     *  what slice of orders it's given.
+     *
+     *  $teamProducts (optional): the full product list for $product's team, used to
+     *  catch stale-tag mis-attribution — see the conflict check below. Every call
+     *  site has this list in scope already; omit it only from throwaway/test calls
+     *  where that safeguard doesn't matter. */
+    public static function buildRow(Product $product, Collection $orders, ?Collection $teamProducts = null): array
     {
         // Team-scoped, then matched primarily via raw_tags — confirmed against real
         // POS data that this is the reliable signal: every "Clear Sight 3.0" order
@@ -54,8 +59,25 @@ class ProductPerformance
         // at all — matching on it alone undercounts every upsold product and misses
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
-        $matching = $orders->filter(function ($o) use ($product) {
+        $matching = $orders->filter(function ($o) use ($product, $teamProducts) {
             if ($o->team !== $product->team) return false;
+
+            // Stale-tag guard: ~1-3 times a week an order's actual cart item is a
+            // DIFFERENT team product (confirmed in production: mostly Pterygium
+            // orders still carrying a leftover CLEARSIGHT tag from an earlier stage
+            // of the conversation) — the tag alone would double-count that order
+            // under both products. A legitimate upsell add-on (LUMICARE OIL, etc.)
+            // never matches another team product's own keyword, so this only
+            // filters genuine mismatches, not real upsells.
+            if ($teamProducts && !$product->matchesText($o->product)) {
+                $conflictsWithAnotherProduct = $teamProducts->contains(
+                    fn($other) => $other->id !== $product->id
+                        && $other->team === $product->team
+                        && $other->matchesText($o->product)
+                );
+                if ($conflictsWithAnotherProduct) return false;
+            }
+
             foreach ($o->raw_tags ?? [] as $tag) {
                 if ($product->matchesText($tag)) return true;
             }
