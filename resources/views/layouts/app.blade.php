@@ -318,16 +318,6 @@
             Sync Health
         </a>
 
-        <a href="{{ route('reconciliation') }}"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('reconciliation*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25M12 18.75V21M4.219 4.219l1.591 1.591M18.19 18.19l1.591 1.591M3 12h2.25M18.75 12H21M4.219 19.781l1.591-1.591M18.19 5.81l1.591-1.591"/>
-            </svg>
-            Reconciliation
-        </a>
-
         <a href="{{ route('audit-log') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('audit-log*') ? 'nav-active' : '' }}">
@@ -348,26 +338,6 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"/>
             </svg>
             Unmatched Orders
-        </a>
-
-        <a href="{{ route('keyword-diagnostics') }}"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('keyword-diagnostics*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 10.5l1.19 1.19a.75.75 0 001.06 0l1.94-1.94M10.5 6.75v.008"/>
-            </svg>
-            Keyword Diagnostics
-        </a>
-
-        <a href="{{ route('tag-conflicts') }}"
-           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
-                  {{ request()->routeIs('tag-conflicts*') ? 'nav-active' : '' }}">
-            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.169.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>
-            </svg>
-            Tag Conflicts
         </a>
 
         <a href="{{ route('user-management') }}"

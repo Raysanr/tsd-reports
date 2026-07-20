@@ -51,7 +51,6 @@ class TsaPerformanceController extends Controller
         $dateTo       = request('date_to',   session('filters.tsa_performance.date_to', $dateFrom));
         $from         = Carbon::parse($dateFrom)->startOfDay();
         $to           = Carbon::parse($dateTo)->endOfDay();
-        $showEmpty    = request()->boolean('show_empty');
         $selectedTeam = request('team', session('filters.tsa_performance.team', 'sh-naturals'));
         $teamsConfig  = config('teams', []);
 
@@ -130,7 +129,7 @@ class TsaPerformanceController extends Controller
         for ($hour = self::START_HOUR; $hour <= self::END_HOUR; $hour++) {
             $hourOrders = $ordersByHour->get($hour, collect());
 
-            if ($hourOrders->isEmpty() && !$showEmpty) {
+            if ($hourOrders->isEmpty()) {
                 continue;
             }
 
@@ -182,7 +181,7 @@ class TsaPerformanceController extends Controller
         $totalUpsellingRate = $this->upsellingRate($totals);
 
         return view('tsa-performance', compact(
-            'dateFrom', 'dateTo', 'hourBlocks', 'totals', 'showEmpty',
+            'dateFrom', 'dateTo', 'hourBlocks', 'totals',
             'teams', 'selectedTeam', 'metricCols', 'totalUpsellingRate',
             'availableProducts', 'selectedProduct'
         ));

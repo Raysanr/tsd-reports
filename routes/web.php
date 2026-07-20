@@ -14,11 +14,8 @@ use App\Http\Controllers\TsaManagementController;
 use App\Http\Controllers\ProductManagementController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
-use App\Http\Controllers\ReconciliationController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
-use App\Http\Controllers\KeywordDiagnosticsController;
-use App\Http\Controllers\TagConflictReviewController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -77,20 +74,10 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
 
-        Route::get('/reconciliation',            [ReconciliationController::class, 'index'])->name('reconciliation');
-        Route::get('/reconciliation/{reconciliationRun}', [ReconciliationController::class, 'show'])->name('reconciliation.show');
-
         Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 
         Route::get('/unmatched-orders',          [UnmatchedOrdersController::class, 'index'])->name('unmatched-orders');
         Route::post('/unmatched-orders/reinfer', [UnmatchedOrdersController::class, 'reinfer'])->name('unmatched-orders.reinfer');
-
-        Route::get('/keyword-diagnostics',       [KeywordDiagnosticsController::class, 'index'])->name('keyword-diagnostics');
-        Route::get('/keyword-diagnostics/test',  [KeywordDiagnosticsController::class, 'test'])->name('keyword-diagnostics.test');
-
-        Route::get('/tag-conflicts',                  [TagConflictReviewController::class, 'index'])->name('tag-conflicts');
-        Route::post('/tag-conflicts/{order}/review',   [TagConflictReviewController::class, 'review'])->name('tag-conflicts.review');
-        Route::delete('/tag-conflicts/{order}/review', [TagConflictReviewController::class, 'unreview'])->name('tag-conflicts.unreview');
 
         Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');

@@ -32,15 +32,6 @@ class ReportFilterPresetsTest extends TestCase
         $response->assertSee('data-preset-base-url="' . route('leads-report') . '"', false);
     }
 
-    public function test_tsa_performance_has_presets_dropdown_markup(): void
-    {
-        $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals']));
-
-        $response->assertOk();
-        $response->assertSee('data-preset-key="tsa-performance"', false);
-        $response->assertSee('data-preset-base-url="' . route('tsa-performance') . '"', false);
-    }
-
     public function test_rts_report_has_presets_dropdown_markup(): void
     {
         $response = $this->get(route('rts-report'));

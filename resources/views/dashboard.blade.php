@@ -40,11 +40,6 @@
         @foreach($reconciliationIssues as $issue)
         <p>{{ $issue }}</p>
         @endforeach
-        {{-- This banner only ever shows the latest run — yesterday's issues are gone
-             the moment today's run overwrites reconciliation_issues below. The
-             Reconciliation page keeps one row per run, so it's the place to check
-             for a pattern across days instead of just this one snapshot. --}}
-        <p class="pt-1"><a href="{{ route('reconciliation') }}" class="underline font-bold">View full reconciliation history &rarr;</a></p>
     </div>
 </div>
 @endif
