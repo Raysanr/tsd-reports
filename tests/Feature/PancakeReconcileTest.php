@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\ReconciliationRun;
 use App\Models\Setting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -173,5 +174,82 @@ class PancakeReconcileTest extends TestCase
 
         $issues = json_decode(Setting::get('reconciliation_issues'), true);
         $this->assertSame([], $issues, 'Orders whose pancake_updated_at falls yesterday should count toward yesterday, even if pancake_created_at does not');
+    }
+
+    public function test_persists_one_reconciliation_run_row_with_raw_counts_when_issues_are_found(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        $yesterday = Carbon::now('Asia/Manila')->subDay();
+
+        Order::factory()->count(2)->create([
+            'pancake_created_at' => $yesterday->copy()->setTime(10, 0),
+            'pancake_updated_at' => $yesterday->copy()->setTime(10, 0),
+        ]);
+
+        $this->fakeEmptyTagCatalog();
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 50, 'total_pages' => 50,
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+
+        // Exactly one row per run — not appended-to or overwritten like the Setting blob.
+        $this->assertSame(1, ReconciliationRun::count());
+
+        $run = ReconciliationRun::first();
+        $this->assertSame($yesterday->toDateString(), $run->checked_date->toDateString());
+        $this->assertSame(2, $run->local_count);
+        $this->assertSame(50, $run->pancake_count);
+        $this->assertTrue($run->has_issues);
+        $this->assertSame(1, $run->issue_count);
+        $this->assertStringContainsString('Completeness', $run->issues[0]);
+    }
+
+    public function test_persists_a_reconciliation_run_row_with_no_issues_when_everything_checks_out(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeEmptyTagCatalog();
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 0, 'total_pages' => 0,
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+
+        $run = ReconciliationRun::first();
+        $this->assertNotNull($run);
+        $this->assertFalse($run->has_issues);
+        $this->assertSame(0, $run->issue_count);
+        $this->assertSame([], $run->issues);
+        // Pancake genuinely reported 0 orders for the day — local_count is left null
+        // (not 0) since no local comparison was ever made, distinct from a real zero.
+        $this->assertNull($run->local_count);
+        $this->assertSame(0, $run->pancake_count);
+    }
+
+    public function test_each_run_creates_a_new_row_instead_of_overwriting_the_previous_one(): void
+    {
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeEmptyTagCatalog();
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [], 'total_entries' => 0, 'total_pages' => 0,
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile');
+        Artisan::call('pancake:reconcile');
+        Artisan::call('pancake:reconcile');
+
+        $this->assertSame(3, ReconciliationRun::count());
     }
 }
