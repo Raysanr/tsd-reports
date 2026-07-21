@@ -70,6 +70,18 @@ class Order extends Model
     /** Statuses treated as terminal/void — never counted as a confirmed sale. */
     public const VOID_STATUSES = [4, 15, 5, 6, 7, 11];
 
+    /** 6 = Canceled, 7 = Deleted recently — the order no longer exists in Pancake
+     *  at all (unlike Restocking/Returning/Returned, which Pancake still lists as
+     *  real orders). A synced row can go stale here: TSD Reports only re-syncs an
+     *  order when its own updated_at falls inside a later sync window, so a row
+     *  deleted in Pancake after being synced keeps its last-known live status
+     *  forever unless something re-fetches it. Counting these as leads produced
+     *  phantom leads that inflated the Leads Report above Pancake's own order
+     *  count (confirmed live: orders 1332068/1332209/1332122 showed status 7 in
+     *  Pancake's API while still sitting as Restocking/New locally) — see
+     *  ProductPerformance::tally(), which excludes these before counting anything. */
+    public const DELETED_STATUSES = [6, 7];
+
     /** Not-yet-a-sale statuses: 0 = New, 17 = Waiting for confirmation. Still a raw/open
      *  lead the customer hasn't committed to — excluded from "realized sales" alongside
      *  VOID_STATUSES. Everything else (Confirmed, Purchased, Packaging, Shipped, Received,

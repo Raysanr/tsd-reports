@@ -114,6 +114,15 @@ class ProductPerformance
      *  this plus a product-matching filter step beforehand. */
     public static function tally(Collection $orders): array
     {
+        // Drop orders Pancake itself no longer has (Order::DELETED_STATUSES: Canceled
+        // or Deleted recently) before counting anything. These rows only exist locally
+        // because the sync never re-fetches an order once it's already saved unless a
+        // later update touches it — a deletion in Pancake doesn't trigger that, so the
+        // stale "last known live" status (often still Restocking/New) sat here forever
+        // and got counted as an active lead. This is why Leads Report totals could run
+        // HIGHER than Pancake's own order count for a product, not just lower.
+        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+
         // The 12 outcome columns count NON-upsell leads only: an upsell order often
         // still carries a disposition tag (e.g. is_upsell + "CONFIRMED VIA CALL", or
         // a stale "Not answering" from an earlier attempt), and counting it in both
