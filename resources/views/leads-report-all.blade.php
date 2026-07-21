@@ -169,6 +169,18 @@
         @endforeach
     </div>
 
+    {{-- Explicit escape hatch back to the rolling window — see leads-report.blade.php
+         for the full reasoning; mode now persists in session so this is the only way
+         back to Last 24h once a picked date range has stuck. --}}
+    @if($mode !== 'last24h')
+    <button type="submit" name="range" value="last24h" title="Reset to Last 24h" aria-label="Reset to rolling last 24 hours"
+            class="inline-flex items-center justify-center w-8 h-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer shrink-0">
+        <svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+    </button>
+    @endif
+
     {{-- Trailing cluster, same order on every report page: filters, then the date
          icon, then Sync — never split across the layout differently per page. --}}
     @include('partials.date-picker', [

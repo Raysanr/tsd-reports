@@ -14,12 +14,14 @@ class LeadsReportController extends Controller
     {
         // Window mode: 'last24h' (rolling last 24 hours ending NOW) or 'dates'
         // (explicit calendar range from the picker; the picker's Apply flips the
-        // form's hidden range field to 'dates' — see date-picker.blade). There is no
-        // visible mode toggle: dates mode only lasts while filtering with explicit
-        // dates in the request — any fresh visit (sidebar click, bookmark without
-        // params) lands back on the rolling window. Deliberately NOT session-persisted,
-        // unlike team/dates below, or there'd be no way back to Last 24h.
-        $mode = request('range', 'last24h');
+        // form's hidden range field to 'dates' — see date-picker.blade). Falls back
+        // to session, same as team/dates below, so a picked range survives a sidebar
+        // click away and back instead of silently resetting to Last 24h every visit
+        // (confirmed real-world confusion: users picking "Yesterday" then bouncing to
+        // another tab and back). The explicit "Last 24h" button in the topbar (see
+        // leads-report.blade.php) is what submits range=last24h to escape back out
+        // of a sticky dates-mode session — without it there'd be no way back.
+        $mode = request('range', session('filters.leads_report.mode', 'last24h'));
         if (!in_array($mode, ['last24h', 'dates'], true)) {
             $mode = 'last24h';
         }
@@ -59,6 +61,7 @@ class LeadsReportController extends Controller
             'filters.leads_report.date_from' => $mode === 'dates' ? $dateFrom : session('filters.leads_report.date_from', now()->format('Y-m-d')),
             'filters.leads_report.date_to'   => $mode === 'dates' ? $dateTo : session('filters.leads_report.date_to', now()->format('Y-m-d')),
             'filters.leads_report.team'      => $selectedTeam,
+            'filters.leads_report.mode'      => $mode,
         ]);
 
         // ALL — every team's product breakdown combined into one table (moved here
