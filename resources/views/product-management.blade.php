@@ -333,7 +333,18 @@
 
     document.getElementById('bulkProductHide').addEventListener('click', () => submitBulk('hide'));
     document.getElementById('bulkProductUnhide').addEventListener('click', () => submitBulk('unhide'));
-    document.getElementById('bulkProductMove').addEventListener('click', () => submitBulk('move', { team: bulkTeamSelect.value }));
+    document.getElementById('bulkProductMove').addEventListener('click', () => {
+        const n = selectedIds.size;
+        const teamName = bulkTeamSelect.options[bulkTeamSelect.selectedIndex].text;
+        // Move has no restore path the way Delete does (Removed list) — it silently
+        // reassigns which team's Leads Report/TSA Performance a product's whole order
+        // history counts toward, which is exactly the kind of change this session's
+        // reconciliation work was about catching. Confirm it the same way Delete
+        // already does, since this is the riskier of the two despite not being
+        // "destructive" in the delete sense.
+        if (!confirm(`Move ${n} product(s) to "${teamName}"? This changes which team's reports they count toward.`)) return;
+        submitBulk('move', { team: bulkTeamSelect.value });
+    });
     document.getElementById('bulkProductDelete').addEventListener('click', () => {
         const n = selectedIds.size;
         if (!confirm(`Remove ${n} product(s)? You can restore them from the Removed list below.`)) return;

@@ -183,11 +183,17 @@
         </div>
     </div>
     @else
-    {{-- Bounded height + own vertical scroll so a long order list scrolls inside this
-         card (with a sticky header) instead of stretching the whole page — makes it
-         obvious there's more to scroll through. --}}
-    <div class="overflow-y-auto" style="max-height:60vh" id="ordersTable" data-sortable-table>
-    <table class="w-full text-sm">
+    {{-- Bounded height + own scroll (both axes) so a long/wide order list scrolls
+         inside this card (with a sticky header) instead of stretching the whole
+         page — makes it obvious there's more to scroll through. overflow-auto, not
+         just overflow-y: this table's 7 columns (Order ID/Time/TSA/Product/
+         Disposition/Status/Amount) genuinely overflow a phone-width viewport, and
+         this was the one table on this page missing the horizontal scroll its
+         sibling product tables above already have (see their overflow-x-auto +
+         min-width). A single scrolling ancestor for both axes also keeps the
+         sticky header working, same reasoning as TSA Performance's pivot table. --}}
+    <div class="overflow-auto" style="max-height:60vh" id="ordersTable" data-sortable-table>
+    <table class="w-full text-sm" style="min-width:640px">
         <thead class="sticky top-0 z-10">
             <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide shadow-sm">
                 <th class="px-5 py-2.5 text-left" data-sort-key="orderId">Order ID</th>
