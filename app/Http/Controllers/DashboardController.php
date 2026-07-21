@@ -11,7 +11,6 @@ use App\Support\SyncHealth;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
@@ -103,10 +102,11 @@ class DashboardController extends Controller
             // and TSA Performance "ALL" view (ProductPerformance::tally), just run over
             // every team's orders in this range instead of one team, so Total Leads /
             // Pick-up Rate / Upselling Rate on the Dashboard can never drift from how
-            // those same metrics are defined everywhere else in the app.
-            $leadTally = ProductPerformance::tally(
-                Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->get()
-            );
+            // those same metrics are defined everywhere else in the app. Fetched once
+            // and reused below for Hourly Activity too, same as ChartsController's
+            // single $orders fetch — avoids a second identical query.
+            $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->get();
+            $leadTally = ProductPerformance::tally($dayOrders);
 
             $stats['total_leads']    = $leadTally['total'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
@@ -151,22 +151,20 @@ class DashboardController extends Controller
                 ->limit(6)
                 ->get();
 
-            // Hourly activity — total calls per hour across the whole day, so shift-timing
-            // gaps or coverage holes (the kind we found by hand this session) are visible
-            // from the dashboard directly instead of requiring a manual DB dig.
-            // HOUR() is MySQL-only; Postgres needs EXTRACT(HOUR FROM ...) for the
-            // same thing — pick the right expression for whichever DB is connected
-            // so this works unchanged on either.
-            $hourExpr = DB::connection()->getDriverName() === 'pgsql'
-                ? 'EXTRACT(HOUR FROM pancake_created_at)'
-                : 'HOUR(pancake_created_at)';
-
-            $hourlyCounts = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->selectRaw("{$hourExpr} as hour, COUNT(*) as total")
-                ->groupByRaw($hourExpr)
-                ->pluck('total', 'hour');
-
-            $hourlyActivity = collect(range(0, 23))->map(fn($h) => (int) ($hourlyCounts[$h] ?? 0));
+            // Hourly activity — CALLS per hour, not raw lead volume: a lead Pancake
+            // auto-creates from an inbound Facebook message counts here with zero calls
+            // made on it (confirmed in production: 12am/5am/6am/7am buckets were all
+            // fresh, disposition=NULL, tsa_name=NULL leads no one had touched yet, which
+            // is what made this chart's "Calls per hour" label misleading before this
+            // fix — it was really "Leads per hour"). total_called (answered + unanswered,
+            // same definition ProductPerformance::tally() uses everywhere else in this
+            // app) excludes both those never-worked leads (excess) and ones still
+            // mid-call (in_progress), so this now matches what "calls" actually means on
+            // every other page. Same per-hour tally() grouping ChartsController already
+            // uses for its own hourly series — kept identical rather than reinventing it.
+            $ordersByHour   = $dayOrders->groupBy(fn($o) => (int) $o->pancake_created_at->format('G'));
+            $hourlyActivity = collect(range(0, 23))
+                ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total_called']);
 
             // Team comparison — orders, upsell rate and revenue side by side, replacing
             // the old Shop Lines panel (which only showed revenue) with the metric this
