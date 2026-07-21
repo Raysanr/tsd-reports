@@ -82,6 +82,18 @@ class Order extends Model
      *  ProductPerformance::tally(), which excludes these before counting anything. */
     public const DELETED_STATUSES = [6, 7];
 
+    /** Legacy disposition value for a swept, never-claimed lead — the tag Pancake's
+     *  nightly sweep applied through 2026-07-17. The team stopped applying any
+     *  replacement tag starting 2026-07-21 (confirmed with the supervisor): an
+     *  unprocessed lead is now identified the same way Pancake's own order-tag
+     *  filter finds one — by having NO tag at all — rather than by a specific tag
+     *  name. This constant only still matters for old rows that already have
+     *  'UNCATERED LEADS' stored as their disposition, so that history doesn't
+     *  silently change; see ProductPerformance::tally()'s excess count, which
+     *  counts a TSA-less order as Excess when EITHER this legacy disposition is
+     *  set OR raw_tags is completely empty. */
+    public const EXCESS_DISPOSITIONS = ['UNCATERED LEADS'];
+
     /** Not-yet-a-sale statuses: 0 = New, 17 = Waiting for confirmation. Still a raw/open
      *  lead the customer hasn't committed to — excluded from "realized sales" alongside
      *  VOID_STATUSES. Everything else (Confirmed, Purchased, Packaging, Shipped, Received,

@@ -442,15 +442,23 @@ class TsaPerformanceController extends Controller
             'invalid_number'         => $this->count($orders, 'invalid number'),
         ];
 
-        // Excess = swept "UNCATERED LEADS" AND never claimed by a TSA — see the class
-        // doc comment on the 'excess' METRIC_COLUMNS entry above for why this is the
-        // correct ground truth (confirmed directly against real Pancake POS data). A
-        // null disposition means "no recognized disposition keyword", NOT uncatered, so
-        // it must not count as Excess; and a stale "UNCATERED LEADS" tag on an order a
-        // TSA already worked (tsa_name !== null) is Catered. In this per-TSA breakdown
-        // that means Excess only ever lands on the Unassigned row.
+        // Excess = never claimed by a TSA (tsa_name === null), AND either genuinely no
+        // tag at all (current definition since 2026-07-21, matching Pancake's own
+        // order-tag filter's "No tag" option) or the legacy 'UNCATERED LEADS'
+        // disposition (kept only for pre-2026-07-21 rows, which DO carry other tags
+        // alongside it). See Order::EXCESS_DISPOSITIONS and the identical reasoning on
+        // ProductPerformance::tally()'s 'excess' line — kept in sync with that one by
+        // hand since this per-TSA breakdown has its own separate accumulator loop
+        // above. A null disposition on an otherwise-tagged order is NOT sufficient on
+        // its own (dropped from this check): a worked order routinely has one too, and
+        // an unclaimed order with a bare product tag but no disposition is Catered,
+        // not Excess, since it isn't tag-empty. A stale "UNCATERED LEADS" tag on an
+        // order a TSA already worked (tsa_name !== null) is still Catered either way.
+        // In this per-TSA breakdown that means Excess only ever lands on the
+        // Unassigned row.
         $row['excess']  = $orders->filter(function ($o) {
-            return $o->disposition === 'UNCATERED LEADS' && $o->tsa_name === null;
+            return $o->tsa_name === null
+                && (empty($o->raw_tags) || in_array($o->disposition, Order::EXCESS_DISPOSITIONS, true));
         })->count();
         $row['catered'] = $row['total'] - $row['excess'];
 

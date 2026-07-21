@@ -149,12 +149,21 @@ class ProductPerformance
             'invalid_number'         => self::count($nonUpsell, 'invalid number'),
         ];
 
-        // Excess = swept "UNCATERED LEADS" AND never claimed by a TSA. A null
-        // disposition means "no recognized disposition keyword", NOT uncatered — worked
-        // orders routinely have one because their only tags are a TSA name + product +
-        // fulfillment status, none of which are dispositions. And a stale "UNCATERED
-        // LEADS" tag on an order a TSA already worked (tsa_name !== null) is Catered.
-        $row['excess']  = $orders->filter(fn($o) => $o->disposition === 'UNCATERED LEADS' && $o->tsa_name === null)->count();
+        // Excess = never claimed by a TSA (tsa_name === null), AND either:
+        //  - genuinely no tag at all — the current definition, matching Pancake's
+        //    own order-tag filter's "No tag" option, since the team stopped applying
+        //    any specific sweep tag starting 2026-07-21; or
+        //  - the legacy 'UNCATERED LEADS' disposition, kept so pre-2026-07-21 rows
+        //    (which DO carry other tags alongside it — a product tag, sometimes a
+        //    fulfillment tag — just never a TSA name) still count the same way they
+        //    always did, without retroactively changing historical Excess Leads.
+        // A null disposition on its own is NOT sufficient (dropped from this check
+        // entirely, unlike before): a worked order routinely has one too, because its
+        // only tags are a TSA name + product + fulfillment status, none of which are
+        // recognized dispositions — only true tag-emptiness or the legacy tag qualify.
+        $row['excess']  = $orders->filter(fn($o) => $o->tsa_name === null
+            && (empty($o->raw_tags) || in_array($o->disposition, Order::EXCESS_DISPOSITIONS, true))
+        )->count();
         $row['catered'] = $row['total'] - $row['excess'];
 
         // Cross-sell/upsell revenue only — the Dashboard's "Total Cross-Sell Sales"

@@ -287,15 +287,18 @@ class SyncTodayOrders extends Command
             // time when the tag was already present at creation.
             //
             // Excess/uncatered leads (no TSA tag ever matched) are a special case of
-            // this same problem: Pancake's own end-of-day sweep is what actually makes
-            // a lead "Excess" by adding the UNCATERED LEADS tag, and — confirmed
-            // against live histories data across leads created hours apart — that sweep
-            // always lands within the same ~2-minute nightly window (~11:56-11:58 PM
-            // Manila), regardless of each lead's own creation time. Falling back to
-            // insertion time here would scatter Excess Leads across whatever hour each
-            // lead happened to be created in instead of the single hour it was
-            // actually swept.
-            $excessSweepTag = ($tsaInfo['name'] === null && $disposition === 'UNCATERED LEADS') ? 'UNCATERED LEADS' : null;
+            // this same problem: through 2026-07-17, Pancake's own end-of-day sweep is
+            // what actually made a lead "Excess" by adding the UNCATERED LEADS tag, and
+            // — confirmed against live histories data across leads created hours apart
+            // — that sweep always landed within the same ~2-minute nightly window
+            // (~11:56-11:58 PM Manila), regardless of each lead's own creation time.
+            // Falling back to insertion time here would scatter Excess Leads across
+            // whatever hour each lead happened to be created in instead of the single
+            // hour it was actually swept. Only matters for that legacy tag — a
+            // genuinely tagless order (the current definition, since 2026-07-21) has no
+            // tag-add history entry to look up anyway, so it already falls back to
+            // insertion time on its own via the null below.
+            $excessSweepTag = ($tsaInfo['name'] === null && in_array($disposition, Order::EXCESS_DISPOSITIONS, true)) ? $disposition : null;
             $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? $excessSweepTag, $carbonPHT);
 
             // Fix 2: For upsell orders, only count the added items (not the original product)
