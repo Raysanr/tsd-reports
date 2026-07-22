@@ -43,10 +43,22 @@ class DashboardController extends Controller
         $restockingByTeam = collect();
         $topTsa           = null;
 
-        try {
-            $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->exists();
+        // Scope every Dashboard query to only the teams/products actually configured
+        // in Product Management — without this, "Total Leads" and every other KPI
+        // silently included Unmatched Orders (team NULL: products like NutriLay/
+        // VitaMax that were never set up as a Product), while Leads Report/TSA
+        // Performance have always excluded them. Confirmed in production: Dashboard
+        // showed 301 leads, Leads Report's Grand Total showed 292 for the identical
+        // day — the 9-order gap was entirely Unmatched Orders, invisible anywhere
+        // else in the app. Every query below now matches Leads Report's own scope.
+        $orderTeams = collect(config('teams'))->pluck('order_team')->all();
 
-            $upsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('is_upsell', true);
+        try {
+            $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)->exists();
+
+            $upsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)->where('is_upsell', true);
 
             $totalOrders = (clone $upsells)->count();
             $grossSales  = (clone $upsells)->sum('amount');
@@ -55,6 +67,7 @@ class DashboardController extends Controller
             // so orders excluded from gross sales (e.g. status "Restocking") are still
             // visible here with their status label, instead of silently disappearing.
             $recentOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->whereNotNull('tsa_name')
                 ->orderByDesc('pancake_created_at')
                 ->limit(10)
@@ -64,6 +77,7 @@ class DashboardController extends Controller
             // gross sales above, surfaced here so it's clear how much revenue is pending
             // rather than lost.
             $restocking = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->where('status_code', 11);
 
             // Cancelled upsells — different from Restocking: the customer cancelled just
@@ -78,6 +92,7 @@ class DashboardController extends Controller
             // genuinely unrecoverable, not just missing — SUM() below ignores those NULLs
             // rather than silently treating them as a confirmed ₱0.
             $cancelledUpsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->where('is_cancelled_upsell', true);
 
             // Extracted into App\Support\SyncHealth so this page and the dedicated
@@ -105,7 +120,8 @@ class DashboardController extends Controller
             // those same metrics are defined everywhere else in the app. Fetched once
             // and reused below for Hourly Activity too, same as ChartsController's
             // single $orders fetch — avoids a second identical query.
-            $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->get();
+            $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)->get();
             $leadTally = ProductPerformance::tally($dayOrders);
 
             $stats['total_leads']    = $leadTally['total'];
@@ -122,6 +138,7 @@ class DashboardController extends Controller
             $teamNames   = collect(config('teams'))->pluck('name', 'order_team');
 
             $tsaLeaderboard = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->whereNotNull('tsa_name')
                 ->selectRaw('tsa_name, COUNT(*) as total_calls, SUM(CASE WHEN is_upsell THEN 1 ELSE 0 END) as upsell_count, SUM(CASE WHEN is_upsell THEN amount ELSE 0 END) as upsell_sales')
                 ->groupBy('tsa_name')
@@ -143,6 +160,7 @@ class DashboardController extends Controller
             // Top upsell products — which items are actually driving today's cross-sell
             // revenue, not just which TSA is closing them.
             $topProducts = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->where('is_upsell', true)
                 ->whereNotNull('product')
                 ->selectRaw('product, COUNT(*) as upsell_count, SUM(amount) as total_sales')
@@ -186,6 +204,7 @@ class DashboardController extends Controller
             // Restocking breakdown — same "Restocking" orders behind the Total Restocking
             // KPI tile above, broken out per TSA and per brand instead of one lump sum.
             $restockingByTsa = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
                 ->where('status_code', 11)
                 ->whereNotNull('tsa_name')
                 ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(amount) as restocking_value')
