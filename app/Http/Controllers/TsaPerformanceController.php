@@ -367,46 +367,18 @@ class TsaPerformanceController extends Controller
             ->sortBy(fn($s) => array_search($s->team, $orderTeams))
             ->values();
 
-        $ordersByTsa      = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
-        $unassignedByTeam = $ordersByTsa->get('__unassigned__', collect())->groupBy('team');
+        $ordersByTsa = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
 
-        // Grouped team-by-team (not $shifts->map() over the whole flat list) so each
-        // team's synthetic "Unassigned" row can be inserted right after that team's
-        // real TSAs, keeping the existing team grouping intact instead of dumping both
-        // teams' unassigned rows at the very end.
-        $tsaRows = collect($orderTeams)->flatMap(function ($orderTeam) use ($shifts, $ordersByTsa, $unassignedByTeam, $teamsConfig, $teamKeyByOrderTeam) {
-            $teamKey = $teamKeyByOrderTeam[$orderTeam] ?? null;
+        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsa, $teamsConfig, $teamKeyByOrderTeam) {
+            $row     = ProductPerformance::tally($ordersByTsa->get($shift->tsa_key, collect()));
+            $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
 
-            $rows = $shifts->where('team', $orderTeam)->map(function ($shift) use ($ordersByTsa, $teamsConfig, $teamKeyByOrderTeam) {
-                $row     = ProductPerformance::tally($ordersByTsa->get($shift->tsa_key, collect()));
-                $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
+            $row['display_name'] = $shift->display_name;
+            $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
+            $row['team_key']     = $teamKey;
+            $row['tsa_key']      = $shift->tsa_key;
 
-                $row['display_name'] = $shift->display_name;
-                $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
-                $row['team_key']     = $teamKey;
-                $row['tsa_key']      = $shift->tsa_key;
-
-                return $row;
-            })->values();
-
-            // Every lead in this team's range that never got a TSA tag matched at all —
-            // without this, Grand Total silently outran the sum of every visible row
-            // above it with no way to see why (confirmed real confusion: 135 of 215
-            // leads on one day had no TSA at all, invisible in this table). team_key/
-            // tsa_key stay null so the blade's existing "no link" branch just renders
-            // plain text instead of a broken individual-TSA link. Skipped entirely when
-            // zero, same as the hidden-product convention elsewhere in this app — no
-            // point cluttering a quiet team's block with an empty row.
-            $unassigned = ProductPerformance::tally($unassignedByTeam->get($orderTeam, collect()));
-            if ($unassigned['total'] > 0) {
-                $unassigned['display_name'] = 'Unassigned';
-                $unassigned['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $orderTeam;
-                $unassigned['team_key']     = null;
-                $unassigned['tsa_key']      = null;
-                $rows->push($unassigned);
-            }
-
-            return $rows;
+            return $row;
         })->values();
 
         // Grand Total — tally() directly over every order in range, same reasoning as

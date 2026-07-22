@@ -83,10 +83,7 @@
         </thead>
         <tbody>
             @foreach($tsaRows as $row)
-            {{-- Unassigned is a synthetic row (no tsa_key), not a real TSA — italic +
-                 muted background marks it as an aggregate, distinct from a person's row,
-                 same visual language as GRAND TOTAL being styled distinctly below. --}}
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors {{ !$row['tsa_key'] ? 'italic bg-slate-50/60 dark:bg-slate-800/40' : '' }}">
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
                     @if($row['team_key'])
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
@@ -94,7 +91,7 @@
                         {{ $row['display_name'] }}
                     </a>
                     @else
-                    <span class="text-slate-500 dark:text-slate-400">{{ $row['display_name'] }}</span>
+                    <span class="text-slate-700 dark:text-slate-200">{{ $row['display_name'] }}</span>
                     @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
