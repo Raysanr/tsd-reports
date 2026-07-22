@@ -149,23 +149,6 @@ class ProductPerformance
             'invalid_number'         => self::count($nonUpsell, 'invalid number'),
         ];
 
-        // Excess = never claimed by a TSA (tsa_name === null), AND either:
-        //  - genuinely no tag at all — the current definition, matching Pancake's
-        //    own order-tag filter's "No tag" option, since the team stopped applying
-        //    any specific sweep tag starting 2026-07-21; or
-        //  - the legacy 'UNCATERED LEADS' disposition, kept so pre-2026-07-21 rows
-        //    (which DO carry other tags alongside it — a product tag, sometimes a
-        //    fulfillment tag — just never a TSA name) still count the same way they
-        //    always did, without retroactively changing historical Excess Leads.
-        // A null disposition on its own is NOT sufficient (dropped from this check
-        // entirely, unlike before): a worked order routinely has one too, because its
-        // only tags are a TSA name + product + fulfillment status, none of which are
-        // recognized dispositions — only true tag-emptiness or the legacy tag qualify.
-        $row['excess']  = $orders->filter(fn($o) => $o->tsa_name === null
-            && (empty($o->raw_tags) || in_array($o->disposition, Order::EXCESS_DISPOSITIONS, true))
-        )->count();
-        $row['catered'] = $row['total'] - $row['excess'];
-
         // Cross-sell/upsell revenue only — the Dashboard's "Total Cross-Sell Sales"
         // definition (add-on items' value), NOT full realized revenue. Same
         // convention already confirmed for the Analytics daily sales trend.
@@ -176,18 +159,17 @@ class ProductPerformance
         $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']
             + $row['unattended'] + $row['invalid_number'];
         // "Called Leads" — every lead actually called, i.e. Answered + Unanswered.
-        // Distinct from 'total' ("New Leads"): a lead can be new/catered without yet
-        // having a recognized disposition (e.g. a "Call in Progress" tag never
-        // finalized), so total_called can be smaller than total.
         $row['total_called'] = $row['answered'] + $row['unanswered'];
 
-        // The reconciling remainder: leads a TSA claimed but that carry no final
-        // outcome yet — mid-call ("Call in Progress" tag), an upsell parked in
-        // Restocking, or simply not yet disposition-tagged. Makes every row add up
-        // visibly: total = total_called + excess + in_progress. The three buckets
-        // are disjoint because UNCATERED LEADS isn't one of the 13 counted
-        // dispositions, so an excess lead is never inside total_called.
-        $row['in_progress'] = $row['total'] - $row['total_called'] - $row['excess'];
+        // Catered = Answered + Unanswered (total_called) — a lead only counts as
+        // catered once it has an actual recognized outcome, not just a TSA name tag
+        // with no disposition yet. Excess = Total - Catered: the reconciling
+        // remainder, so every row adds up visibly (total = catered + excess) with no
+        // third bucket. This deliberately folds mid-call/not-yet-dispositioned leads
+        // into Excess rather than Catered — a stricter definition than the previous
+        // tag-based one (Order::EXCESS_DISPOSITIONS is no longer read here at all).
+        $row['catered'] = $row['total_called'];
+        $row['excess']  = $row['total'] - $row['catered'];
 
         return array_merge($row, self::rates($row));
     }

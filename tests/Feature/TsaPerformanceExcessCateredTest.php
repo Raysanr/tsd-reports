@@ -19,57 +19,44 @@ class TsaPerformanceExcessCateredTest extends TestCase
     }
 
     /**
-     * Regression test for the Excess/Catered definition: Excess = an order NO TSA
-     * ever claimed (tsa_name === null) AND either (a) genuinely no tag at all —
-     * the current definition since 2026-07-21, matching Pancake's own order-tag
-     * filter's "No tag" option, once the team stopped applying any specific sweep
-     * tag — or (b) the legacy disposition === "UNCATERED LEADS", kept only so
-     * pre-2026-07-21 rows (which DO carry other tags alongside it) still count the
-     * same way they always did. Everything else is Catered — including a null
-     * disposition on an order that still has OTHER tags (worked orders routinely
-     * have one because their tags are a TSA name + product + "Picked up"/"On
-     * delivery"/"UPSELL TSD", none of which are dispositions — and, since
-     * 2026-07-21, an unclaimed order carrying non-disposition tags like a bare
-     * product tag is also Catered, not Excess, matching Pancake's "No tag" filter
-     * only matching TRUE tag-emptiness) and a stale "UNCATERED LEADS" tag on an
-     * order a TSA already worked. Confirmed directly against real Pancake POS data
-     * (2026-07-05): the old "null OR UNCATERED" rule inflated CLEARSIGHT's Excess
-     * to 18 and PTERYGIUM's to 28 when the true figure for both was 0.
+     * Regression test for the Excess/Catered definition (changed 2026-07-22):
+     * Catered = Answered + Unanswered (i.e. total_called — a lead only counts once
+     * it has an actual recognized call outcome), and Excess = Total - Catered, so
+     * every row adds up visibly with no third "in progress" bucket. This is
+     * stricter than the previous tag-based definition: a lead a TSA has claimed but
+     * hasn't finished dispositioning yet (null disposition, or a non-terminal tag
+     * like "Call in Progress") now falls into Excess, not Catered — same formula on
+     * both ProductPerformance::tally() and this controller's own per-TSA copy.
      */
-    public function test_excess_is_unclaimed_uncatered_leads_only_everything_worked_is_catered(): void
+    public function test_catered_is_answered_plus_unanswered_excess_is_the_remainder(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
         $today = now()->toDateString();
 
-        // [pancake_order_id => [tsa_name, disposition, raw_tags]]
+        // [pancake_order_id => [tsa_name, disposition]]
         $orders = [
-            // Legacy: swept UNCATERED LEADS (pre-2026-07-21 style, alongside other
-            // tags), no TSA ever claimed it → Excess
-            'excess-unassigned'      => [null,            'UNCATERED LEADS', ['CLEARSIGHT', 'UNCATERED LEADS']],
-            // Current definition: genuinely no tag at all, no TSA → Excess
-            'excess-no-tags'         => [null,             null,             []],
-            // Unclaimed but NOT tag-empty (a bare product tag, no disposition, no TSA)
-            // → Catered, not Excess — distinguishes "no tag at all" from "null disposition"
-            'catered-untagged-disp'  => [null,             null,             ['CLEARSIGHT']],
-            // Worked order with no recognized disposition keyword (e.g. only "Picked up") → Catered
-            'catered-null-disp'      => [$shift->tsa_key,  null,             ['JULIE', 'CLEARSIGHT']],
-            // Order a TSA worked, then a midnight sweep re-tagged UNCATERED LEADS → Catered
-            'catered-stale-sweep'    => [$shift->tsa_key,  'UNCATERED LEADS', ['JULIE', 'UNCATERED LEADS']],
-            // "Call in Progress" has no dedicated column but is still a real disposition → Catered
-            'catered-cip'            => [$shift->tsa_key,  'Call in Progress (Sinuxyl)', ['JULIE', 'Call in Progress (Sinuxyl)']],
-            // Explicit answered disposition → Catered
-            'catered-confirmed'      => [$shift->tsa_key,  'CONFIRMED VIA CALL', ['JULIE', 'CONFIRMED VIA CALL']],
+            // Genuinely untouched, no TSA at all → Excess
+            'excess-unassigned'  => [null,            null],
+            // A TSA claimed it, but no disposition yet — still Excess under the new
+            // stricter definition, unlike the old tag-based one where this counted
+            // as Catered.
+            'excess-null-disp'   => [$shift->tsa_key, null],
+            // "Call in Progress" isn't one of the 13 recognized dispositions either
+            // → still Excess, same reasoning as above.
+            'excess-cip'         => [$shift->tsa_key, 'Call in Progress (Sinuxyl)'],
+            // Real, concluded outcomes → Catered
+            'catered-confirmed'  => [$shift->tsa_key, 'CONFIRMED VIA CALL'],
+            'catered-not-answer' => [$shift->tsa_key, 'NOT ANSWERING'],
         ];
 
-        foreach ($orders as $id => [$tsaName, $disposition, $rawTags]) {
+        foreach ($orders as $id => [$tsaName, $disposition]) {
             Order::create([
                 'pancake_order_id'   => $id,
                 'team'               => 'SH Naturals',
                 'tsa_name'           => $tsaName,
                 'disposition'        => $disposition,
-                'raw_tags'           => $rawTags,
                 'is_upsell'          => false,
-                'status_code'        => $disposition === null || $disposition === 'UNCATERED LEADS' ? 0 : 1,
+                'status_code'        => 1,
                 'pancake_created_at' => now(),
                 'synced_at'          => now(),
             ]);
@@ -78,9 +65,9 @@ class TsaPerformanceExcessCateredTest extends TestCase
         $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals', 'date' => $today]));
 
         $response->assertOk();
-        // 7 total: 2 excess (legacy UNCATERED tag + genuinely tag-empty), 5 catered
+        // 5 total: 2 catered (real outcomes), 3 excess (unclaimed + unresolved)
         $response->assertViewHas('totals', function ($totals) {
-            return $totals['total'] === 7 && $totals['excess'] === 2 && $totals['catered'] === 5;
+            return $totals['total'] === 5 && $totals['catered'] === 2 && $totals['excess'] === 3;
         });
     }
 }

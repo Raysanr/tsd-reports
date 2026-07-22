@@ -447,34 +447,22 @@ class TsaPerformanceController extends Controller
             'invalid_number'         => $this->count($orders, 'invalid number'),
         ];
 
-        // Excess = never claimed by a TSA (tsa_name === null), AND either genuinely no
-        // tag at all (current definition since 2026-07-21, matching Pancake's own
-        // order-tag filter's "No tag" option) or the legacy 'UNCATERED LEADS'
-        // disposition (kept only for pre-2026-07-21 rows, which DO carry other tags
-        // alongside it). See Order::EXCESS_DISPOSITIONS and the identical reasoning on
-        // ProductPerformance::tally()'s 'excess' line — kept in sync with that one by
-        // hand since this per-TSA breakdown has its own separate accumulator loop
-        // above. A null disposition on an otherwise-tagged order is NOT sufficient on
-        // its own (dropped from this check): a worked order routinely has one too, and
-        // an unclaimed order with a bare product tag but no disposition is Catered,
-        // not Excess, since it isn't tag-empty. A stale "UNCATERED LEADS" tag on an
-        // order a TSA already worked (tsa_name !== null) is still Catered either way.
-        // In this per-TSA breakdown that means Excess only ever lands on the
-        // Unassigned row.
-        $row['excess']  = $orders->filter(function ($o) {
-            return $o->tsa_name === null
-                && (empty($o->raw_tags) || in_array($o->disposition, Order::EXCESS_DISPOSITIONS, true));
-        })->count();
-        $row['catered'] = $row['total'] - $row['excess'];
-
         // "Total Called Leads" — the single column shown in the hourly view: the sum of
         // the 13 disposition columns (Answered + Unanswered), i.e. every lead that was
-        // actually called. Excludes Excess (uncatered) leads, which have their own column.
+        // actually called.
         $row['total_called'] = $row['confirmed_via_call'] + $row['upsell_confirmation']
             + $row['call_back'] + $row['call_dropped'] + $row['repeat_order_upsell']
             + $row['rude_customer'] + $row['relatives_confirmation'] + $row['dfr']
             + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']
             + $row['unattended'] + $row['invalid_number'];
+
+        // Catered = Answered + Unanswered (total_called); Excess = Total - Catered.
+        // Kept in sync by hand with the identical formula on ProductPerformance::
+        // tally() — see that one for the full reasoning. Order::EXCESS_DISPOSITIONS
+        // is no longer read here at all; a mid-call/not-yet-dispositioned lead now
+        // falls into Excess rather than Catered, same as the shared version.
+        $row['catered'] = $row['total_called'];
+        $row['excess']  = $row['total'] - $row['catered'];
 
         $row['upselling_rate'] = $this->upsellingRate($row);
 
