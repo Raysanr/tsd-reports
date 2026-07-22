@@ -77,7 +77,12 @@ class ProductPerformance
             foreach ($o->raw_tags ?? [] as $tag) {
                 if ($product->matchesText($tag)) return true;
             }
-            return $product->matchesText($o->product);
+            // bundle_description is the item's full combo text (e.g. "1 Ginseng
+            // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
+            // entry's generic name, which silently hid every other product bundled
+            // into the same combo SKU (confirmed in production: a Ginseng Serum +
+            // Scar Cream combo order never counted toward Scar Cream at all).
+            return $product->matchesText($o->product) || $product->matchesText($o->bundle_description);
         });
 
         $row = self::tally($matching);
@@ -101,11 +106,16 @@ class ProductPerformance
      *  oddly-tagged, match), or no other same-team product matches it either. */
     public static function conflictingProduct(Product $product, Order $order, Collection $teamProducts): ?Product
     {
-        if ($product->matchesText($order->product)) return null;
+        // Same bundle_description fallback as buildRow() above — a combo SKU whose
+        // display_id reveals $product IS genuinely part of this order is never a
+        // conflict, even though the generic `product` name alone doesn't match it.
+        if ($product->matchesText($order->product) || $product->matchesText($order->bundle_description)) {
+            return null;
+        }
 
         return $teamProducts->first(fn ($other) => $other->id !== $product->id
             && $other->team === $product->team
-            && $other->matchesText($order->product));
+            && ($other->matchesText($order->product) || $other->matchesText($order->bundle_description)));
     }
 
     /** The counting/rate logic on its own, with no product-tag matching — for

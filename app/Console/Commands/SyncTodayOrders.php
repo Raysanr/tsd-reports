@@ -275,8 +275,10 @@ class SyncTodayOrders extends Command
             // price on every sync — no carry-forward needed.
             $isReturnedUpsell = in_array($statusCode, [4, 5], true) && $hasUpsellTag;
 
-            $productName       = $this->extractUpsellProduct($raw, $isUpsell);
-            $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName);
+            $productInfo       = $this->extractUpsellProduct($raw, $isUpsell);
+            $productName       = $productInfo['name'];
+            $bundleDescription = $productInfo['display_id'];
+            $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName, $bundleDescription);
 
             // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
             // record was first created — often an automated event (e.g. a Facebook ad
@@ -320,6 +322,7 @@ class SyncTodayOrders extends Command
                 'tsa_name'                => $tsaInfo['name'],
                 'disposition'             => $disposition,
                 'product'                 => $productName,
+                'bundle_description'      => $bundleDescription,
                 'amount'                  => $amount,
                 'raw_tags'                => $tagNames,
                 'is_upsell'               => $isUpsell,
@@ -398,7 +401,7 @@ class SyncTodayOrders extends Command
                 $chunk,
                 ['pancake_order_id'],
                 [
-                    'team', 'tsa_name', 'disposition', 'product', 'amount', 'raw_tags',
+                    'team', 'tsa_name', 'disposition', 'product', 'bundle_description', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
@@ -479,25 +482,40 @@ class SyncTodayOrders extends Command
     }
 
     // For upsell orders, show the upsell product name (item 1+), not the original
-    private function extractUpsellProduct(array $raw, bool $isUpsell): ?string
+    /** Returns ['name' => ..., 'display_id' => ...] for the same item
+     *  extractUpsellProduct() used to return just the name for. display_id is the
+     *  item's full variation_info.display_id text (e.g. "1 Ginseng Serum + 5 Scar
+     *  Cream" for a combo SKU) — 'name' alone only ever reflects the catalog
+     *  entry's generic label (e.g. "GINSENG SERUM"), which silently hides any other
+     *  product bundled into the same combo. Kept as one method (not a second
+     *  lookup) so both values always come from the exact same item — the
+     *  upsell-hint-index logic below is nontrivial enough that re-deriving it twice
+     *  risked the two ever pointing at different items. */
+    private function extractUpsellProduct(array $raw, bool $isUpsell): array
     {
         $items = $raw['items'] ?? [];
-        if (empty($items)) return null;
+        if (empty($items)) return ['name' => null, 'display_id' => null];
 
         if ($isUpsell) {
             if (count($items) < 2 && $this->remainingItemIsJustTheBase($raw)) {
-                return null; // upsell add-on was removed; nothing valid to show
+                return ['name' => null, 'display_id' => null]; // upsell add-on was removed; nothing valid to show
             }
             $hintIndex = $this->findItemIndexByTagHint($raw);
             if ($hintIndex !== null) {
                 $vi = $items[$hintIndex]['variation_info'] ?? [];
-                return $vi['name'] ?? $items[$hintIndex]['product_name'] ?? null;
+                return [
+                    'name'        => $vi['name'] ?? $items[$hintIndex]['product_name'] ?? null,
+                    'display_id'  => $vi['display_id'] ?? null,
+                ];
             }
         }
 
         $index = ($isUpsell && count($items) >= 2) ? 1 : 0;
         $vi    = $items[$index]['variation_info'] ?? [];
-        return $vi['name'] ?? $items[$index]['product_name'] ?? null;
+        return [
+            'name'       => $vi['name'] ?? $items[$index]['product_name'] ?? null,
+            'display_id' => $vi['display_id'] ?? null,
+        ];
     }
 
     // Fix #8: "UPSELL TSD - Base + Addon1 + Addon2" names the ORIGINAL product
@@ -601,7 +619,7 @@ class SyncTodayOrders extends Command
         ]);
     }
 
-    private function extractTsaInfo(array $tagNames, array $raw = [], ?string $productName = null): array
+    private function extractTsaInfo(array $tagNames, array $raw = [], ?string $productName = null, ?string $bundleDescription = null): array
     {
         // Primary: explicit name tag (JULIE, GEMMA, etc.)
         foreach ($tagNames as $tag) {
@@ -635,6 +653,13 @@ class SyncTodayOrders extends Command
         // report (confirmed via production data: 46 such orders on one date alone,
         // 41 of them clearly SH Naturals products by cart contents).
         if ($team = $this->inferTeamFromProduct($productName)) {
+            return ['name' => null, 'team' => $team, 'matched_tag' => null];
+        }
+
+        // Cart name alone matched nothing — a combo SKU's generic name only ever
+        // names its primary component, so try the full bundle description text
+        // (e.g. "1 Ginseng Serum + 5 Scar Cream") before falling through to tags.
+        if ($team = $this->inferTeamFromProduct($bundleDescription)) {
             return ['name' => null, 'team' => $team, 'matched_tag' => null];
         }
 

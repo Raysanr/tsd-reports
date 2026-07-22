@@ -91,4 +91,45 @@ class LeadsReportStaleTagConflictTest extends TestCase
             return $clearSight['total']['total'] === 1;
         });
     }
+
+    /**
+     * Confirmed in production (2026-07-21, order #1333005): a combo SKU's
+     * `product` column only ever holds the catalog entry's generic name
+     * ("GINSENG SERUM"), even when the item is really a bundle — Pancake's own
+     * variation_info.display_id for that same item reads "1 Ginseng Serum + 5
+     * Scar Cream". Before this fix, Scar Cream never counted this order at all,
+     * even though its POS search (which does read the fuller description) showed
+     * it. See ProductPerformance::buildRow()'s bundle_description fallback.
+     */
+    public function test_a_combo_orders_bundled_product_counts_via_bundle_description(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'combo-1',
+            'team'               => 'SH Naturals',
+            'tsa_name'           => $shift->tsa_key,
+            'disposition'        => 'CONFIRMED VIA CALL',
+            'product'            => 'GINSENG SERUM',
+            'bundle_description' => '1 Ginseng Serum + 5 Scar Cream',
+            'raw_tags'           => [strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell'          => false,
+            'status_code'        => 1,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $today = now()->toDateString();
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productTables', function ($tables) {
+            $ginseng   = $tables->firstWhere(fn($t) => $t['product']->display_name === 'GINSENG SERUM');
+            $scarCream = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SCAR CREAM');
+
+            return $ginseng['total']['total'] === 1 && $scarCream['total']['total'] === 1;
+        });
+    }
 }

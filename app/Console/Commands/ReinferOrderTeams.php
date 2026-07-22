@@ -26,7 +26,11 @@ class ReinferOrderTeams extends Command
         Order::whereNull('team')->whereNull('tsa_name')
             ->chunkById(500, function ($orders) use ($products, $dryRun, &$updated, &$byTeam) {
                 foreach ($orders as $order) {
+                    // bundle_description (a combo SKU's full "1 X + 5 Y" text) can
+                    // reveal a real product `product` alone doesn't — the generic
+                    // catalog name only ever names the combo's primary component.
                     $team = $this->matchTeam($products, $order->product)
+                        ?? $this->matchTeam($products, $order->bundle_description)
                         ?? collect($order->raw_tags ?? [])
                             ->map(fn($tag) => $this->matchTeam($products, $tag))
                             ->first(fn($t) => $t !== null);
