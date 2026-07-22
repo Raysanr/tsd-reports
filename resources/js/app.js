@@ -472,7 +472,7 @@ window.showToast = function (message, variant = 'success') {
     function renderGroup(label, items) {
         if (!items.length) return '';
         const rows = items.map(item => `
-            <a href="${item.url}" class="block px-3 py-2 text-sm font-mono text-slate-700 hover:bg-yellow-50 hover:text-yellow-700 transition-colors truncate">
+            <a href="${item.url}" class="block px-3 py-2 text-sm font-mono text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors truncate">
                 ${escapeHtml(item.label)}
             </a>
         `).join('');

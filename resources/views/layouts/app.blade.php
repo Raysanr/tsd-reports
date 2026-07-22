@@ -433,9 +433,9 @@
                 </svg>
                 <input type="text" id="globalSearchInput" autocomplete="off" placeholder="Search TSA or product…"
                     aria-label="Search TSA agents and products"
-                    class="w-full pl-8 pr-3 py-1.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors">
+                    class="w-full pl-8 pr-3 py-1.5 text-sm font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors">
             </div>
-            <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-2xl border border-slate-200 max-h-80 overflow-y-auto"></div>
+            <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-80 overflow-y-auto"></div>
         </div>
 
         {{-- No flex-wrap at THIS level — the pushed content below wraps itself
