@@ -41,10 +41,6 @@
                     style="min-width:180px">
                     TSA
                 </th>
-                <th rowspan="2" data-sort-key="total"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
-                    Total<br>Leads
-                </th>
                 <th rowspan="2" data-sort-key="catered"
                     class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Catered<br>Leads
@@ -102,9 +98,6 @@
                     @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="total" data-sort-value="{{ $row['total'] }}">
-                    {{ $row['total'] ?: '' }}
-                </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}">
                     {{ $row['catered'] ?: '' }}
                 </td>
@@ -131,7 +124,6 @@
         <tfoot>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
                 @foreach($displayCols as $col)
                 <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
