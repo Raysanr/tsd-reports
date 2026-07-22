@@ -381,11 +381,16 @@ class TsaPerformanceController extends Controller
             return $row;
         })->values();
 
-        // Grand Total — tally() directly over every order in range, same reasoning as
-        // the Leads Report's Grand Total: summing the per-TSA rows above would drop
-        // any lead never claimed by a TSA (tsa_name null), since no row above
-        // represents it.
-        $grandTotal = ProductPerformance::tally($orders);
+        // Grand Total — scoped to orders actually claimed by one of the TSAs shown
+        // above (not every order in range), so this number always equals the sum of
+        // the visible rows instead of silently running higher with no row to explain
+        // the gap. This deliberately does NOT count leads with no TSA at all — that's
+        // a real choice (they're excluded from this page's total entirely, not just
+        // hidden), made after trying a visible "Unassigned" row and being asked to
+        // remove it in favor of this instead.
+        $grandTotal = ProductPerformance::tally(
+            $orders->whereIn('tsa_name', $shifts->pluck('tsa_key'))
+        );
 
         $teams = $this->teamsMenu($teamsConfig);
 
