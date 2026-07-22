@@ -29,7 +29,7 @@ class TsaPerformanceController extends Controller
      *  'total'/'catered' are still accumulated (used for the Excess column and internal
      *  checks) but are no longer displayed there. */
     private const COLUMNS = [
-        'total', 'catered', 'total_called',
+        'total', 'catered', 'total_called', 'answered', 'unanswered',
         'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
         'repeat_order_upsell', 'rude_customer', 'relatives_confirmation',
         'dfr', 'double_order', 'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number',
@@ -168,21 +168,28 @@ class TsaPerformanceController extends Controller
                 }
             }
 
-            $hourBlocks[] = [
-                'label'            => HourFormatter::rangeLabel($hour),
-                'rows'             => $rows,
-                'totals'           => $blockTotals,
-                'upselling_rate'   => $this->upsellingRate($blockTotals),
-            ];
+            // Pick-up/Conversion/Upselling Rate for this hour block — same shared
+            // formula as buildRow()'s per-row rates and the ALL view, merged flat
+            // alongside 'label'/'rows'/'totals' so the blade reads $block['pick_up_rate']
+            // etc. the same way it already reads $row['pick_up_rate'].
+            $hourBlocks[] = array_merge([
+                'label'  => HourFormatter::rangeLabel($hour),
+                'rows'   => $rows,
+                'totals' => $blockTotals,
+            ], $this->productRates($blockTotals));
         }
 
         $teams       = $this->teamsMenu($teamsConfig);
         $metricCols  = self::METRIC_COLUMNS;
-        $totalUpsellingRate = $this->upsellingRate($totals);
+        $totalRates  = $this->productRates($totals);
+        $totalPickUpRate     = $totalRates['pick_up_rate'];
+        $totalConversionRate = $totalRates['conversion_rate'];
+        $totalUpsellingRate  = $totalRates['upselling_rate'];
 
         return view('tsa-performance', compact(
             'dateFrom', 'dateTo', 'hourBlocks', 'totals',
-            'teams', 'selectedTeam', 'metricCols', 'totalUpsellingRate',
+            'teams', 'selectedTeam', 'metricCols',
+            'totalPickUpRate', 'totalConversionRate', 'totalUpsellingRate',
             'availableProducts', 'selectedProduct'
         ));
     }
@@ -414,14 +421,6 @@ class TsaPerformanceController extends Controller
         return ProductPerformance::rates($row);
     }
 
-    /** Upsell w/ Confirmation as a % of (Upsell w/ Confirmation + Confirmed via Call) —
-     *  the official Upselling Rate formula (TSD Updated Formula Base, May 2026). Null
-     *  when both are zero (nothing to compute a rate from). */
-    private function upsellingRate(array $columns): ?float
-    {
-        return ProductPerformance::upsellingRate($columns);
-    }
-
     private function buildRow(?TsaShift $shift, ?string $key, Collection $orders, ?string $displayNameOverride = null): array
     {
         // Same "real upsell" definition and non-upsell exclusivity guard as
@@ -458,14 +457,14 @@ class TsaPerformanceController extends Controller
             'invalid_number'         => $this->count($nonUpsell, 'invalid number'),
         ];
 
-        // "Total Called Leads" — the single column shown in the hourly view: the sum of
-        // the 13 disposition columns (Answered + Unanswered), i.e. every lead that was
-        // actually called.
-        $row['total_called'] = $row['confirmed_via_call'] + $row['upsell_confirmation']
-            + $row['call_back'] + $row['call_dropped'] + $row['repeat_order_upsell']
-            + $row['rude_customer'] + $row['relatives_confirmation'] + $row['dfr']
-            + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']
-            + $row['unattended'] + $row['invalid_number'];
+        $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back']
+            + $row['call_dropped'] + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];
+        $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared']
+            + $row['not_answering'] + $row['unattended'] + $row['invalid_number'];
+
+        // "Total Called Leads" — the single column shown in the hourly view: Answered
+        // + Unanswered, i.e. every lead that was actually called.
+        $row['total_called'] = $row['answered'] + $row['unanswered'];
 
         // Catered = Answered + Unanswered (total_called); Excess = Total - Catered.
         // Kept in sync by hand with the identical formula on ProductPerformance::
@@ -475,7 +474,10 @@ class TsaPerformanceController extends Controller
         $row['catered'] = $row['total_called'];
         $row['excess']  = $row['total'] - $row['catered'];
 
-        $row['upselling_rate'] = $this->upsellingRate($row);
+        // Pick-up/Conversion/Upselling Rate — same shared formula as the ALL view and
+        // Leads Report (ProductPerformance::rates()), so the hourly breakdown can't
+        // drift from how these are defined everywhere else in the app.
+        $row = array_merge($row, $this->productRates($row));
 
         return $row;
     }

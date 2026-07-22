@@ -6,9 +6,9 @@
 
 @php
     // This view no longer shows Excess Leads (removed per request — the hourly
-    // per-TSA breakdown only shows Total Called Leads + the 13 disposition columns
-    // + Upselling Rate). $metricCols stays untouched for the ALL view, which still
-    // shows Excess Leads.
+    // per-TSA breakdown shows Total Called Leads + the 13 disposition columns +
+    // Pick-up/Conversion/Upselling Rate). $metricCols stays untouched for the ALL
+    // view, which still shows Excess Leads.
     $displayCols = collect($metricCols)->reject(fn($col) => $col['group'] === 'excess');
     $rangeLabel  = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
 @endphp
@@ -36,7 +36,7 @@
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable">
-    <table class="w-full border-collapse text-xs font-mono" style="min-width:1200px">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
             <thead class="sticky top-0 z-20 shadow-sm">
 
                 {{-- ── Row 1: group headers ── --}}
@@ -69,6 +69,16 @@
                          corrupting that row's column count and making a body row's cell
                          render overlapping the sticky header on scroll. --}}
                     <th rowspan="2"
+                        class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                        style="min-width:90px">
+                        Pick-up<br>Rate
+                    </th>
+                    <th rowspan="2"
+                        class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                        style="min-width:90px">
+                        Conversion<br>Rate
+                    </th>
+                    <th rowspan="2"
                         class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                         style="min-width:110px">
                         Upselling<br>Rate
@@ -97,7 +107,7 @@
                 @foreach($hourBlocks as $block)
                 {{-- Hour block divider --}}
                 <tr>
-                    <td colspan="16" class="border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
+                    <td colspan="18" class="border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wide">
                         {{ $block['label'] }}
                     </td>
                 </tr>
@@ -129,6 +139,12 @@
                         {{ $row[$col['key']] ?: '' }}
                     </td>
                     @endforeach
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">
+                        {{ $row['pick_up_rate'] !== null ? $row['pick_up_rate'].'%' : '—' }}
+                    </td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">
+                        {{ $row['conversion_rate'] !== null ? $row['conversion_rate'].'%' : '—' }}
+                    </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">
                         {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
                     </td>
@@ -144,6 +160,12 @@
                         {{ $block['totals'][$col['key']] ?: '' }}
                     </td>
                     @endforeach
+                    <td class="border border-slate-600 px-3 py-2.5 text-center text-blue-300">
+                        {{ $block['pick_up_rate'] !== null ? $block['pick_up_rate'].'%' : '—' }}
+                    </td>
+                    <td class="border border-slate-600 px-3 py-2.5 text-center text-orange-300">
+                        {{ $block['conversion_rate'] !== null ? $block['conversion_rate'].'%' : '—' }}
+                    </td>
                     <td class="border border-slate-600 px-3 py-2.5 text-center text-yellow-300">
                         {{ $block['upselling_rate'] !== null ? $block['upselling_rate'].'%' : '—' }}
                     </td>
@@ -159,6 +181,12 @@
                         {{ $totals[$col['key']] ?: '' }}
                     </td>
                     @endforeach
+                    <td class="border border-slate-700 px-3 py-3 text-center text-blue-300">
+                        {{ $totalPickUpRate !== null ? $totalPickUpRate.'%' : '—' }}
+                    </td>
+                    <td class="border border-slate-700 px-3 py-3 text-center text-orange-300">
+                        {{ $totalConversionRate !== null ? $totalConversionRate.'%' : '—' }}
+                    </td>
                     <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">
                         {{ $totalUpsellingRate !== null ? $totalUpsellingRate.'%' : '—' }}
                     </td>
