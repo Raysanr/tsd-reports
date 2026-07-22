@@ -424,6 +424,17 @@ class TsaPerformanceController extends Controller
 
     private function buildRow(?TsaShift $shift, ?string $key, Collection $orders, ?string $displayNameOverride = null): array
     {
+        // Same "real upsell" definition and non-upsell exclusivity guard as
+        // ProductPerformance::tally() — kept in sync by hand since this per-TSA
+        // breakdown has its own separate accumulator. Without the $nonUpsell filter
+        // here (missing until now), an upsell order that also carried a stale
+        // disposition tag double-counted into both its disposition column AND
+        // Upsell w/ Confirmation.
+        $isRealUpsell = fn($o) => $o->is_upsell
+            || $o->is_returned_upsell
+            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        $nonUpsell = $orders->reject($isRealUpsell);
+
         $row = [
             'display_name'           => $displayNameOverride ?? $shift?->display_name ?? ucfirst($key),
             // Carried through so the view can link a real TSA's name to their individual
@@ -432,19 +443,19 @@ class TsaPerformanceController extends Controller
             // is ever added back).
             'tsa_key'                => $shift ? $key : null,
             'total'                  => $orders->count(),
-            'confirmed_via_call'     => $this->count($orders, 'confirmed via call'),
-            'upsell_confirmation'    => $orders->where('is_upsell', true)->count(),
-            'call_back'              => $this->count($orders, 'call back'),
-            'call_dropped'           => $this->count($orders, 'call dropped'),
-            'repeat_order_upsell'    => $this->count($orders, 'repeat order'),
-            'rude_customer'          => $this->count($orders, 'rude customer'),
-            'relatives_confirmation' => $this->count($orders, 'relatives'),
-            'dfr'                    => $this->count($orders, 'dfr'),
-            'double_order'           => $this->count($orders, 'double order'),
-            'fsd_uncleared'          => $this->count($orders, 'fsd'),
-            'not_answering'          => $this->count($orders, 'not answering'),
-            'unattended'             => $this->count($orders, 'unattended'),
-            'invalid_number'         => $this->count($orders, 'invalid number'),
+            'confirmed_via_call'     => $this->count($nonUpsell, 'confirmed via call'),
+            'upsell_confirmation'    => $orders->filter($isRealUpsell)->count(),
+            'call_back'              => $this->count($nonUpsell, 'call back'),
+            'call_dropped'           => $this->count($nonUpsell, 'call dropped'),
+            'repeat_order_upsell'    => $this->count($nonUpsell, 'repeat order'),
+            'rude_customer'          => $this->count($nonUpsell, 'rude customer'),
+            'relatives_confirmation' => $this->count($nonUpsell, 'relatives'),
+            'dfr'                    => $this->count($nonUpsell, 'dfr'),
+            'double_order'           => $this->count($nonUpsell, 'double order'),
+            'fsd_uncleared'          => $this->count($nonUpsell, 'fsd'),
+            'not_answering'          => $this->count($nonUpsell, 'not answering'),
+            'unattended'             => $this->count($nonUpsell, 'unattended'),
+            'invalid_number'         => $this->count($nonUpsell, 'invalid number'),
         ];
 
         // "Total Called Leads" — the single column shown in the hourly view: the sum of

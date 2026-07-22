@@ -252,7 +252,7 @@ class SyncTodayOrders extends Command
             $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
 
             $disposition  = $this->extractDisposition($tagNames);
-            $hasUpsellTag = $this->hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
+            $hasUpsellTag = Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
 
             // Cancelled upsell: the order still carries an upsell tag, but the add-on
             // item(s) have been removed from it while the primary order kept going
@@ -770,14 +770,4 @@ class SyncTodayOrders extends Command
         return null;
     }
 
-    private function hasUpsellTag(array $tagNames): bool
-    {
-        foreach ($tagNames as $tag) {
-            // "UPSELL TSD" or "TSD UPSELL" — exclude "Follow up - Upsell" (disposition, not a new order)
-            if (preg_match('/\bUPSELL\s+TSD\b|\bTSD\s+UPSELL\b/i', $tag)) {
-                return true;
-            }
-        }
-        return false;
-    }
 }

@@ -130,12 +130,25 @@ class ProductPerformance
         // letting Called Leads exceed New Leads (seen live: 3 new / 4 called). The
         // Upselling Rate formula (upsell ÷ (upsell + confirmed_via_call)) already
         // treats these columns as mutually exclusive; this makes the counts agree.
-        $nonUpsell = $orders->where('is_upsell', false);
+        //
+        // "Real upsell" here is deliberately broader than the stored is_upsell
+        // column: is_upsell is forced false at sync time for ANY order sitting in a
+        // Restocking/void status, even one genuinely tagged "Upsell TSD" (confirmed
+        // in production: an AudiCure order in Restocking, tagged "Upsell TSD (Ear
+        // Relief Balm)", counted as neither Catered outcome nor upsell — invisible
+        // work that clearly happened). is_returned_upsell (once real, later
+        // returned) counts too. Only a genuinely CANCELLED upsell — the add-on item
+        // itself removed from the order, is_cancelled_upsell — is excluded, since
+        // there the tag really is stale.
+        $isRealUpsell = fn($o) => $o->is_upsell
+            || $o->is_returned_upsell
+            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        $nonUpsell = $orders->reject($isRealUpsell);
 
         $row = [
             'total'                  => $orders->count(),
             'confirmed_via_call'     => self::count($nonUpsell, 'confirmed via call'),
-            'upsell_confirmation'    => $orders->where('is_upsell', true)->count(),
+            'upsell_confirmation'    => $orders->filter($isRealUpsell)->count(),
             'call_back'              => self::count($nonUpsell, 'call back'),
             'call_dropped'           => self::count($nonUpsell, 'call dropped'),
             'repeat_order_upsell'    => self::count($nonUpsell, 'repeat order'),

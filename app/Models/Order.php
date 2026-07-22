@@ -108,6 +108,27 @@ class Order extends Model
         return self::STATUS_LABELS[$this->status_code] ?? null;
     }
 
+    /** True if any tag matches "UPSELL TSD" or "TSD UPSELL" (case-insensitive) — the
+     *  tag marking a real upsell/cross-sell add-on, distinct from "Follow up -
+     *  Upsell" (a disposition, not a new upsell). Single source of truth for
+     *  SyncTodayOrders' is_upsell detection at sync time AND
+     *  ProductPerformance::tally()'s catered-count check — the latter reads raw tag
+     *  text directly instead of trusting the stored is_upsell column alone, because
+     *  that column is deliberately forced false for a Restocking/void-status order
+     *  even when it genuinely carries this tag (confirmed in production: an
+     *  AudiCure order sitting in Restocking, tagged "Upsell TSD (Ear Relief Balm)",
+     *  counted as neither a real disposition nor an upsell — invisible as Catered
+     *  work that clearly happened). */
+    public static function hasUpsellTag(array $tagNames): bool
+    {
+        foreach ($tagNames as $tag) {
+            if (preg_match('/\bUPSELL\s+TSD\b|\bTSD\s+UPSELL\b/i', $tag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public function getIsVoidStatusAttribute(): bool
     {
         return in_array($this->status_code, self::VOID_STATUSES, true);
