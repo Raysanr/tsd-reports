@@ -16,6 +16,7 @@
         </div>
         <div class="flex items-center gap-3">
             <input type="text" data-table-filter="auditLogTable" placeholder="Filter…" aria-label="Filter activity log"
+                   value="{{ $query ?? '' }}"
                    class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             @if(!$logs->isEmpty())
             @include('partials.table-actions', ['target' => 'auditLogTable', 'name' => 'audit-log'])

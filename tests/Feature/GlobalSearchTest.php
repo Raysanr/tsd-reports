@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
@@ -133,5 +135,84 @@ class GlobalSearchTest extends TestCase
 
         $response->assertOk();
         $this->assertCount(5, $response->json('tsas'));
+    }
+
+    public function test_search_returns_matching_order_linking_to_leads_report_for_its_team_and_date(): void
+    {
+        Order::create([
+            'pancake_order_id'    => 'SearchableOrder1',
+            'team'                => 'SH Naturals',
+            'product'             => 'Sinuxyl',
+            'disposition'         => 'CONFIRMED VIA CALL',
+            'is_upsell'           => false,
+            'status_code'         => 1,
+            'pancake_created_at'  => now(),
+            'pancake_inserted_at' => now(),
+            'synced_at'           => now(),
+        ]);
+
+        $response = $this->getJson('/search?q=SearchableOrder1');
+
+        $response->assertOk();
+        $response->assertJsonFragment([
+            'label' => '#SearchableOrder1 — Sinuxyl',
+            'url'   => route('leads-report', [
+                'team' => 'sh-naturals', 'range' => 'dates',
+                'date_from' => now()->toDateString(), 'date_to' => now()->toDateString(),
+            ]),
+        ]);
+    }
+
+    public function test_unmatched_order_with_no_team_is_excluded_from_search(): void
+    {
+        // team NULL (Unmatched Orders) has nowhere sensible to link to — dropped
+        // entirely rather than linking somewhere wrong, same convention as a
+        // product/TSA whose team doesn't match config('teams').
+        Order::create([
+            'pancake_order_id'    => 'UnmatchedOrder1',
+            'team'                => null,
+            'product'             => 'SomeUntrackedProduct',
+            'is_upsell'           => false,
+            'status_code'         => 1,
+            'pancake_created_at'  => now(),
+            'pancake_inserted_at' => now(),
+            'synced_at'           => now(),
+        ]);
+
+        $response = $this->getJson('/search?q=UnmatchedOrder1');
+
+        $response->assertOk();
+        $response->assertJsonPath('orders', []);
+    }
+
+    public function test_users_and_audit_log_are_empty_for_a_normal_role_user(): void
+    {
+        $this->actingAs(User::factory()->normal()->create(['name' => 'SearchableStaffMember']));
+        ActivityLog::create(['action' => 'test.action', 'description' => 'SearchableAuditEntry happened']);
+
+        $response = $this->getJson('/search?q=Searchable');
+
+        $response->assertOk();
+        $response->assertJsonPath('users', []);
+        $response->assertJsonPath('auditLog', []);
+    }
+
+    public function test_users_and_audit_log_are_populated_for_an_admin(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $staff = User::factory()->create(['name' => 'SearchableStaffMember', 'email' => 'searchablestaff@example.com']);
+        ActivityLog::create(['action' => 'test.action', 'description' => 'SearchableAuditEntry happened']);
+
+        $response = $this->getJson('/search?q=Searchable');
+
+        $response->assertOk();
+        $response->assertJsonFragment([
+            'label' => "{$staff->name} ({$staff->email})",
+            'url'   => route('user-management'),
+        ]);
+        $response->assertJsonFragment([
+            'label' => 'SearchableAuditEntry happened',
+            'url'   => route('audit-log', ['q' => 'Searchable']),
+        ]);
     }
 }

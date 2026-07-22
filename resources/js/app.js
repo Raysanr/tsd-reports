@@ -483,14 +483,19 @@ window.showToast = function (message, variant = 'success') {
     }
 
     function showResults(data) {
-        const tsaHtml     = renderGroup('TSA Agents', data.tsas || []);
-        const productHtml = renderGroup('Products', data.products || []);
+        // users/auditLog are only ever non-empty for an admin (SearchController
+        // gates them server-side) — a normal user's response just has [] for
+        // both, so this renders identically to before their sections existed.
+        const groups = [
+            renderGroup('TSA Agents', data.tsas || []),
+            renderGroup('Products', data.products || []),
+            renderGroup('Orders', data.orders || []),
+            renderGroup('Users', data.users || []),
+            renderGroup('Audit Log', data.auditLog || []),
+        ];
+        const html = groups.join('');
 
-        if (!tsaHtml && !productHtml) {
-            results.innerHTML = '<p class="px-3 py-3 text-sm font-mono text-slate-400">No results.</p>';
-        } else {
-            results.innerHTML = tsaHtml + productHtml;
-        }
+        results.innerHTML = html || '<p class="px-3 py-3 text-sm font-mono text-slate-400">No results.</p>';
         results.classList.remove('hidden');
     }
 
