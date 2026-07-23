@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 class LeadsReportController extends Controller
 {
@@ -115,6 +117,32 @@ class LeadsReportController extends Controller
             $slotKeyOf = fn($o) => (int) $o->effective_created_at->format('G');
         }
 
+        // Shift-start blanking (explicit request): hours before this team's
+        // first working TSA's shift start that day show no Called/disposition/
+        // rate/Excess data at all (New Leads is untouched — leads keep arriving
+        // regardless of whether anyone's working yet), and the shift-start hour
+        // itself absorbs the WHOLE day-so-far backlog's disposition breakdown
+        // in one lump — a TSA starting their shift works through everything
+        // that piled up overnight, not just that hour's own new leads, so
+        // Called Leads can exceed that hour's New Leads and Excess can go
+        // negative there by design. Hours after the shift starts are
+        // unaffected. Only meaningful for a single calendar day's hourly view:
+        // a multi-day 'dates' range aggregates every day's same hour-of-day
+        // into one row, where "the shift hasn't started yet" no longer has one
+        // answer — skipped there (dateFrom !== dateTo), unchanged behavior.
+        $applyShiftCutoff = $mode === 'last24h' || $dateFrom === $dateTo;
+        $teamShifts       = $applyShiftCutoff ? TsaShift::where('team', $orderTeam)->get() : collect();
+
+        $slotHourOf = $mode === 'last24h'
+            ? fn($slot) => (int) explode(' ', $slot['key'])[1]
+            : fn($slot) => (int) $slot['key'];
+        $slotDateOf = $mode === 'last24h'
+            ? fn($slot) => Carbon::parse(explode(' ', $slot['key'])[0])
+            : fn($slot) => Carbon::parse($dateFrom);
+        $slotKeyForHour = $mode === 'last24h'
+            ? fn(Carbon $date, int $hour) => $date->format('Y-m-d') . ' ' . $hour
+            : fn(Carbon $date, int $hour) => $hour;
+
         // Per-product hourly breakdown — one table per product (matches the source sheet:
         // a separate CANPRO/GINSENG/SINUXYL/AUDICURE tab each). Fetch all of this team's
         // orders for the window ONCE; ProductPerformance::buildRow re-matches from whatever
@@ -143,20 +171,15 @@ class LeadsReportController extends Controller
 
         $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
-        $productTables = $products->map(function ($product) use ($slots, $matchPoolBySlot, $matchPool, $products) {
-            $hourlyRows = [];
-            foreach ($slots as $slot) {
-                $hourOrders = $matchPoolBySlot->get($slot['key'], collect());
-                if ($hourOrders->isEmpty()) continue;
-
-                $row = ProductPerformance::buildRow($product, $hourOrders, $products);
-                // Skip hours where THIS product had no leads at all (other products may
-                // still have had activity that hour — $hourOrders holds every product's
-                // orders, and buildRow's matching already scoped it down to this one).
-                if ($row['total'] === 0) continue;
-
-                $hourlyRows[] = ['label' => $slot['label'], 'row' => $row];
-            }
+        $productTables = $products->map(function ($product) use (
+            $slots, $matchPoolBySlot, $matchPool, $products,
+            $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+        ) {
+            $hourlyRows = $this->buildHourlyRows(
+                $slots, $matchPoolBySlot,
+                fn(Collection $orders) => ProductPerformance::buildRow($product, $orders, $products),
+                $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+            );
 
             return [
                 'product'    => $product,
@@ -182,14 +205,13 @@ class LeadsReportController extends Controller
         // Same per-hour breakdown as each product table above, but tally() directly
         // per slot (no product-matching) — the Grand Total table's own hourly rows,
         // for the exact same "every order counts exactly once" reason as the
-        // all-range $grandTotal above.
-        $grandTotalHourlyRows = [];
-        foreach ($slots as $slot) {
-            $hourOrders = $ordersBySlot->get($slot['key'], collect());
-            if ($hourOrders->isEmpty()) continue;
-
-            $grandTotalHourlyRows[] = ['label' => $slot['label'], 'row' => ProductPerformance::tally($hourOrders)];
-        }
+        // all-range $grandTotal above. Same shift-cutoff treatment as the
+        // per-product tables, so Grand Total's hourly rows stay visually
+        // consistent with them for the same hours.
+        $grandTotalHourlyRows = $this->buildHourlyRows(
+            $slots, $ordersBySlot, fn(Collection $orders) => ProductPerformance::tally($orders),
+            $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+        );
 
         $currentOrders = (clone $ordersQuery)
             ->orderByRaw('COALESCE(pancake_inserted_at, pancake_created_at) DESC')
@@ -200,6 +222,91 @@ class LeadsReportController extends Controller
             'dateFrom', 'dateTo', 'selectedTeam', 'teams', 'mode', 'rangeLabel',
             'currentOrders', 'productTables', 'metricCols', 'grandTotal', 'grandTotalHourlyRows'
         ));
+    }
+
+    /** Builds the hourly rows for one product's table (or Grand Total, via a
+     *  tally()-only $computeRow) — plain per-hour rows when $applyShiftCutoff is
+     *  false, or blank-before-shift-start / lump-at-shift-start otherwise. See
+     *  the shift-cutoff comment in index() for the full reasoning. */
+    private function buildHourlyRows(
+        array $slots, Collection $ordersBySlot, \Closure $computeRow,
+        bool $applyShiftCutoff, Collection $teamShifts,
+        \Closure $slotHourOf, \Closure $slotDateOf, \Closure $slotKeyForHour
+    ): array {
+        if (!$applyShiftCutoff) {
+            $rows = [];
+            foreach ($slots as $slot) {
+                $hourOrders = $ordersBySlot->get($slot['key'], collect());
+                if ($hourOrders->isEmpty()) continue;
+
+                $row = $computeRow($hourOrders);
+                // Skip hours with no leads at all for this row (other products
+                // may still have had activity that hour — $hourOrders holds
+                // every product's orders, and $computeRow's own matching
+                // already scoped it down to this one).
+                if ($row['total'] === 0) continue;
+
+                $rows[] = ['label' => $slot['label'], 'row' => $row];
+            }
+            return $rows;
+        }
+
+        // Earliest active TSA's shift-start hour per calendar date, cached so
+        // a multi-slot (last24h) window only computes it once per real day.
+        $cutoffCache = [];
+        $cutoffFor = function (Carbon $date) use ($teamShifts, &$cutoffCache) {
+            $key = $date->toDateString();
+            if (!array_key_exists($key, $cutoffCache)) {
+                $starts = $teamShifts
+                    ->reject(fn($s) => !$s->shift_start || $s->isOffOn($date))
+                    ->map(fn($s) => (int) date('G', strtotime($s->shift_start)));
+                // No active TSA that day (everyone off, or nobody configured
+                // with a shift_start) — no cutoff, show every hour normally
+                // rather than blanking a whole day with no rule to apply.
+                $cutoffCache[$key] = $starts->isEmpty() ? null : $starts->min();
+            }
+            return $cutoffCache[$key];
+        };
+
+        $rows = [];
+        foreach ($slots as $slot) {
+            $hourOrders = $ordersBySlot->get($slot['key'], collect());
+            $date       = $slotDateOf($slot);
+            $hour       = $slotHourOf($slot);
+            $cutoff     = $cutoffFor($date);
+
+            $row = $computeRow($hourOrders);
+
+            if ($cutoff !== null && $hour < $cutoff) {
+                // Before the team's first shift starts that day: no calls have
+                // happened yet — every disposition/rate/Excess field blanks
+                // (tally/buildRow's own zero-orders shape already nulls rates
+                // and zeroes every count), keeping only this hour's own real
+                // New Leads total.
+                $realTotal = $row['total'];
+                $row = $computeRow(collect());
+                $row['total'] = $realTotal;
+            } elseif ($cutoff !== null && $hour === $cutoff) {
+                $backlog = collect();
+                for ($h = 0; $h <= $cutoff; $h++) {
+                    $backlog = $backlog->merge($ordersBySlot->get($slotKeyForHour($date, $h), collect()));
+                }
+                $realTotal = $row['total'];
+                $row = $computeRow($backlog);
+                // New Leads stays just this hour's own count; every other
+                // field (Called Leads, disposition breakdown, rates) reflects
+                // the WHOLE backlog batch just caught up on — Excess is
+                // recomputed against the real (smaller) total accordingly, so
+                // it can go negative here by design.
+                $row['total']  = $realTotal;
+                $row['excess'] = $row['total'] - $row['catered'];
+            }
+            // else: hour > cutoff — normal per-hour row, unchanged.
+
+            if ($row['total'] === 0) continue;
+            $rows[] = ['label' => $slot['label'], 'row' => $row];
+        }
+        return $rows;
     }
 
     /** ALL — one row per product, combined across every team, for the whole window
