@@ -243,19 +243,6 @@ class DashboardController extends Controller
         ));
     }
 
-    /**
-     * Kicks off the sync as a DETACHED background process (exec ... &), never
-     * Artisan::call() in-process — same fix as CronController::run() for the
-     * exact same reason. This container serves every request through a single
-     * php artisan serve worker (see Dockerfile — no php-fpm, no worker pool).
-     * Running a multi-page Pancake fetch synchronously here blocked that one
-     * worker for its whole duration, during which Render's own 5-second health
-     * check timed out — confirmed in production: "Instance failed... HTTP
-     * health check failed (timed out after 5 seconds)" landing every time
-     * someone clicked Sync. The response now returns instantly; the frontend
-     * (dashboard.blade.php) polls syncStatus() below until the background
-     * runs it kicked off actually land in sync_runs.
-     */
     public function sync(Request $request)
     {
         $dateFrom = $request->input('date_from', now()->toDateString());
@@ -264,56 +251,29 @@ class DashboardController extends Controller
         $from = Carbon::parse($dateFrom);
         $to   = Carbon::parse($dateTo);
 
-        // Every pancake:sync-today run below writes exactly one new SyncRun row
+        // Every Artisan::call below writes exactly one new SyncRun row
         // (SyncTodayOrders::recordRun) — remember the high-water mark first so
-        // syncStatus() can tell whether THIS request's runs have all landed yet,
-        // and pick out just those rows once they have.
+        // the rows created by THIS request can be picked out afterward without
+        // guessing how many days were in range.
         // NOT safe against concurrent /sync requests: two overlapping requests
         // (e.g. two users syncing at once) can each pick up rows the other one
         // wrote, inflating one request's reported counts. Acceptable for now on
         // this low-traffic internal admin tool; would need per-request locking
         // or a request-scoped marker column to fix properly.
         $lastRunIdBeforeSync = SyncRun::max('id') ?? 0;
-        $expectedRuns        = $from->diffInDays($to) + 1;
 
-        $php     = escapeshellarg(PHP_BINARY);
-        $artisan = escapeshellarg(base_path('artisan'));
-        $logFile = escapeshellarg(storage_path('logs/manual-sync.log'));
-
-        $commands = [];
-        for ($cursor = $from->copy(); $cursor->lte($to); $cursor->addDay()) {
-            $date = escapeshellarg($cursor->toDateString());
-            $commands[] = "{$php} {$artisan} pancake:sync-today --date={$date}";
-        }
-        exec('(' . implode(' && ', $commands) . ") >> {$logFile} 2>&1 &");
-
-        return response()->json([
-            'since'    => $lastRunIdBeforeSync,
-            'expected' => $expectedRuns,
-        ]);
-    }
-
-    /** Polled by the Sync button (dashboard.blade.php) after sync() above kicks
-     *  the actual work off in the background — see that method's doc comment.
-     *  'done' stays false until every SyncRun row the request expects has
-     *  landed; once it has, the response shape matches what sync() itself used
-     *  to return synchronously (new_orders/upsell_count/... and success). */
-    public function syncStatus(Request $request)
-    {
-        $since    = (int) $request->input('since', 0);
-        $expected = max(1, (int) $request->input('expected', 1));
-
-        $runsFromThisSync = SyncRun::where('id', '>', $since)->orderBy('id')->get();
-
-        if ($runsFromThisSync->count() < $expected) {
-            return response()->json(['done' => false]);
+        while ($from->lte($to)) {
+            \Artisan::call('pancake:sync-today', ['--date' => $from->toDateString()]);
+            $from->addDay();
         }
 
-        $firstFailure = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
+        $runsFromThisSync = SyncRun::where('id', '>', $lastRunIdBeforeSync)->orderBy('id')->get();
+        $firstFailure      = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
 
         return response()->json([
-            'done'          => true,
             'success'       => $firstFailure === null,
+            'date_from'     => $dateFrom,
+            'date_to'       => $dateTo,
             'new_orders'    => (int) $runsFromThisSync->sum('new_orders'),
             'upsell_count'  => (int) $runsFromThisSync->sum('upsell_count'),
             'upsell_sales'  => (float) $runsFromThisSync->sum('upsell_sales'),
