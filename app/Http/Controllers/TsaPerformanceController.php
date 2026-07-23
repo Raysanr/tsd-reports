@@ -271,8 +271,15 @@ class TsaPerformanceController extends Controller
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
 
+            // 'catered' (== total_called), not 'total' — this column is labeled
+            // "Total Catered Leads" and must match tsa_leads/total_called below.
+            // 'total' counts every matching lead including ones with no worked
+            // disposition yet, which let this column read higher than the actual
+            // called-leads count for the same hour (confirmed live: a lead still
+            // sitting New/un-called inflated the per-product sum by 1 past the
+            // real total called that hour).
             $counts   = $products->mapWithKeys(function ($product) use ($hourOrders, $products) {
-                return [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)['total']];
+                return [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)['catered']];
             });
             $rowTotal = $counts->sum();
 
