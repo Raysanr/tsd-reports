@@ -363,8 +363,38 @@ document.addEventListener('click', async (e) => {
     if (wasDark) document.documentElement.classList.remove('dark');
     try {
         await loadHtml2Canvas();
-        const canvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
-        canvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
+        const tableCanvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
+
+        // Optional adjacent chart (Leads Report's disposition pie) — composited
+        // beside the table so the exported image matches what's on screen, not
+        // just the table half of it. The chart canvas is Chart.js's own already-
+        // rendered bitmap (drawImage handles the scale-up cleanly), not a second
+        // html2canvas pass — its legend/label colors read fine on a white
+        // background in either theme (both --chart-label values are mid-gray,
+        // confirmed in app.css), so no re-render-in-light-mode dance is needed
+        // here the way the table gets above.
+        const chartCanvas = btn.dataset.exportChart ? document.getElementById(btn.dataset.exportChart) : null;
+        const chartBox    = chartCanvas?.getBoundingClientRect();
+        let finalCanvas   = tableCanvas;
+
+        if (chartCanvas && chartBox && chartBox.width > 0) {
+            const scale     = 2; // matches the table capture's own scale above
+            const gap       = 16 * scale;
+            const chartW    = chartBox.width * scale;
+            const chartH    = chartBox.height * scale;
+
+            finalCanvas = document.createElement('canvas');
+            finalCanvas.width  = tableCanvas.width + gap + chartW;
+            finalCanvas.height = Math.max(tableCanvas.height, chartH);
+
+            const ctx = finalCanvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+            ctx.drawImage(tableCanvas, 0, 0);
+            ctx.drawImage(chartCanvas, tableCanvas.width + gap, 0, chartW, chartH);
+        }
+
+        finalCanvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
     } catch (err) {
         console.error('Table snapshot failed:', err);
     } finally {

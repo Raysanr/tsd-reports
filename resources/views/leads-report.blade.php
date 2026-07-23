@@ -69,7 +69,7 @@
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Grand Total — All Products</h2>
         <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-slate-400">{{ $grandTotal['total'] }} {{ \Illuminate\Support\Str::plural('lead', $grandTotal['total']) }}</span>
-            @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam])
+            @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam, 'chart' => 'grandTotalChart'])
         </div>
     </div>
     <div class="flex flex-col lg:flex-row">
@@ -150,7 +150,7 @@
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $table['product']->display_name }}</h2>
         <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-slate-400">{{ $table['total']['total'] }} {{ \Illuminate\Support\Str::plural('lead', $table['total']['total']) }}</span>
-            @include('partials.table-actions', ['target' => 'productTable-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($table['product']->display_name)])
+            @include('partials.table-actions', ['target' => 'productTable-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($table['product']->display_name), 'chart' => 'productChart-' . $loop->index])
         </div>
     </div>
 
