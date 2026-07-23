@@ -31,7 +31,7 @@
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
-                <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap" style="min-width:110px"></th>
+                <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap" style="min-width:110px">Time</th>
                 <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">New<br>Leads</th>
                 <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">Called<br>Leads</th>
                 <th colspan="{{ $answeredCols->count() }}" class="bg-green-200 dark:bg-green-900/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">Answered Called Leads</th>
@@ -51,6 +51,24 @@
             </tr>
         </thead>
         <tbody>
+            @foreach($grandTotalHourlyRows as $hour)
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hour['label'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total_called'] ?: '' }}</td>
+                @foreach($answeredCols as $col)
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                @endforeach
+                @foreach($unansweredCols as $col)
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['excess'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}</td>
+            </tr>
+            @endforeach
+
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>

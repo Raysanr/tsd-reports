@@ -161,6 +161,18 @@ class LeadsReportController extends Controller
         // per-product totals above would double-count the former and drop the latter.
         $grandTotal = ProductPerformance::tally($allOrders);
 
+        // Same per-hour breakdown as each product table above, but tally() directly
+        // per slot (no product-matching) — the Grand Total table's own hourly rows,
+        // for the exact same "every order counts exactly once" reason as the
+        // all-range $grandTotal above.
+        $grandTotalHourlyRows = [];
+        foreach ($slots as $slot) {
+            $hourOrders = $ordersBySlot->get($slot['key'], collect());
+            if ($hourOrders->isEmpty()) continue;
+
+            $grandTotalHourlyRows[] = ['label' => $slot['label'], 'row' => ProductPerformance::tally($hourOrders)];
+        }
+
         $currentOrders = (clone $ordersQuery)
             ->orderByRaw('COALESCE(pancake_inserted_at, pancake_created_at) DESC')
             ->get();
@@ -168,7 +180,7 @@ class LeadsReportController extends Controller
 
         return view('leads-report', compact(
             'dateFrom', 'dateTo', 'selectedTeam', 'teams', 'mode', 'rangeLabel',
-            'currentOrders', 'productTables', 'metricCols', 'grandTotal'
+            'currentOrders', 'productTables', 'metricCols', 'grandTotal', 'grandTotalHourlyRows'
         ));
     }
 
