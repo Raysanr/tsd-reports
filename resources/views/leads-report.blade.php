@@ -13,6 +13,51 @@
 @php
     $answeredCols   = collect($metricCols)->where('group', 'answered');
     $unansweredCols = collect($metricCols)->where('group', 'unanswered');
+
+    // Disposition pie charts (grand total + one per product), matching the
+    // source sheet's per-tab chart — built from the exact same
+    // $grandTotal/$table['total'] rows already on the page, no extra query.
+    // green = answered, orange/amber = unanswered, rose = excess; zero-value
+    // slices are skipped, same as the table cells (`?: ''`) already do.
+    $dispositionColors = [
+        'confirmed_via_call'     => '#16a34a',
+        'upsell_confirmation'    => '#15803d',
+        'call_back'              => '#4ade80',
+        'call_dropped'           => '#86efac',
+        'repeat_order_upsell'    => '#059669',
+        'rude_customer'          => '#10b981',
+        'relatives_confirmation' => '#34d399',
+        'dfr'                    => '#f59e0b',
+        'double_order'           => '#fb923c',
+        'fsd_uncleared'          => '#fbbf24',
+        'not_answering'          => '#f97316',
+        'unattended'             => '#fdba74',
+        'invalid_number'         => '#fcd34d',
+        'excess'                 => '#e11d48',
+    ];
+    $dispositionLabels = collect($metricCols)->pluck('label', 'key')
+        ->map(fn($label) => strip_tags(str_replace('<br>', ' ', $label)));
+
+    $buildChartData = function (array $row) use ($dispositionColors, $dispositionLabels) {
+        $labels = $data = $colors = [];
+        foreach ($dispositionColors as $key => $color) {
+            if (($row[$key] ?? 0) > 0) {
+                $labels[] = $dispositionLabels[$key];
+                $data[]   = $row[$key];
+                $colors[] = $color;
+            }
+        }
+        return compact('labels', 'data', 'colors');
+    };
+
+    $chartsData = [];
+    if ($grandTotal['total'] > 0) {
+        $chartsData[] = ['id' => 'grandTotalChart', 'chart' => $buildChartData($grandTotal)];
+    }
+    foreach ($productTables as $i => $table) {
+        if (empty($table['hourlyRows'])) continue;
+        $chartsData[] = ['id' => 'productChart-' . $i, 'chart' => $buildChartData($table['total'])];
+    }
 @endphp
 
 {{-- GRAND TOTAL — all products combined, whole range. One tally over every order
@@ -27,7 +72,8 @@
             @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam])
         </div>
     </div>
-    <div class="overflow-x-auto" id="grandTotalTable">
+    <div class="flex flex-col lg:flex-row">
+    <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -87,6 +133,14 @@
         </tbody>
     </table>
     </div>
+
+    {{-- Disposition breakdown pie — matches the source sheet's per-tab chart.
+         Built client-side (data-rerun script below) from this same $grandTotal
+         data already on the page, not a separate query. --}}
+    <div class="shrink-0 w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
+        <canvas id="grandTotalChart" width="260" height="220"></canvas>
+    </div>
+    </div>
 </div>
 @endif
 
@@ -103,7 +157,8 @@
     @if(empty($table['hourlyRows']))
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
-    <div class="overflow-x-auto" id="productTable-{{ $loop->index }}">
+    <div class="flex flex-col lg:flex-row">
+    <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -163,6 +218,14 @@
             </tr>
         </tbody>
     </table>
+    </div>
+
+    {{-- Disposition breakdown pie — matches the source sheet's per-product tab
+         chart. Built client-side (data-rerun script below) from this same
+         $table['total'] data already on the page, not a separate query. --}}
+    <div class="shrink-0 w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
+        <canvas id="productChart-{{ $loop->index }}" width="260" height="220"></canvas>
+    </div>
     </div>
     @endif
 </div>
@@ -262,6 +325,55 @@
 </div>
 
 @endsection
+
+@if(!empty($chartsData))
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+{{-- data-rerun: app.js's softRefresh re-executes this after swapping <main> in
+     place (see charts.blade.php for the full explanation of this pattern) —
+     the canvases these target live inside the swapped region, and re-running
+     picks up fresh @json data on every filter change. --}}
+<script data-rerun>
+(function () {
+    const charts = @json($chartsData);
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const labelColor = (rootStyles.getPropertyValue('--chart-label') || '').trim() || '#94a3b8';
+
+    charts.forEach(({ id, chart }) => {
+        const el = document.getElementById(id);
+        if (!el || chart.data.length === 0) return;
+
+        new Chart(el, {
+            type: 'pie',
+            data: {
+                labels: chart.labels,
+                datasets: [{ data: chart.data, backgroundColor: chart.colors, borderWidth: 1 }],
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, font: { size: 9, family: "'Fira Code', monospace" }, color: labelColor },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+                                return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    });
+})();
+</script>
+@endpush
+@endif
 
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
