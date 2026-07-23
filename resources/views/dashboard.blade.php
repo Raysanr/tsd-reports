@@ -688,6 +688,15 @@
         };
 
         const csrfToken = document.querySelector('meta[name=csrf-token]').content;
+        const finish = () => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); };
+
+        // /sync kicks the actual work off as a detached background process and
+        // returns instantly (see DashboardController::sync's doc comment) — a
+        // multi-page Pancake fetch running IN this request used to block the
+        // single php artisan serve worker long enough for Render's own 5-second
+        // health check to time out, confirmed in production ("Instance failed
+        // ... HTTP health check failed") every time Sync was clicked. Poll
+        // /sync/status instead of awaiting one long response.
         fetch('/sync', {
             method : 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrfToken },
@@ -697,22 +706,49 @@
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.json();
         })
-        .then((data) => {
-            if (data.success) {
-                const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                const message = data.new_orders > 0
-                    ? `Synced — ${data.new_orders} new order${data.new_orders === 1 ? '' : 's'}, ${data.upsell_count} upsell${data.upsell_count === 1 ? '' : 's'} (₱${peso})`
-                    : 'Synced — no new orders.';
-                window.showToast(message, 'success');
-            } else {
-                window.showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
-            }
-            // Swap the freshly synced numbers in place — no full reload, no
-            // flicker, scroll position kept (softRefresh in resources/js/app.js).
-            return window.softRefresh();
+        .then(({ since, expected }) => {
+            const startedAt = Date.now();
+            const poll = () => {
+                fetch(`/sync/status?since=${since}&expected=${expected}`)
+                    .then(r => {
+                        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                        return r.json();
+                    })
+                    .then((data) => {
+                        if (!data.done) {
+                            // A typical day lands within a few seconds, but a big day
+                            // (paginated Pancake fetch, several concurrent page
+                            // requests) can genuinely take over a minute — confirmed
+                            // against a real ~1,800-order day. 3 minutes is a generous
+                            // ceiling so a genuinely stuck background process doesn't
+                            // poll forever and leave the button spinning silently.
+                            if (Date.now() - startedAt > 180000) {
+                                window.showToast('Sync is taking longer than expected — check Sync Health shortly.', 'error');
+                                finish();
+                                return;
+                            }
+                            setTimeout(poll, 1500);
+                            return;
+                        }
+
+                        if (data.success) {
+                            const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                            const message = data.new_orders > 0
+                                ? `Synced — ${data.new_orders} new order${data.new_orders === 1 ? '' : 's'}, ${data.upsell_count} upsell${data.upsell_count === 1 ? '' : 's'} (₱${peso})`
+                                : 'Synced — no new orders.';
+                            window.showToast(message, 'success');
+                        } else {
+                            window.showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+                        }
+                        // Swap the freshly synced numbers in place — no full reload,
+                        // no flicker, scroll position kept (softRefresh in app.js).
+                        window.softRefresh().finally(finish);
+                    })
+                    .catch(() => { window.showToast('Sync failed: request error.', 'error'); finish(); });
+            };
+            poll();
         })
-        .catch(() => window.showToast('Sync failed: request error.', 'error'))
-        .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-spin'); });
+        .catch(() => { window.showToast('Sync failed: request error.', 'error'); finish(); });
     });
 })();
 </script>
