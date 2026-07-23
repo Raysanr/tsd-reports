@@ -115,21 +115,27 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         // name+value (never by replacing the node, so listeners stay intact).
         // Covers back/forward and any refresh triggered by something other
         // than clicking the button itself (Sync, date picker, auto-refresh).
-        //
-        // [data-sync-btn] covers the same staleness problem for controls whose
-        // active/inactive classes DON'T toggle between the two fixed team-pill
-        // class sets the instant-feedback handler above hardcodes (e.g. TSA
-        // Performance's product dropdown, styled bg-slate-700/text-white vs
-        // text-slate-600/dark:text-slate-400) — those can't safely use
-        // [data-filter-btn] there without corrupting their classes, so they only
-        // get the true, server-rendered classes here instead of instant feedback.
-        doc.querySelectorAll('[data-filter-btn], [data-sync-btn]').forEach((fresh) => {
-            const attr = fresh.hasAttribute('data-filter-btn') ? 'data-filter-btn' : 'data-sync-btn';
+        doc.querySelectorAll('[data-filter-btn]').forEach((fresh) => {
             const current = document.querySelector(
-                `[${attr}][name="${fresh.name}"][value="${fresh.value}"]`
+                `[data-filter-btn][name="${fresh.name}"][value="${fresh.value}"]`
             );
             if (current) current.className = fresh.className;
         });
+
+        // TSA Performance's product dropdown can't use the name+value className
+        // copy above: switching TEAM changes which PRODUCTS exist at all (SH
+        // Naturals vs Eyecare have entirely different catalogs), so the stale
+        // panel doesn't just have wrong highlighting — it lists the wrong
+        // team's products outright, with no matching value to sync onto.
+        // Replace the whole panel's contents instead. Safe to do even though
+        // it discards the existing button nodes: their submit handling is a
+        // single delegated document-level 'submit' listener (added once, up
+        // top), not a per-button listener, so nothing is lost — and the panel
+        // container itself (referenced by the dropdown's own open/close toggle
+        // script, run once at initial load) is never replaced, just its innerHTML.
+        const freshProductPanel = doc.querySelector('#productPanel');
+        const currentProductPanel = document.querySelector('#productPanel');
+        if (freshProductPanel && currentProductPanel) currentProductPanel.innerHTML = freshProductPanel.innerHTML;
 
         // Same staleness problem as [data-filter-btn] above, but for the Sync button
         // itself (dashboard.blade.php, also in @push('topbar-right') outside <main>)
