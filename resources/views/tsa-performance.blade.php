@@ -233,20 +233,20 @@
             <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
             </svg>
-            <span>{{ $selectedProduct === 'all' ? 'All Products' : $selectedProduct }}</span>
+            <span id="productTriggerLabel">{{ $selectedProduct === 'all' ? 'All Products' : $selectedProduct }}</span>
             <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
             </svg>
         </button>
 
         <div id="productPanel" role="listbox" class="hidden absolute right-0 top-full mt-2 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1 max-h-80 overflow-y-auto" style="min-width:200px">
-            <button type="submit" name="product" value="all" role="option" aria-selected="{{ $selectedProduct === 'all' ? 'true' : 'false' }}"
+            <button type="submit" name="product" value="all" data-sync-btn role="option" aria-selected="{{ $selectedProduct === 'all' ? 'true' : 'false' }}"
                     class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer
                            {{ $selectedProduct === 'all' ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 All Products
             </button>
             @foreach($availableProducts as $product)
-            <button type="submit" name="product" value="{{ $product->display_name }}" role="option" aria-selected="{{ $selectedProduct === $product->display_name ? 'true' : 'false' }}"
+            <button type="submit" name="product" value="{{ $product->display_name }}" data-sync-btn role="option" aria-selected="{{ $selectedProduct === $product->display_name ? 'true' : 'false' }}"
                     class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer border-t border-slate-100 dark:border-slate-700
                            {{ $selectedProduct === $product->display_name ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
                 {{ $product->display_name }}

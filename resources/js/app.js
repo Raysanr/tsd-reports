@@ -115,9 +115,18 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         // name+value (never by replacing the node, so listeners stay intact).
         // Covers back/forward and any refresh triggered by something other
         // than clicking the button itself (Sync, date picker, auto-refresh).
-        doc.querySelectorAll('[data-filter-btn]').forEach((fresh) => {
+        //
+        // [data-sync-btn] covers the same staleness problem for controls whose
+        // active/inactive classes DON'T toggle between the two fixed team-pill
+        // class sets the instant-feedback handler above hardcodes (e.g. TSA
+        // Performance's product dropdown, styled bg-slate-700/text-white vs
+        // text-slate-600/dark:text-slate-400) — those can't safely use
+        // [data-filter-btn] there without corrupting their classes, so they only
+        // get the true, server-rendered classes here instead of instant feedback.
+        doc.querySelectorAll('[data-filter-btn], [data-sync-btn]').forEach((fresh) => {
+            const attr = fresh.hasAttribute('data-filter-btn') ? 'data-filter-btn' : 'data-sync-btn';
             const current = document.querySelector(
-                `[data-filter-btn][name="${fresh.name}"][value="${fresh.value}"]`
+                `[${attr}][name="${fresh.name}"][value="${fresh.value}"]`
             );
             if (current) current.className = fresh.className;
         });
@@ -137,6 +146,16 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
             currentSyncBtn.title = freshSyncBtn.title;
             currentSyncBtn.setAttribute('aria-label', freshSyncBtn.getAttribute('aria-label'));
         }
+
+        // Same staleness problem, but for the product dropdown's own trigger
+        // label (TSA Performance) — it reads $selectedProduct on the ORIGINAL
+        // page load, so picking a product from the panel (synced via
+        // [data-sync-btn] above) left the trigger itself still reading
+        // "All Products" (or whatever was selected before) since it's outside
+        // <main> and nothing was copying its text over.
+        const freshProductLabel = doc.querySelector('#productTriggerLabel');
+        const currentProductLabel = document.querySelector('#productTriggerLabel');
+        if (freshProductLabel && currentProductLabel) currentProductLabel.textContent = freshProductLabel.textContent;
 
         // Same staleness problem, but for the topbar filter form's hidden
         // fallback fields (team, product, range, ...) — these carry the actual
