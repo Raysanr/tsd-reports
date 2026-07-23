@@ -123,12 +123,30 @@ class LeadsReportController extends Controller
         $allOrders    = (clone $ordersQuery)->get();
         $ordersBySlot = $allOrders->groupBy($slotKeyOf);
 
+        // Product-matching pool, separate from $allOrders above: a combo SKU can
+        // bundle products from TWO different teams under one order (e.g. a
+        // Pterygium order — Eyecare's own team — bundling 10 Sinuxyl units, an SH
+        // Naturals product), but an order only ever carries the ONE team its
+        // primary item belongs to. Team-scoping the pool buildRow() matches
+        // against (like $allOrders does) would make that whole cross-team half of
+        // the bundle invisible to SH Naturals' own SINUXYL row — confirmed in
+        // production (order 1333736: 89 in POS vs 88 here). ProductPerformance::
+        // buildRow() itself already trusts an explicit product/bundle_description
+        // text match across team lines; it just needs a pool that isn't
+        // pre-filtered down to one team to find it in. Grand Total and Recent
+        // Orders deliberately still use the team-scoped $allOrders/$ordersQuery
+        // above — a cross-team combo stays owned by its own team for THOSE.
+        $matchPool       = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+            ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
+            ->get();
+        $matchPoolBySlot = $matchPool->groupBy($slotKeyOf);
+
         $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
-        $productTables = $products->map(function ($product) use ($slots, $ordersBySlot, $allOrders, $products) {
+        $productTables = $products->map(function ($product) use ($slots, $matchPoolBySlot, $matchPool, $products) {
             $hourlyRows = [];
             foreach ($slots as $slot) {
-                $hourOrders = $ordersBySlot->get($slot['key'], collect());
+                $hourOrders = $matchPoolBySlot->get($slot['key'], collect());
                 if ($hourOrders->isEmpty()) continue;
 
                 $row = ProductPerformance::buildRow($product, $hourOrders, $products);
@@ -143,7 +161,7 @@ class LeadsReportController extends Controller
             return [
                 'product'    => $product,
                 'hourlyRows' => $hourlyRows,
-                'total'      => ProductPerformance::buildRow($product, $allOrders, $products),
+                'total'      => ProductPerformance::buildRow($product, $matchPool, $products),
             ];
         })->values();
 

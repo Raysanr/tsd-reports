@@ -61,7 +61,26 @@ class ProductPerformance
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
         $matching = $orders->filter(function ($o) use ($product, $teamProducts) {
-            if ($o->team !== $product->team) return false;
+            // bundle_description is the item's full combo text (e.g. "1 Ginseng
+            // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
+            // entry's generic name, which silently hid every other product bundled
+            // into the same combo SKU (confirmed in production: a Ginseng Serum +
+            // Scar Cream combo order never counted toward Scar Cream at all).
+            //
+            // Checked BEFORE the team gate below, and trusted across team lines:
+            // an order only ever carries ONE team (assigned from its PRIMARY item),
+            // but a combo can genuinely bundle products from two different teams
+            // under that one order — e.g. a Pterygium order (Eyecare's own team)
+            // bundling 10 Sinuxyl units (SH Naturals). Without this override, that
+            // whole cross-team half of the bundle would be invisible everywhere,
+            // since the order's single team column can never equal both products'
+            // teams at once. An explicit product/bundle_description text match is
+            // authoritative enough to trust regardless of the order's own team —
+            // unlike a bare tag match below, which stays team-gated since a tag
+            // alone is a weaker, more collision-prone signal.
+            $explicitMatch = $product->matchesText($o->product) || $product->matchesText($o->bundle_description);
+
+            if ($o->team !== $product->team && !$explicitMatch) return false;
 
             // Stale-tag guard: ~1-3 times a week an order's actual cart item is a
             // DIFFERENT team product (confirmed in production: mostly Pterygium
@@ -77,12 +96,7 @@ class ProductPerformance
             foreach ($o->raw_tags ?? [] as $tag) {
                 if ($product->matchesText($tag)) return true;
             }
-            // bundle_description is the item's full combo text (e.g. "1 Ginseng
-            // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
-            // entry's generic name, which silently hid every other product bundled
-            // into the same combo SKU (confirmed in production: a Ginseng Serum +
-            // Scar Cream combo order never counted toward Scar Cream at all).
-            return $product->matchesText($o->product) || $product->matchesText($o->bundle_description);
+            return $explicitMatch;
         });
 
         $row = self::tally($matching);

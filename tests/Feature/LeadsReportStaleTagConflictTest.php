@@ -132,4 +132,59 @@ class LeadsReportStaleTagConflictTest extends TestCase
             return $ginseng['total']['total'] === 1 && $scarCream['total']['total'] === 1;
         });
     }
+
+    /**
+     * Confirmed in production (order #1333736): a combo SKU can bundle products
+     * from TWO different teams under one order — e.g. a Pterygium order (Eyecare's
+     * own team, its primary item) bundling Sinuxyl units (SH Naturals). An order
+     * only ever carries the ONE team its primary item belongs to, so before this
+     * fix SH Naturals' own SINUXYL row could never see it (POS showed 89, this
+     * report showed 88). ProductPerformance::buildRow() now trusts an explicit
+     * product/bundle_description text match across team lines, and
+     * LeadsReportController passes it a cross-team pool to check against.
+     */
+    public function test_a_cross_team_combo_orders_bundled_product_counts_for_the_other_team_too(): void
+    {
+        $shift = TsaShift::where('team', 'Eyecare Team')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'cross-team-combo-1',
+            'team'               => 'Eyecare Team',
+            'tsa_name'           => $shift->tsa_key,
+            'disposition'        => 'CONFIRMED VIA CALL',
+            'product'            => 'Pterygium',
+            'bundle_description' => '10 Pterygium Drops + 10 Sinuxyl',
+            'raw_tags'           => [strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell'          => false,
+            'status_code'        => 1,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $today = now()->toDateString();
+
+        // SH Naturals' own report should now count the Sinuxyl half of the bundle...
+        $shResponse = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+        $shResponse->assertOk();
+        $shResponse->assertViewHas('productTables', function ($tables) {
+            $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
+            return $sinuxyl['total']['total'] === 1;
+        });
+        // ...without the order being pulled into SH Naturals' own Grand Total —
+        // it isn't SH Naturals' order, only its bundle overlaps.
+        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
+
+        // Eyecare's own report still counts it too (its actual team + primary item).
+        $eyecareResponse = $this->get(route('leads-report', [
+            'team' => 'eyecare', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+        $eyecareResponse->assertOk();
+        $eyecareResponse->assertViewHas('productTables', function ($tables) {
+            $pterygium = $tables->firstWhere(fn($t) => $t['product']->display_name === 'PTERYGIUM');
+            return $pterygium['total']['total'] === 1;
+        });
+        $eyecareResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+    }
 }
