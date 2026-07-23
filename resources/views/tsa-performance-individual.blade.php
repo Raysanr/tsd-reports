@@ -78,7 +78,7 @@
 </div>
 @else
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)">
-    <table class="w-full border-collapse text-xs font-mono" style="min-width:1100px">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1280px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
                 <th rowspan="2"
@@ -97,6 +97,16 @@
                 <th colspan="6"
                     class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
+                </th>
+                <th rowspan="2"
+                    class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                    style="min-width:90px">
+                    Pick-up<br>Rate
+                </th>
+                <th rowspan="2"
+                    class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                    style="min-width:90px">
+                    Conversion<br>Rate
                 </th>
                 <th rowspan="2"
                     class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
@@ -133,6 +143,12 @@
                     {{ $hour['row'][$col['key']] ?: '' }}
                 </td>
                 @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">
+                    {{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">
+                    {{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}
+                </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">
                     {{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}
                 </td>
@@ -148,6 +164,12 @@
                     {{ $summary[$col['key']] ?: '' }}
                 </td>
                 @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">
+                    {{ $summary['pick_up_rate'] !== null ? $summary['pick_up_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">
+                    {{ $summary['conversion_rate'] !== null ? $summary['conversion_rate'].'%' : '—' }}
+                </td>
                 <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">
                     {{ $summary['upselling_rate'] !== null ? $summary['upselling_rate'].'%' : '—' }}
                 </td>
