@@ -36,7 +36,15 @@ import './bootstrap';
 // scripts stack would double-bind header controls that were never replaced.
 // Re-run scripts are taken from the freshly fetched document, so any @json
 // data baked into them is current, not stale.
-window.softRefresh = async function (url = window.location.href, { pushUrl = false } = {}) {
+window.softRefresh = async function (url = window.location.href, { pushUrl = false, showLoading = false } = {}) {
+    // showLoading is opt-in: the silent 2-minute background refresh (below)
+    // deliberately stays invisible, but a user-initiated filter change (team,
+    // product, date range) should never look frozen for the length of the
+    // round-trip — #loadingOverlay (layouts/app.blade.php, a sibling of <main>
+    // so the innerHTML swap below never wipes it out) covers the table until
+    // this resolves either way.
+    const overlay = showLoading ? document.getElementById('loadingOverlay') : null;
+    overlay?.classList.remove('hidden');
     try {
         const res = await fetch(url, {
             headers: { 'X-Soft-Refresh': '1' },
@@ -155,8 +163,8 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
 
         // Same staleness problem, but for the product dropdown's own trigger
         // label (TSA Performance) — it reads $selectedProduct on the ORIGINAL
-        // page load, so picking a product from the panel (synced via
-        // [data-sync-btn] above) left the trigger itself still reading
+        // page load, so picking a product from the panel (whose whole contents
+        // were just replaced above) left the trigger itself still reading
         // "All Products" (or whatever was selected before) since it's outside
         // <main> and nothing was copying its text over.
         const freshProductLabel = doc.querySelector('#productTriggerLabel');
@@ -192,6 +200,8 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         return true;
     } catch {
         return false;
+    } finally {
+        overlay?.classList.add('hidden');
     }
 };
 
@@ -250,13 +260,13 @@ document.addEventListener('submit', (e) => {
     const url    = form.action.split('?')[0] + (query ? '?' + query : '');
 
     e.preventDefault();
-    window.softRefresh(url, { pushUrl: true }).then((ok) => {
+    window.softRefresh(url, { pushUrl: true, showLoading: true }).then((ok) => {
         if (!ok) window.location.href = url;
     });
 });
 
 // Back/forward after a pushState above re-renders the restored URL in place.
-window.addEventListener('popstate', () => window.softRefresh(window.location.href));
+window.addEventListener('popstate', () => window.softRefresh(window.location.href, { showLoading: true }));
 
 // ─── Table export: CSV + PNG snapshot ────────────────────────────────────────
 // Every report table renders partials/table-actions.blade.php — two icon

@@ -460,10 +460,29 @@
         </div>
     </header>
 
-    {{-- Scrollable page content --}}
-    <main class="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
-        @yield('content')
-    </main>
+    {{-- Scrollable page content — wrapped in a positioning parent so
+         #loadingOverlay (a sibling, not a child, so <main>'s innerHTML swap
+         on softRefresh never wipes it out) can cover exactly this area. --}}
+    <div class="relative flex-1 min-h-0">
+        <main class="absolute inset-0 overflow-y-auto overflow-x-hidden p-4 md:p-8">
+            @yield('content')
+        </main>
+
+        {{-- Shown by softRefresh (resources/js/app.js) for user-initiated topbar
+             filter changes (team/product/date) on every report page — so a table
+             that takes a moment to refresh never just sits there looking frozen.
+             Left hidden for the silent 2-minute background refresh, which is
+             deliberately invisible. --}}
+        <div id="loadingOverlay" class="hidden absolute inset-0 z-30 bg-white/60 dark:bg-slate-950/60 backdrop-blur-[1px] flex items-start justify-center pt-24">
+            <div class="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full pl-3 pr-4 py-2 shadow-lg">
+                <svg class="animate-spin w-4 h-4 text-primary shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Loading…</span>
+            </div>
+        </div>
+    </div>
 
 </div>
 

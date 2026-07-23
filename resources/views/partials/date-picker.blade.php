@@ -337,7 +337,7 @@
             // scroll loss); the URL still updates via pushState. Falls back to
             // a real navigation if the in-place refresh fails.
             if (window.softRefresh) {
-                window.softRefresh(url, { pushUrl: true }).then(ok => { if (!ok) window.location.href = url; });
+                window.softRefresh(url, { pushUrl: true, showLoading: true }).then(ok => { if (!ok) window.location.href = url; });
             } else {
                 window.location.href = url;
             }
