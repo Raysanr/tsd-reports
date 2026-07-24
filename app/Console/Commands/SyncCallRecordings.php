@@ -43,8 +43,35 @@ class SyncCallRecordings extends Command
      *  if a folder is ever nested unexpectedly deeply. */
     private const MAX_DEPTH = 4;
 
+    /** Circuit breaker on actual file downloads (not listings) for one run —
+     *  real usage across every TSA/team for a full day has been ~160-190
+     *  files. This is generous headroom over that, but stops a single run
+     *  from downloading an unbounded number of multi-MB files (e.g. a data
+     *  anomaly, or a folder mismatch pulling in far more than expected) on a
+     *  memory/CPU-constrained single-worker container. */
+    private const MAX_DOWNLOADS_PER_RUN = 400;
+
     public function handle(): int
     {
+        // withoutOverlapping() on the schedule registration (routes/console.php)
+        // only guards the SCHEDULER from launching a second instance of its own —
+        // it does nothing for SettingsController::syncDriveNow()'s manual trigger,
+        // which spawns this command via a raw detached exec(), bypassing Laravel's
+        // scheduler entirely. Without this guard, a manual click while the 2-hourly
+        // schedule is mid-run (a full run has taken several minutes) would run TWO
+        // heavy Drive-downloading processes at once on this single, resource-
+        // constrained container — a very plausible way to actually starve it.
+        // Guarded by staleness, not just presence: if the container is killed
+        // mid-run (confirmed to happen in production — an OOM/crash never
+        // reaches the finally block below), this flag would otherwise stay '1'
+        // forever, permanently blocking every future run, scheduled or manual,
+        // with no way to recover except manually clearing a Settings row.
+        if (Setting::get('drive_sync_running') === '1' && !$this->runningFlagIsStale()) {
+            $this->warn('A sync is already running — skipping to avoid running two at once.');
+            return self::SUCCESS;
+        }
+
+        Setting::set('drive_sync_running', '1');
         // Recorded on every invocation regardless of outcome — surfaced on the
         // Settings page (see SettingsController::index()) so a silent production
         // failure is actually visible instead of just "still no data" with no clue
@@ -60,6 +87,8 @@ class SyncCallRecordings extends Command
             Log::error('calls:sync-recordings failed', ['message' => $e->getMessage()]);
             $this->error('Unexpected error: ' . $e->getMessage());
             return self::FAILURE;
+        } finally {
+            Setting::set('drive_sync_running', '');
         }
     }
 
@@ -88,6 +117,7 @@ class SyncCallRecordings extends Command
 
         // tsa_key => [hour => ['seconds' => float, 'count' => int]]
         $totals = [];
+        $downloadCount = 0;
 
         foreach (self::FOLDER_SETTING_KEYS as $orderTeam => $settingKey) {
             $rootId = Setting::get($settingKey);
@@ -121,11 +151,17 @@ class SyncCallRecordings extends Command
                 $files = $this->collectFilesRecursively($token, $tsaFolder['id'], 0);
 
                 foreach ($files as $file) {
+                    if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
+                        $this->warn('Hit the ' . self::MAX_DOWNLOADS_PER_RUN . '-download cap for this run — stopping early.');
+                        break 3;
+                    }
+
                     $parsed = $this->parseFilename($file['name']);
                     if (!$parsed || $parsed['date'] !== $dateString) continue;
 
                     $bytes = $this->downloadFile($token, $file['id']);
                     if ($bytes === null) continue;
+                    $downloadCount++;
 
                     $seconds = $this->m4aDurationSeconds($bytes);
                     if ($seconds === null) continue;
@@ -168,6 +204,16 @@ class SyncCallRecordings extends Command
         Setting::set('drive_sync_last_status', 'failed');
         Setting::set('drive_sync_last_message', $message);
         $this->error($message);
+    }
+
+    /** A real run has taken up to ~5-10 minutes for every TSA/team combined;
+     *  20 minutes is generous headroom over that. No timestamp at all can't
+     *  be a genuinely in-progress run, so treat it as stale too rather than
+     *  block forever on a flag with nothing to measure staleness against. */
+    private function runningFlagIsStale(): bool
+    {
+        $lastRun = Setting::get('drive_sync_last_run');
+        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 20;
     }
 
     private function namesMatch(string $folderName, string $tsaName): bool

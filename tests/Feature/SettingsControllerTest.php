@@ -217,4 +217,15 @@ class SettingsControllerTest extends TestCase
         $response->assertRedirect(route('settings'));
         $response->assertSessionHas('success');
     }
+
+    public function test_sync_now_refuses_to_start_a_second_sync_while_one_is_already_running(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('drive_refresh_token', 'refresh-token-xyz');
+        Setting::set('drive_sync_running', '1');
+
+        $response = $this->post(route('settings.drive.sync-now'));
+
+        $response->assertSessionHasErrors('drive_refresh_token');
+    }
 }

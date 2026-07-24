@@ -195,6 +195,14 @@ class SettingsController extends Controller
             return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
         }
 
+        // The command itself also guards against this (see SyncCallRecordings::
+        // handle()) so a scheduled run starting just after this check still can't
+        // overlap — this check just avoids spawning a doomed-to-skip process and
+        // gives the user an immediate, honest message instead of a silent no-op.
+        if (Setting::get('drive_sync_running') === '1') {
+            return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'A sync is already running — wait for it to finish before starting another.']);
+        }
+
         $php     = escapeshellarg(PHP_BINARY);
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/drive-sync-manual.log'));
