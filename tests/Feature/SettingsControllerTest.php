@@ -197,4 +197,24 @@ class SettingsControllerTest extends TestCase
             $this->assertSame('', Setting::get($key, ''));
         }
     }
+
+    public function test_sync_now_refuses_to_run_when_not_connected(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->post(route('settings.drive.sync-now'));
+
+        $response->assertSessionHasErrors('drive_refresh_token');
+    }
+
+    public function test_sync_now_starts_a_background_sync_when_connected(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('drive_refresh_token', 'refresh-token-xyz');
+
+        $response = $this->post(route('settings.drive.sync-now'));
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success');
+    }
 }

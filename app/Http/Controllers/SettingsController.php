@@ -175,6 +175,34 @@ class SettingsController extends Controller
         return redirect()->route('settings')->with('success', $message);
     }
 
+    /**
+     * Manual trigger for calls:sync-recordings, so a saved connection can be
+     * confirmed working without waiting up to 2 hours for the next scheduled
+     * run. Launched as a DETACHED background process (exec ... &), same as
+     * CronController::run() — this container serves every request through a
+     * single php artisan serve worker (no worker pool), and a full sync across
+     * every TSA/team has taken several minutes end to end. Running that
+     * in-process would freeze the entire app (including Render's own health
+     * check) for everyone until it finished — confirmed as the exact failure
+     * mode CronController's own doc comment describes avoiding for the Pancake
+     * sync. This returns immediately; the "Last sync" status block on this
+     * page (populated by the command itself) reflects the real outcome once
+     * the background process finishes.
+     */
+    public function syncDriveNow()
+    {
+        if (empty(Setting::get('drive_refresh_token'))) {
+            return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
+        }
+
+        $php     = escapeshellarg(PHP_BINARY);
+        $artisan = escapeshellarg(base_path('artisan'));
+        $logFile = escapeshellarg(storage_path('logs/drive-sync-manual.log'));
+        exec("{$php} {$artisan} calls:sync-recordings >> {$logFile} 2>&1 &");
+
+        return redirect()->route('settings')->with('success', 'Google Drive sync started in the background — refresh this page in a minute or two to see the result.');
+    }
+
     private function verifyDriveToken(string $clientId, string $clientSecret, string $refreshToken): bool
     {
         try {

@@ -171,7 +171,13 @@
                     <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                     Connected
                 </span>
-                {{-- Standalone form — never nested inside the save form below --}}
+                {{-- Standalone forms — never nested inside the save form below --}}
+                <form method="POST" action="{{ route('settings.drive.sync-now') }}">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer">
+                        Sync Now
+                    </button>
+                </form>
                 <form method="POST" action="{{ route('settings.drive.clear') }}" onsubmit="return confirm('Disconnect Google Drive? Real OPT/AHT data will stop syncing until reconnected.');">
                     @csrf
                     <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
