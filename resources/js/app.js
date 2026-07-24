@@ -638,6 +638,56 @@ window.showToast = function (message, variant = 'success') {
     toast.querySelector('button').addEventListener('click', dismiss);
 };
 
+// ─── Confirm modal ────────────────────────────────────────────────────────────
+// window.showConfirm(message, opts) replaces every destructive-action
+// confirm() across the app (delete, bulk delete, move team, etc.) — the
+// browser's native confirm() always prefixes its dialog with the page's own
+// hostname ("localhost:8000 says", unstylable) since it's a browser chrome
+// element, not page content. This is a real modal instead, matching the rest
+// of the app's styling. Returns a Promise<boolean> (true = confirmed) so
+// call sites just `if (!await window.showConfirm(...)) return;`, the same
+// shape the old `if (!confirm(...)) return;` calls already had.
+window.showConfirm = function (message, { title = 'Are you sure?', confirmText = 'Confirm', cancelText = 'Cancel', danger = true } = {}) {
+    const modal      = document.getElementById('confirmModal');
+    const titleEl     = document.getElementById('confirmModalTitle');
+    const messageEl   = document.getElementById('confirmModalMessage');
+    const cancelBtn   = document.getElementById('confirmModalCancel');
+    const confirmBtn  = document.getElementById('confirmModalConfirm');
+    if (!modal) return Promise.resolve(false);
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    cancelBtn.textContent = cancelText;
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = 'px-4 py-2 text-xs font-semibold text-white rounded-lg transition-colors cursor-pointer '
+        + (danger ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-700 hover:bg-yellow-800');
+
+    modal.classList.remove('hidden');
+
+    return new Promise((resolve) => {
+        // One-shot listeners, rebound fresh on every call — a stale listener
+        // from a previous confirm() left attached would double-fire (or
+        // resolve the WRONG call's promise) on the next one.
+        function cleanup(result) {
+            modal.classList.add('hidden');
+            cancelBtn.removeEventListener('click', onCancel);
+            confirmBtn.removeEventListener('click', onConfirm);
+            modal.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKeydown);
+            resolve(result);
+        }
+        function onCancel()  { cleanup(false); }
+        function onConfirm() { cleanup(true); }
+        function onBackdrop(e) { if (e.target === modal) cleanup(false); }
+        function onKeydown(e)  { if (e.key === 'Escape') cleanup(false); }
+
+        cancelBtn.addEventListener('click', onCancel);
+        confirmBtn.addEventListener('click', onConfirm);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKeydown);
+    });
+};
+
 // ─── Global search ────────────────────────────────────────────────────────────
 // Topbar search box (layouts/app.blade.php) — debounced fetch to /search,
 // grouped TSA/Product results rendered as a dropdown. Click or Enter navigates;
@@ -928,7 +978,7 @@ function renderPresetPanel(panel, key) {
 // mutually-exclusive early-return checks on ONE listener means a save/delete
 // click can never also fall through to the "outside click" branch within the
 // same dispatch.
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
     const trigger = e.target.closest('[data-preset-trigger]');
     if (trigger) {
         const panel = trigger.closest('[data-preset-widget]')?.querySelector('[data-preset-panel]');
@@ -972,7 +1022,7 @@ document.addEventListener('click', (e) => {
         const row = deleteBtn.closest('[data-preset-row]');
         if (!widgetTrigger || !panel || !row) return;
         const name = row.dataset.presetName;
-        if (!confirm(`Delete saved view "${name}"?`)) return;
+        if (!await window.showConfirm(`Delete saved view "${name}"?`, { confirmText: 'Delete' })) return;
         deletePreset(widgetTrigger.dataset.presetKey, name);
         renderPresetPanel(panel, widgetTrigger.dataset.presetKey);
         return;

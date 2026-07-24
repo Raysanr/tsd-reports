@@ -473,9 +473,9 @@
     // Delete — confirm, then submit the standalone hidden form
     const deleteForm = document.getElementById('deleteTsaForm');
     document.querySelectorAll('.deleteTsaBtn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const name = btn.dataset.name || 'this TSA';
-            if (!confirm(`Remove "${name}" from the roster? You can restore it from the Removed list below.`)) return;
+            if (!await window.showConfirm(`Remove "${name}" from the roster? You can restore it from the Removed list below.`, { confirmText: 'Remove' })) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
         });
@@ -701,9 +701,9 @@
     }
 
     document.getElementById('bulkTsaMove').addEventListener('click', () => submitBulk('move', { team: bulkTeamSelect.value }));
-    document.getElementById('bulkTsaDelete').addEventListener('click', () => {
+    document.getElementById('bulkTsaDelete').addEventListener('click', async () => {
         const n = selectedIds.size;
-        if (!confirm(`Remove ${n} TSA(s)? You can restore them from the Removed list below.`)) return;
+        if (!await window.showConfirm(`Remove ${n} TSA(s)? You can restore them from the Removed list below.`, { confirmText: 'Remove' })) return;
         submitBulk('delete');
     });
 })();

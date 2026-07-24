@@ -350,9 +350,9 @@
 
     const deleteForm = document.getElementById('deleteProductForm');
     document.querySelectorAll('.deleteProductBtn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const name = btn.dataset.name || 'this product';
-            if (!confirm(`Remove "${name}"? You can restore it from the Removed list below.`)) return;
+            if (!await window.showConfirm(`Remove "${name}"? You can restore it from the Removed list below.`, { confirmText: 'Remove' })) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
         });
@@ -424,7 +424,7 @@
 
     document.getElementById('bulkProductHide').addEventListener('click', () => submitBulk('hide'));
     document.getElementById('bulkProductUnhide').addEventListener('click', () => submitBulk('unhide'));
-    document.getElementById('bulkProductMove').addEventListener('click', () => {
+    document.getElementById('bulkProductMove').addEventListener('click', async () => {
         const n = selectedIds.size;
         const teamName = bulkTeamSelect.options[bulkTeamSelect.selectedIndex].text;
         // Move has no restore path the way Delete does (Removed list) — it silently
@@ -433,12 +433,12 @@
         // reconciliation work was about catching. Confirm it the same way Delete
         // already does, since this is the riskier of the two despite not being
         // "destructive" in the delete sense.
-        if (!confirm(`Move ${n} product(s) to "${teamName}"? This changes which team's reports they count toward.`)) return;
+        if (!await window.showConfirm(`Move ${n} product(s) to "${teamName}"? This changes which team's reports they count toward.`, { confirmText: 'Move' })) return;
         submitBulk('move', { team: bulkTeamSelect.value });
     });
-    document.getElementById('bulkProductDelete').addEventListener('click', () => {
+    document.getElementById('bulkProductDelete').addEventListener('click', async () => {
         const n = selectedIds.size;
-        if (!confirm(`Remove ${n} product(s)? You can restore them from the Removed list below.`)) return;
+        if (!await window.showConfirm(`Remove ${n} product(s)? You can restore them from the Removed list below.`, { confirmText: 'Remove' })) return;
         submitBulk('delete');
     });
 })();
