@@ -137,8 +137,10 @@
     {{-- Disposition breakdown pie — matches the source sheet's per-tab chart.
          Built client-side (data-rerun script below) from this same $grandTotal
          data already on the page, not a separate query. --}}
-    <div class="shrink-0 w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
-        <canvas id="grandTotalChart" width="260" height="220"></canvas>
+    <div class="shrink-0 w-full lg:w-[26rem] border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
+        <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+            <canvas id="grandTotalChart" width="380" height="340"></canvas>
+        </div>
     </div>
     </div>
 </div>
@@ -223,8 +225,10 @@
     {{-- Disposition breakdown pie — matches the source sheet's per-product tab
          chart. Built client-side (data-rerun script below) from this same
          $table['total'] data already on the page, not a separate query. --}}
-    <div class="shrink-0 w-full lg:w-72 border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
-        <canvas id="productChart-{{ $loop->index }}" width="260" height="220"></canvas>
+    <div class="shrink-0 w-full lg:w-[26rem] border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
+        <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+            <canvas id="productChart-{{ $loop->index }}" width="380" height="340"></canvas>
+        </div>
     </div>
     </div>
     @endif

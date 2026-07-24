@@ -374,24 +374,43 @@ document.addEventListener('click', async (e) => {
         // confirmed in app.css), so no re-render-in-light-mode dance is needed
         // here the way the table gets above.
         const chartCanvas = btn.dataset.exportChart ? document.getElementById(btn.dataset.exportChart) : null;
+        // The canvas's own bordered wrapper (see leads-report.blade.php) — read
+        // for its padding/border so the export frames the chart the same way
+        // the page does, not just the bare canvas.
+        const chartFrame  = chartCanvas?.parentElement;
         const chartBox    = chartCanvas?.getBoundingClientRect();
+        const frameBox    = chartFrame?.getBoundingClientRect();
         let finalCanvas   = tableCanvas;
 
-        if (chartCanvas && chartBox && chartBox.width > 0) {
-            const scale     = 2; // matches the table capture's own scale above
-            const gap       = 16 * scale;
-            const chartW    = chartBox.width * scale;
-            const chartH    = chartBox.height * scale;
+        if (chartCanvas && chartBox && frameBox && chartBox.width > 0) {
+            const scale   = 2; // matches the table capture's own scale above
+            const gap     = 16 * scale;
+            const padX    = (frameBox.width - chartBox.width) / 2 * scale;
+            const padY    = (frameBox.height - chartBox.height) / 2 * scale;
+            const frameW  = frameBox.width * scale;
+            const frameH  = frameBox.height * scale;
 
             finalCanvas = document.createElement('canvas');
-            finalCanvas.width  = tableCanvas.width + gap + chartW;
-            finalCanvas.height = Math.max(tableCanvas.height, chartH);
+            finalCanvas.width  = tableCanvas.width + gap + frameW;
+            finalCanvas.height = Math.max(tableCanvas.height, frameH);
+
+            // Vertically centered against the table's own height, matching the
+            // on-screen layout (flex items-center) — not pinned to the top,
+            // which left it floating disconnected from the table below it.
+            const frameY = (finalCanvas.height - frameH) / 2;
 
             const ctx = finalCanvas.getContext('2d');
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
             ctx.drawImage(tableCanvas, 0, 0);
-            ctx.drawImage(chartCanvas, tableCanvas.width + gap, 0, chartW, chartH);
+
+            const frameX = tableCanvas.width + gap;
+            ctx.fillStyle   = '#ffffff';
+            ctx.fillRect(frameX, frameY, frameW, frameH);
+            ctx.strokeStyle = '#e2e8f0'; // border-slate-200, matching the on-screen frame
+            ctx.lineWidth   = 1 * scale;
+            ctx.strokeRect(frameX, frameY, frameW, frameH);
+            ctx.drawImage(chartCanvas, frameX + padX, frameY + padY, chartBox.width * scale, chartBox.height * scale);
         }
 
         finalCanvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
