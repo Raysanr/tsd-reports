@@ -180,6 +180,29 @@
                 </form>
                 @endif
             </div>
+            @if($driveSyncLastRun)
+            <div class="mt-3 flex items-center gap-2 text-xs">
+                @if($driveSyncLastStatus === 'success')
+                    <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Last sync succeeded
+                    </span>
+                @elseif($driveSyncLastStatus === 'failed')
+                    <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync failed
+                    </span>
+                @elseif($driveSyncLastStatus === 'error')
+                    <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync errored
+                    </span>
+                @endif
+                <span class="text-slate-400">— {{ \Carbon\Carbon::parse($driveSyncLastRun)->diffForHumans() }}</span>
+            </div>
+            @if($driveSyncLastMessage)
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400 font-mono">{{ $driveSyncLastMessage }}</p>
+            @endif
+            @else
+            <p class="mt-3 text-xs text-slate-400">Never run yet — runs automatically every 2 hours once connected.</p>
+            @endif
         </div>
 
         <form method="POST" action="{{ route('settings.drive.save') }}">

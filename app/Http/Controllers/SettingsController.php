@@ -30,10 +30,15 @@ class SettingsController extends Controller
         $driveFolderEyecare    = Setting::get('drive_folder_eyecare', '');
         $driveConnected        = !empty($driveRefreshToken);
 
+        $driveSyncLastRun     = Setting::get('drive_sync_last_run');
+        $driveSyncLastStatus  = Setting::get('drive_sync_last_status');
+        $driveSyncLastMessage = Setting::get('drive_sync_last_message');
+
         return view('settings', compact(
             'apiKey', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
             'driveClientId', 'driveClientSecret', 'driveRefreshToken',
-            'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected'
+            'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
+            'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage'
         ));
     }
 

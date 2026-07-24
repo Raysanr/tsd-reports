@@ -8,6 +8,7 @@ use App\Models\TsaShift;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Sums real per-hour call-duration totals from the Google Drive folders each
@@ -44,12 +45,32 @@ class SyncCallRecordings extends Command
 
     public function handle(): int
     {
+        // Recorded on every invocation regardless of outcome — surfaced on the
+        // Settings page (see SettingsController::index()) so a silent production
+        // failure is actually visible instead of just "still no data" with no clue
+        // why. This command previously had zero observability, unlike the Pancake
+        // sync's last_synced/sync_stale tracking (SyncHealth).
+        Setting::set('drive_sync_last_run', now()->toIso8601String());
+
+        try {
+            return $this->sync();
+        } catch (\Throwable $e) {
+            Setting::set('drive_sync_last_status', 'error');
+            Setting::set('drive_sync_last_message', $e->getMessage());
+            Log::error('calls:sync-recordings failed', ['message' => $e->getMessage()]);
+            $this->error('Unexpected error: ' . $e->getMessage());
+            return self::FAILURE;
+        }
+    }
+
+    private function sync(): int
+    {
         $clientId     = Setting::get('drive_client_id');
         $clientSecret = Setting::get('drive_client_secret');
         $refreshToken = Setting::get('drive_refresh_token');
 
         if (!$clientId || !$clientSecret || !$refreshToken) {
-            $this->error('Google Drive credentials are not configured (Settings).');
+            $this->recordFailure('Google Drive credentials are not configured (Settings).');
             return self::FAILURE;
         }
 
@@ -61,7 +82,7 @@ class SyncCallRecordings extends Command
 
         $token = $this->getAccessToken($clientId, $clientSecret, $refreshToken);
         if (!$token) {
-            $this->error('Failed to refresh Google Drive access token — check the stored credentials.');
+            $this->recordFailure('Failed to refresh Google Drive access token — check the stored credentials.');
             return self::FAILURE;
         }
 
@@ -116,6 +137,7 @@ class SyncCallRecordings extends Command
             }
         }
 
+        $totalRecordings = 0;
         foreach ($totals as $tsaKey => $hours) {
             foreach ($hours as $hour => $data) {
                 CallRecordingHour::updateOrCreate(
@@ -127,10 +149,25 @@ class SyncCallRecordings extends Command
                     ]
                 );
             }
-            $this->info("{$tsaKey}: " . array_sum(array_column($hours, 'count')) . " recording(s) synced for {$dateString}.");
+            $tsaCount = array_sum(array_column($hours, 'count'));
+            $totalRecordings += $tsaCount;
+            $this->info("{$tsaKey}: {$tsaCount} recording(s) synced for {$dateString}.");
         }
 
+        Setting::set('drive_sync_last_status', 'success');
+        Setting::set('drive_sync_last_message', "Synced {$totalRecordings} recording(s) across " . count($totals) . " TSA(s) for {$dateString}.");
+
         return self::SUCCESS;
+    }
+
+    /** Records a hard-stop failure to Settings (surfaced on the Settings page)
+     *  before returning — every failure path this command has must go through
+     *  here so "no data yet" is always explainable without guessing. */
+    private function recordFailure(string $message): void
+    {
+        Setting::set('drive_sync_last_status', 'failed');
+        Setting::set('drive_sync_last_message', $message);
+        $this->error($message);
     }
 
     private function namesMatch(string $folderName, string $tsaName): bool
