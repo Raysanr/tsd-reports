@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Console\Commands\SyncTodayOrders;
 use App\Console\Commands\PancakeReconcile;
+use App\Console\Commands\SyncCallRecordings;
 use App\Models\Setting;
 
 Artisan::command('inspire', function () {
@@ -37,3 +38,10 @@ Schedule::command(SyncTodayOrders::class)->everyFifteenMinutes()->withoutOverlap
 // and Carbon::now('Asia/Manila')->subDay() inside the command means "yesterday" is
 // always correct regardless of what timezone the server's cron actually fires in.
 Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping();
+
+// Real call-duration data (synced from each team's Google Drive recordings folder)
+// feeds the individual TSA page's OPT/AHT columns. Every 2 hours rather than more
+// often — each run walks and re-downloads every matching recording for today fresh
+// (no incremental cache), so a tighter interval would burn Drive API calls/bandwidth
+// re-fetching files that haven't changed since the last run.
+Schedule::command(SyncCallRecordings::class)->cron('0 */2 * * *')->withoutOverlapping();

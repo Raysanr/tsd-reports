@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CallRecordingHour;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\TsaShift;
@@ -262,6 +263,17 @@ class TsaPerformanceController extends Controller
         // Report's per-product breakdown) so a lead is never counted differently here
         // than anywhere else in the app.
         $products = Product::where('team', $teamsConfig[$team]['order_team'])->orderBy('sort_order')->get();
+
+        // Real per-hour call-duration totals synced from Google Drive (see
+        // SyncCallRecordings) — keyed by hour-of-day the same way $ordersByHour is,
+        // so a multi-day range sums same-hour recordings across every day in it,
+        // matching how the rest of this method already treats the hour axis.
+        $recordingsByHour = CallRecordingHour::where('tsa_key', $tsaKey)
+            ->whereDate('date', '>=', $dateFrom)
+            ->whereDate('date', '<=', $dateTo)
+            ->get()
+            ->groupBy(fn($r) => (int) $r->hour);
+
         $productHourlyRows = [];
         $productTotals     = $products->mapWithKeys(fn($p) => [$p->id => 0]);
         $grandRowTotal      = 0;
@@ -296,14 +308,30 @@ class TsaPerformanceController extends Controller
             $unanswered = $hourRow['dfr'] + $hourRow['double_order'] + $hourRow['fsd_uncleared']
                 + $hourRow['not_answering'] + $hourRow['unattended'] + $hourRow['invalid_number'];
 
-            // OPT and Unproductive Time — reverse-engineered from the source sheet's
-            // own numbers (verified against 7 real rows, exact match every time):
-            // OPT assumes 3 minutes per answered call; Unproductive Time is whatever's
-            // left of the hour after OPT and one minute per unanswered call. AHT has
-            // no formula — it's blank in every row of the source sheet too (no call-
-            // duration data exists anywhere to compute it from), so it stays blank here.
-            $opt          = $answered * 3;
-            $unproductive = max(0, 60 - $opt - $unanswered);
+            // OPT and Unproductive Time — real call-recording data (synced from Google
+            // Drive) is used whenever it exists for this hour: OPT becomes the actual
+            // summed call duration, and AHT is its average per call. Hours with no
+            // synced recordings yet (not uploaded, or before this feature existed) fall
+            // back to the original reverse-engineered formula from the source sheet
+            // (verified against 7 real rows, exact match every time): OPT assumes 3
+            // minutes per answered call, Unproductive Time is whatever's left of the
+            // hour after OPT and one minute per unanswered call, and AHT stays blank
+            // (no formula for it exists in the source sheet either).
+            $recording = $recordingsByHour->get($hour);
+            $realSeconds = $recording?->sum('total_seconds');
+            $realCalls   = $recording?->sum('call_count');
+
+            if ($realSeconds !== null && $realCalls > 0) {
+                $opt          = round($realSeconds / 60, 1);
+                $unproductive = max(0, 60 - $opt - $unanswered);
+                $aht          = (int) round($realSeconds / $realCalls);
+                $optIsReal    = true;
+            } else {
+                $opt          = $answered * 3;
+                $unproductive = max(0, 60 - $opt - $unanswered);
+                $aht          = null;
+                $optIsReal    = false;
+            }
 
             $productTotals    = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
             $grandRowTotal   += $rowTotal;
@@ -320,6 +348,8 @@ class TsaPerformanceController extends Controller
                 'answered'    => $answered,
                 'unanswered'  => $unanswered,
                 'opt'         => $opt,
+                'opt_is_real' => $optIsReal,
+                'aht'         => $aht,
                 'unproductive'=> $unproductive,
             ];
         }

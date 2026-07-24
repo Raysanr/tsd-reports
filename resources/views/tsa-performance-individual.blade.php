@@ -228,7 +228,7 @@
                         Total<br>Answered Calls
                     </th>
                     <th class="bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap"
-                        style="min-width:90px" title="No call-duration data exists to compute this — blank in the source sheet too">
+                        style="min-width:90px" title="Average real call duration for this hour, from synced Google Drive recordings. Blank for hours with no synced recordings yet.">
                         Total AHT<br>Per Hour
                     </th>
                     <th class="bg-red-100 dark:bg-red-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide whitespace-nowrap"
@@ -236,7 +236,7 @@
                         Total<br>Unanswered Calls
                     </th>
                     <th class="bg-emerald-100 dark:bg-emerald-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wide whitespace-nowrap"
-                        style="min-width:100px" title="Answered calls x 3 minutes">
+                        style="min-width:100px" title="Real summed call duration from synced Google Drive recordings when available (marked with a dot), otherwise estimated at 3 minutes per answered call.">
                         OPT (Order<br>Processing Time)
                     </th>
                     <th class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
@@ -265,14 +265,18 @@
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-cyan-700 dark:text-cyan-400">
                         {{ $hour['answered'] ?: '' }}
                     </td>
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-300 dark:text-slate-600">
-                        —
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-600 dark:text-slate-300">
+                        @if($hour['aht'] !== null)
+                            {{ sprintf('%d:%02d', intdiv($hour['aht'], 60), $hour['aht'] % 60) }}
+                        @else
+                            <span class="text-slate-300 dark:text-slate-600">—</span>
+                        @endif
                     </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-red-700 dark:text-red-400">
                         {{ $hour['unanswered'] ?: '' }}
                     </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400">
-                        {{ $hour['opt'] ?: '' }}
+                        {{ $hour['opt'] ?: '' }}@if($hour['opt_is_real'])<span class="text-emerald-500" title="Real call-duration data">&nbsp;●</span>@endif
                     </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">
                         {{ $hour['unproductive'] }}
@@ -310,7 +314,7 @@
         </table>
     </div>
     <p class="text-[10px] font-mono text-slate-400 mt-2">
-        AHT is blank — no call-duration data exists to compute it (also blank in the source sheet). Day-total Unproductive Time isn't shown — it's not a plain sum of the hourly column (verified against the source sheet; no matching formula found).
+        AHT and OPT use real call-duration data synced from Google Drive where available (marked with a dot next to the OPT value); hours without synced recordings yet fall back to an estimate of 3 minutes per answered call. Day-total Unproductive Time isn't shown — it's not a plain sum of the hourly column (verified against the source sheet; no matching formula found).
     </p>
     @endif
 </div>
