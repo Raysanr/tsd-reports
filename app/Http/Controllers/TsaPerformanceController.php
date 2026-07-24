@@ -281,6 +281,7 @@ class TsaPerformanceController extends Controller
         $grandAnswered      = 0;
         $grandUnanswered    = 0;
         $grandOpt           = 0;
+        $grandUnproductive  = 0;
         for ($hour = self::START_HOUR; $hour <= self::END_HOUR; $hour++) {
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
@@ -308,37 +309,39 @@ class TsaPerformanceController extends Controller
             $unanswered = $hourRow['dfr'] + $hourRow['double_order'] + $hourRow['fsd_uncleared']
                 + $hourRow['not_answering'] + $hourRow['unattended'] + $hourRow['invalid_number'];
 
-            // OPT and Unproductive Time — real call-recording data (synced from Google
-            // Drive) is used whenever it exists for this hour: OPT becomes the actual
-            // summed call duration, and AHT is its average per call. Hours with no
-            // synced recordings yet (not uploaded, or before this feature existed) fall
-            // back to the original reverse-engineered formula from the source sheet
+            // OPT — real call-recording data (synced from Google Drive) is used
+            // whenever it exists for this hour: OPT becomes the actual summed call
+            // duration, and AHT is its average per call. Hours with no synced
+            // recordings yet (not uploaded, or before this feature existed) fall back
+            // to the original reverse-engineered formula from the source sheet
             // (verified against 7 real rows, exact match every time): OPT assumes 3
-            // minutes per answered call, Unproductive Time is whatever's left of the
-            // hour after OPT and one minute per unanswered call, and AHT stays blank
-            // (no formula for it exists in the source sheet either).
+            // minutes per answered call, and AHT stays blank (no formula for it exists
+            // in the source sheet either).
             $recording = $recordingsByHour->get($hour);
             $realSeconds = $recording?->sum('total_seconds');
             $realCalls   = $recording?->sum('call_count');
 
             if ($realSeconds !== null && $realCalls > 0) {
-                $opt          = round($realSeconds / 60, 1);
-                $unproductive = max(0, 60 - $opt - $unanswered);
-                $aht          = (int) round($realSeconds / $realCalls);
-                $optIsReal    = true;
+                $opt       = round($realSeconds / 60, 1);
+                $aht       = (int) round($realSeconds / $realCalls);
+                $optIsReal = true;
             } else {
-                $opt          = $answered * 3;
-                $unproductive = max(0, 60 - $opt - $unanswered);
-                $aht          = null;
-                $optIsReal    = false;
+                $opt       = $answered * 3;
+                $aht       = null;
+                $optIsReal = false;
             }
 
-            $productTotals    = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
-            $grandRowTotal   += $rowTotal;
-            $grandTsaLeads   += $hourRow['total_called'];
-            $grandAnswered   += $answered;
-            $grandUnanswered += $unanswered;
-            $grandOpt        += $opt;
+            // Unproductive Time: flat 2 minutes per unanswered call, independent of
+            // OPT/answered calls — confirmed directly against real data (2026-07-24).
+            $unproductive = $unanswered * 2;
+
+            $productTotals      = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
+            $grandRowTotal      += $rowTotal;
+            $grandTsaLeads      += $hourRow['total_called'];
+            $grandAnswered      += $answered;
+            $grandUnanswered    += $unanswered;
+            $grandOpt           += $opt;
+            $grandUnproductive  += $unproductive;
 
             $productHourlyRows[] = [
                 'label'       => HourFormatter::rangeLabel($hour),
@@ -365,6 +368,7 @@ class TsaPerformanceController extends Controller
             'grandAnswered'     => $grandAnswered,
             'grandUnanswered'   => $grandUnanswered,
             'grandOpt'          => $grandOpt,
+            'grandUnproductive' => $grandUnproductive,
             'shiftMinutes'      => $shiftMinutes,
             'team'              => $team,
             'teamName'          => $teamsConfig[$team]['name'],

@@ -240,7 +240,7 @@
                         OPT (Order<br>Processing Time)
                     </th>
                     <th class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
-                        style="min-width:100px" title="60 minutes - OPT - unanswered calls">
+                        style="min-width:100px" title="2 minutes x unanswered calls">
                         Unproductive<br>Time
                     </th>
                 </tr>
@@ -308,13 +308,15 @@
                     <td class="border border-slate-700 px-3 py-3 text-center text-emerald-300">
                         {{ $grandOpt ?: '' }}
                     </td>
-                    <td class="border border-slate-700 px-3 py-3 text-center text-orange-300">—</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center text-orange-300">
+                        {{ $grandUnproductive ?: '' }}
+                    </td>
                 </tr>
             </tbody>
         </table>
     </div>
     <p class="text-[10px] font-mono text-slate-400 mt-2">
-        AHT and OPT use real call-duration data synced from Google Drive where available (marked with a dot next to the OPT value); hours without synced recordings yet fall back to an estimate of 3 minutes per answered call. Day-total Unproductive Time isn't shown — it's not a plain sum of the hourly column (verified against the source sheet; no matching formula found).
+        AHT and OPT use real call-duration data synced from Google Drive where available (marked with a dot next to the OPT value); hours without synced recordings yet fall back to an estimate of 3 minutes per answered call. Unproductive Time is a flat 2 minutes per unanswered call.
     </p>
     @endif
 </div>
