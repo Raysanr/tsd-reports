@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -173,6 +174,7 @@ class TsaPerformanceController extends Controller
             // alongside 'label'/'rows'/'totals' so the blade reads $block['pick_up_rate']
             // etc. the same way it already reads $row['pick_up_rate'].
             $hourBlocks[] = array_merge([
+                'hour'   => $hour,
                 'label'  => HourFormatter::rangeLabel($hour),
                 'rows'   => $rows,
                 'totals' => $blockTotals,
@@ -343,6 +345,126 @@ class TsaPerformanceController extends Controller
             'hourlyRows'        => $hourlyRows,
             'metricCols'        => self::METRIC_COLUMNS,
         ]);
+    }
+
+    /** Drill-down: given the same team/date/product/hour/TSA a cell on the
+     *  hourly table was built from, plus which column was clicked, returns the
+     *  exact orders that number came from (id + creation time) — so a click on
+     *  e.g. "Upsell w/ Confirmation: 3" can show which 3 orders those are.
+     *  'tsa' omitted/'__all__' = every TSA on the team (an hour-block TOTAL row
+     *  or the Grand Total row); 'hour' omitted = every hour (Grand Total). */
+    public function drilldown(Request $request)
+    {
+        $teamsConfig = config('teams', []);
+        $team        = $request->query('team');
+        abort_if(!array_key_exists($team, $teamsConfig), 404);
+
+        $dateFrom = $request->query('date_from');
+        $dateTo   = $request->query('date_to', $dateFrom);
+        abort_if(!$dateFrom, 422);
+        $from = Carbon::parse($dateFrom)->startOfDay();
+        $to   = Carbon::parse($dateTo)->endOfDay();
+
+        $tsaKey  = $request->query('tsa');
+        $hour    = $request->query('hour');
+        $column  = $request->query('column');
+        $product = $request->query('product', 'all');
+
+        // Same order-scoping as index() above: this team's roster, plus
+        // never-claimed orders still attributable to this team by product.
+        $shifts = TsaShift::where('team', $teamsConfig[$team]['order_team'])->get()->keyBy('tsa_key');
+
+        $orders = Order::whereBetween('pancake_created_at', [$from, $to])
+            ->where(function ($q) use ($shifts, $teamsConfig, $team) {
+                $q->whereIn('tsa_name', $shifts->keys())
+                  ->orWhere(function ($q2) use ($teamsConfig, $team) {
+                      $q2->whereNull('tsa_name')->where('team', $teamsConfig[$team]['order_team']);
+                  });
+            })
+            ->get();
+
+        if ($product && $product !== 'all') {
+            $productModel = Product::where('team', $teamsConfig[$team]['order_team'])
+                ->where('display_name', $product)->first();
+            if ($productModel) {
+                $keyword = $productModel->effective_keyword;
+                $orders = $orders->filter(fn($o) => collect($o->raw_tags ?? [])
+                    ->contains(fn($t) => stripos($t, $keyword) !== false))->values();
+            }
+        }
+
+        if ($hour !== null && $hour !== '') {
+            $orders = $orders->filter(fn($o) => (int) $o->pancake_created_at->format('G') === (int) $hour)->values();
+        }
+
+        if ($tsaKey && $tsaKey !== '__all__') {
+            $orders = $tsaKey === 'unassigned'
+                ? $orders->filter(fn($o) => $o->tsa_name === null)->values()
+                : $orders->where('tsa_name', $tsaKey)->values();
+        }
+
+        $matching = $this->ordersForColumn($orders, (string) $column);
+
+        return response()->json(
+            $matching
+                ->sortBy('pancake_created_at')
+                ->map(fn($o) => [
+                    'id'   => $o->pancake_order_id,
+                    'time' => $o->pancake_created_at?->format('g:i A'),
+                ])
+                ->values()
+        );
+    }
+
+    /** Same categorization rules as buildRow() above, but returning the actual
+     *  matching Order models for one column instead of just a count — kept as
+     *  a separate method (not a buildRow() refactor) so this drill-down
+     *  addition can't accidentally change buildRow()'s well-tested counts. */
+    private function ordersForColumn(Collection $orders, string $column): Collection
+    {
+        $isRealUpsell = fn($o) => $o->is_upsell
+            || $o->is_returned_upsell
+            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        $nonUpsell = $orders->reject($isRealUpsell);
+
+        if ($column === 'upsell_confirmation') {
+            return $orders->filter($isRealUpsell)->values();
+        }
+
+        $keywordMap = [
+            'confirmed_via_call'     => ['confirmed via call'],
+            'call_back'              => ['call back'],
+            'call_dropped'           => ['call dropped'],
+            'repeat_order_upsell'    => ['repeat order'],
+            'rude_customer'          => ['rude customer'],
+            'relatives_confirmation' => ['relatives'],
+            'dfr'                    => ['dfr'],
+            'double_order'           => ['double order'],
+            'fsd_uncleared'          => ['fsd'],
+            'not_answering'          => ['not answering'],
+            'unattended'             => ['unattended'],
+            'invalid_number'         => ['invalid number'],
+        ];
+
+        if (isset($keywordMap[$column])) {
+            return $nonUpsell->filter(function ($o) use ($keywordMap, $column) {
+                $disposition = str_replace("'", '', $o->disposition ?? '');
+                foreach ($keywordMap[$column] as $kw) {
+                    if (stripos($disposition, $kw) !== false) return true;
+                }
+                return false;
+            })->values();
+        }
+
+        if ($column === 'total_called') {
+            $calledIds = collect([$this->ordersForColumn($orders, 'upsell_confirmation')->pluck('id')]);
+            foreach (array_keys($keywordMap) as $key) {
+                $calledIds->push($this->ordersForColumn($orders, $key)->pluck('id'));
+            }
+            return $orders->whereIn('id', $calledIds->flatten()->unique())->values();
+        }
+
+        return collect();
     }
 
     /** Team-button menu shared by the hourly view and the ALL view, so they can

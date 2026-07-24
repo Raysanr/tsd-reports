@@ -423,6 +423,109 @@ document.addEventListener('click', async (e) => {
     }
 });
 
+// ─── TSA Performance: click a leads-count cell to see its orders ─────────────
+// Every [data-drilldown] <td> in tsa-performance.blade.php carries which
+// TSA/hour/column it represents (data-dd-tsa/-hour/-column); the shared team/
+// product/date context lives once on the table wrapper (#tsaPerfTable,
+// data-dd-team etc.) instead of being repeated on every cell. Delegated click
+// (same reasoning as CSV/PNG export above): survives softRefresh's <main>
+// swaps without needing to re-bind anything.
+(function () {
+    let popover = null;
+
+    function closePopover() {
+        popover?.remove();
+        popover = null;
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        })[c]);
+    }
+
+    function positionPopover(cell, el) {
+        const rect = cell.getBoundingClientRect();
+        // Fixed positioning (not absolute) so it isn't clipped by the table's
+        // own overflow-auto scroll container — computed from the cell's
+        // viewport coordinates instead.
+        const maxLeft = window.innerWidth - 240;
+        el.style.top  = `${rect.bottom + 4}px`;
+        el.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
+    }
+
+    document.addEventListener('click', (e) => {
+        const cell = e.target.closest('[data-drilldown]');
+        if (!cell) {
+            if (popover && !popover.contains(e.target)) closePopover();
+            return;
+        }
+
+        const wrapper = cell.closest('[data-dd-team]');
+        if (!wrapper) return;
+
+        // Toggle: clicking the same cell again closes it instead of
+        // re-fetching/re-showing the identical popover.
+        const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn].join('|');
+        const wasOpenForThisCell = popover?.dataset.forCell === cellKey;
+        closePopover();
+        if (wasOpenForThisCell) return;
+
+        const params = new URLSearchParams({
+            team:      wrapper.dataset.ddTeam,
+            product:   wrapper.dataset.ddProduct,
+            date_from: wrapper.dataset.ddDateFrom,
+            date_to:   wrapper.dataset.ddDateTo,
+            tsa:       cell.dataset.ddTsa,
+            column:    cell.dataset.ddColumn,
+        });
+        // Omitted entirely (not just empty) for a Grand Total cell — the
+        // endpoint reads a missing 'hour' as "every hour", not hour 0.
+        if (cell.dataset.ddHour !== undefined && cell.dataset.ddHour !== '') {
+            params.set('hour', cell.dataset.ddHour);
+        }
+
+        popover = document.createElement('div');
+        popover.dataset.forCell = cellKey;
+        popover.className = 'fixed z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1 overflow-y-auto text-xs font-mono';
+        popover.style.minWidth  = '220px';
+        popover.style.maxHeight = '280px';
+        popover.innerHTML = '<p class="px-3 py-3 text-slate-400">Loading…</p>';
+        document.body.appendChild(popover);
+        positionPopover(cell, popover);
+
+        fetch(`/tsa-performance/drilldown?${params.toString()}`)
+            .then(r => r.json())
+            .then((orders) => {
+                if (popover?.dataset.forCell !== cellKey) return; // superseded by a newer click
+                if (!orders.length) {
+                    popover.innerHTML = '<p class="px-3 py-3 text-slate-400">No orders found.</p>';
+                    return;
+                }
+                popover.innerHTML = orders.map(o => `
+                    <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                        <span class="text-primary font-semibold">#${escapeHtml(o.id)}</span>
+                        <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap">${escapeHtml(o.time || '—')}</span>
+                    </div>
+                `).join('');
+                positionPopover(cell, popover);
+            })
+            .catch(() => {
+                if (popover?.dataset.forCell === cellKey) popover.innerHTML = '<p class="px-3 py-3 text-rose-500">Failed to load.</p>';
+            });
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closePopover();
+    });
+
+    // Any scroll (including the table's own internal overflow-auto scroll,
+    // which doesn't bubble to document without capture:true) moves the cell
+    // out from under a fixed-position popover — close it rather than let it
+    // drift stale.
+    document.addEventListener('scroll', () => closePopover(), true);
+})();
+
 // ─── Toast notifications ─────────────────────────────────────────────────────
 // window.showToast(message, variant) is the one entry point every part of the
 // app uses for transient feedback — server-flashed messages (see the bootstrap

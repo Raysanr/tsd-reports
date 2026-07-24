@@ -46,6 +46,7 @@ Route::middleware(['auth', 'active'])->group(function () {
     // Old URL kept alive for bookmarks/history — permanent redirect to the new name.
     Route::redirect('/team-report', '/leads-report', 301);
     Route::get('/tsa-performance', [TsaPerformanceController::class, 'index'])->name('tsa-performance');
+    Route::get('/tsa-performance/drilldown', [TsaPerformanceController::class, 'drilldown'])->name('tsa-performance.drilldown');
     Route::get('/tsa-performance/{team}/{tsaKey}', [TsaPerformanceController::class, 'showTsa'])->name('tsa-performance.individual');
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');

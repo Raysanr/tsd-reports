@@ -35,7 +35,8 @@
 {{-- Pivot table — bounded height + its own scroll so the sticky header has a
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable"
+     data-dd-team="{{ $selectedTeam }}" data-dd-product="{{ $selectedProduct }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
             <thead class="sticky top-0 z-20 shadow-sm">
 
@@ -130,12 +131,15 @@
                         {{ $row['display_name'] }}
                         @endif
                     </td>
-                    {{-- Total Called Leads --}}
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
+                    {{-- Total Called Leads — clickable when non-zero: shows which orders
+                         made up this number (see partials/drilldown-popover + app.js). --}}
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['total_called'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                        @if($row['total_called']) data-drilldown data-dd-tsa="{{ $row['tsa_key'] }}" data-dd-hour="{{ $block['hour'] }}" data-dd-column="total_called" @endif>
                         {{ $row['total_called'] ?: '' }}
                     </td>
                     @foreach($displayCols as $col)
-                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                        @if($row[$col['key']]) data-drilldown data-dd-tsa="{{ $row['tsa_key'] }}" data-dd-hour="{{ $block['hour'] }}" data-dd-column="{{ $col['key'] }}" @endif>
                         {{ $row[$col['key']] ?: '' }}
                     </td>
                     @endforeach
@@ -154,9 +158,13 @@
                 {{-- Hour TOTAL row --}}
                 <tr class="bg-slate-800 text-white font-bold">
                     <td class="border border-slate-600 px-3 py-2.5 uppercase tracking-wider text-[11px]">TOTAL</td>
-                    <td class="border border-slate-600 px-3 py-2.5 text-center">{{ $block['totals']['total_called'] ?: '' }}</td>
+                    <td class="border border-slate-600 px-3 py-2.5 text-center {{ $block['totals']['total_called'] ? 'cursor-pointer hover:bg-slate-700' : '' }}"
+                        @if($block['totals']['total_called']) data-drilldown data-dd-tsa="__all__" data-dd-hour="{{ $block['hour'] }}" data-dd-column="total_called" @endif>
+                        {{ $block['totals']['total_called'] ?: '' }}
+                    </td>
                     @foreach($displayCols as $col)
-                    <td class="border border-slate-600 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                    <td class="border border-slate-600 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $block['totals'][$col['key']] ? 'cursor-pointer hover:bg-slate-700' : '' }}"
+                        @if($block['totals'][$col['key']]) data-drilldown data-dd-tsa="__all__" data-dd-hour="{{ $block['hour'] }}" data-dd-column="{{ $col['key'] }}" @endif>
                         {{ $block['totals'][$col['key']] ?: '' }}
                     </td>
                     @endforeach
@@ -175,9 +183,13 @@
                 {{-- GRAND TOTAL row --}}
                 <tr class="bg-slate-900 text-white font-bold">
                     <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $totals['total_called'] ?: '' }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center {{ $totals['total_called'] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                        @if($totals['total_called']) data-drilldown data-dd-tsa="__all__" data-dd-column="total_called" @endif>
+                        {{ $totals['total_called'] ?: '' }}
+                    </td>
                     @foreach($displayCols as $col)
-                    <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                    <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $totals[$col['key']] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                        @if($totals[$col['key']]) data-drilldown data-dd-tsa="__all__" data-dd-column="{{ $col['key'] }}" @endif>
                         {{ $totals[$col['key']] ?: '' }}
                     </td>
                     @endforeach
