@@ -3,8 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Setting;
 use App\Support\ActivityLogger;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class ProductManagementController extends Controller
 {
@@ -153,6 +158,68 @@ class ProductManagementController extends Controller
         ActivityLogger::log("product.bulk_{$data['action']}", null, $message);
 
         return redirect()->route('product-management')->with('success', $message);
+    }
+
+    /** AJAX — search the real Pancake product catalog for the "Match keywords"
+     *  picker, so a keyword is picked from what POS actually calls a product
+     *  instead of free-typed/guessed. Same pattern as TsaManagementController's
+     *  Pancake-tags picker. */
+    public function searchPosProducts(Request $request): JsonResponse
+    {
+        $query    = trim((string) $request->input('q', ''));
+        $products = $this->fetchPosProducts();
+
+        if ($query !== '') {
+            $products = $products->filter(fn($p) => stripos($p['name'], $query) !== false)->values();
+        }
+
+        return response()->json($products->take(25)->values());
+    }
+
+    /**
+     * Fetch + cache the shop's full Pancake product catalog (GET /shops/{id}/
+     * products) — every product configured in POS, not just ones already
+     * synced onto an order. Paginated (92+ entries on this shop already), so
+     * every page is walked and merged into one list. Cached like
+     * TsaManagementController's fetchShopTags()/fetchPosUsers() (10 min) —
+     * cheap enough for a picker, not meant to be a live product mirror.
+     */
+    private function fetchPosProducts(): Collection
+    {
+        return Cache::remember('pancake_shop_products', 600, function () {
+            $apiKey = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
+            $shopId = Setting::get('shop_id', '');
+
+            if (empty($apiKey) || empty($shopId)) {
+                return collect();
+            }
+
+            $url     = "https://pos.pages.fm/api/v1/shops/{$shopId}/products";
+            $results = collect();
+            $page    = 1;
+
+            while ($page <= 20) {
+                $response = Http::withHeaders(['Accept' => 'application/json'])
+                    ->timeout(20)
+                    ->get($url, ['api_key' => $apiKey, 'page_size' => 100, 'page_number' => $page]);
+
+                if (!$response->successful()) break;
+
+                $data = $response->json('data', []);
+                if (empty($data)) break;
+
+                foreach ($data as $p) {
+                    $name = trim((string) ($p['name'] ?? ''));
+                    if ($name === '') continue;
+                    $results->push(['name' => $name, 'id' => $p['id'] ?? null]);
+                }
+
+                if (count($data) < 100) break; // last page
+                $page++;
+            }
+
+            return $results->unique(fn($p) => strtoupper($p['name']))->sortBy('name')->values();
+        });
     }
 
     private function validateProduct(Request $request): array

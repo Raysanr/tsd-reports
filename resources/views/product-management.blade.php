@@ -152,13 +152,23 @@
                 </select>
             </div>
 
-            <div>
+            <div class="relative">
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
                     Match keywords <span class="text-slate-400 font-normal">(optional, comma-separated)</span>
                 </label>
                 <input type="text" name="match_keyword" id="productKeywordInput"
                     placeholder="e.g. PTERYGIUM, PteryFix — every cart-name variant of this product"
                     class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+
+                {{-- Searchable picker over the REAL Pancake product catalog (GET /shops/
+                     {id}/products), same pattern as TSA Management's "Also matches" tag
+                     picker — picking a result appends its exact POS name into the field
+                     above instead of it being free-typed/guessed. --}}
+                <input type="text" id="productKeywordSearch" autocomplete="off"
+                    placeholder="Search POS products to add…"
+                    class="w-full mt-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                <div id="productKeywordResults" class="hidden absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
+
                 <p class="text-[11px] text-slate-400 mt-1">Leave blank to match on the display name itself. Matching ignores case, spaces and punctuation, and an order counts if it matches ANY keyword — add every alias the POS cart uses, or unclaimed leads for that variant won't be attributed to your team.</p>
             </div>
 
@@ -219,6 +229,8 @@
     const nameInput   = document.getElementById('productNameInput');
     const teamSelect  = document.getElementById('productTeamSelect');
     const keywordInput = document.getElementById('productKeywordInput');
+    const keywordSearch = document.getElementById('productKeywordSearch');
+    const keywordResults = document.getElementById('productKeywordResults');
     const submitBtn   = document.getElementById('productSubmitBtn');
     const storeUrl    = form.action;
     const toggleHiddenForm = document.getElementById('toggleHiddenProductForm');
@@ -235,7 +247,86 @@
         modalTitle.textContent = 'Add a new product';
         modalSubtitle.textContent = 'Recognized starting with the next sync';
         submitBtn.textContent = 'Add Product';
+        keywordSearch.value = '';
+        keywordResults.classList.add('hidden');
     }
+
+    // Searchable picker over the real Pancake product catalog for "Match
+    // keywords" — same debounce/render pattern as TSA Management's Pancake-
+    // tags picker, but appends into a plain comma-separated text field
+    // (match_keyword's existing storage format) instead of a chip list.
+    let keywordDebounceTimer = null;
+    let keywordRequestId = 0;
+
+    keywordSearch.addEventListener('input', () => {
+        clearTimeout(keywordDebounceTimer);
+        const q = keywordSearch.value.trim();
+        keywordDebounceTimer = setTimeout(() => fetchPosProducts(q), 250);
+    });
+    keywordSearch.addEventListener('focus', () => {
+        if (keywordSearch.value.trim() !== '') fetchPosProducts(keywordSearch.value.trim());
+    });
+
+    async function fetchPosProducts(q) {
+        const requestId = ++keywordRequestId;
+        try {
+            const res = await fetch(`{{ route('product-management.search-pos-products') }}?q=` + encodeURIComponent(q));
+            const products = await res.json();
+            if (requestId !== keywordRequestId) return; // superseded by a newer keystroke
+            renderKeywordResults(products);
+        } catch (e) {
+            if (requestId === keywordRequestId) keywordResults.classList.add('hidden');
+        }
+    }
+
+    function currentKeywords() {
+        return keywordInput.value.split(',').map(k => k.trim()).filter(k => k !== '');
+    }
+
+    function renderKeywordResults(products) {
+        const existingUpper = currentKeywords().map(k => k.toUpperCase());
+        keywordResults.innerHTML = '';
+
+        if (!products.length) { keywordResults.classList.add('hidden'); return; }
+
+        products.forEach(p => {
+            const alreadyAdded = existingUpper.includes(p.name.toUpperCase());
+
+            const row = document.createElement('div');
+            row.className = alreadyAdded
+                ? 'px-3 py-2 text-sm text-slate-400 flex items-center justify-between gap-2 cursor-default'
+                : 'px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 cursor-pointer';
+            row.textContent = p.name;
+
+            if (alreadyAdded) {
+                const note = document.createElement('span');
+                note.className = 'text-[10px] font-mono text-slate-300 dark:text-slate-600 float-right';
+                note.textContent = 'added';
+                row.appendChild(note);
+            } else {
+                // mousedown fires before the search input's blur, so the click registers
+                row.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    const kws = currentKeywords();
+                    kws.push(p.name);
+                    keywordInput.value = kws.join(', ');
+                    keywordSearch.value = '';
+                    keywordResults.classList.add('hidden');
+                    keywordSearch.focus();
+                });
+            }
+
+            keywordResults.appendChild(row);
+        });
+
+        keywordResults.classList.remove('hidden');
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!keywordResults.contains(e.target) && e.target !== keywordSearch) {
+            keywordResults.classList.add('hidden');
+        }
+    });
 
     document.getElementById('addProductBtn').addEventListener('click', () => { resetForm(); openModal(); });
     document.getElementById('cancelProductModal').addEventListener('click', closeModal);

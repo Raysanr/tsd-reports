@@ -65,6 +65,7 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 
         Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
+        Route::get('/product-management/search-pos-products', [ProductManagementController::class, 'searchPosProducts'])->name('product-management.search-pos-products');
         Route::post('/product-management/bulk',          [ProductManagementController::class, 'bulk'])->name('product-management.bulk');
         Route::post('/product-management',               [ProductManagementController::class, 'store'])->name('product-management.store');
         Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
