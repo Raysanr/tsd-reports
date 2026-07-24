@@ -132,4 +132,43 @@ class TsaPerformanceDrilldownTest extends TestCase
         $this->assertTrue($ids->contains('dd-11'));
         $this->assertFalse($ids->contains('dd-12'));
     }
+
+    /**
+     * Explicit follow-up: the displayed time didn't match what POS itself
+     * shows as "Created at" for the same order (POS: 12:21 PM, popover:
+     * 12:46 PM). Root cause: pancake_created_at deliberately holds when the
+     * TSA's tag was actually ADDED (see SyncTodayOrders::flushOrders' "Root-
+     * cause fix" comment) — correct for which hour block the order counts
+     * under, but not what POS calls "Created at". pancake_inserted_at is
+     * Pancake's real, untouched creation timestamp — the popover now shows
+     * that instead, while the hour bucket the order was found under still
+     * reflects when it was actually worked.
+     */
+    public function test_drilldown_time_shows_the_real_pos_creation_time_not_the_worked_at_time(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        // Created in POS at 12:21 PM, but not tagged/worked by the TSA until
+        // 12:46 PM — pancake_created_at (worked-at) puts it in the 12PM-1PM
+        // bucket either way here, but the two timestamps genuinely differ.
+        Order::create([
+            'pancake_order_id'    => 'dd-13',
+            'team'                => 'SH Naturals',
+            'tsa_name'            => $shift->tsa_key,
+            'disposition'         => 'NOT ANSWERING',
+            'is_upsell'           => false,
+            'status_code'         => 1,
+            'pancake_created_at'  => '2026-07-22 12:46:00',
+            'pancake_inserted_at' => '2026-07-22 12:21:00',
+            'synced_at'           => now(),
+        ]);
+
+        $response = $this->getJson(route('tsa-performance.drilldown', [
+            'team' => 'sh-naturals', 'tsa' => $shift->tsa_key, 'hour' => 12,
+            'column' => 'not_answering', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertJsonFragment(['id' => 'dd-13', 'time' => '12:21 PM']);
+    }
 }

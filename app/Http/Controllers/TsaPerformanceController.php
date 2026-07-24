@@ -407,10 +407,20 @@ class TsaPerformanceController extends Controller
 
         return response()->json(
             $matching
-                ->sortBy('pancake_created_at')
+                ->sortBy(fn($o) => $o->effective_created_at)
                 ->map(fn($o) => [
                     'id'   => $o->pancake_order_id,
-                    'time' => $o->pancake_created_at?->format('g:i A'),
+                    // effective_created_at (pancake_inserted_at, Pancake's raw
+                    // untouched timestamp), NOT pancake_created_at — that column
+                    // deliberately holds when the TSA's tag was actually added
+                    // (see SyncTodayOrders::flushOrders' "Root-cause fix" comment),
+                    // so a backlog lead attributes to the hour it was WORKED, not
+                    // created. That's correct for which block the order counts
+                    // under, but confusing here: the popover is meant to show what
+                    // POS itself calls "Created at" for this specific order, which
+                    // is pancake_inserted_at — confirmed live against POS showing
+                    // 12:21 PM for an order this had been showing 12:46 PM for.
+                    'time' => $o->effective_created_at?->format('g:i A'),
                 ])
                 ->values()
         );
