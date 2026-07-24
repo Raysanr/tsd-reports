@@ -23,7 +23,18 @@ class SettingsController extends Controller
         $syncInterval = Setting::get('sync_interval', 1);
         $lastSynced   = Setting::get('last_synced');
 
-        return view('settings', compact('apiKey', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced'));
+        $driveClientId         = Setting::get('drive_client_id', '');
+        $driveClientSecret     = Setting::get('drive_client_secret', '');
+        $driveRefreshToken     = Setting::get('drive_refresh_token', '');
+        $driveFolderShNaturals = Setting::get('drive_folder_sh_naturals', '');
+        $driveFolderEyecare    = Setting::get('drive_folder_eyecare', '');
+        $driveConnected        = !empty($driveRefreshToken);
+
+        return view('settings', compact(
+            'apiKey', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
+            'driveClientId', 'driveClientSecret', 'driveRefreshToken',
+            'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected'
+        ));
     }
 
     /** AJAX — verifies the API key against Pancake's /shops endpoint, returns shop id + name as JSON. */
@@ -107,6 +118,73 @@ class SettingsController extends Controller
         ActivityLogger::log('settings.pancake_disconnected', null, $message);
 
         return redirect()->route('settings')->with('success', $message);
+    }
+
+    /**
+     * Feeds SyncCallRecordings (real call-duration data for TSA Performance's
+     * OPT/AHT columns). Verifies the refresh token actually works before saving —
+     * same reasoning as detectShop() above: an untested value here would silently
+     * fail every 2 hours in the scheduled sync with nothing visible on this page.
+     */
+    public function saveDrive(Request $request)
+    {
+        $request->validate([
+            'drive_client_id'         => 'required|string',
+            'drive_client_secret'     => 'required|string',
+            'drive_refresh_token'     => 'required|string',
+            'drive_folder_sh_naturals'=> 'required|string',
+            'drive_folder_eyecare'    => 'required|string',
+        ]);
+
+        if (!$this->verifyDriveToken(
+            $request->input('drive_client_id'),
+            $request->input('drive_client_secret'),
+            $request->input('drive_refresh_token'),
+        )) {
+            return back()
+                ->withErrors(['drive_refresh_token' => 'Could not get an access token from Google with these credentials — double-check them and try again.'])
+                ->withInput();
+        }
+
+        Setting::set('drive_client_id',         $request->input('drive_client_id'));
+        Setting::set('drive_client_secret',     $request->input('drive_client_secret'));
+        Setting::set('drive_refresh_token',     $request->input('drive_refresh_token'));
+        Setting::set('drive_folder_sh_naturals', $request->input('drive_folder_sh_naturals'));
+        Setting::set('drive_folder_eyecare',     $request->input('drive_folder_eyecare'));
+
+        $message = 'Google Drive credentials saved and verified.';
+        ActivityLogger::log('settings.drive_connected', null, $message);
+
+        return redirect()->route('settings')->with('success', $message);
+    }
+
+    public function clearDrive()
+    {
+        foreach (['drive_client_id', 'drive_client_secret', 'drive_refresh_token', 'drive_folder_sh_naturals', 'drive_folder_eyecare'] as $key) {
+            Setting::set($key, '');
+        }
+
+        $message = 'Google Drive disconnected.';
+        ActivityLogger::log('settings.drive_disconnected', null, $message);
+
+        return redirect()->route('settings')->with('success', $message);
+    }
+
+    private function verifyDriveToken(string $clientId, string $clientSecret, string $refreshToken): bool
+    {
+        try {
+            $response = Http::asForm()->timeout(10)->post('https://oauth2.googleapis.com/token', [
+                'client_id'     => $clientId,
+                'client_secret' => $clientSecret,
+                'refresh_token' => $refreshToken,
+                'grant_type'    => 'refresh_token',
+            ]);
+
+            return $response->successful() && !empty($response->json('access_token'));
+        } catch (\Throwable $e) {
+            Log::error('drive:verifyToken failed', ['message' => $e->getMessage()]);
+            return false;
+        }
     }
 
     /**

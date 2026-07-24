@@ -154,6 +154,83 @@
         </ol>
     </div>
 
+    {{-- Google Drive Call Recordings — feeds real OPT/AHT data on TSA Performance's
+         individual TSA page (SyncCallRecordings). One-time OAuth setup happens
+         outside this app (Google Cloud Console); this form just stores the
+         resulting credentials so the scheduled sync can use them. --}}
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-emerald-100 dark:border-emerald-900 shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-full bg-emerald-700 text-white text-xs font-bold flex items-center justify-center">D</div>
+                <div class="flex-1">
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">Google Drive Call Recordings</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Feeds real OPT/AHT data on TSA Performance</p>
+                </div>
+                @if($driveConnected)
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400 whitespace-nowrap">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
+                    Connected
+                </span>
+                {{-- Standalone form — never nested inside the save form below --}}
+                <form method="POST" action="{{ route('settings.drive.clear') }}" onsubmit="return confirm('Disconnect Google Drive? Real OPT/AHT data will stop syncing until reconnected.');">
+                    @csrf
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
+                        Disconnect
+                    </button>
+                </form>
+                @endif
+            </div>
+        </div>
+
+        <form method="POST" action="{{ route('settings.drive.save') }}">
+            @csrf
+            @if($errors->has('drive_refresh_token'))
+            <div class="mx-6 mt-4 px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
+                {{ $errors->first('drive_refresh_token') }}
+            </div>
+            @endif
+
+            <div class="px-6 py-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Client ID</label>
+                    <input type="text" name="drive_client_id" value="{{ old('drive_client_id', $driveClientId) }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Client Secret</label>
+                    <input type="password" name="drive_client_secret" value="{{ old('drive_client_secret', $driveClientSecret) }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Refresh Token</label>
+                    <input type="password" name="drive_refresh_token" value="{{ old('drive_refresh_token', $driveRefreshToken) }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">SH Naturals Folder ID</label>
+                        <input type="text" name="drive_folder_sh_naturals" value="{{ old('drive_folder_sh_naturals', $driveFolderShNaturals) }}"
+                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Eyecare Folder ID</label>
+                        <input type="text" name="drive_folder_eyecare" value="{{ old('drive_folder_eyecare', $driveFolderEyecare) }}"
+                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-5 flex items-center justify-end border-t border-slate-100 dark:border-slate-700">
+                <button type="submit" class="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    Save &amp; Verify
+                </button>
+            </div>
+        </form>
+    </div>
+
 </div>
 @endsection
 

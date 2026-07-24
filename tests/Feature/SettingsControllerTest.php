@@ -139,4 +139,62 @@ class SettingsControllerTest extends TestCase
         $this->assertSame('30037101', Setting::get('shop_id'));
         $this->assertSame(5, (int) Setting::get('sync_interval'));
     }
+
+    private function driveFormData(): array
+    {
+        return [
+            'drive_client_id'          => 'client-id-123',
+            'drive_client_secret'      => 'client-secret-abc',
+            'drive_refresh_token'      => 'refresh-token-xyz',
+            'drive_folder_sh_naturals' => 'folder-sh-naturals',
+            'drive_folder_eyecare'     => 'folder-eyecare',
+        ];
+    }
+
+    public function test_drive_save_rejects_credentials_that_fail_verification_and_does_not_persist_them(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['error' => 'invalid_grant'], 400),
+        ]);
+
+        $response = $this->post(route('settings.drive.save'), $this->driveFormData());
+
+        $response->assertSessionHasErrors('drive_refresh_token');
+        $this->assertSame('', Setting::get('drive_refresh_token', ''));
+    }
+
+    public function test_drive_save_persists_credentials_when_the_token_verifies(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['access_token' => 'a-real-access-token'], 200),
+        ]);
+
+        $response = $this->post(route('settings.drive.save'), $this->driveFormData());
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success');
+        $this->assertSame('refresh-token-xyz', Setting::get('drive_refresh_token'));
+        $this->assertSame('folder-sh-naturals', Setting::get('drive_folder_sh_naturals'));
+        $this->assertSame('folder-eyecare', Setting::get('drive_folder_eyecare'));
+    }
+
+    public function test_drive_clear_wipes_all_stored_drive_credentials(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        foreach ($this->driveFormData() as $key => $value) {
+            Setting::set($key, $value);
+        }
+
+        $response = $this->post(route('settings.drive.clear'));
+
+        $response->assertRedirect(route('settings'));
+        foreach (array_keys($this->driveFormData()) as $key) {
+            $this->assertSame('', Setting::get($key, ''));
+        }
+    }
 }

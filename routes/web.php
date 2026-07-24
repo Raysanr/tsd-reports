@@ -86,6 +86,8 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::post('/settings/detect',  [SettingsController::class, 'detect'])->name('settings.detect');
         Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
         Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
+        Route::post('/settings/drive',       [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
+        Route::post('/settings/drive/clear', [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
 
         Route::get('/user-management',                    [UserManagementController::class, 'index'])->name('user-management');
         Route::post('/user-management',                    [UserManagementController::class, 'store'])->name('user-management.store');
