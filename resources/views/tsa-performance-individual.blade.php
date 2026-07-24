@@ -236,7 +236,7 @@
                         Total<br>Unanswered Calls
                     </th>
                     <th class="bg-emerald-100 dark:bg-emerald-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wide whitespace-nowrap"
-                        style="min-width:100px" title="Real summed call duration from synced Google Drive recordings when available (marked with a dot), otherwise estimated at 3 minutes per answered call.">
+                        style="min-width:100px" title="Real call durations from synced Google Drive recordings, blended with a 3-minute estimate for any answered calls that hour without a synced recording yet (marked with a dot). Purely estimated when no recordings are synced for the hour at all.">
                         OPT (Order<br>Processing Time)
                     </th>
                     <th class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
@@ -276,7 +276,7 @@
                         {{ $hour['unanswered'] ?: '' }}
                     </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400">
-                        {{ $hour['opt'] ?: '' }}@if($hour['opt_is_real'])<span class="text-emerald-500" title="Real call-duration data">&nbsp;●</span>@endif
+                        {{ $hour['opt'] ?: '' }}@if($hour['opt_is_real'])<span class="text-emerald-500" title="Includes real call-duration data (blended with a 3-min estimate for any answered calls this hour without a synced recording yet)">&nbsp;●</span>@endif
                     </td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">
                         {{ $hour['unproductive'] }}
@@ -316,7 +316,7 @@
         </table>
     </div>
     <p class="text-[10px] font-mono text-slate-400 mt-2">
-        AHT and OPT use real call-duration data synced from Google Drive where available (marked with a dot next to the OPT value); hours without synced recordings yet fall back to an estimate of 3 minutes per answered call. Unproductive Time is a flat 2 minutes per unanswered call.
+        AHT and OPT blend real call-duration data synced from Google Drive with a 3-minute-per-call estimate for any answered calls that hour without a synced recording yet (marked with a dot next to the OPT value); hours with no synced recordings at all use the pure estimate. Unproductive Time is a flat 2 minutes per unanswered call.
     </p>
     @endif
 </div>

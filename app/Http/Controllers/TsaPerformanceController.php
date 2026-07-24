@@ -317,13 +317,24 @@ class TsaPerformanceController extends Controller
             // (verified against 7 real rows, exact match every time): OPT assumes 3
             // minutes per answered call, and AHT stays blank (no formula for it exists
             // in the source sheet either).
-            $recording = $recordingsByHour->get($hour);
-            $realSeconds = $recording?->sum('total_seconds');
-            $realCalls   = $recording?->sum('call_count');
+            $recording   = $recordingsByHour->get($hour);
+            $realSeconds = $recording?->sum('total_seconds') ?? 0;
+            $realCalls   = $recording?->sum('call_count') ?? 0;
 
-            if ($realSeconds !== null && $realCalls > 0) {
-                $opt       = round($realSeconds / 60, 1);
-                $aht       = (int) round($realSeconds / $realCalls);
+            if ($realCalls > 0) {
+                // Blend: real duration for the calls that have a synced recording,
+                // plus the same 3-min/call estimate as the no-data fallback for any
+                // OTHER answered calls this hour that don't have one yet — otherwise
+                // a partially-synced hour (e.g. 1 of 5 answered calls recorded) would
+                // report only that one call's total as if it were the whole hour's
+                // OPT, understating it badly (confirmed against real data: an hour
+                // with 5 answered calls and 1 synced recording showed OPT=0.6min
+                // instead of anywhere near the ~15min the other 4 calls implied).
+                $callsForAvg    = max($answered, $realCalls);
+                $unmatched      = max(0, $answered - $realCalls);
+                $blendedSeconds = $realSeconds + $unmatched * 180;
+                $opt       = round($blendedSeconds / 60, 1);
+                $aht       = (int) round($blendedSeconds / $callsForAvg);
                 $optIsReal = true;
             } else {
                 $opt       = $answered * 3;

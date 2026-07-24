@@ -80,4 +80,39 @@ class TsaPerformanceRealOptTest extends TestCase
         $response->assertOk();
         $response->assertDontSee('●', false);
     }
+
+    /**
+     * Bug found by inspecting real synced data: an hour with 5 answered calls but
+     * only 1 synced recording was showing OPT=0.6min (that one call's duration) as
+     * if it were the whole hour's total, wildly understating it. OPT/AHT must blend
+     * the real duration with a 3-min estimate for the answered calls that don't
+     * have a matching recording yet, not just report the partial sample outright.
+     */
+    public function test_partial_recording_coverage_blends_real_duration_with_the_estimate_for_the_rest(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        // 5 answered calls this hour...
+        for ($i = 1; $i <= 5; $i++) {
+            $this->order("blend-{$i}", $shift->tsa_key, "2026-07-22 08:{$i}5:00", 'CONFIRMED VIA CALL');
+        }
+        // ...but only 1 of them has a synced recording (37 seconds).
+        CallRecordingHour::create([
+            'tsa_key'       => $shift->tsa_key,
+            'date'          => '2026-07-22',
+            'hour'          => 8,
+            'total_seconds' => 37,
+            'call_count'    => 1,
+        ]);
+
+        $response = $this->get(route('tsa-performance.individual', [
+            'team' => 'sh-naturals', 'tsaKey' => $shift->tsa_key,
+            'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        // blended = 37s + 4 unmatched x 180s = 757s -> OPT = 12.6min, AHT = 757/5 = 151s = 2:31
+        $response->assertSee('12.6');
+        $response->assertSee('2:31');
+    }
 }
