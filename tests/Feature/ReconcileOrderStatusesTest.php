@@ -117,6 +117,60 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
     }
 
+    /**
+     * The actual bug this closes: an order was a real upsell BEFORE Pancake
+     * canceled/deleted it, so is_upsell stayed true locally forever (the
+     * regular sync never re-fetches it to correct that, same root cause as
+     * status_code) — silently inflating Dashboard's gross sales/upsell
+     * revenue even after status_code itself gets fixed, unless this is
+     * cleared too.
+     */
+    public function test_clears_stale_upsell_flags_when_correcting_a_void_status(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1335999',
+            'status_code'         => 9, // "Waiting for pick up" locally — stale
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'is_returned_upsell'  => false,
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [['id' => 1335999, 'status' => 6]], // Pancake: Canceled
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1335999')->first();
+        $this->assertSame(6, $order->status_code);
+        $this->assertFalse($order->is_upsell);
+    }
+
+    /** Even when status_code already matches, a stale upsell flag alone must
+     *  still be corrected and counted — the two can drift independently if a
+     *  previous partial fix only touched one of them. */
+    public function test_clears_a_stale_upsell_flag_even_when_status_code_already_matches(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id' => '1336000',
+            'status_code'      => 7,
+            'is_upsell'        => true,
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [['id' => 1336000, 'status' => 7]],
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $this->assertFalse(Order::where('pancake_order_id', '1336000')->first()->is_upsell);
+        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+    }
+
     public function test_fails_gracefully_without_credentials(): void
     {
         Setting::set('pancake_api_key', '');

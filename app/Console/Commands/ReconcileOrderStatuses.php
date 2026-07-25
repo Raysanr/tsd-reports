@@ -25,6 +25,15 @@ use Illuminate\Support\Facades\Log;
  * last 30 days already had 33 whose local status_code disagreed with
  * Pancake's real one — inflating Leads Report and other counts everywhere,
  * not just for one product on one day.
+ *
+ * Also clears is_upsell/is_cancelled_upsell/is_returned_upsell on every order
+ * it corrects — status_code alone fixes Leads Report/TSA Performance (they
+ * check DELETED_STATUSES directly), but Dashboard's sales/revenue figures
+ * filter by is_upsell, which SyncTodayOrders' own convention already forces
+ * false for any void-status order (Order::VOID_STATUSES, which includes
+ * Canceled/Deleted). A stale is_upsell=true left over from before the order
+ * went void would otherwise keep inflating gross sales even after
+ * status_code itself is corrected.
  */
 class ReconcileOrderStatuses extends Command
 {
@@ -88,12 +97,29 @@ class ReconcileOrderStatuses extends Command
 
                 $checkedCount++;
                 $local = Order::where('pancake_order_id', $id)->first();
-                if ($local && (int) $local->status_code !== $status) {
-                    $oldStatus = $local->status_code;
-                    $local->update(['status_code' => $status]);
-                    $correctedCount++;
-                    $this->line("  Corrected #{$id}: {$oldStatus} -> {$status}");
-                }
+                if (!$local) continue;
+
+                // A void status (SyncTodayOrders' own convention — see its
+                // $isExcludedStatus check) never counts as a live cross-sell, no
+                // matter what it looked like before Pancake canceled/deleted it.
+                // Fixing status_code alone corrects Leads Report/TSA Performance
+                // (they check DELETED_STATUSES directly) but NOT Dashboard's sales
+                // figures, which filter by is_upsell — a stale is_upsell=true from
+                // before the order went void would keep inflating gross sales/
+                // upsell revenue even after status_code itself is corrected.
+                $needsStatusFix = (int) $local->status_code !== $status;
+                $needsUpsellFix = $local->is_upsell || $local->is_cancelled_upsell || $local->is_returned_upsell;
+                if (!$needsStatusFix && !$needsUpsellFix) continue;
+
+                $oldStatus = $local->status_code;
+                $local->update([
+                    'status_code'         => $status,
+                    'is_upsell'           => false,
+                    'is_cancelled_upsell' => false,
+                    'is_returned_upsell'  => false,
+                ]);
+                $correctedCount++;
+                $this->line("  Corrected #{$id}: status {$oldStatus} -> {$status}" . ($needsUpsellFix ? ' (also cleared stale upsell flag)' : ''));
             }
 
             if (count($orders) < 100) break;
