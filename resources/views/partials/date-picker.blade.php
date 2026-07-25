@@ -65,10 +65,18 @@
         <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
     </button>
 
-    <div id="{{ $uid }}Panel" class="hidden absolute right-0 top-full mt-2 z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700" style="width:{{ $isRange ? '700px' : '440px' }}">
-        <div class="flex">
+    {{-- Mobile: fixed + inset-x-4, so the panel is always fully inside the viewport
+         regardless of how close the trigger button sits to the screen edge — the
+         old `absolute right-0` + fixed 440-700px width overflowed off BOTH edges
+         of a phone screen, since a right-anchored panel wider than the space
+         actually available to its left just runs off the left side instead.
+         sm: and up restores the original anchored-to-trigger desktop behavior.
+         max-h-[85vh] + overflow-y-auto: a stacked (flex-col) mobile layout with
+         8 presets + a full calendar can run taller than short phone screens. --}}
+    <div id="{{ $uid }}Panel" class="hidden fixed inset-x-4 top-20 sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
+        <div class="flex flex-col sm:flex-row">
             {{-- Presets sidebar — identical list in both modes --}}
-            <div class="w-28 border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
+            <div class="w-full sm:w-28 border-b sm:border-b-0 sm:border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
                 <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="today">Today</button>
                 <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="yesterday">Yesterday</button>
                 <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last7">Last 7 days</button>
@@ -207,8 +215,10 @@
             mode       : isRange ? 'range' : 'single',
             inline     : true,
             // Range mode (Dashboard) shows two months side by side for span picking;
-            // single-date report pages stay on one month.
-            showMonths : isRange ? 2 : 1,
+            // single-date report pages stay on one month. Forced to 1 below the sm
+            // breakpoint regardless of mode — two months side by side can't fit
+            // even at the panel's full mobile width without overflowing again.
+            showMonths : isRange && window.matchMedia('(min-width: 640px)').matches ? 2 : 1,
             minDate    : '{{ $minDate }}',
             maxDate    : 'today',
             defaultDate: isRange ? [selFrom, selTo] : [selFrom],
