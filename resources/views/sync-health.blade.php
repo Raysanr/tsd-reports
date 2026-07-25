@@ -116,6 +116,39 @@
     </form>
 </div>
 
+{{-- FIX STALE ORDER STATUSES — Pancake's list-orders endpoint excludes
+     canceled/deleted orders by default, so the regular sync (above) can never
+     learn an order was removed after it was already synced — its local status
+     sits stale forever. This explicitly asks for removed orders and corrects
+     any local mismatch. Safe to run synchronously (small JSON list calls, not
+     file downloads) — confirmed live: 181 of 831 checked were stale on a
+     90-day window. --}}
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4 mb-6">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-1">Fix Stale Order Statuses</h2>
+    <p class="text-xs font-mono text-slate-400 mb-3">
+        Corrects local orders Pancake has since canceled/deleted — the regular sync can't catch this on its own (Pancake hides removed orders from normal queries).
+    </p>
+    <form method="POST" action="{{ route('sync-health.reconcile-statuses') }}" class="flex items-end gap-3 flex-wrap">
+        @csrf
+        <div>
+            <label for="reconcileDays" class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Days back</label>
+            <input type="number" name="days" id="reconcileDays" min="1" max="365"
+                   value="{{ old('days', 30) }}"
+                   class="w-24 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+        </div>
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Fix Now
+        </button>
+        @error('days')
+        <p class="text-xs font-mono text-red-600 dark:text-red-400 w-full">{{ $message }}</p>
+        @enderror
+    </form>
+</div>
+
 {{-- FULL HISTORY TABLE — every SyncRun, paginated, sortable/filterable. A genuine
      per-entity table (one row = one sync run), unlike the hourly-pivot tables
      elsewhere in this app that deliberately skip the sortable-table pattern. --}}

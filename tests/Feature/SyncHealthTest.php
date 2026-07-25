@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\Order;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class SyncHealthTest extends TestCase
@@ -74,5 +76,37 @@ class SyncHealthTest extends TestCase
         $flashed = session('error');
         $this->assertIsString($flashed);
         $this->assertStringNotContainsString('some-secret-value', $flashed);
+    }
+
+    public function test_reconcile_statuses_corrects_stale_orders_and_reports_the_count(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        Order::factory()->create(['pancake_order_id' => '1335548', 'status_code' => 0]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [['id' => 1335548, 'status' => 7]],
+            ], 200),
+        ]);
+
+        $response = $this->post(route('sync-health.reconcile-statuses'), ['days' => 30]);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('success');
+        $this->assertStringContainsString('corrected 1 stale', session('success'));
+        $this->assertSame(7, Order::where('pancake_order_id', '1335548')->first()->status_code);
+    }
+
+    public function test_reconcile_statuses_reports_failure_without_credentials(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->post(route('sync-health.reconcile-statuses'), ['days' => 30]);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('error');
     }
 }

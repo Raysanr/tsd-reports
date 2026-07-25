@@ -76,6 +76,7 @@ Route::middleware(['auth', 'active'])->group(function () {
 
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
+        Route::post('/sync-health/reconcile-statuses', [SyncHealthController::class, 'reconcileStatuses'])->name('sync-health.reconcile-statuses');
 
         Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 

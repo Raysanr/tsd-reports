@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Console\Commands\SyncTodayOrders;
 use App\Console\Commands\PancakeReconcile;
+use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
 use App\Models\Setting;
 
@@ -38,6 +39,15 @@ Schedule::command(SyncTodayOrders::class)->everyFifteenMinutes()->withoutOverlap
 // and Carbon::now('Asia/Manila')->subDay() inside the command means "yesterday" is
 // always correct regardless of what timezone the server's cron actually fires in.
 Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping();
+
+// Corrects local orders Pancake has since canceled/deleted — the regular sync
+// above can never catch this on its own: Pancake's list-orders endpoint
+// excludes removed orders by default, so no date-scoped query (delta or full
+// day, any date) ever sees one again once it's gone. Daily is enough — this
+// isn't time-critical the way today's own orders are, and confirmed live this
+// is small sequential JSON list calls, not file downloads, so even a wide
+// window finishes in seconds.
+Schedule::command(ReconcileOrderStatuses::class)->daily()->withoutOverlapping();
 
 // Real call-duration data (synced from each team's Google Drive recordings folder)
 // feeds the individual TSA page's OPT/AHT columns. Every 2 hours rather than more

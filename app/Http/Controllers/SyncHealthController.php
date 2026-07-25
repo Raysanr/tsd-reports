@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Support\SyncHealth;
 use Illuminate\Http\Request;
@@ -51,5 +52,33 @@ class SyncHealthController extends Controller
 
         return redirect()->route('sync-health')
             ->with($success ? 'success' : 'error', $message);
+    }
+
+    /**
+     * Manual trigger for pancake:reconcile-statuses — corrects local orders
+     * Pancake has since canceled/deleted, which the regular sync can never catch
+     * on its own (see that command's docblock). Safe to run synchronously here,
+     * unlike SyncCallRecordings' "Sync Now": this is small sequential JSON list
+     * calls, not multi-MB file downloads, so even a 90-day window finishes in
+     * seconds rather than minutes.
+     */
+    public function reconcileStatuses(Request $request)
+    {
+        $data = $request->validate([
+            'days' => 'nullable|integer|min:1|max:365',
+        ]);
+
+        $exitCode = \Artisan::call('pancake:reconcile-statuses', ['--days' => $data['days'] ?? 30]);
+
+        $failed    = $exitCode !== 0;
+        $checked   = (int) Setting::get('order_status_reconcile_last_checked', 0);
+        $corrected = (int) Setting::get('order_status_reconcile_last_corrected', 0);
+
+        $message = $failed
+            ? 'Reconciliation failed — check the Pancake API key/shop ID.'
+            : "Checked {$checked} Pancake-removed order(s); corrected {$corrected} stale local record(s).";
+
+        return redirect()->route('sync-health')
+            ->with($failed ? 'error' : 'success', $message);
     }
 }
