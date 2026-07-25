@@ -8,6 +8,7 @@ use App\Console\Commands\PancakeReconcile;
 use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
 use App\Models\Setting;
+use Illuminate\Support\Carbon;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -48,6 +49,23 @@ Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping();
 // is small sequential JSON list calls, not file downloads, so even a wide
 // window finishes in seconds.
 Schedule::command(ReconcileOrderStatuses::class)->daily()->withoutOverlapping();
+
+// Full re-sync of the last few days, once nightly — a safety net against rare
+// completeness gaps the continuous "today" sync can miss right at the midnight
+// boundary. Confirmed live: a Scar Cream order updated at 11:21 PM stayed
+// completely unsynced for 2 days until a manual re-sync of that date caught it
+// — status wasn't the issue (it was a normal, non-hidden status), the order
+// just never made it into the sync's window before the day rolled over.
+// PancakeReconcile's own completeness check only flags a LARGE shortfall (90%
+// threshold) — one missing order out of hundreds never trips it, so this
+// doesn't just report the gap, it actively re-fetches and upserts (idempotent)
+// each of the last 3 days to actually close it. Staggered a few minutes apart
+// (not truly time-critical) so three full-day resyncs don't all start at once.
+foreach ([1, 2, 3] as $daysAgo) {
+    Schedule::command(SyncTodayOrders::class, [
+        '--date' => Carbon::now('Asia/Manila')->subDays($daysAgo)->toDateString(),
+    ])->dailyAt(sprintf('01:%02d', $daysAgo * 5))->withoutOverlapping();
+}
 
 // Real call-duration data (synced from each team's Google Drive recordings folder)
 // feeds the individual TSA page's OPT/AHT columns. Every 2 hours rather than more
