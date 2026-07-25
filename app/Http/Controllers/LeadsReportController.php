@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -353,5 +354,59 @@ class LeadsReportController extends Controller
             'productRows' => $productRows, 'grandTotal' => $grandTotal,
             'teams'       => $teams, 'selectedTeam' => 'all', 'metricCols' => ProductPerformance::METRIC_COLUMNS,
         ]);
+    }
+
+    /**
+     * Drill-down: given a product's Total Leads cell, returns the exact orders
+     * ProductPerformance::buildRow() counted toward it — id, current LOCAL status,
+     * cart item, and creation time. Built to actually investigate a real
+     * discrepancy (production showing more leads than Pancake's own order search)
+     * rather than guess at it: a known, previously-confirmed failure mode is an
+     * order deleted/cancelled in Pancake after being synced, whose local copy
+     * keeps its last-known-live status forever if no later sync window ever
+     * touches it again (see Order::DELETED_STATUSES) — this list is exactly what
+     * lets that be checked order-by-order against Pancake's live data.
+     *
+     * Deliberately does NOT exclude DELETED_STATUSES — showing every order
+     * ProductPerformance::tally() would currently count (including any whose
+     * local status secretly disagrees with Pancake's real one) is the whole
+     * point; excluding them here would hide the exact rows worth checking.
+     */
+    public function drilldown(Request $request)
+    {
+        $teamsConfig = config('teams', []);
+        $productId   = $request->query('product');
+        abort_if(!$productId, 422);
+
+        $product = Product::findOrFail($productId);
+
+        $dateFrom = $request->query('date_from');
+        $dateTo   = $request->query('date_to', $dateFrom);
+        abort_if(!$dateFrom, 422);
+        $from = Carbon::parse($dateFrom)->startOfDay();
+        $to   = Carbon::parse($dateTo)->endOfDay();
+
+        // Same cross-team match pool as index()/indexAll() — a combo can bundle
+        // this product under a different team's primary order (see the
+        // matchingOrders() docblock), so the pool can't be pre-filtered to one team.
+        $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
+        $matchPool  = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+            ->whereIn('team', $orderTeams)
+            ->get();
+
+        $teamProducts = Product::where('team', $product->team)->get();
+        $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+
+        $result = $matching
+            ->sortByDesc(fn($o) => $o->effective_created_at)
+            ->values()
+            ->map(fn($o) => [
+                'id'      => $o->pancake_order_id,
+                'status'  => $o->status_label ?? "Unknown ({$o->status_code})",
+                'product' => $o->product,
+                'time'    => optional($o->effective_created_at)->format('M j, g:i A'),
+            ]);
+
+        return response()->json($result);
     }
 }

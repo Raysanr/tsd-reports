@@ -465,15 +465,22 @@ document.addEventListener('click', async (e) => {
         if (!wrapper) return;
 
         // Toggle: clicking the same cell again closes it instead of
-        // re-fetching/re-showing the identical popover.
-        const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn].join('|');
+        // re-fetching/re-showing the identical popover. ddCellProduct is only set
+        // by Leads Report's per-product-row Total Leads cells (see below) — folded
+        // in so each row's cell counts as a distinct cell from the others, which
+        // ddTsa/ddHour/ddColumn alone can't tell apart there (none of them vary
+        // per row on that page).
+        const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn, cell.dataset.ddCellProduct].join('|');
         const wasOpenForThisCell = popover?.dataset.forCell === cellKey;
         closePopover();
         if (wasOpenForThisCell) return;
 
+        // ddCellProduct overrides the wrapper's own ddProduct (a page-wide product
+        // FILTER, meaningless to Leads Report) with the specific product THIS row
+        // is about — the one thing that actually varies per cell on that page.
         const params = new URLSearchParams({
             team:      wrapper.dataset.ddTeam,
-            product:   wrapper.dataset.ddProduct,
+            product:   cell.dataset.ddCellProduct || wrapper.dataset.ddProduct,
             date_from: wrapper.dataset.ddDateFrom,
             date_to:   wrapper.dataset.ddDateTo,
             tsa:       cell.dataset.ddTsa,
@@ -494,7 +501,11 @@ document.addEventListener('click', async (e) => {
         document.body.appendChild(popover);
         positionPopover(cell, popover);
 
-        fetch(`/tsa-performance/drilldown?${params.toString()}`)
+        // Defaults to the TSA Performance endpoint (its cells never set this
+        // attribute); Leads Report's product-total cells set their own.
+        const endpoint = wrapper.dataset.ddEndpoint || '/tsa-performance/drilldown';
+
+        fetch(`${endpoint}?${params.toString()}`)
             .then(r => r.json())
             .then((orders) => {
                 if (popover?.dataset.forCell !== cellKey) return; // superseded by a newer click
@@ -502,9 +513,14 @@ document.addEventListener('click', async (e) => {
                     popover.innerHTML = '<p class="px-3 py-3 text-slate-400">No orders found.</p>';
                     return;
                 }
+                // 'status' is only present from Leads Report's drilldown (a local
+                // order status, e.g. to spot one Pancake has since cancelled/deleted
+                // that hasn't re-synced) — TSA Performance's response has no such
+                // field, so that middle span just doesn't render there.
                 popover.innerHTML = orders.map(o => `
                     <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
                         <span class="text-primary font-semibold">#${escapeHtml(o.id)}</span>
+                        ${o.status ? `<span class="text-slate-400 dark:text-slate-500">${escapeHtml(o.status)}</span>` : ''}
                         <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap">${escapeHtml(o.time || '—')}</span>
                     </div>
                 `).join('');

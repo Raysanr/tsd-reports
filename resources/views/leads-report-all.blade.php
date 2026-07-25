@@ -24,7 +24,8 @@
     @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all'])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table>
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table
+     data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
@@ -92,7 +93,8 @@
                     {{ $row['display_name'] }}
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="total" data-sort-value="{{ $row['total'] }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['total'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="total" data-sort-value="{{ $row['total'] }}"
+                    @if($row['total']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $row['total'] ?: '' }}
                 </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}">

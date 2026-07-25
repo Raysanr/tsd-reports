@@ -52,6 +52,22 @@ class ProductPerformance
      *  where that safeguard doesn't matter. */
     public static function buildRow(Product $product, Collection $orders, ?Collection $teamProducts = null): array
     {
+        $matching = self::matchingOrders($product, $orders, $teamProducts);
+
+        $row = self::tally($matching);
+        $row['product_id']   = $product->id;
+        $row['display_name'] = $product->display_name;
+        $row['team']         = $product->team;
+
+        return $row;
+    }
+
+    /** The order-matching filter buildRow() counts from, extracted so a drill-down
+     *  (e.g. LeadsReportController::drilldown()) can list the exact orders behind a
+     *  product's total instead of just the count — same matching, so the list can
+     *  never drift from what buildRow() actually counted. */
+    public static function matchingOrders(Product $product, Collection $orders, ?Collection $teamProducts = null): Collection
+    {
         // Team-scoped, then matched primarily via raw_tags — confirmed against real
         // POS data that this is the reliable signal: every "Clear Sight 3.0" order
         // carries a plain "CLEARSIGHT" tag, and every upsell add-on order (e.g.
@@ -60,7 +76,7 @@ class ProductPerformance
         // at all — matching on it alone undercounts every upsold product and misses
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
-        $matching = $orders->filter(function ($o) use ($product, $teamProducts) {
+        return $orders->filter(function ($o) use ($product, $teamProducts) {
             // bundle_description is the item's full combo text (e.g. "1 Ginseng
             // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
             // entry's generic name, which silently hid every other product bundled
@@ -98,12 +114,6 @@ class ProductPerformance
             }
             return $explicitMatch;
         });
-
-        $row = self::tally($matching);
-        $row['display_name'] = $product->display_name;
-        $row['team']         = $product->team;
-
-        return $row;
     }
 
     /** True when $product's own keyword does NOT match the order's cart item

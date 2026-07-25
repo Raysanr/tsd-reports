@@ -43,6 +43,7 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync')
         ->middleware('role:super_admin,admin,normal');
     Route::get('/leads-report',    [LeadsReportController::class,    'index'])->name('leads-report');
+    Route::get('/leads-report/drilldown', [LeadsReportController::class, 'drilldown'])->name('leads-report.drilldown');
     // Old URL kept alive for bookmarks/history — permanent redirect to the new name.
     Route::redirect('/team-report', '/leads-report', 301);
     Route::get('/tsa-performance', [TsaPerformanceController::class, 'index'])->name('tsa-performance');
