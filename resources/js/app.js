@@ -535,11 +535,17 @@ document.addEventListener('click', async (e) => {
         if (e.key === 'Escape') closePopover();
     });
 
-    // Any scroll (including the table's own internal overflow-auto scroll,
-    // which doesn't bubble to document without capture:true) moves the cell
-    // out from under a fixed-position popover — close it rather than let it
-    // drift stale.
-    document.addEventListener('scroll', () => closePopover(), true);
+    // Any scroll OUTSIDE the popover (including the table's own internal
+    // overflow-auto scroll, which doesn't bubble to document without
+    // capture:true) moves the cell out from under a fixed-position popover —
+    // close it rather than let it drift stale. Scrolling the popover's OWN
+    // list (Leads Report's product totals can be 100+ orders, well past its
+    // own max-height) must NOT trigger this, or it closes itself the instant
+    // you try to scroll through it.
+    document.addEventListener('scroll', (e) => {
+        if (popover?.contains(e.target)) return;
+        closePopover();
+    }, true);
 })();
 
 // ─── Toast notifications ─────────────────────────────────────────────────────
