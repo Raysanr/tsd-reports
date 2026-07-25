@@ -20,6 +20,18 @@
       navigateBase URL to redirect to when submit='navigate'. Default '/'.
       dateField    Name of the single-mode date input. Default 'date'.
       minDate      Earliest selectable date. Default '2026-06-01'.
+      showLabel    true — trigger is a text pill showing the selected date (e.g.
+                    "Jul 25, 2026") instead of a bare icon. For a standalone form
+                    field (e.g. Sync Health's "Retry a Date") where the value
+                    needs to be visible at a glance, not just a topbar filter
+                    icon whose effect is already reflected in the page below it.
+                    Default false.
+      autoSubmit   Only relevant when submit='form'. false — picking a date and
+                    clicking Apply updates the hidden field(s) and closes the
+                    panel WITHOUT submitting the form, leaving a separate button
+                    elsewhere in the form (e.g. "Retry Sync") as the deliberate
+                    action trigger. Default true (existing behavior everywhere
+                    else: Apply both sets the field(s) and submits).
 --}}
 @php
     $mode         = $mode ?? 'single';
@@ -29,6 +41,8 @@
     $navigateBase = $navigateBase ?? '/';
     $dateField    = $dateField ?? 'date';
     $minDate      = $minDate ?? '2026-06-01';
+    $showLabel    = $showLabel ?? false;
+    $autoSubmit   = $autoSubmit ?? true;
 
     $initFrom = $isRange ? $dateFrom->toDateString() : $date;
     $initTo   = $isRange ? $dateTo->copy()->startOfDay()->toDateString() : $date;
@@ -50,19 +64,28 @@
 @endif
 
 <div class="relative">
-    {{-- Icon-only trigger — the selected date/range isn't shown as visible text (by
-         design, for a minimal topbar), so it's carried entirely in `title` (native
-         tooltip) and `aria-label`, both kept live-updated in JS below. A small dot
-         marks "not today" so a custom filter is still noticeable at a glance without
-         relying on color alone (the dot always pairs with the tooltip text). --}}
+    {{-- Two visual variants: icon-only (default, every topbar usage — the
+         selected date/range isn't shown as visible text by design, carried
+         entirely in `title`/`aria-label` instead, with a small dot marking
+         "not today" so a custom filter is still noticeable without relying on
+         color alone) vs a text pill showing the date directly (showLabel —
+         Sync Health's "Retry a Date", a standalone form field where the
+         value needs to be visible at a glance, not inferred from a page
+         already reflecting it). --}}
     <button type="button" id="{{ $uid }}Trigger"
         title="{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' – ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
         aria-label="Change date{{ $isRange ? ' range' : '' }}, currently {{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' to ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}"
-        class="relative inline-flex items-center justify-center w-8 h-8 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-full hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer shrink-0">
-        <svg class="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        class="{{ $showLabel
+            ? 'inline-flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-yellow-400 dark:hover:border-yellow-600 transition-colors cursor-pointer text-sm font-mono text-slate-800 dark:text-slate-100'
+            : 'relative inline-flex items-center justify-center w-8 h-8 bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 rounded-full hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer shrink-0' }}">
+        <svg class="w-4 h-4 text-yellow-600 dark:text-yellow-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
+        @if($showLabel)
+        <span id="{{ $uid }}Label">{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}</span>
+        @else
         <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
+        @endif
     </button>
 
     {{-- position:fixed here computed entirely by JS (see initFp/positionPanel
@@ -118,6 +141,7 @@
 (function () {
     const isRange   = {{ $isRange ? 'true' : 'false' }};
     const submitMode = '{{ $submitMode }}';
+    const autoSubmit = {{ $autoSubmit ? 'true' : 'false' }};
     const trigger   = document.getElementById('{{ $uid }}Trigger');
     const panel     = document.getElementById('{{ $uid }}Panel');
     const dot       = document.getElementById('{{ $uid }}Dot');
@@ -217,11 +241,15 @@
 
     // Icon-only trigger: the selection isn't shown as visible text, so this keeps
     // the tooltip/aria-label (and the "custom filter active" dot) in sync instead.
+    // showLabel triggers instead have a visible text span — kept in sync here too.
+    const labelSpan = document.getElementById('{{ $uid }}Label');
     const updateLabel = () => {
         const isSameDay  = !isRange || selFrom === selTo || !selTo;
         const labelText  = isSameDay ? fmt(selFrom) : fmt(selFrom) + '  –  ' + fmt(selTo);
         trigger.title = labelText;
         trigger.setAttribute('aria-label', `Change date${isRange ? ' range' : ''}, currently ${labelText}`);
+
+        if (labelSpan) labelSpan.textContent = labelText;
 
         if (dot) {
             const todayStr = today();
@@ -424,6 +452,11 @@
         // ignored in favor of the sticky rolling window.
         const rangeField = form.querySelector('[name="range"]');
         if (rangeField) rangeField.value = 'dates';
+
+        // autoSubmit=false: a separate button elsewhere in the form (e.g. Sync
+        // Health's "Retry Sync") is the deliberate action trigger — Apply here
+        // only updates the field(s) and closes the panel.
+        if (!autoSubmit) return;
 
         // requestSubmit (not submit) so the submit EVENT fires — app.js
         // intercepts GET form submits there and soft-refreshes in place

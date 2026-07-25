@@ -97,11 +97,20 @@
     <form method="POST" action="{{ route('sync-health.retry') }}" class="flex items-end gap-3 flex-wrap">
         @csrf
         <div>
-            <label for="retryDate" class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Date</label>
-            <input type="date" name="date" id="retryDate" required
-                   value="{{ old('date', now()->toDateString()) }}"
-                   max="{{ now()->toDateString() }}"
-                   class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+            <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Date</label>
+            {{-- Shared date-picker component (same one every report page uses),
+                 not the plain native <input type="date">, for visual consistency
+                 with the rest of the app. showLabel: this is a standalone form
+                 field whose value needs to be visible at a glance, unlike the
+                 topbar's icon-only usages. autoSubmit=false: "Retry Sync" below
+                 stays the deliberate action trigger — picking a date here only
+                 updates the hidden field. --}}
+            @include('partials.date-picker', [
+                'mode' => 'single', 'id' => 'retryDrp',
+                'date' => old('date', now()->toDateString()),
+                'submit' => 'form', 'autoSubmit' => false, 'showLabel' => true,
+                'dateField' => 'date',
+            ])
         </div>
         <button type="submit"
                 class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
