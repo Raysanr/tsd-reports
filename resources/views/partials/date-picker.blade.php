@@ -65,15 +65,18 @@
         <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
     </button>
 
-    {{-- Mobile: fixed + inset-x-4, so the panel is always fully inside the viewport
-         regardless of how close the trigger button sits to the screen edge — the
-         old `absolute right-0` + fixed 440-700px width overflowed off BOTH edges
-         of a phone screen, since a right-anchored panel wider than the space
-         actually available to its left just runs off the left side instead.
-         sm: and up restores the original anchored-to-trigger desktop behavior.
-         max-h-[85vh] + overflow-y-auto: a stacked (flex-col) mobile layout with
-         8 presets + a full calendar can run taller than short phone screens. --}}
-    <div id="{{ $uid }}Panel" class="hidden fixed inset-x-4 top-20 sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
+    {{-- position:fixed here computed entirely by JS (see initFp/positionPanel
+         below) — the panel is moved to a direct child of <body> on first open,
+         escaping <main>'s overflow-x-hidden (layouts/app.blade.php). A `fixed`
+         descendant of an `overflow-hidden` ancestor gets silently clipped to
+         that ancestor's bounds on some real mobile browsers (confirmed on a
+         real Android phone; not reproducible in a desktop-viewport-resize
+         test) — the same reason #confirmModal/#sidebarBackdrop in that same
+         layout file are declared as direct body children instead of wherever
+         they're conceptually used. max-h-[85vh]+overflow-y-auto: a stacked
+         mobile layout (8 presets + a full calendar) can run taller than short
+         phone screens. --}}
+    <div id="{{ $uid }}Panel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto w-[calc(100vw-2rem)] {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
         <div class="flex flex-col sm:flex-row">
             {{-- Presets sidebar — identical list in both modes --}}
             <div class="w-full sm:w-28 border-b sm:border-b-0 sm:border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
@@ -122,6 +125,36 @@
     const toInput   = isRange ? document.getElementById('{{ $uid }}ToInput') : null;
     const applyBtn  = document.getElementById('{{ $uid }}Apply');
     const closeBtn  = document.getElementById('{{ $uid }}Close');
+
+    // Moved to a direct child of <body>, escaping <main>'s overflow-x-hidden —
+    // see the panel's own comment in the markup above for why a `fixed`
+    // descendant of an `overflow-hidden` ancestor can't be trusted not to get
+    // clipped on mobile. Position is computed entirely here instead of via
+    // CSS anchored to the trigger, since the panel's DOM parent is no longer
+    // near the trigger at all once it's a body child.
+    document.body.appendChild(panel);
+
+    function positionPanel() {
+        const rect = trigger.getBoundingClientRect();
+        const isMobile = !window.matchMedia('(min-width: 640px)').matches;
+
+        if (isMobile) {
+            // Fixed within a 1rem margin of the viewport on every side it's
+            // anchored to — width is set by the w-[calc(100vw-2rem)] class
+            // above, so only position (not size) needs setting here.
+            panel.style.left  = '1rem';
+            panel.style.right = '';
+            panel.style.top   = '5rem';
+        } else {
+            // Desktop: same visual result as the old `absolute right-0
+            // top-full mt-2` (below the trigger, right edges aligned), just
+            // computed from the trigger's real viewport position now that
+            // the panel isn't DOM-adjacent to it any more.
+            panel.style.right = `${window.innerWidth - rect.right}px`;
+            panel.style.left  = '';
+            panel.style.top   = `${rect.bottom + 8}px`;
+        }
+    }
 
     let selFrom = '{{ $initFrom }}';
     let selTo   = '{{ $initTo }}';
@@ -316,6 +349,7 @@
         e.stopPropagation();
         const isHidden = panel.classList.contains('hidden');
         if (isHidden) {
+            positionPanel();
             panel.classList.remove('hidden');
             requestAnimationFrame(() => initFp());
         } else {
@@ -327,6 +361,12 @@
         if (!panel.contains(e.target) && e.target !== trigger) {
             panel.classList.add('hidden');
         }
+    });
+
+    // Orientation change / resize while open — the trigger's position (desktop)
+    // or the viewport itself (mobile) can both shift without the panel closing.
+    window.addEventListener('resize', () => {
+        if (!panel.classList.contains('hidden')) positionPanel();
     });
 
     closeBtn.addEventListener('click', () => panel.classList.add('hidden'));
