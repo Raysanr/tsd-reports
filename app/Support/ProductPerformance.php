@@ -83,6 +83,15 @@ class ProductPerformance
             // into the same combo SKU (confirmed in production: a Ginseng Serum +
             // Scar Cream combo order never counted toward Scar Cream at all).
             //
+            // base_product is the customer's ORIGINALLY-ordered item, independent of
+            // `product` (which becomes the UPSOLD item's name once an order carries
+            // an upsell). Without this, an order that started as e.g. AudiCure but
+            // was upsold to Ear Relief Balm has no remaining signal anywhere
+            // pointing back to AudiCure — confirmed in production: neither
+            // `product`, `bundle_description`, nor `raw_tags` mention it for this
+            // team/combo, silently dropping it from AudiCure's count even though
+            // Pancake's own product search still finds it.
+            //
             // Checked BEFORE the team gate below, and trusted across team lines:
             // an order only ever carries ONE team (assigned from its PRIMARY item),
             // but a combo can genuinely bundle products from two different teams
@@ -90,11 +99,11 @@ class ProductPerformance
             // bundling 10 Sinuxyl units (SH Naturals). Without this override, that
             // whole cross-team half of the bundle would be invisible everywhere,
             // since the order's single team column can never equal both products'
-            // teams at once. An explicit product/bundle_description text match is
-            // authoritative enough to trust regardless of the order's own team —
-            // unlike a bare tag match below, which stays team-gated since a tag
-            // alone is a weaker, more collision-prone signal.
-            $explicitMatch = $product->matchesText($o->product) || $product->matchesText($o->bundle_description);
+            // teams at once. An explicit product/base_product/bundle_description
+            // text match is authoritative enough to trust regardless of the
+            // order's own team — unlike a bare tag match below, which stays
+            // team-gated since a tag alone is a weaker, more collision-prone signal.
+            $explicitMatch = $product->matchesText($o->product) || $product->matchesText($o->base_product) || $product->matchesText($o->bundle_description);
 
             if ($o->team !== $product->team && !$explicitMatch) return false;
 
@@ -130,16 +139,18 @@ class ProductPerformance
      *  oddly-tagged, match), or no other same-team product matches it either. */
     public static function conflictingProduct(Product $product, Order $order, Collection $teamProducts): ?Product
     {
-        // Same bundle_description fallback as buildRow() above — a combo SKU whose
-        // display_id reveals $product IS genuinely part of this order is never a
-        // conflict, even though the generic `product` name alone doesn't match it.
-        if ($product->matchesText($order->product) || $product->matchesText($order->bundle_description)) {
+        // Same bundle_description/base_product fallback as matchingOrders() above —
+        // a combo SKU whose display_id reveals $product IS genuinely part of this
+        // order, or $product IS the order's originally-ordered (pre-upsell) item,
+        // is never a conflict, even though the generic `product` name alone
+        // doesn't match it.
+        if ($product->matchesText($order->product) || $product->matchesText($order->base_product) || $product->matchesText($order->bundle_description)) {
             return null;
         }
 
         return $teamProducts->first(fn ($other) => $other->id !== $product->id
             && $other->team === $product->team
-            && ($other->matchesText($order->product) || $other->matchesText($order->bundle_description)));
+            && ($other->matchesText($order->product) || $other->matchesText($order->base_product) || $other->matchesText($order->bundle_description)));
     }
 
     /** The counting/rate logic on its own, with no product-tag matching — for

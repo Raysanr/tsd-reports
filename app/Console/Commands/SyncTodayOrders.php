@@ -278,6 +278,7 @@ class SyncTodayOrders extends Command
             $productInfo       = $this->extractUpsellProduct($raw, $isUpsell);
             $productName       = $productInfo['name'];
             $bundleDescription = $productInfo['display_id'];
+            $baseProductName   = $productInfo['base_name'];
             $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName, $bundleDescription);
 
             // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
@@ -322,6 +323,7 @@ class SyncTodayOrders extends Command
                 'tsa_name'                => $tsaInfo['name'],
                 'disposition'             => $disposition,
                 'product'                 => $productName,
+                'base_product'            => $baseProductName,
                 'bundle_description'      => $bundleDescription,
                 'amount'                  => $amount,
                 'raw_tags'                => $tagNames,
@@ -401,7 +403,7 @@ class SyncTodayOrders extends Command
                 $chunk,
                 ['pancake_order_id'],
                 [
-                    'team', 'tsa_name', 'disposition', 'product', 'bundle_description', 'amount', 'raw_tags',
+                    'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
@@ -482,39 +484,59 @@ class SyncTodayOrders extends Command
     }
 
     // For upsell orders, show the upsell product name (item 1+), not the original
-    /** Returns ['name' => ..., 'display_id' => ...] for the same item
-     *  extractUpsellProduct() used to return just the name for. display_id is the
-     *  item's full variation_info.display_id text (e.g. "1 Ginseng Serum + 5 Scar
-     *  Cream" for a combo SKU) — 'name' alone only ever reflects the catalog
+    /** Returns ['name' => ..., 'display_id' => ..., 'base_name' => ...] for the same
+     *  item extractUpsellProduct() used to return just the name for. display_id is
+     *  the item's full variation_info.display_id text (e.g. "1 Ginseng Serum + 5
+     *  Scar Cream" for a combo SKU) — 'name' alone only ever reflects the catalog
      *  entry's generic label (e.g. "GINSENG SERUM"), which silently hides any other
-     *  product bundled into the same combo. Kept as one method (not a second
-     *  lookup) so both values always come from the exact same item — the
-     *  upsell-hint-index logic below is nontrivial enough that re-deriving it twice
-     *  risked the two ever pointing at different items. */
+     *  product bundled into the same combo. 'base_name' is the customer's
+     *  ORIGINALLY-ordered item — the one that isn't the upsell — so it survives
+     *  even once 'name'/`product` gets overwritten with the upsold item below.
+     *  Confirmed in production: an AudiCure order upsold to Ear Relief Balm leaves
+     *  no OTHER signal anywhere (not `product`, not `bundle_description`, not
+     *  `raw_tags`) pointing back to AudiCure, silently dropping it from Leads
+     *  Report's per-product count even though Pancake's own product search still
+     *  finds it. Kept as one method (not a second lookup) so all three values
+     *  always come from the exact same item(s) — the upsell-hint-index logic below
+     *  is nontrivial enough that re-deriving it twice risked them ever pointing at
+     *  different items. */
     private function extractUpsellProduct(array $raw, bool $isUpsell): array
     {
         $items = $raw['items'] ?? [];
-        if (empty($items)) return ['name' => null, 'display_id' => null];
+        if (empty($items)) return ['name' => null, 'display_id' => null, 'base_name' => null];
+
+        $itemName = fn (array $item) => ($item['variation_info'] ?? [])['name'] ?? $item['product_name'] ?? null;
 
         if ($isUpsell) {
             if (count($items) < 2 && $this->remainingItemIsJustTheBase($raw)) {
-                return ['name' => null, 'display_id' => null]; // upsell add-on was removed; nothing valid to show
+                return ['name' => null, 'display_id' => null, 'base_name' => null]; // upsell add-on was removed; nothing valid to show
             }
             $hintIndex = $this->findItemIndexByTagHint($raw);
             if ($hintIndex !== null) {
                 $vi = $items[$hintIndex]['variation_info'] ?? [];
+                // Base = the other item, whichever one ISN'T the tag-identified
+                // upsell — matching Fix #7's discovery that array order isn't
+                // trustworthy (order #1325787 had the base item listed AFTER the
+                // upsell).
+                $baseIndex = $hintIndex === 0 ? (count($items) > 1 ? 1 : null) : 0;
                 return [
                     'name'        => $vi['name'] ?? $items[$hintIndex]['product_name'] ?? null,
                     'display_id'  => $vi['display_id'] ?? null,
+                    'base_name'   => $baseIndex !== null ? $itemName($items[$baseIndex]) : null,
                 ];
             }
         }
 
         $index = ($isUpsell && count($items) >= 2) ? 1 : 0;
         $vi    = $items[$index]['variation_info'] ?? [];
+        // No tag hint (or not an upsell at all) — same positional convention
+        // already used elsewhere in this file (extractUpsellAmount's fallback,
+        // Fix #8): item 0 is always the ORIGINAL/base product, so it doubles as
+        // 'base_name' whether or not this order turns out to be an upsell.
         return [
             'name'       => $vi['name'] ?? $items[$index]['product_name'] ?? null,
             'display_id' => $vi['display_id'] ?? null,
+            'base_name'  => $itemName($items[0]),
         ];
     }
 

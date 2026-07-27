@@ -17,6 +17,7 @@ class Order extends Model
         'tsa_name',
         'disposition',
         'product',
+        'base_product',
         'bundle_description',
         'amount',
         'raw_tags',

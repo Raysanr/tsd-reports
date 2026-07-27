@@ -187,4 +187,48 @@ class LeadsReportStaleTagConflictTest extends TestCase
         });
         $eyecareResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
     }
+
+    /**
+     * Confirmed in production (2026-07-25, order #1335782): an order originally
+     * placed for AudiCure gets upsold to Ear Relief Balm, and SyncTodayOrders'
+     * TSA-credit convention then overwrites `product` with the UPSOLD item's
+     * name — correct for TSA Performance/Restocking, but it left no other
+     * signal anywhere (not `product`, not `bundle_description`, not
+     * `raw_tags` — Ear Relief Balm isn't its own tracked Product, so no tag
+     * names it either) pointing back to AudiCure, silently dropping the order
+     * from AudiCure's Leads Report count even though Pancake's own product
+     * search still finds it. See SyncTodayOrders::extractUpsellProduct()'s
+     * 'base_name' and ProductPerformance::matchingOrders()'s base_product
+     * check.
+     */
+    public function test_an_order_upsold_away_from_its_original_product_still_counts_toward_it_via_base_product(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'upsold-away-1',
+            'team'               => 'SH Naturals',
+            'tsa_name'           => $shift->tsa_key,
+            'disposition'        => 'CONFIRMED VIA CALL',
+            'product'            => 'Ear Relief Balm',
+            'base_product'       => 'AudiCure',
+            'bundle_description' => '3 Ear Relief Balm',
+            'raw_tags'           => [strtoupper($shift->tsa_key), 'Upsell TSD (Ear Relief Balm)', 'CONFIRMED VIA CALL'],
+            'is_upsell'          => true,
+            'status_code'        => 1,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $today = now()->toDateString();
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productTables', function ($tables) {
+            $audicure = $tables->firstWhere(fn($t) => $t['product']->display_name === 'AUDICURE');
+            return $audicure['total']['total'] === 1;
+        });
+    }
 }
