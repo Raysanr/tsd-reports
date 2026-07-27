@@ -99,31 +99,37 @@
          they're conceptually used. max-h-[85vh]+overflow-y-auto: a stacked
          mobile layout (8 presets + a full calendar) can run taller than short
          phone screens. --}}
-    <div id="{{ $uid }}Panel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto w-[calc(100vw-2rem)] {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
-        <div class="flex flex-col sm:flex-row">
+    <div id="{{ $uid }}Panel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto w-[min(285px,calc(100vw-2rem))] {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
+        {{-- Always side-by-side (sidebar + calendar), matching the desktop design
+             exactly at every screen size — mobile just shrinks both (narrower
+             sidebar, smaller calendar cells; see the mobile flatpickr overrides
+             in layouts/app.blade.php) rather than restacking into a different
+             layout. A long preset label (e.g. "Last 30 days") wrapping to 2
+             lines at the mobile sidebar's width is expected and fine. --}}
+        <div class="flex">
             {{-- Presets sidebar — identical list in both modes --}}
-            <div class="w-full sm:w-28 border-b sm:border-b-0 sm:border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="today">Today</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="yesterday">Yesterday</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last7">Last 7 days</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last30">Last 30 days</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="thisMonth">This month</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="lastMonth">Last month</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="weekToNow">Week to now</button>
-                <button type="button" class="{{ $uid }}-preset w-full text-left px-3 py-1.5 text-xs font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="monthToNow">Month to now</button>
+            <div class="w-[72px] sm:w-28 border-r border-slate-100 dark:border-slate-700 py-2 shrink-0">
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="today">Today</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="yesterday">Yesterday</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last7">Last 7 days</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="last30">Last 30 days</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="thisMonth">This month</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="lastMonth">Last month</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="weekToNow">Week to now</button>
+                <button type="button" class="{{ $uid }}-preset w-full text-left px-1.5 sm:px-3 py-1.5 text-[10px] sm:text-xs leading-tight font-mono text-slate-600 dark:text-slate-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-yellow-700 dark:hover:text-yellow-400 transition-colors" data-preset="monthToNow">Month to now</button>
             </div>
 
             {{-- Inline flatpickr calendar — dual month, editable start/end fields --}}
-            <div class="flex-1 p-3">
-                <div class="flex items-center gap-2 mb-2 px-1">
+            <div class="flex-1 p-1.5 sm:p-3 min-w-0">
+                <div class="flex items-center gap-1 sm:gap-2 mb-2 px-1">
                     <input type="text" id="{{ $uid }}FromInput" placeholder="{{ $isRange ? 'mm/dd/yyyy' : 'Date' }}" inputmode="numeric"
-                        class="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        class="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-1 sm:px-2 py-1 text-[10px] sm:text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @if($isRange)
                     <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
                     </svg>
                     <input type="text" id="{{ $uid }}ToInput" placeholder="mm/dd/yyyy" inputmode="numeric"
-                        class="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-2 py-1 text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        class="flex-1 min-w-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-md px-1 sm:px-2 py-1 text-[10px] sm:text-xs font-mono text-center focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     @endif
                 </div>
                 <div id="{{ $uid }}Calendar"></div>
@@ -163,20 +169,25 @@
         const isMobile = !window.matchMedia('(min-width: 640px)').matches;
 
         if (isMobile) {
-            // Fixed within a 1rem margin of the viewport on every side it's
-            // anchored to — width is set by the w-[calc(100vw-2rem)] class
-            // above, so only position (not size) needs setting here.
-            panel.style.left  = '1rem';
-            panel.style.right = '';
-            panel.style.top   = '5rem';
+            // Centered horizontally — the panel's width now caps at 330px
+            // (min(330px, 100vw-2rem)), not a full-width span of the
+            // viewport, so a fixed 1rem-from-left offset would leave it
+            // lopsided with empty space on the right on anything wider than
+            // ~362px. transform centers it regardless of the panel's actual
+            // (possibly viewport-clamped) width.
+            panel.style.left      = '50%';
+            panel.style.right     = '';
+            panel.style.top       = '5rem';
+            panel.style.transform = 'translateX(-50%)';
         } else {
             // Desktop: same visual result as the old `absolute right-0
             // top-full mt-2` (below the trigger, right edges aligned), just
             // computed from the trigger's real viewport position now that
             // the panel isn't DOM-adjacent to it any more.
-            panel.style.right = `${window.innerWidth - rect.right}px`;
-            panel.style.left  = '';
-            panel.style.top   = `${rect.bottom + 8}px`;
+            panel.style.right     = `${window.innerWidth - rect.right}px`;
+            panel.style.left      = '';
+            panel.style.top       = `${rect.bottom + 8}px`;
+            panel.style.transform = ''; // clear a leftover mobile centering transform
         }
     }
 

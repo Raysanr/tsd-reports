@@ -46,6 +46,46 @@
         max-width: 270px !important;
     }
 
+    /* Mobile: shrink the day-grid + cells (7 x 27px = 189px, same alignment
+       logic as above just smaller) so the panel can stay side-by-side
+       (sidebar + calendar), matching the desktop layout exactly instead of
+       stacking. Sized with real safety margin verified on a 320px-wide
+       phone (iPhone SE, the narrowest realistic target): sidebar 72px +
+       calendar grid 189px + its own padding ~12px = ~273px, comfortably
+       under the ~288px actually available there (100vw-2rem) — confirmed
+       by measuring rendered element widths directly, not just eyeballing a
+       screenshot (an earlier, less conservative sizing looked fine in a
+       screenshot but measured out to a real ~24px overflow). */
+    @media (max-width: 639px) {
+        [id$="Calendar"] .dayContainer,
+        [id$="Calendar"] .flatpickr-weekdaycontainer {
+            width: 189px !important;
+            min-width: 189px !important;
+            max-width: 189px !important;
+        }
+        /* The outer wrappers around the day-grid (.flatpickr-calendar itself,
+           plus .innerContainer/.rContainer) keep their own separate ~307.875px
+           natural width regardless of the day-grid override above — desktop
+           never notices (its panel has plenty of slack past 307.875px), but
+           on mobile that phantom extra width genuinely overflows past the
+           viewport. Confirmed via direct measurement: dayContainer correctly
+           shrunk, but .innerContainer/.rContainer stayed 307.875px wide. */
+        [id$="Calendar"] .flatpickr-calendar,
+        [id$="Calendar"] .flatpickr-innerContainer,
+        [id$="Calendar"] .flatpickr-rContainer {
+            width: 189px !important;
+            max-width: 189px !important;
+        }
+        .flatpickr-day {
+            font-size: 0.62rem !important;
+            height: 27px !important;
+            line-height: 27px !important;
+            max-width: 27px !important;
+        }
+        .flatpickr-weekday { font-size: 0.58rem !important; }
+        .flatpickr-current-month { font-size: 0.72rem !important; }
+    }
+
     /* Base day cell: circular, generous tap target, legible by default */
     .flatpickr-day {
         font-family: ui-monospace, monospace;
