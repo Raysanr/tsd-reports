@@ -413,6 +413,37 @@ document.addEventListener('click', async (e) => {
             ctx.drawImage(chartCanvas, frameX + padX, frameY + padY, chartBox.width * scale, chartBox.height * scale);
         }
 
+        // Title bar: the table element captured above never includes its own
+        // heading (that h2 lives in a sibling div on the page), so without this
+        // a downloaded/shared snapshot has no way to identify which table/
+        // product it's showing. Drawn as its own band on top of whatever was
+        // captured so far (table alone, or table+chart composite).
+        const title = btn.dataset.exportTitle;
+        if (title) {
+            const scale      = 2; // matches the table capture's own scale above
+            const bandHeight = 56 * scale;
+            const titled     = document.createElement('canvas');
+            titled.width  = finalCanvas.width;
+            titled.height = finalCanvas.height + bandHeight;
+
+            const tctx = titled.getContext('2d');
+            tctx.fillStyle = '#ffffff';
+            tctx.fillRect(0, 0, titled.width, titled.height);
+            tctx.fillStyle = '#334155'; // slate-700, matching the on-screen h2
+            tctx.font = `bold ${20 * scale}px ui-monospace, monospace`;
+            tctx.textBaseline = 'middle';
+            tctx.fillText(title, 24 * scale, bandHeight / 2);
+            tctx.strokeStyle = '#e2e8f0'; // border-slate-200
+            tctx.lineWidth = 1 * scale;
+            tctx.beginPath();
+            tctx.moveTo(0, bandHeight);
+            tctx.lineTo(titled.width, bandHeight);
+            tctx.stroke();
+            tctx.drawImage(finalCanvas, 0, bandHeight);
+
+            finalCanvas = titled;
+        }
+
         finalCanvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
     } catch (err) {
         console.error('Table snapshot failed:', err);

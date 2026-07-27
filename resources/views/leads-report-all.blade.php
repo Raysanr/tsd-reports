@@ -21,7 +21,7 @@
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="productAllTable" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all'])
+    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'title' => 'Leads Report — All Products, All Teams'])
 </div>
 
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table
