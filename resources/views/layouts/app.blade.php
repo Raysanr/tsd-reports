@@ -395,7 +395,7 @@
                       d="M9 12h3.75M9 15h3.75M9 18h3.75M3.75 4.5h10.5M3.75 4.5v15A2.25 2.25 0 006 21.75h12A2.25 2.25 0 0020.25 19.5V8.25a2.25 2.25 0 00-.659-1.591l-3.5-3.5A2.25 2.25 0 0014.5 2.5h-8.75A2.25 2.25 0 003.5 4.75z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 3v3.75a1.5 1.5 0 001.5 1.5h3.75"/>
             </svg>
-            Audit Log
+            Activity Log
         </a>
 
         <a href="{{ route('unmatched-orders') }}"

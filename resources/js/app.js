@@ -750,7 +750,7 @@ window.showConfirm = function (message, { title = 'Are you sure?', confirmText =
             renderGroup('Products', data.products || []),
             renderGroup('Orders', data.orders || []),
             renderGroup('Users', data.users || []),
-            renderGroup('Audit Log', data.auditLog || []),
+            renderGroup('Activity Log', data.auditLog || []),
         ];
         const html = groups.join('');
 
