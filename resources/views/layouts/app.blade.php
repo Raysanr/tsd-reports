@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <script>
     (function () {
+        // Default is light for anyone who hasn't explicitly chosen a theme yet
+        // (no stored preference) — deliberately ignores the OS/browser's own
+        // prefers-color-scheme, which would otherwise silently start a new
+        // user in dark mode just because their device defaults to it.
         const stored = localStorage.getItem('theme');
-        const isDark = stored === 'dark' || (stored === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        const isDark = stored === 'dark';
         if (isDark) document.documentElement.classList.add('dark');
     })();
     </script>
