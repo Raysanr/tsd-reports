@@ -6,6 +6,17 @@
 {{-- $rangeLabel comes from the controller: "Last 24h · Jul 9 5:30PM → Jul 10 5:30PM"
      in rolling mode, or the plain date / "from → to" span in fixed-dates mode. --}}
 
+@php
+    // Snapshot-only date label — "July 27, 2026", or "July 20, 2026 – July 27,
+    // 2026" for a multi-day range — passed as table-actions' 'subtitle' so
+    // exported PNGs are self-identifying by date, not just by table name.
+    // Deliberately full month names, unlike $rangeLabel's abbreviated "Jul 27"
+    // (this is the one place a reader might view the image alone, days later,
+    // with no other on-screen context to disambiguate a truncated month).
+    $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
+        . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
+@endphp
+
 {{-- PER-PRODUCT HOURLY BREAKDOWN — one table per product (matches the source
      sheet: a separate CANPRO/GINSENG/SINUXYL/AUDICURE tab each), replacing the old
      team-wide Hourly Breakdown + By Disposition panels with the full disposition/
@@ -69,7 +80,7 @@
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Grand Total — All Products</h2>
         <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-slate-400">{{ $grandTotal['total'] }} {{ \Illuminate\Support\Str::plural('lead', $grandTotal['total']) }}</span>
-            @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam, 'chart' => 'grandTotalChart', 'title' => 'Grand Total — All Products'])
+            @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam, 'chart' => 'grandTotalChart', 'title' => 'Grand Total — All Products', 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
     <div class="flex flex-col lg:flex-row">
@@ -152,7 +163,7 @@
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $table['product']->display_name }}</h2>
         <div class="flex items-center gap-3">
             <span class="text-xs font-mono text-slate-400">{{ $table['total']['total'] }} {{ \Illuminate\Support\Str::plural('lead', $table['total']['total']) }}</span>
-            @include('partials.table-actions', ['target' => 'productTable-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($table['product']->display_name), 'chart' => 'productChart-' . $loop->index, 'title' => $table['product']->display_name])
+            @include('partials.table-actions', ['target' => 'productTable-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($table['product']->display_name), 'chart' => 'productChart-' . $loop->index, 'title' => $table['product']->display_name, 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
 

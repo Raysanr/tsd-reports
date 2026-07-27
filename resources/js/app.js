@@ -418,10 +418,14 @@ document.addEventListener('click', async (e) => {
         // a downloaded/shared snapshot has no way to identify which table/
         // product it's showing. Drawn as its own band on top of whatever was
         // captured so far (table alone, or table+chart composite).
-        const title = btn.dataset.exportTitle;
+        const title    = btn.dataset.exportTitle;
+        const subtitle = btn.dataset.exportSubtitle;
         if (title) {
             const scale      = 2; // matches the table capture's own scale above
-            const bandHeight = 56 * scale;
+            // Two-line band (title + date subtitle) needs more room than a
+            // title-only one — fixed heights rather than measuring text, since
+            // both lines use a known, unchanging font size.
+            const bandHeight = (subtitle ? 84 : 56) * scale;
             const titled     = document.createElement('canvas');
             titled.width  = finalCanvas.width;
             titled.height = finalCanvas.height + bandHeight;
@@ -429,10 +433,15 @@ document.addEventListener('click', async (e) => {
             const tctx = titled.getContext('2d');
             tctx.fillStyle = '#ffffff';
             tctx.fillRect(0, 0, titled.width, titled.height);
+            tctx.textBaseline = 'middle';
             tctx.fillStyle = '#334155'; // slate-700, matching the on-screen h2
             tctx.font = `bold ${20 * scale}px ui-monospace, monospace`;
-            tctx.textBaseline = 'middle';
-            tctx.fillText(title, 24 * scale, bandHeight / 2);
+            tctx.fillText(title, 24 * scale, subtitle ? 32 * scale : bandHeight / 2);
+            if (subtitle) {
+                tctx.fillStyle = '#94a3b8'; // slate-400, matching the on-screen rangeLabel
+                tctx.font = `${13 * scale}px ui-monospace, monospace`;
+                tctx.fillText(subtitle, 24 * scale, 60 * scale);
+            }
             tctx.strokeStyle = '#e2e8f0'; // border-slate-200
             tctx.lineWidth = 1 * scale;
             tctx.beginPath();

@@ -4,6 +4,13 @@
 
 @section('content')
 
+@php
+    // Snapshot-only date label — see leads-report.blade.php for why this uses
+    // full month names instead of $rangeLabel's abbreviated form.
+    $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
+        . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
+@endphp
+
 {{-- ALL — one row per product, combined across every team, for the whole window
      (no hourly split). Moved here from TSA Performance's old "ALL" view, which now
      shows the per-TSA equivalent of this same table instead. --}}
@@ -21,7 +28,7 @@
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="productAllTable" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'title' => 'Leads Report — All Products, All Teams'])
+    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'title' => 'Leads Report — All Products, All Teams', 'subtitle' => $snapshotDateLabel])
 </div>
 
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table

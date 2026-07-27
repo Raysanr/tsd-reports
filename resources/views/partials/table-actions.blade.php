@@ -13,6 +13,10 @@
                 heading since it lives in a sibling element, so without this
                 a downloaded/shared image has no way to identify which table
                 it came from.
+     'subtitle' = optional second line under 'title' — the reporting date/
+                range (e.g. "July 27, 2026"), so the snapshot is self-
+                identifying even once separated from the page it came from.
+                Ignored if 'title' isn't also set.
      The click handlers live in app.js (delegated, so they survive soft refresh). --}}
 <div class="flex items-center gap-1 shrink-0">
     <button type="button" data-export-csv="{{ $target }}" data-export-name="{{ $name }}"
@@ -25,6 +29,7 @@
     <button type="button" data-export-png="{{ $target }}" data-export-name="{{ $name }}"
             @if(!empty($chart)) data-export-chart="{{ $chart }}" @endif
             @if(!empty($title)) data-export-title="{{ $title }}" @endif
+            @if(!empty($title) && !empty($subtitle)) data-export-subtitle="{{ $subtitle }}" @endif
             title="Save as image" aria-label="Save table as image"
             class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:cursor-wait">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
