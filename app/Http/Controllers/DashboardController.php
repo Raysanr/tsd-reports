@@ -73,12 +73,16 @@ class DashboardController extends Controller
                 ->limit(10)
                 ->get();
 
-            // Orders currently sitting in "Restocking" (awaiting stock) — excluded from
-            // gross sales above, surfaced here so it's clear how much revenue is pending
-            // rather than lost.
+            // TSA upsells currently sitting in "Restocking" (awaiting stock) — excluded
+            // from gross sales above, surfaced here so it's clear how much upsell
+            // revenue is pending rather than lost. is_upsell-scoped (explicit request):
+            // this is about upsell revenue at risk, not whole-order value — amount
+            // already holds just the isolated add-on price for these rows (see
+            // SyncTodayOrders' extractUpsellAmount()), not the order's full total.
             $restocking = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
-                ->where('status_code', 11);
+                ->where('status_code', 11)
+                ->where('is_upsell', true);
 
             // Cancelled upsells — different from Restocking: the customer cancelled just
             // the TSA's upsell add-on while their primary order kept going (is_upsell is
@@ -201,11 +205,13 @@ class DashboardController extends Controller
                 ];
             })->values();
 
-            // Restocking breakdown — same "Restocking" orders behind the Total Restocking
-            // KPI tile above, broken out per TSA and per brand instead of one lump sum.
+            // Restocking breakdown — same "Restocking" upsells behind the Total
+            // Restocking KPI tile above, broken out per TSA and per brand instead of
+            // one lump sum.
             $restockingByTsa = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->where('status_code', 11)
+                ->where('is_upsell', true)
                 ->whereNotNull('tsa_name')
                 ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(amount) as restocking_value')
                 ->groupBy('tsa_name')
@@ -221,7 +227,8 @@ class DashboardController extends Controller
             $restockingByTeam = collect(config('teams'))->map(function ($teamConfig) use ($dateFrom, $dateTo) {
                 $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                     ->where('team', $teamConfig['order_team'])
-                    ->where('status_code', 11);
+                    ->where('status_code', 11)
+                    ->where('is_upsell', true);
 
                 return [
                     'name'             => $teamConfig['name'],

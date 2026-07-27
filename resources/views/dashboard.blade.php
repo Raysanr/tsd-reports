@@ -77,7 +77,7 @@
             <p class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
                 ₱{{ number_format($stats['restocking_value'], 2) }}
             </p>
-            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('order', $stats['restocking_count']) }} awaiting stock</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $stats['restocking_count']) }} awaiting stock</p>
         </div>
     </div>
 
@@ -107,9 +107,9 @@
     </div>
 
     {{-- Total Cancelled Orders — deliberately a different accent (rose) from Total
-         Restocking's yellow: these are NOT the same bucket. Restocking = order
-         awaiting stock. Cancelled = the customer cancelled just the TSA's upsell
-         add-on while their primary order still went through. Because is_upsell is
+         Restocking's yellow: these are NOT the same bucket. Restocking = a TSA
+         upsell/add-on awaiting stock. Cancelled = the customer cancelled just the
+         TSA's upsell add-on while their primary order still went through. Because is_upsell is
          already forced false for these at sync time (SyncTodayOrders), the amount
          is automatically excluded from Total Cross-Sell Sales above with no manual
          subtraction — this card is purely visibility into that, not a deduction step.
@@ -514,7 +514,7 @@
     <div class="flex items-center justify-between mb-3">
         <div>
             <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Restocking Breakdown</h2>
-            <p class="text-xs font-mono text-slate-400 mt-0.5">Orders awaiting stock, by brand and TSA</p>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">Upsells awaiting stock, by brand and TSA</p>
         </div>
     </div>
 
@@ -530,7 +530,7 @@
                 <div class="px-5 py-3 flex items-center gap-4">
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 truncate">{{ $team['name'] }}</p>
-                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $team['restocking_count'] }} {{ \Illuminate\Support\Str::plural('order', $team['restocking_count']) }} awaiting stock</p>
+                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $team['restocking_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $team['restocking_count']) }} awaiting stock</p>
                     </div>
                     <p class="text-sm font-bold font-mono text-yellow-600 dark:text-yellow-400 shrink-0">₱{{ number_format($team['restocking_value'], 2) }}</p>
                 </div>
@@ -545,7 +545,7 @@
             </div>
             @if($restockingByTsa->isEmpty())
             <div class="py-10 flex flex-col items-center justify-center text-center gap-2">
-                <p class="text-sm font-mono text-slate-400">No restocking orders attributed to a TSA</p>
+                <p class="text-sm font-mono text-slate-400">No restocking upsells attributed to a TSA</p>
             </div>
             @else
             <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-80 overflow-y-auto">
@@ -553,7 +553,7 @@
                 <div class="px-5 py-3 flex items-center gap-4">
                     <div class="flex-1 min-w-0">
                         <p class="text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 truncate">{{ $row->display_name }}</p>
-                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $row->team_name ?? '—' }} · {{ $row->restocking_count }} {{ \Illuminate\Support\Str::plural('order', $row->restocking_count) }}</p>
+                        <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $row->team_name ?? '—' }} · {{ $row->restocking_count }} {{ \Illuminate\Support\Str::plural('upsell', $row->restocking_count) }}</p>
                     </div>
                     <p class="text-sm font-bold font-mono text-yellow-600 dark:text-yellow-400 shrink-0">₱{{ number_format($row->restocking_value, 2) }}</p>
                 </div>
