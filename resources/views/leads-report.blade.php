@@ -380,13 +380,25 @@
 @endif
 
 @push('topbar-right')
-<div class="flex items-center gap-4 flex-wrap">
+{{-- contents: this div and the form below it exist for grouping/submission
+     only — display:contents removes them from the box/render tree entirely
+     (DOM structure and form-submission behavior are unaffected; only visual
+     layout changes) so every actual control (team buttons, date picker,
+     sync button, live indicator) becomes a direct flex child of the SAME
+     single wrapping context (layouts/app.blade.php's controls div), instead
+     of each nested div/form here independently deciding how to wrap its own
+     slice of them. That nesting was the actual bug: on a narrow phone, the
+     inner form wrapped its own last few children (the sync button) onto a
+     left-aligned row while the dark mode toggle — a sibling OUTSIDE the
+     form, per layouts/app.blade.php — landed in yet another disconnected
+     spot, since neither wrap context knew about the other's overflow. --}}
+<div class="contents">
 
 @if($mode === 'last24h' || ($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d')))
 @include('partials.live-indicator')
 @endif
 
-<form method="GET" action="{{ route('leads-report') }}" class="flex items-center gap-3 flex-wrap">
+<form method="GET" action="{{ route('leads-report') }}" class="contents">
     {{-- Hidden fallbacks so applying the date picker (or any submit besides clicking
          a team button directly) doesn't drop the currently selected team or window
          mode. The picker's Apply flips this range field to 'dates' (explicit dates

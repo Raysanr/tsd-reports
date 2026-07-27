@@ -212,13 +212,18 @@
 @endsection
 
 @push('topbar-right')
-<div class="flex items-center gap-4 flex-wrap">
+{{-- display:contents flattens these wrappers out of the box/render tree so every
+     control here becomes a direct flex child of the shared controls div in
+     layouts/app.blade.php — otherwise this div's own flex-wrap and the form's
+     flex-wrap each independently decide how to wrap their children, which is
+     what caused controls to land on disjointed, misaligned rows on mobile. --}}
+<div class="contents">
 
 @if($dateFrom === $dateTo && $dateFrom === now('Asia/Manila')->format('Y-m-d'))
 @include('partials.live-indicator')
 @endif
 
-<form method="GET" action="{{ route('tsa-performance') }}" class="flex items-center gap-3 flex-wrap">
+<form method="GET" action="{{ route('tsa-performance') }}" class="contents">
     {{-- Hidden fallbacks so clicking a product button (or the plain Load button)
          doesn't drop the currently selected team — a real <button name="team"> only
          submits its value when IT is the control clicked. Team buttons still take

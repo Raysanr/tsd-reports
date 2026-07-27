@@ -507,11 +507,11 @@
             <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-80 overflow-y-auto"></div>
         </div>
 
-        {{-- No flex-wrap at THIS level — the pushed content below wraps itself
-             internally (every page's topbar-right block sets its own flex-wrap),
-             so it shrinks to fit rather than growing to full width and shoving
-             the toggle onto an isolated line far below it. --}}
-        <div class="flex items-center justify-end gap-3 md:justify-self-end">
+        {{-- flex-wrap here so the toggle wraps as a true peer alongside the
+             pushed topbar-right content (which now uses display:contents to
+             flatten its own nested wrappers) — one single wrap context
+             instead of several independently-wrapping ones. --}}
+        <div class="flex items-center justify-end gap-3 flex-wrap md:flex-nowrap md:justify-self-end">
             @stack('topbar-right')
 
             {{-- Dark mode — a fixed, always-present control (unlike the stack above,
