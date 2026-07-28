@@ -12,6 +12,7 @@ use App\Support\SyncHealth;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
@@ -146,17 +147,30 @@ class DashboardController extends Controller
 
             // Today's TSA leaderboard — ranked by upsells (the metric the rest of this
             // app is built around), total calls and rate alongside it for context.
+            // total_calls uses ProductPerformance::tally()'s total_called (answered +
+            // unanswered), NOT a raw COUNT(*) of every order tagged to the TSA —
+            // confirmed in production: Katherine showed 42 "calls" here but 41 on her
+            // own TSA Performance page, the gap being one lead still "Call in
+            // progress" (no concluded disposition yet). Same reasoning, and the same
+            // fix, as Hourly Activity's "calls per hour, not raw lead volume" above —
+            // reusing $dayOrders (already fetched for that) instead of a second query.
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
             $teamNames   = collect(config('teams'))->pluck('name', 'order_team');
 
-            $tsaLeaderboard = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
+            $tsaLeaderboard = $dayOrders
                 ->whereNotNull('tsa_name')
-                ->selectRaw('tsa_name, COUNT(*) as total_calls, SUM(CASE WHEN is_upsell THEN 1 ELSE 0 END) as upsell_count, SUM(CASE WHEN is_upsell THEN amount ELSE 0 END) as upsell_sales')
                 ->groupBy('tsa_name')
-                ->orderByDesc('upsell_count')
-                ->orderByDesc('total_calls')
-                ->get()
+                ->map(function (Collection $orders, string $tsaName) {
+                    return (object) [
+                        'tsa_name'     => $tsaName,
+                        'total_calls'  => ProductPerformance::tally($orders)['total_called'],
+                        'upsell_count' => $orders->where('is_upsell', true)->count(),
+                        'upsell_sales' => (float) $orders->where('is_upsell', true)->sum('amount'),
+                    ];
+                })
+                ->values()
+                ->sort(fn ($a, $b) => [$b->upsell_count, $b->total_calls] <=> [$a->upsell_count, $a->total_calls])
+                ->values()
                 ->map(function ($row) use ($shiftsByKey, $teamNames) {
                     $shift = $shiftsByKey->get($row->tsa_name);
                     $row->display_name = $shift->display_name ?? $row->tsa_name;
