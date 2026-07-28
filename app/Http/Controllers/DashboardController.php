@@ -195,6 +195,40 @@ class DashboardController extends Controller
             $hourlyActivity = collect(range(0, 23))
                 ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total_called']);
 
+            // Shift-start cutoff — same reasoning as Leads Report's hourly breakdown
+            // (LeadsReportController::buildHourlyRows): confirmed in production, an
+            // order can carry a genuine upsell tag (Order::hasUpsellTag) timestamped
+            // hours before that TSA's shift actually starts (e.g. a 6:47am order
+            // tagged for a TSA whose shift starts 3pm) — Pancake's own automation
+            // stamped the tag at order creation, not a human working that hour. Only
+            // meaningful for a single calendar day: a multi-day range merges every
+            // day's same hour-of-day together, where "the shift hasn't started yet"
+            // no longer has one answer — skipped there, same restriction Leads
+            // Report already applies.
+            if ($dateFrom->isSameDay($dateTo)) {
+                $activeStarts = $shiftsByKey
+                    ->reject(fn($s) => !$s->shift_start || $s->isOffOn($dateFrom))
+                    ->map(fn($s) => (int) date('G', strtotime($s->shift_start)));
+
+                if ($activeStarts->isNotEmpty()) {
+                    $hourlyCutoff = $activeStarts->min();
+
+                    for ($h = 0; $h < $hourlyCutoff; $h++) {
+                        $hourlyActivity[$h] = 0;
+                    }
+
+                    // The cutoff hour itself absorbs the whole pre-shift backlog's
+                    // calls, same as Leads Report's shift-start row — the first TSA
+                    // to start working plausibly touches leads that piled up
+                    // overnight, not just that hour's own.
+                    $backlog = collect();
+                    for ($h = 0; $h <= $hourlyCutoff; $h++) {
+                        $backlog = $backlog->merge($ordersByHour->get($h, collect()));
+                    }
+                    $hourlyActivity[$hourlyCutoff] = ProductPerformance::tally($backlog)['total_called'];
+                }
+            }
+
             // Team comparison — orders, upsell rate and revenue side by side, replacing
             // the old Shop Lines panel (which only showed revenue) with the metric this
             // whole app is actually built around: upsell rate, not just raw sales.
