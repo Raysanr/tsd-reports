@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -40,6 +41,11 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
+
+        // Successful sign-ins only — a failed attempt isn't an authenticated
+        // user's action to attribute, and logging it here would need a
+        // separate, unauthenticated-actor code path in ActivityLogger.
+        ActivityLogger::log('auth.login', Auth::user(), "Logged in as \"{$credentials['email']}\".");
 
         return redirect()->intended(route('dashboard'));
     }
@@ -90,11 +96,19 @@ class AuthController extends Controller
         Auth::login($user, remember: true);
         $request->session()->regenerate();
 
+        ActivityLogger::log('auth.login', $user, "Logged in as \"{$user->email}\" (Google).");
+
         return redirect()->intended(route('dashboard'));
     }
 
     public function logout(Request $request)
     {
+        // Logged BEFORE Auth::logout() — ActivityLogger reads auth()->id()
+        // internally, which would be null once the session is cleared.
+        if ($user = Auth::user()) {
+            ActivityLogger::log('auth.logout', $user, "Logged out \"{$user->email}\".");
+        }
+
         Auth::logout();
 
         $request->session()->invalidate();

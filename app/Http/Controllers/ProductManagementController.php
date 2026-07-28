@@ -109,10 +109,12 @@ class ProductManagementController extends Controller
         $product->is_hidden = !$product->is_hidden;
         $product->save();
 
-        $verb = $product->is_hidden ? 'Hidden' : 'Unhidden';
+        $verb    = $product->is_hidden ? 'Hidden' : 'Unhidden';
+        $message = "{$verb} \"{$product->display_name}\".";
+        ActivityLogger::log($product->is_hidden ? 'product.hidden' : 'product.unhidden', $product, $message);
 
         return redirect()->route('product-management')
-            ->with('success', "{$verb} \"{$product->display_name}\".");
+            ->with('success', $message);
     }
 
     public function bulk(Request $request)

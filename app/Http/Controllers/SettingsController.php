@@ -110,6 +110,8 @@ class SettingsController extends Controller
             ]);
         }
 
+        ActivityLogger::log('settings.shifts_saved', null, 'Shift schedules saved.');
+
         return redirect()->route('tsa-management')->with('success', 'Shift schedules saved.');
     }
 
@@ -207,6 +209,8 @@ class SettingsController extends Controller
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/drive-sync-manual.log'));
         exec("{$php} {$artisan} calls:sync-recordings >> {$logFile} 2>&1 &");
+
+        ActivityLogger::log('settings.drive_sync_now', null, 'Manually triggered Google Drive call-recording sync.');
 
         return redirect()->route('settings')->with('success', 'Google Drive sync started in the background — refresh this page in a minute or two to see the result.');
     }

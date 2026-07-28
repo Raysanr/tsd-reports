@@ -232,8 +232,11 @@ class TsaManagementController extends Controller
             }
         }
 
+        $message = "Updated rest days for {$parsedDate->format('M j, Y')}.";
+        ActivityLogger::log('tsa.rest_days_updated', null, $message);
+
         return redirect()->route('tsa-management', ['month' => $parsedDate->format('Y-m')])
-            ->with('success', "Updated rest days for {$parsedDate->format('M j, Y')}.");
+            ->with('success', $message);
     }
 
     /** AJAX — search the real Pancake POS user list for the Add/Edit TSA picker. */

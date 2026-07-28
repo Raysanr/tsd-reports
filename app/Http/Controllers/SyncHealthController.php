@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Setting;
 use App\Models\SyncRun;
+use App\Support\ActivityLogger;
 use App\Support\SyncHealth;
 use Illuminate\Http\Request;
 
@@ -50,6 +51,8 @@ class SyncHealthController extends Controller
             ? "Synced {$data['date']} — {$lastRun->new_orders} new orders, {$lastRun->upsell_count} upsells."
             : 'Sync failed: ' . (SyncHealth::redactSecrets($lastRun->error_message ?? null) ?? 'Unknown error.');
 
+        ActivityLogger::log('sync-health.retry', null, "Retried sync for {$data['date']} — " . ($success ? 'succeeded' : 'failed') . '.');
+
         return redirect()->route('sync-health')
             ->with($success ? 'success' : 'error', $message);
     }
@@ -77,6 +80,8 @@ class SyncHealthController extends Controller
         $message = $failed
             ? 'Reconciliation failed — check the Pancake API key/shop ID.'
             : "Checked {$checked} Pancake-removed order(s); corrected {$corrected} stale local record(s).";
+
+        ActivityLogger::log('sync-health.reconcile-statuses', null, $message);
 
         return redirect()->route('sync-health')
             ->with($failed ? 'error' : 'success', $message);

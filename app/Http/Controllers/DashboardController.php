@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
+use App\Support\ActivityLogger;
 use App\Support\ProductPerformance;
 use App\Support\SyncHealth;
 use Illuminate\Database\QueryException;
@@ -315,6 +316,15 @@ class DashboardController extends Controller
 
         $runsFromThisSync = SyncRun::where('id', '>', $lastRunIdBeforeSync)->orderBy('id')->get();
         $firstFailure      = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
+
+        $rangeLabel = $dateFrom === $dateTo ? $dateFrom : "{$dateFrom} to {$dateTo}";
+        ActivityLogger::log(
+            'dashboard.sync',
+            null,
+            $firstFailure === null
+                ? "Manually synced {$rangeLabel} — {$runsFromThisSync->sum('new_orders')} new orders."
+                : "Manually synced {$rangeLabel} — failed."
+        );
 
         return response()->json([
             'success'       => $firstFailure === null,

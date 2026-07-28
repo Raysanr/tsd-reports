@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Support\ActivityLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 
@@ -35,6 +36,8 @@ class UnmatchedOrdersController extends Controller
         // ourselves, so this can never disagree with what the command itself
         // reports.
         $summaryLine = collect(explode("\n", $output))->last(fn ($line) => str_contains($line, 'Re-inference complete'));
+
+        ActivityLogger::log('unmatched-orders.reinfer', null, $summaryLine ?: 'Re-inference ran.');
 
         return redirect()->route('unmatched-orders')
             ->with('success', $summaryLine ?: 'Re-inference ran.');
