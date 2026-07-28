@@ -60,7 +60,7 @@ class LeadsReportShiftCutoffTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) {
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
-            $sixAm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '6am'));
+            $sixAm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '6:00am'));
 
             return $sixAm['row']['total'] === 1
                 && $sixAm['row']['total_called'] === 0
@@ -84,7 +84,7 @@ class LeadsReportShiftCutoffTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) {
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
-            $eightAm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '8am'));
+            $eightAm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '8:00am'));
 
             // New Leads = just this hour's own (1), but Called Leads reflects
             // the whole backlog (the 2 already-called 6am leads) — 2 > 1, and
