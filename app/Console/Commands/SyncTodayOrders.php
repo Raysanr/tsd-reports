@@ -275,6 +275,19 @@ class SyncTodayOrders extends Command
             // price on every sync — no carry-forward needed.
             $isReturnedUpsell = in_array($statusCode, [4, 5], true) && $hasUpsellTag;
 
+            // Restocking upsell: the order carries the TSA's upsell tag but its status
+            // is Restocking specifically (awaiting stock, not Cancelled/Returned/
+            // Deleted, the other VOID_STATUSES). is_upsell above is already forced
+            // false for it like any void status — deliberately, so a not-yet-shipped
+            // order never counts toward confirmed gross sales — but that also made it
+            // impossible for the Dashboard's "Total Restocking" KPI to ever find any
+            // data: it queries status_code=11 AND is_upsell=true, a combination that
+            // can structurally never exist (confirmed in production: 0 of 3553 real
+            // Restocking orders have is_upsell=true, even though 271 of them genuinely
+            // carry an upsell tag). This preserves the fact separately, the same way
+            // is_returned_upsell preserves the Returned/Returning case just above.
+            $isRestockingUpsell = $statusCode === 11 && $hasUpsellTag;
+
             $productInfo       = $this->extractUpsellProduct($raw, $isUpsell);
             $productName       = $productInfo['name'];
             $bundleDescription = $productInfo['display_id'];
@@ -317,6 +330,9 @@ class SyncTodayOrders extends Command
             // for this row, since is_upsell is forced false by the void status).
             $returnedUpsellAmount = $isReturnedUpsell ? $this->extractUpsellAmount($raw) : 0.0;
 
+            // Same reasoning as $returnedUpsellAmount above, for the Restocking case.
+            $restockingUpsellAmount = $isRestockingUpsell ? $this->extractUpsellAmount($raw) : 0.0;
+
             $parsed[] = [
                 'pancake_order_id'        => (string)$raw['id'],
                 'team'                    => $tsaInfo['team'],
@@ -336,6 +352,8 @@ class SyncTodayOrders extends Command
                 'cancelled_upsell_amount' => null,
                 'is_returned_upsell'      => $isReturnedUpsell,
                 'returned_upsell_amount'  => $returnedUpsellAmount,
+                'is_restocking_upsell'    => $isRestockingUpsell,
+                'restocking_upsell_amount' => $restockingUpsellAmount,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
                 // Pancake's raw inserted_at, untouched — see the orders migration's
@@ -406,6 +424,7 @@ class SyncTodayOrders extends Command
                     'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
+                    'is_restocking_upsell', 'restocking_upsell_amount',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
                     'pancake_updated_at', 'synced_at',
                 ]

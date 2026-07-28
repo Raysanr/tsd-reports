@@ -75,14 +75,21 @@ class DashboardController extends Controller
 
             // TSA upsells currently sitting in "Restocking" (awaiting stock) — excluded
             // from gross sales above, surfaced here so it's clear how much upsell
-            // revenue is pending rather than lost. is_upsell-scoped (explicit request):
-            // this is about upsell revenue at risk, not whole-order value — amount
-            // already holds just the isolated add-on price for these rows (see
-            // SyncTodayOrders' extractUpsellAmount()), not the order's full total.
+            // revenue is pending rather than lost. is_restocking_upsell-scoped, NOT
+            // is_upsell (explicit request originally asked for is_upsell, but that's
+            // structurally impossible to combine with status_code=11 — SyncTodayOrders
+            // forces is_upsell false for every VOID_STATUSES entry, which includes
+            // Restocking itself, so `is_upsell=true AND status_code=11` can never match
+            // any row; confirmed live: 0 of 3553 real Restocking orders ever had
+            // is_upsell=true, even though 271 of them genuinely carry an upsell tag.
+            // is_restocking_upsell is captured separately at sync time for exactly
+            // this reason — same pattern as is_returned_upsell for Returned orders).
+            // restocking_upsell_amount already holds just the isolated add-on price
+            // for these rows (see SyncTodayOrders' extractUpsellAmount()), not the
+            // order's full total.
             $restocking = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
-                ->where('status_code', 11)
-                ->where('is_upsell', true);
+                ->where('is_restocking_upsell', true);
 
             // Cancelled upsells — different from Restocking: the customer cancelled just
             // the TSA's upsell add-on while their primary order kept going (is_upsell is
@@ -108,7 +115,7 @@ class DashboardController extends Controller
                 'total_sales'      => $grossSales,
                 'total_orders'     => $totalOrders,
                 'restocking_count' => (clone $restocking)->count(),
-                'restocking_value' => (clone $restocking)->sum('amount'),
+                'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
                 'cancelled_count'         => (clone $cancelledUpsells)->count(),
                 'cancelled_value'         => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
                 'cancelled_unknown_count' => (clone $cancelledUpsells)->whereNull('cancelled_upsell_amount')->count(),
@@ -210,10 +217,9 @@ class DashboardController extends Controller
             // one lump sum.
             $restockingByTsa = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
-                ->where('status_code', 11)
-                ->where('is_upsell', true)
+                ->where('is_restocking_upsell', true)
                 ->whereNotNull('tsa_name')
-                ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(amount) as restocking_value')
+                ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(restocking_upsell_amount) as restocking_value')
                 ->groupBy('tsa_name')
                 ->orderByDesc('restocking_value')
                 ->get()
@@ -227,13 +233,12 @@ class DashboardController extends Controller
             $restockingByTeam = collect(config('teams'))->map(function ($teamConfig) use ($dateFrom, $dateTo) {
                 $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                     ->where('team', $teamConfig['order_team'])
-                    ->where('status_code', 11)
-                    ->where('is_upsell', true);
+                    ->where('is_restocking_upsell', true);
 
                 return [
                     'name'             => $teamConfig['name'],
                     'restocking_count' => (clone $base)->count(),
-                    'restocking_value' => (clone $base)->sum('amount'),
+                    'restocking_value' => (clone $base)->sum('restocking_upsell_amount'),
                 ];
             })->values();
 
