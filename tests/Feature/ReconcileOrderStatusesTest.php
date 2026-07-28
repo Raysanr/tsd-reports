@@ -171,6 +171,38 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
     }
 
+    /**
+     * Confirmed live (2026-07-28): this command corrects status_code and
+     * is_upsell/is_cancelled_upsell/is_returned_upsell but had NOT been taught
+     * about is_restocking_upsell (added the same day, for the Total Restocking
+     * KPI fix) — an order sitting in Restocking that later actually gets
+     * Deleted in Pancake would have kept counting toward Total Restocking
+     * forever otherwise, the exact same bug class this command exists to fix
+     * for is_upsell.
+     */
+    public function test_clears_a_stale_restocking_upsell_flag_when_correcting_a_void_status(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'         => '1336500',
+            'status_code'              => 11, // Restocking locally — stale
+            'is_restocking_upsell'     => true,
+            'restocking_upsell_amount' => 500.00,
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [['id' => 1336500, 'status' => 7]], // Pancake: Deleted
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1336500')->first();
+        $this->assertSame(7, $order->status_code);
+        $this->assertFalse($order->is_restocking_upsell);
+        $this->assertSame(0.0, (float) $order->restocking_upsell_amount);
+    }
+
     public function test_fails_gracefully_without_credentials(): void
     {
         Setting::set('pancake_api_key', '');

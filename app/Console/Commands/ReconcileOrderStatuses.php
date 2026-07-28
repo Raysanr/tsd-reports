@@ -26,14 +26,17 @@ use Illuminate\Support\Facades\Log;
  * Pancake's real one — inflating Leads Report and other counts everywhere,
  * not just for one product on one day.
  *
- * Also clears is_upsell/is_cancelled_upsell/is_returned_upsell on every order
- * it corrects — status_code alone fixes Leads Report/TSA Performance (they
- * check DELETED_STATUSES directly), but Dashboard's sales/revenue figures
- * filter by is_upsell, which SyncTodayOrders' own convention already forces
- * false for any void-status order (Order::VOID_STATUSES, which includes
- * Canceled/Deleted). A stale is_upsell=true left over from before the order
- * went void would otherwise keep inflating gross sales even after
- * status_code itself is corrected.
+ * Also clears is_upsell/is_cancelled_upsell/is_returned_upsell/
+ * is_restocking_upsell on every order it corrects — status_code alone fixes
+ * Leads Report/TSA Performance (they check DELETED_STATUSES directly), but
+ * Dashboard's sales/revenue figures filter by these booleans, which
+ * SyncTodayOrders' own convention already forces false for any void-status
+ * order (Order::VOID_STATUSES, which includes Canceled/Deleted/Restocking).
+ * A stale flag left over from before the order went void would otherwise
+ * keep inflating gross sales or Total Restocking even after status_code
+ * itself is corrected — e.g. an order sitting in Restocking (is_restocking_
+ * upsell=true) that later actually gets Deleted in Pancake would keep
+ * counting toward Total Restocking forever without this.
  */
 class ReconcileOrderStatuses extends Command
 {
@@ -108,15 +111,18 @@ class ReconcileOrderStatuses extends Command
                 // before the order went void would keep inflating gross sales/
                 // upsell revenue even after status_code itself is corrected.
                 $needsStatusFix = (int) $local->status_code !== $status;
-                $needsUpsellFix = $local->is_upsell || $local->is_cancelled_upsell || $local->is_returned_upsell;
+                $needsUpsellFix = $local->is_upsell || $local->is_cancelled_upsell
+                    || $local->is_returned_upsell || $local->is_restocking_upsell;
                 if (!$needsStatusFix && !$needsUpsellFix) continue;
 
                 $oldStatus = $local->status_code;
                 $local->update([
-                    'status_code'         => $status,
-                    'is_upsell'           => false,
-                    'is_cancelled_upsell' => false,
-                    'is_returned_upsell'  => false,
+                    'status_code'              => $status,
+                    'is_upsell'                => false,
+                    'is_cancelled_upsell'      => false,
+                    'is_returned_upsell'       => false,
+                    'is_restocking_upsell'     => false,
+                    'restocking_upsell_amount' => 0,
                 ]);
                 $correctedCount++;
                 $this->line("  Corrected #{$id}: status {$oldStatus} -> {$status}" . ($needsUpsellFix ? ' (also cleared stale upsell flag)' : ''));
