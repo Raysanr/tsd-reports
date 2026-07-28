@@ -591,6 +591,7 @@
                 <div class="text-right shrink-0">
                     <p class="text-sm font-bold font-mono {{ $row->upsell_count > 0 ? 'text-primary' : 'text-slate-300 dark:text-slate-600' }}">{{ $row->upsell_count }} upsells</p>
                     <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $row->upsell_rate }}% rate</p>
+                    <p class="text-xs font-bold font-mono text-accent mt-0.5">₱{{ number_format($row->upsell_sales, 2) }}</p>
                 </div>
             </div>
             @endforeach
