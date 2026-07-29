@@ -39,13 +39,11 @@ import './bootstrap';
     btn.addEventListener('click', () => {
         const icon = document.getElementById('reloadIcon');
         btn.disabled = true;
-        // Pulse, not spin — the bolt icon (unlike Sync's circular arrows) doesn't
-        // read as "in progress" when rotated.
-        icon.classList.add('animate-pulse');
+        icon.classList.add('animate-spin');
 
         window.softRefresh(window.location.href, { showLoading: true })
             .then((ok) => { if (!ok) window.location.reload(); })
-            .finally(() => { btn.disabled = false; icon.classList.remove('animate-pulse'); });
+            .finally(() => { btn.disabled = false; icon.classList.remove('animate-spin'); });
     });
 })();
 
