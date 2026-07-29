@@ -300,12 +300,12 @@
     @php
         $hourMax    = max(1, $hourlyActivity->max());
         $peakHour   = $hourlyActivity->search($hourlyActivity->max());
-        $size       = 460;
+        $size       = 600;
         $cx         = $size / 2;
         $cy         = $size / 2;
-        $maxRadius  = 150;
+        $maxRadius  = 210;
         $innerHole  = 14;   // small center hole so every hour renders as a visible wedge, even at 0
-        $labelR     = $maxRadius + 26;
+        $labelR     = $maxRadius + 30;
         $slices     = collect(range(0, 23))->map(function ($hour) use ($hourlyActivity, $hourMax, $cx, $cy, $maxRadius, $innerHole, $labelR, $peakHour) {
             $count      = $hourlyActivity[$hour];
             $outerR     = $innerHole + ($count / $hourMax) * ($maxRadius - $innerHole);
@@ -349,7 +349,7 @@
              style="transform: translate(-50%, -120%)">
         </div>
 
-        <svg viewBox="0 0 {{ $size }} {{ $size }}" class="mx-auto block" style="max-width:460px; width:100%; height:auto">
+        <svg viewBox="0 0 {{ $size }} {{ $size }}" class="mx-auto block" style="max-width:{{ $size }}px; width:100%; height:auto">
             {{-- Recessive reference rings, at even fractions of the busiest hour --}}
             @foreach([0.33, 0.66, 1] as $frac)
             <circle cx="{{ $cx }}" cy="{{ $cy }}" r="{{ $innerHole + $frac * ($maxRadius - $innerHole) }}"
