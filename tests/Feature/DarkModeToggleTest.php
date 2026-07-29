@@ -20,6 +20,20 @@ class DarkModeToggleTest extends TestCase
         $response->assertSee('id="themeToggle"', false);
     }
 
+    // Reload button lives right next to the theme toggle in the topbar (both
+    // fixed, always-present controls in layouts/app.blade.php) — covered here
+    // rather than a new file since it's the same "global chrome" concern.
+    public function test_leads_report_renders_the_global_reload_button(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->get(route('leads-report'));
+
+        $response->assertOk();
+        $response->assertSee('id="reloadBtn"', false);
+        $response->assertSee('id="reloadIcon"', false);
+    }
+
     public function test_dashboard_renders_the_no_flash_inline_theme_script_before_any_stylesheet(): void
     {
         $this->actingAs(User::factory()->create());

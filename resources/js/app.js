@@ -26,6 +26,27 @@ import './bootstrap';
     });
 })();
 
+// ─── Reload button ───────────────────────────────────────────────────────────
+// Global, every page (layouts/app.blade.php) — a quick client-side refresh of
+// the current view via softRefresh, with no outbound Pancake POS call (unlike
+// Dashboard's Sync button, which is a real, slower sync). Wired here rather
+// than per-page since softRefresh itself isn't defined until below — this
+// listener just needs to exist once, globally.
+(function () {
+    const btn = document.getElementById('reloadBtn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        const icon = document.getElementById('reloadIcon');
+        btn.disabled = true;
+        icon.classList.add('animate-spin');
+
+        window.softRefresh(window.location.href, { showLoading: true })
+            .then((ok) => { if (!ok) window.location.reload(); })
+            .finally(() => { btn.disabled = false; icon.classList.remove('animate-spin'); });
+    });
+})();
+
 // ─── Soft refresh ────────────────────────────────────────────────────────────
 // Fetches a page and swaps only <main>'s content in place — no full navigation,
 // so there's no white flash, no scroll loss, and header controls (date picker,

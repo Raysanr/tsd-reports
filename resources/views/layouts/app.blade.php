@@ -514,6 +514,20 @@
         <div class="flex items-center justify-end gap-3 flex-wrap md:flex-nowrap md:justify-self-end">
             @stack('topbar-right')
 
+            {{-- Reload — a fixed, always-present control (same reasoning as the dark
+                 mode toggle below): re-fetches and re-renders the CURRENT view from
+                 already-synced local data via softRefresh, with no outbound Pancake
+                 POS call — unlike Sync (Dashboard-only), which triggers a real sync
+                 and can take a while. Useful after TSA/Product config changes
+                 elsewhere, or just to pull the latest already-synced numbers without
+                 waiting on the next scheduled sync. --}}
+            <button id="reloadBtn" type="button" aria-label="Reload this view" title="Reload — refresh from already-synced data, no new sync"
+                    class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer">
+                <svg id="reloadIcon" class="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </button>
+
             {{-- Dark mode — a fixed, always-present control (unlike the stack above,
                  which varies per page), so it's in the same spot everywhere instead
                  of living down in the sidebar footer where it was easy to miss. --}}
