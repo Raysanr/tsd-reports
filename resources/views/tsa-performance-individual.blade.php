@@ -82,34 +82,34 @@
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
                 <th rowspan="2"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
+                    class="sticky-col bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                     style="min-width:110px">
                     Hour
                 </th>
                 <th rowspan="2"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                    class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Total<br>Called Leads
                 </th>
                 <th colspan="7"
-                    class="bg-green-200 dark:bg-green-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
+                    class="bg-green-200 dark:bg-green-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
                     Answered Called Leads
                 </th>
                 <th colspan="6"
-                    class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
+                    class="bg-red-200 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
                 </th>
                 <th rowspan="2"
-                    class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                    class="bg-blue-100 dark:bg-blue-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Pick-up<br>Rate
                 </th>
                 <th rowspan="2"
-                    class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                    class="bg-orange-100 dark:bg-orange-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Conversion<br>Rate
                 </th>
                 <th rowspan="2"
-                    class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
+                    class="bg-yellow-100 dark:bg-yellow-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                     style="min-width:110px">
                     Upselling<br>Rate
                 </th>
@@ -118,8 +118,8 @@
                 @foreach($displayCols as $col)
                 @php
                     $headerColor = match($col['group']) {
-                        'answered' => 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400',
-                        default    => 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400',
+                        'answered' => 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400',
+                        default    => 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400',
                     };
                 @endphp
                 <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
@@ -132,7 +132,7 @@
         <tbody>
             @foreach($hourlyRows as $hour)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
+                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
                     {{ $hour['label'] }}
                 </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
@@ -157,7 +157,7 @@
 
             {{-- GRAND TOTAL row --}}
             <tr class="bg-slate-900 text-white font-bold">
-                <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
+                <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $summary['total_called'] ?: '' }}</td>
                 @foreach($displayCols as $col)
                 <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
@@ -205,7 +205,7 @@
         <table class="w-full border-collapse text-xs font-mono" style="min-width:{{ 150 + $products->count() * 90 + 690 }}px">
             <thead class="sticky top-0 z-20 shadow-sm">
                 <tr>
-                    <th class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="sticky-col bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
                         Hour
                     </th>
@@ -215,7 +215,7 @@
                         {{ $product->display_name }}
                     </th>
                     @endforeach
-                    <th class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-yellow-100 dark:bg-yellow-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
                         Total<br>Catered Leads
                     </th>
@@ -223,7 +223,7 @@
                         style="min-width:110px">
                         Total {{ $teamName }}<br>Leads/Hour
                     </th>
-                    <th class="bg-cyan-100 dark:bg-cyan-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-cyan-900 dark:text-cyan-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-cyan-100 dark:bg-cyan-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-cyan-900 dark:text-cyan-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px">
                         Total<br>Answered Calls
                     </th>
@@ -231,15 +231,15 @@
                         style="min-width:90px" title="Average real call duration for this hour, from synced Google Drive recordings. Blank for hours with no synced recordings yet.">
                         Total AHT<br>Per Hour
                     </th>
-                    <th class="bg-red-100 dark:bg-red-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-red-100 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px">
                         Total<br>Unanswered Calls
                     </th>
-                    <th class="bg-emerald-100 dark:bg-emerald-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-emerald-100 dark:bg-emerald-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-900 dark:text-emerald-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:100px" title="Real call durations from synced Google Drive recordings, blended with a 3-minute estimate for any answered calls that hour without a synced recording yet (marked with a dot). Purely estimated when no recordings are synced for the hour at all.">
                         OPT (Order<br>Processing Time)
                     </th>
-                    <th class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
+                    <th class="bg-orange-100 dark:bg-orange-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:100px" title="2 minutes x unanswered calls">
                         Unproductive<br>Time
                     </th>
@@ -248,7 +248,7 @@
             <tbody>
                 @foreach($productHourlyRows as $hour)
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
+                    <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
                         {{ $hour['label'] }}
                     </td>
                     @foreach($products as $product)
@@ -286,7 +286,7 @@
 
                 {{-- GRAND TOTAL row --}}
                 <tr class="bg-slate-900 text-white font-bold">
-                    <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
+                    <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
                     @foreach($products as $product)
                     <td class="border border-slate-700 px-2 py-3 text-center">
                         {{ $productTotals[$product->id] ?: '' }}

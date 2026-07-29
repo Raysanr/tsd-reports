@@ -37,42 +37,42 @@
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
                 <th rowspan="2" data-sort-key="product"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
+                    class="sticky-col bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                     style="min-width:180px">
                     Product
                 </th>
                 <th rowspan="2" data-sort-key="total"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                    class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Total<br>Leads
                 </th>
                 <th rowspan="2" data-sort-key="catered"
-                    class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                    class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                     Catered<br>Leads
                 </th>
                 <th colspan="7"
-                    class="bg-green-200 dark:bg-green-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
+                    class="bg-green-200 dark:bg-green-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
                     Answered Called Leads
                 </th>
                 <th colspan="6"
-                    class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
+                    class="bg-red-200 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
                 </th>
                 <th colspan="1"
-                    class="bg-rose-300 dark:bg-rose-900/70 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide">
+                    class="bg-rose-300 dark:bg-rose-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide">
                     Excess Leads
                 </th>
                 <th rowspan="2" data-sort-key="pickUpRate"
-                    class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                    class="bg-blue-100 dark:bg-blue-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Pick-up<br>Rate
                 </th>
                 <th rowspan="2" data-sort-key="conversionRate"
-                    class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                    class="bg-orange-100 dark:bg-orange-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Conversion<br>Rate
                 </th>
                 <th rowspan="2" data-sort-key="upsellingRate"
-                    class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
+                    class="bg-yellow-100 dark:bg-yellow-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                     style="min-width:90px">
                     Upselling<br>Rate
                 </th>
@@ -81,9 +81,9 @@
                 @foreach($metricCols as $col)
                 @php
                     $headerColor = match($col['group']) {
-                        'answered' => 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400',
-                        'excess'   => 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400',
-                        default    => 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400',
+                        'answered' => 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400',
+                        'excess'   => 'bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-400',
+                        default    => 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400',
                     };
                 @endphp
                 <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
@@ -96,7 +96,7 @@
         <tbody>
             @foreach($productRows as $row)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap" data-sort-key="product" data-sort-value="{{ $row['display_name'] }}">
+                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap" data-sort-key="product" data-sort-value="{{ $row['display_name'] }}">
                     {{ $row['display_name'] }}
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
@@ -129,7 +129,7 @@
              row into the middle of the sorted list. --}}
         <tfoot>
             <tr class="bg-slate-900 text-white font-bold">
-                <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
+                <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
                 @foreach($metricCols as $col)
