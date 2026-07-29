@@ -170,6 +170,22 @@ class TsaPerformanceController extends Controller
                 }
             }
 
+            // UI/UX review finding: an hour where leads arrived but nobody had
+            // called any of them yet (e.g. before the first shift starts) still
+            // has non-empty $hourOrders, so the isEmpty() check above doesn't
+            // catch it — every displayed column here is total_called's own
+            // components (Confirmed/Not Answering/etc.), so total_called === 0
+            // means every column in this block renders blank regardless of how
+            // many raw leads came in. Confirmed in production: SH Naturals'
+            // 12am–7am hours repeated all 3 TSAs as fully blank rows plus a
+            // blank TOTAL row, every hour, before Gemma's 8am shift start —
+            // over 30 rows of nothing. $totals above already accumulated this
+            // hour's real (zero) contribution, so skipping it here only omits
+            // an all-blank block from the display, it doesn't change any total.
+            if ($blockTotals['total_called'] === 0) {
+                continue;
+            }
+
             // Pick-up/Conversion/Upselling Rate for this hour block — same shared
             // formula as buildRow()'s per-row rates and the ALL view, merged flat
             // alongside 'label'/'rows'/'totals' so the blade reads $block['pick_up_rate']
@@ -242,9 +258,17 @@ class TsaPerformanceController extends Controller
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
 
+            $row = $this->buildRow($shift, $tsaKey, $hourOrders);
+            // Same reasoning as the main hourly view above: leads can arrive
+            // before this TSA has called any of them (e.g. before shift
+            // start), which leaves every displayed column blank even though
+            // $hourOrders isn't empty — skip those rather than show a row of
+            // nothing but a label.
+            if ($row['total_called'] === 0) continue;
+
             $hourlyRows[] = [
                 'label' => HourFormatter::rangeLabel($hour),
-                'row'   => $this->buildRow($shift, $tsaKey, $hourOrders),
+                'row'   => $row,
             ];
         }
 
@@ -345,6 +369,11 @@ class TsaPerformanceController extends Controller
             // Unproductive Time: flat 2 minutes per unanswered call, independent of
             // OPT/answered calls — confirmed directly against real data (2026-07-24).
             $unproductive = $unanswered * 2;
+
+            // Same reasoning as the hourly breakdown table above: every column here
+            // derives from 'catered'/total_called, so a hour with leads but no
+            // called activity yet renders entirely blank anyway — skip it.
+            if ($hourRow['total_called'] === 0) continue;
 
             $productTotals      = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
             $grandRowTotal      += $rowTotal;
