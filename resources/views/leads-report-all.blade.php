@@ -31,7 +31,7 @@
     @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'title' => 'Leads Report — All Products, All Teams', 'subtitle' => $snapshotDateLabel])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table data-scroll-shadow
      data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">

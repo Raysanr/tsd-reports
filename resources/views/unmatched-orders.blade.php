@@ -84,7 +84,7 @@
         </div>
     </div>
 
-    <div class="overflow-x-auto" id="unmatchedOrdersTable" data-sortable-table>
+    <div class="overflow-x-auto" id="unmatchedOrdersTable" data-sortable-table data-scroll-shadow>
     <table class="w-full text-sm">
         <thead>
             <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">

@@ -184,7 +184,7 @@
         <p class="text-sm font-mono text-slate-400">No sync runs recorded yet</p>
     </div>
     @else
-    <div class="overflow-x-auto" id="syncRunsTable" data-sortable-table>
+    <div class="overflow-x-auto" id="syncRunsTable" data-sortable-table data-scroll-shadow>
     <table class="w-full text-sm">
         <thead>
             <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">

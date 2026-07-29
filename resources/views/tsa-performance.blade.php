@@ -35,7 +35,7 @@
 {{-- Pivot table — bounded height + its own scroll so the sticky header has a
      real scrolling ancestor to stick within (an unbounded overflow-x-auto div
      never scrolls vertically itself, which breaks `position: sticky`). --}}
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable"
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfTable" data-scroll-shadow
      data-dd-team="{{ $selectedTeam }}" data-dd-product="{{ $selectedProduct }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
             <thead class="sticky top-0 z-20 shadow-sm">

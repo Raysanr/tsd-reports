@@ -32,7 +32,7 @@
     @include('partials.table-actions', ['target' => 'tsaPerfAllTable', 'name' => 'tsa-performance-' . $selectedTeam])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfAllTable" data-sortable-table>
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="tsaPerfAllTable" data-sortable-table data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>

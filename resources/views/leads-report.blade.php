@@ -84,7 +84,7 @@
         </div>
     </div>
     <div class="flex flex-col lg:flex-row">
-    <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable">
+    <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable" data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -171,7 +171,7 @@
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
     <div class="flex flex-col lg:flex-row">
-    <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}">
+    <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}" data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -288,7 +288,7 @@
          sibling product tables above already have (see their overflow-x-auto +
          min-width). A single scrolling ancestor for both axes also keeps the
          sticky header working, same reasoning as TSA Performance's pivot table. --}}
-    <div class="overflow-auto" style="max-height:60vh" id="ordersTable" data-sortable-table>
+    <div class="overflow-auto" style="max-height:60vh" id="ordersTable" data-sortable-table data-scroll-shadow>
     <table class="w-full text-sm" style="min-width:640px">
         <thead class="sticky top-0 z-10">
             <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide shadow-sm">

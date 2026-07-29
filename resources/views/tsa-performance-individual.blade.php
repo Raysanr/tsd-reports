@@ -77,7 +77,7 @@
     <p class="text-sm font-mono text-slate-400">No called leads for {{ $rangeLabel }}</p>
 </div>
 @else
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)" data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1280px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
@@ -201,7 +201,7 @@
         <p class="text-sm font-mono text-slate-400">No product data for {{ $rangeLabel }}</p>
     </div>
     @else
-    <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)">
+    <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)" data-scroll-shadow>
         <table class="w-full border-collapse text-xs font-mono" style="min-width:{{ 150 + $products->count() * 90 + 690 }}px">
             <thead class="sticky top-0 z-20 shadow-sm">
                 <tr>

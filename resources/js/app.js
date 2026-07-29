@@ -1116,3 +1116,89 @@ document.addEventListener('keydown', (e) => {
     document.querySelectorAll('[data-preset-panel]:not(.hidden)').forEach((p) => p.classList.add('hidden'));
     document.querySelectorAll('[data-preset-trigger]').forEach((t) => t.setAttribute('aria-expanded', 'false'));
 });
+
+// ─── Horizontal-scroll shadow for wide tables ─────────────────────────────────
+// UI/UX review finding: every [data-scroll-shadow] container (Leads Report's
+// 13+-column hourly tables, TSA Performance's pivot table, etc.) scrolls
+// sideways with no visible hint that there's more off-screen — a first-time
+// viewer has no reason to suspect a column is cut off, on desktop or mobile.
+//
+// The overlay divs are NOT children of the scrolling element itself — an
+// absolutely-positioned child of an overflow:auto box is still part of that
+// box's own scrollable content and drifts sideways with everything else,
+// which would defeat the point. Each [data-scroll-shadow] element is wrapped
+// in an extra position:relative parent that does NOT scroll; the shadows are
+// absolutely positioned against THAT wrapper instead, so they stay pinned to
+// the visible left/right edge regardless of the inner scroll offset.
+//
+// The wrapper copies el's COMPUTED flex/grid sizing (not its classes) so it
+// takes over el's spot in whatever layout it was sitting in (e.g. Leads
+// Report's table-beside-a-pie-chart row needs flex-1/min-w-0 preserved) —
+// copying classes instead would double up el's own card styling (border/
+// shadow/background) wherever the scrollable div IS the visible card, like
+// TSA Performance's pivot table, not just a layout participant.
+function initScrollShadows() {
+    document.querySelectorAll('[data-scroll-shadow]').forEach((el) => {
+        if (el.dataset.scrollShadowReady) {
+            updateScrollShadow(el);
+            return;
+        }
+        el.dataset.scrollShadowReady = '1';
+
+        const computed = getComputedStyle(el);
+        const wrapper = document.createElement('div');
+        wrapper.style.position  = 'relative';
+        wrapper.style.overflow  = 'visible';
+        wrapper.style.flex      = computed.flex;
+        wrapper.style.minWidth  = computed.minWidth;
+        wrapper.style.maxWidth  = computed.maxWidth;
+        wrapper.style.width     = computed.display === 'block' ? '' : computed.width;
+        wrapper.style.alignSelf = computed.alignSelf;
+        el.parentNode.insertBefore(wrapper, el);
+        wrapper.appendChild(el);
+
+        const make = (side) => {
+            const div = document.createElement('div');
+            div.style.cssText = `position:absolute; top:0; bottom:0; ${side}:0; width:32px;
+                pointer-events:none; z-index:20; opacity:0; transition:opacity 150ms ease;
+                background:linear-gradient(to ${side === 'left' ? 'right' : 'left'}, rgba(0,0,0,0.28), transparent);`;
+            wrapper.appendChild(div);
+            return div;
+        };
+        el.__scrollShadowLeft  = make('left');
+        el.__scrollShadowRight = make('right');
+        updateScrollShadow(el);
+    });
+}
+
+function updateScrollShadow(el) {
+    const canLeft  = el.scrollLeft > 0;
+    const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    if (el.__scrollShadowLeft)  el.__scrollShadowLeft.style.opacity  = canLeft  ? '1' : '0';
+    if (el.__scrollShadowRight) el.__scrollShadowRight.style.opacity = canRight ? '1' : '0';
+}
+
+// scroll doesn't bubble, so this has to be delegated in the capture phase to
+// catch it from any descendant scrolling container.
+document.addEventListener('scroll', (e) => {
+    if (e.target.nodeType === 1 && e.target.hasAttribute('data-scroll-shadow')) {
+        updateScrollShadow(e.target);
+    }
+}, true);
+
+window.addEventListener('resize', () => {
+    document.querySelectorAll('[data-scroll-shadow]').forEach(updateScrollShadow);
+});
+
+document.addEventListener('DOMContentLoaded', initScrollShadows);
+
+// softRefresh only swaps <main>'s content — wrap it so any newly-inserted
+// scrollable table gets its overlay + initial state without a separate
+// per-page re-init call (same reasoning as [data-rerun] above, but this
+// needs to run for every softRefresh, not just opt-in pages).
+const __baseSoftRefresh = window.softRefresh;
+window.softRefresh = async function (...args) {
+    const result = await __baseSoftRefresh.apply(this, args);
+    initScrollShadows();
+    return result;
+};

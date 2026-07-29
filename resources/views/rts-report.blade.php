@@ -22,7 +22,7 @@
     @if($table['rows']->isEmpty())
     <div class="py-12 text-center font-mono text-xs text-slate-400">No TSAs configured for {{ $table['name'] }}</div>
     @else
-    <div class="overflow-x-auto" id="rtsTable-{{ $loop->index }}" data-sortable-table>
+    <div class="overflow-x-auto" id="rtsTable-{{ $loop->index }}" data-sortable-table data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono">
         <thead>
             <tr>
