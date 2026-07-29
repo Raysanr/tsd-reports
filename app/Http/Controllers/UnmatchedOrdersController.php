@@ -9,16 +9,40 @@ use Illuminate\Support\Facades\Artisan;
 
 class UnmatchedOrdersController extends Controller
 {
-    public function index()
+    /** UI/UX review finding: the actual task here is "which PRODUCT NAMES are
+     *  missing from Product Management so I can add them" — a flat,
+     *  chronological list of individual orders (previously the only view)
+     *  answers a different question and doesn't scale once this list runs
+     *  into the thousands. The grouped summary below answers the real
+     *  question directly; clicking a product name filters the list beneath
+     *  it to just that product's orders. */
+    public function index(Request $request)
     {
-        $orders = Order::whereNull('team')
-            ->orderByDesc('pancake_created_at')
+        $selectedProduct = $request->query('product');
+
+        $query = Order::whereNull('team');
+        if ($selectedProduct === '(no product name)') {
+            // The COALESCE fallback below stands in for a genuinely NULL
+            // `product` column — that literal string never exists as a real
+            // value, so filtering by it directly would always match nothing.
+            $query->whereNull('product');
+        } elseif ($selectedProduct) {
+            $query->where('product', $selectedProduct);
+        }
+
+        $orders = $query->orderByDesc('pancake_created_at')
             ->paginate(30)
             ->withQueryString();
 
         $totalUnmatched = Order::whereNull('team')->count();
 
-        return view('unmatched-orders', compact('orders', 'totalUnmatched'));
+        $byProduct = Order::whereNull('team')
+            ->selectRaw('COALESCE(product, \'(no product name)\') as product_name, COUNT(*) as order_count, SUM(amount) as total_amount')
+            ->groupBy('product_name')
+            ->orderByDesc('order_count')
+            ->get();
+
+        return view('unmatched-orders', compact('orders', 'totalUnmatched', 'byProduct', 'selectedProduct'));
     }
 
     /** Manually triggers the existing orders:reinfer-teams command — the same

@@ -60,4 +60,60 @@ class UnmatchedOrdersTest extends TestCase
         $response->assertRedirect(route('unmatched-orders'));
         $this->assertDatabaseHas('orders', ['pancake_order_id' => '3', 'team' => 'SH Naturals']);
     }
+
+    /**
+     * UI/UX review finding: the real task on this page is "which product
+     * names are missing from Product Management," not "read every individual
+     * order" — a flat chronological list doesn't scale once it runs into the
+     * thousands. This confirms the grouped summary actually groups and sums
+     * correctly, and doesn't collapse two different missing products
+     * together.
+     */
+    public function test_by_product_groups_and_sums_correctly(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Order::create(['pancake_order_id' => '10', 'team' => null, 'product' => 'NutriLay', 'amount' => 100, 'raw_tags' => []]);
+        Order::create(['pancake_order_id' => '11', 'team' => null, 'product' => 'NutriLay', 'amount' => 150, 'raw_tags' => []]);
+        Order::create(['pancake_order_id' => '12', 'team' => null, 'product' => 'VitaMax', 'amount' => 50, 'raw_tags' => []]);
+
+        $response = $this->get(route('unmatched-orders'));
+
+        $response->assertOk();
+        $response->assertViewHas('byProduct', function ($rows) {
+            $nutriLay = $rows->firstWhere('product_name', 'NutriLay');
+            $vitaMax  = $rows->firstWhere('product_name', 'VitaMax');
+            return $nutriLay && (int) $nutriLay->order_count === 2 && (float) $nutriLay->total_amount === 250.0
+                && $vitaMax && (int) $vitaMax->order_count === 1 && (float) $vitaMax->total_amount === 50.0;
+        });
+    }
+
+    public function test_clicking_a_product_filters_the_order_list_server_side(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Order::create(['pancake_order_id' => '20', 'team' => null, 'product' => 'NutriLay', 'amount' => 100, 'raw_tags' => []]);
+        Order::create(['pancake_order_id' => '21', 'team' => null, 'product' => 'VitaMax', 'amount' => 50, 'raw_tags' => []]);
+
+        $response = $this->get(route('unmatched-orders', ['product' => 'NutriLay']));
+
+        $response->assertOk();
+        $response->assertViewHas('orders', fn ($orders) => $orders->total() === 1 && $orders->first()->pancake_order_id === '20');
+        // totalUnmatched stays the whole-system count regardless of the
+        // active product filter — it's the KPI tile above, not this list.
+        $response->assertViewHas('totalUnmatched', 2);
+    }
+
+    public function test_filtering_by_the_no_product_name_group_matches_a_genuinely_null_product(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Order::create(['pancake_order_id' => '30', 'team' => null, 'product' => null, 'amount' => 75, 'raw_tags' => []]);
+        Order::create(['pancake_order_id' => '31', 'team' => null, 'product' => 'NutriLay', 'amount' => 100, 'raw_tags' => []]);
+
+        $response = $this->get(route('unmatched-orders', ['product' => '(no product name)']));
+
+        $response->assertOk();
+        $response->assertViewHas('orders', fn ($orders) => $orders->total() === 1 && $orders->first()->pancake_order_id === '30');
+    }
 }

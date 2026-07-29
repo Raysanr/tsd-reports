@@ -68,6 +68,47 @@
     <p class="text-sm font-mono text-slate-400">Nothing unmatched right now.</p>
 </div>
 @else
+{{-- BY PRODUCT — UI/UX review finding: the actual task here is "which
+     PRODUCT NAMES are missing from Product Management," not "read every
+     individual order" — a flat chronological list answers a different
+     question and doesn't scale once this runs into the thousands. This
+     summary answers the real question directly; clicking a product filters
+     the order list below to just that product (server-side, so it works
+     correctly across every page, not just whichever 30 happen to be
+     showing). --}}
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">By Product</h2>
+        <p class="text-xs font-mono text-slate-400 mt-0.5">Which product names need to be added to Product Management</p>
+    </div>
+    <div class="overflow-x-auto" data-scroll-shadow>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">
+                <th class="px-5 py-2.5 text-left">Product</th>
+                <th class="px-4 py-2.5 text-right">Orders</th>
+                <th class="px-4 py-2.5 text-right">Total Value</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+            @foreach($byProduct as $row)
+            @php $isActive = $selectedProduct === $row->product_name; @endphp
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors {{ $isActive ? 'bg-yellow-50 dark:bg-yellow-950/30' : '' }}">
+                <td class="px-5 py-3 font-mono text-xs">
+                    <a href="{{ route('unmatched-orders', ['product' => $row->product_name]) }}"
+                       class="font-semibold {{ $isActive ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-700 dark:text-slate-200 hover:text-yellow-700 dark:hover:text-yellow-400' }} hover:underline">
+                        {{ $row->product_name }}
+                    </a>
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-right font-semibold text-slate-700 dark:text-slate-200">{{ number_format($row->order_count) }}</td>
+                <td class="px-4 py-3 font-mono text-xs text-right font-semibold text-accent">₱{{ number_format($row->total_amount, 2) }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    </div>
+</div>
+
 {{-- TABLE — a genuine per-entity table (one row = one order), so it follows
      the sortable/filterable convention. Tags is the most important column:
      it's the raw material the matching logic works from. --}}
@@ -75,7 +116,13 @@
     <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-3">
         <div>
             <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Unmatched Orders</h2>
-            <p class="text-xs font-mono text-slate-400 mt-0.5">Most recent first</p>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">
+                Most recent first
+                @if($selectedProduct)
+                    · filtered to <span class="font-semibold text-yellow-700 dark:text-yellow-400">{{ $selectedProduct }}</span>
+                    · <a href="{{ route('unmatched-orders') }}" class="underline hover:text-slate-600 dark:hover:text-slate-300">show all products</a>
+                @endif
+            </p>
         </div>
         <div class="flex items-center gap-3">
             <input type="text" data-table-filter="unmatchedOrdersTable" placeholder="Filter…" aria-label="Filter unmatched orders"
