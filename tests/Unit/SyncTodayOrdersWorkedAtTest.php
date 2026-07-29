@@ -63,4 +63,16 @@ class SyncTodayOrdersWorkedAtTest extends TestCase
 
         $this->assertTrue($insertedAt->equalTo($workedAt));
     }
+
+    // A raw disposition tag from Pancake (unlike a tsaMap key) isn't pre-normalized —
+    // e.g. "Not answering " with mixed case and a trailing space, exactly as it
+    // appears on a real order. Must still match DFR's uppercase/trimmed history entry.
+    public function test_matches_a_disposition_tag_regardless_of_case_or_whitespace(): void
+    {
+        $insertedAt = Carbon::parse('2026-07-04 06:13:32', 'Asia/Manila');
+
+        $workedAt = SyncTodayOrders::resolveWorkedAt($this->fixture(), '  dfr ', $insertedAt);
+
+        $this->assertSame('2026-07-04 08:19:16', $workedAt->format('Y-m-d H:i:s'));
+    }
 }

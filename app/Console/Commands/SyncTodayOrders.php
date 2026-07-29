@@ -298,9 +298,20 @@ class SyncTodayOrders extends Command
             // record was first created — often an automated event (e.g. a Facebook ad
             // lead) hours before any TSA touches it. Every hourly report in this app
             // (TSA Performance, Leads Report, Charts) reads pancake_created_at as "when
-            // this call happened", so store the moment the TSA's own tag was actually
-            // added (from Pancake's histories log) instead, falling back to insertion
-            // time when the tag was already present at creation.
+            // this call happened", so store the moment the real outcome was decided
+            // (from Pancake's histories log) instead, falling back to insertion time
+            // when there's no tag to anchor to at all.
+            //
+            // Fix #16: prefer the DISPOSITION tag's own add-time over the TSA name
+            // tag's — confirmed via live histories data (SH Naturals/Sinuxyl,
+            // 2026-07-29) that the TSA name tag can land in a tight automated
+            // assignment batch well before shift start (e.g. 7:47 AM for an 8:00 AM
+            // shift), while the real disposition (Call in Progress -> CONFIRMED VIA
+            // CALL/Not answering/etc.) lands hours later, during the actual shift.
+            // Anchoring to the assignment tag put genuine calls in an hour bucket
+            // before the TSA had even logged in. A still-uncalled lead (no
+            // disposition tag yet) has nothing more accurate to anchor to, so it
+            // still falls back to the assignment tag in that case.
             //
             // Excess/uncatered leads (no TSA tag ever matched) are a special case of
             // this same problem: through 2026-07-17, Pancake's own end-of-day sweep is
@@ -310,12 +321,13 @@ class SyncTodayOrders extends Command
             // (~11:56-11:58 PM Manila), regardless of each lead's own creation time.
             // Falling back to insertion time here would scatter Excess Leads across
             // whatever hour each lead happened to be created in instead of the single
-            // hour it was actually swept. Only matters for that legacy tag — a
-            // genuinely tagless order (the current definition, since 2026-07-21) has no
-            // tag-add history entry to look up anyway, so it already falls back to
-            // insertion time on its own via the null below.
-            $excessSweepTag = ($tsaInfo['name'] === null && in_array($disposition, Order::EXCESS_DISPOSITIONS, true)) ? $disposition : null;
-            $workedAt = self::resolveWorkedAt($raw, $tsaInfo['matched_tag'] ?? $excessSweepTag, $carbonPHT);
+            // hour it was actually swept. $disposition already equals that tag for
+            // this case (extractDisposition() matches it like any other outcome), so
+            // preferring $disposition first also covers it with no separate variable.
+            // Only matters for that legacy tag — a genuinely tagless order (the
+            // current definition, since 2026-07-21) has no tag-add history entry to
+            // look up anyway, so it already falls back to insertion time on its own.
+            $workedAt = self::resolveWorkedAt($raw, $disposition ?? $tsaInfo['matched_tag'], $carbonPHT);
 
             // Fix 2: For upsell orders, only count the added items (not the original product)
             if ($isUpsell) {
@@ -740,8 +752,8 @@ class SyncTodayOrders extends Command
      * The moment this order's defining tag was actually added, not when the lead/order
      * record was created. Pancake's `histories` log records every tag-list change with a
      * timestamp; this finds the first entry where $matchedTag newly appears. Usually
-     * $matchedTag is the TSA's own name tag (typically added well after $insertedAt for
-     * auto-created leads) — but the caller also passes 'UNCATERED LEADS' here for
+     * $matchedTag is the real disposition tag (preferred — see the caller) or, failing
+     * that, the TSA's own name tag; the caller also passes 'UNCATERED LEADS' here for
      * excess/uncatered orders, since that tag's own addition time (Pancake's nightly
      * sweep) is what should anchor those rows, not their original creation time either.
      * Falls back to $insertedAt when there's no tag to match, or the tag was already
@@ -752,6 +764,13 @@ class SyncTodayOrders extends Command
         if ($matchedTag === null || $insertedAt === null) {
             return $insertedAt;
         }
+
+        // Normalized the same way tagNamesOf() normalizes histories' own tag names
+        // below — matched_tag (a tsaMap key) is already upper/trimmed, but a raw
+        // disposition tag from Pancake (e.g. "Not answering ", trailing space and
+        // all) isn't, and the strict in_array() comparison below would otherwise
+        // silently never match it.
+        $matchedTag = strtoupper(trim($matchedTag));
 
         foreach ($raw['histories'] ?? [] as $entry) {
             if (!isset($entry['tags']['new'])) continue;
