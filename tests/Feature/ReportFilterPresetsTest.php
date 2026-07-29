@@ -23,13 +23,14 @@ class ReportFilterPresetsTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    public function test_leads_report_has_presets_dropdown_markup(): void
+    // Leads Report deliberately does NOT have this (removed per a UI-declutter
+    // request — see leads-report.blade.php); RTS/Delivered still does.
+    public function test_leads_report_does_not_have_presets_dropdown_markup(): void
     {
         $response = $this->get(route('leads-report'));
 
         $response->assertOk();
-        $response->assertSee('data-preset-key="leads-report"', false);
-        $response->assertSee('data-preset-base-url="' . route('leads-report') . '"', false);
+        $response->assertDontSee('data-preset-key="leads-report"', false);
     }
 
     public function test_rts_report_has_presets_dropdown_markup(): void
