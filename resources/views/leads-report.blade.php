@@ -46,8 +46,13 @@
         'invalid_number'         => '#fcd34d',
         'excess'                 => '#e11d48',
     ];
+    // 'Unat-<br>tended' is a deliberate hyphenated line-break for the narrow
+    // table header (see ProductPerformance::METRIC_COLUMNS) — flattening its
+    // '<br>' to a space like every other label would leave a dangling "Unat-
+    // tended" in the single-line chart legend, so the hyphen-break is joined
+    // with no space first.
     $dispositionLabels = collect($metricCols)->pluck('label', 'key')
-        ->map(fn($label) => strip_tags(str_replace('<br>', ' ', $label)));
+        ->map(fn($label) => strip_tags(str_replace(['-<br>', '<br>'], ['', ' '], $label)));
 
     $buildChartData = function (array $row) use ($dispositionColors, $dispositionLabels) {
         $labels = $data = $colors = [];
