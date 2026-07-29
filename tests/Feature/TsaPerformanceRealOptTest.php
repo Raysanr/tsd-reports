@@ -115,4 +115,47 @@ class TsaPerformanceRealOptTest extends TestCase
         $response->assertSee('12.6');
         $response->assertSee('2:31');
     }
+
+    /**
+     * Explicit request: a Day Total AHT should always show a number, even when
+     * only some hours have a synced recording — same blend-real-with-3-min-
+     * estimate approach as OPT's own day total, not left blank the way a single
+     * hour's AHT can be.
+     */
+    public function test_day_total_aht_blends_a_recorded_hour_with_an_unrecorded_one(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        // Hour 8: one call, with a real 300s (5:00) recording.
+        $this->order('day-aht-1', $shift->tsa_key, '2026-07-22 08:15:00', 'CONFIRMED VIA CALL');
+        CallRecordingHour::create([
+            'tsa_key' => $shift->tsa_key, 'date' => '2026-07-22', 'hour' => 8,
+            'total_seconds' => 300, 'call_count' => 1,
+        ]);
+
+        // Hour 9: one call, no recording at all -> falls back to a 180s estimate.
+        $this->order('day-aht-2', $shift->tsa_key, '2026-07-22 09:15:00', 'CONFIRMED VIA CALL');
+
+        $response = $this->get(route('tsa-performance.individual', [
+            'team' => 'sh-naturals', 'tsaKey' => $shift->tsa_key,
+            'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        // day total = (300 + 180) / 2 calls = 240s = 4:00
+        $response->assertSee('4:00');
+    }
+
+    public function test_day_total_aht_is_a_dash_when_no_hour_has_any_answered_calls(): void
+    {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+
+        $response = $this->get(route('tsa-performance.individual', [
+            'team' => 'sh-naturals', 'tsaKey' => $shift->tsa_key,
+            'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('grandAht', null);
+    }
 }

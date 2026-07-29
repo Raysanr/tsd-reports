@@ -306,6 +306,12 @@ class TsaPerformanceController extends Controller
         $grandUnanswered    = 0;
         $grandOpt           = 0;
         $grandUnproductive  = 0;
+        // Day-total AHT — accumulated separately from $grandOpt (minutes, already
+        // rounded per hour) since averaging rounded per-hour minutes would drift
+        // from the real answer; these stay in raw seconds/call-count until the
+        // single division at the end, after the loop.
+        $grandBlendedSeconds = 0;
+        $grandCallsForAvg    = 0;
         for ($hour = self::START_HOUR; $hour <= self::END_HOUR; $hour++) {
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
@@ -364,6 +370,11 @@ class TsaPerformanceController extends Controller
                 $opt       = $answered * 3;
                 $aht       = null;
                 $optIsReal = false;
+                // Pure 3-min/call estimate, same as $opt above — kept in raw
+                // seconds/call-count so the day total below can blend this hour
+                // in on equal footing with real-recording hours.
+                $callsForAvg    = $answered;
+                $blendedSeconds = $answered * 180;
             }
 
             // Unproductive Time: flat 2 minutes per unanswered call, independent of
@@ -380,8 +391,10 @@ class TsaPerformanceController extends Controller
             $grandTsaLeads      += $hourRow['total_called'];
             $grandAnswered      += $answered;
             $grandUnanswered    += $unanswered;
-            $grandOpt           += $opt;
-            $grandUnproductive  += $unproductive;
+            $grandOpt            += $opt;
+            $grandUnproductive   += $unproductive;
+            $grandBlendedSeconds += $blendedSeconds;
+            $grandCallsForAvg    += $callsForAvg;
 
             $productHourlyRows[] = [
                 'label'       => HourFormatter::rangeLabel($hour),
@@ -397,6 +410,12 @@ class TsaPerformanceController extends Controller
             ];
         }
 
+        // Day-total AHT: blended seconds ÷ calls-for-avg across the whole day, same
+        // blend-real-with-3-min-estimate approach as each hour's own AHT/OPT above —
+        // this is why it's never blank the way a single hour's AHT can be, even on a
+        // date where only some hours have a synced recording.
+        $grandAht = $grandCallsForAvg > 0 ? (int) round($grandBlendedSeconds / $grandCallsForAvg) : null;
+
         return view('tsa-performance-individual', [
             'dateFrom'          => $dateFrom,
             'dateTo'            => $dateTo,
@@ -408,6 +427,7 @@ class TsaPerformanceController extends Controller
             'grandAnswered'     => $grandAnswered,
             'grandUnanswered'   => $grandUnanswered,
             'grandOpt'          => $grandOpt,
+            'grandAht'          => $grandAht,
             'grandUnproductive' => $grandUnproductive,
             'shiftMinutes'      => $shiftMinutes,
             'team'              => $team,

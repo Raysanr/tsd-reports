@@ -301,7 +301,13 @@
                     <td class="border border-slate-700 px-3 py-3 text-center text-cyan-300">
                         {{ $grandAnswered ?: '' }}
                     </td>
-                    <td class="border border-slate-700 px-3 py-3 text-center text-slate-500">—</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center text-slate-300">
+                        @if($grandAht !== null)
+                            {{ sprintf('%d:%02d', intdiv($grandAht, 60), $grandAht % 60) }}
+                        @else
+                            —
+                        @endif
+                    </td>
                     <td class="border border-slate-700 px-3 py-3 text-center text-red-300">
                         {{ $grandUnanswered ?: '' }}
                     </td>
