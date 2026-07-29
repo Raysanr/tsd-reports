@@ -7,6 +7,20 @@
     $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
 @endphp
 
+{{-- UI/UX review finding: a range with genuinely no RTS/Delivered activity
+     rendered as a wall of ₱0.00 across every TSA in both teams — nothing
+     visually distinguished "nothing happened" from "something's wrong,"
+     unlike every other report page's explicit empty state. --}}
+@if($grandTotalRts == 0 && $grandTotalDelivered == 0)
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-16 flex flex-col items-center justify-center text-center gap-3">
+    <svg class="w-10 h-10 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+    </svg>
+    <p class="text-sm font-mono text-slate-400">No RTS or Delivered upsells for {{ $rangeLabel }}</p>
+    <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Try a different date, or check back once orders have shipped.</p>
+</div>
+@else
+
 @forelse($teamTables as $table)
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
     <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
@@ -86,6 +100,8 @@
     </table>
     </div>
 </div>
+
+@endif
 
 @endsection
 

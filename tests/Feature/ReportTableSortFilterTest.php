@@ -65,9 +65,27 @@ class ReportTableSortFilterTest extends TestCase
         $response->assertSee('data-sort-key="product"', false);
     }
 
-    // rts-report.blade.php's per-team tables — one row per TSA.
+    // rts-report.blade.php's per-team tables — one row per TSA. The team
+    // tables only render (instead of the "no RTS or Delivered" empty state)
+    // once there's at least one Delivered/RTS upsell in the selected window,
+    // so seed a Delivered order.
     public function test_rts_report_team_tables_have_sort_and_filter_markup(): void
     {
+        $shift = TsaShift::where('team', 'SH Naturals')->first();
+        Order::create([
+            'pancake_order_id'   => 'rts-sort-filter-test-1',
+            'team'               => 'SH Naturals',
+            'tsa_name'           => $shift->tsa_key,
+            'disposition'        => 'CONFIRMED VIA CALL',
+            'product'            => 'CANPRO',
+            'raw_tags'           => ['CANPRO', strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell'          => true,
+            'status_code'        => 3,
+            'amount'             => 499,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
         $response = $this->get(route('rts-report'));
 
         $response->assertOk();
