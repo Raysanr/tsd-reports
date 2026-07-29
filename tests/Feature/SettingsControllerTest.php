@@ -228,4 +228,33 @@ class SettingsControllerTest extends TestCase
 
         $response->assertSessionHasErrors('drive_refresh_token');
     }
+
+    /**
+     * Confirmed in production: a TSA's phone can upload a call recording to
+     * Drive after the last scheduled sync run for that day already happened —
+     * since every run only ever looked at "today", that recording's hour was
+     * stuck showing the flat 3-min/call AHT estimate forever, with no way to
+     * go back and pick it up. This is what lets a specific past date be
+     * re-checked instead of always re-syncing "today".
+     */
+    public function test_sync_now_uses_the_submitted_date_not_always_today(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('drive_refresh_token', 'refresh-token-xyz');
+
+        $response = $this->post(route('settings.drive.sync-now'), ['date' => '2026-07-25']);
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success', fn ($message) => str_contains($message, '2026-07-25'));
+    }
+
+    public function test_sync_now_rejects_a_future_date(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('drive_refresh_token', 'refresh-token-xyz');
+
+        $response = $this->post(route('settings.drive.sync-now'), ['date' => now('Asia/Manila')->addDay()->toDateString()]);
+
+        $response->assertSessionHasErrors('date');
+    }
 }

@@ -171,10 +171,20 @@
                     <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
                     Connected
                 </span>
-                {{-- Standalone forms — never nested inside the save form below --}}
-                <form method="POST" action="{{ route('settings.drive.sync-now') }}">
+                {{-- Standalone forms — never nested inside the save form below.
+                     Date input (not just "sync today"): recordings only get
+                     picked up by whichever sync run happens to execute while
+                     they already exist in Drive — one uploaded after the last
+                     run of a given day was previously stuck that way forever,
+                     with no way to go back and catch it. Defaults to today so
+                     the common case (re-check right now) still needs no typing. --}}
+                <form method="POST" action="{{ route('settings.drive.sync-now') }}" class="flex items-center gap-1.5">
                     @csrf
-                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer">
+                    <input type="date" name="date" value="{{ now('Asia/Manila')->toDateString() }}"
+                           max="{{ now('Asia/Manila')->toDateString() }}"
+                           aria-label="Date to sync"
+                           class="px-2 py-1.5 text-xs font-mono rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer whitespace-nowrap">
                         Sync Now
                     </button>
                 </form>

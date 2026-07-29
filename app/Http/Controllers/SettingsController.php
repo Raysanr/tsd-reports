@@ -191,7 +191,7 @@ class SettingsController extends Controller
      * page (populated by the command itself) reflects the real outcome once
      * the background process finishes.
      */
-    public function syncDriveNow()
+    public function syncDriveNow(Request $request)
     {
         if (empty(Setting::get('drive_refresh_token'))) {
             return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
@@ -205,14 +205,27 @@ class SettingsController extends Controller
             return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'A sync is already running — wait for it to finish before starting another.']);
         }
 
+        // Explicit date, not just "sync today": confirmed in production — a
+        // TSA's phone can upload a recording to Drive AFTER the last scheduled
+        // run for that day already happened, and since every run only ever
+        // looked at "today", that recording's hour was stuck showing the flat
+        // 3-min/call AHT estimate forever, with no way to go back and pick it
+        // up. Defaults to today so the common "just check right now" case
+        // still needs no extra input.
+        $data = $request->validate([
+            'date' => 'nullable|date|before_or_equal:today',
+        ]);
+        $date = $data['date'] ?? now('Asia/Manila')->toDateString();
+
         $php     = escapeshellarg(PHP_BINARY);
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/drive-sync-manual.log'));
-        exec("{$php} {$artisan} calls:sync-recordings >> {$logFile} 2>&1 &");
+        $dateArg = escapeshellarg($date);
+        exec("{$php} {$artisan} calls:sync-recordings --date={$dateArg} >> {$logFile} 2>&1 &");
 
-        ActivityLogger::log('settings.drive_sync_now', null, 'Manually triggered Google Drive call-recording sync.');
+        ActivityLogger::log('settings.drive_sync_now', null, "Manually triggered Google Drive call-recording sync for {$date}.");
 
-        return redirect()->route('settings')->with('success', 'Google Drive sync started in the background — refresh this page in a minute or two to see the result.');
+        return redirect()->route('settings')->with('success', "Google Drive sync for {$date} started in the background — refresh this page in a minute or two to see the result.");
     }
 
     private function verifyDriveToken(string $clientId, string $clientSecret, string $refreshToken): bool
