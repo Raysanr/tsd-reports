@@ -222,6 +222,40 @@
     .dark .flatpickr-weekday {
         color: #64748b !important;
     }
+
+    /* Sticky first column — TSA Performance's pivot table and Leads Report's
+       Grand Total/per-product tables (marked cells only, e.g. .sticky-col on
+       the "TSA's"/"Time" header and each row's name/time cell — NOT a blanket
+       `:first-child` selector, since these tables' rowspan="2" header means
+       the second header row's own first child is a totally different column;
+       a structural selector would stick the wrong one).
+       A sticky cell needs its OWN opaque background — its row's hover/total
+       background alone (usually set on the <tr>, not each <td>) doesn't paint
+       behind a sticky child once other columns scroll independently beneath
+       it, since the row itself moves with the horizontal scroll while the
+       sticky cell doesn't. Three variants below match every row style that
+       actually has a first-column cell across both tables:
+       .sticky-col-body (plain rows, white/slate-900 + the same hover tint),
+       .sticky-col-subtotal (TSA Performance's per-hour TOTAL rows, slate-800),
+       .sticky-col-footer (TSA Performance's Grand Total / Leads Report's
+       Total rows, slate-900). */
+    .sticky-col {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+    }
+    /* The header's own sticky-col cell needs to out-rank both a competing
+       sticky-top header (TSA Performance's) and any sticky-left body cell
+       scrolling vertically beneath it — the top-left corner always wins. */
+    thead .sticky-col { z-index: 25; }
+
+    .sticky-col-body { background-color: #fff; }
+    .dark .sticky-col-body { background-color: #0f172a; }
+    tr:hover > .sticky-col-body { background-color: #f8fafc; }
+    .dark tr:hover > .sticky-col-body { background-color: #1e293b; }
+
+    .sticky-col-subtotal { background-color: #1e293b; }
+    .sticky-col-footer   { background-color: #0f172a; }
     </style>
     @stack('head')
 </head>

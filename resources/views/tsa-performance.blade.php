@@ -43,7 +43,7 @@
                 {{-- ── Row 1: group headers ── --}}
                 <tr>
                     <th rowspan="2"
-                        class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
+                        class="sticky-col bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:150px">
                         TSA's
                     </th>
@@ -52,15 +52,15 @@
                          Unanswered — every lead that was actually called. Excess/uncatered
                          leads are excluded (they have their own column). --}}
                     <th rowspan="2"
-                        class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                        class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
                         Total<br>Called Leads
                     </th>
                     <th colspan="7"
-                        class="bg-green-200 dark:bg-green-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
+                        class="bg-green-200 dark:bg-green-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
                         Answered Called Leads
                     </th>
                     <th colspan="6"
-                        class="bg-red-200 dark:bg-red-900/60 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
+                        class="bg-red-200 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                         Unanswered Call Leads
                     </th>
                     {{-- Fix: this must be defined in ROW 1 with rowspan="2" so it spans
@@ -70,17 +70,17 @@
                          corrupting that row's column count and making a body row's cell
                          render overlapping the sticky header on scroll. --}}
                     <th rowspan="2"
-                        class="bg-blue-100 dark:bg-blue-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                        class="bg-blue-100 dark:bg-blue-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
                         style="min-width:90px">
                         Pick-up<br>Rate
                     </th>
                     <th rowspan="2"
-                        class="bg-orange-100 dark:bg-orange-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                        class="bg-orange-100 dark:bg-orange-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
                         style="min-width:90px">
                         Conversion<br>Rate
                     </th>
                     <th rowspan="2"
-                        class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
+                        class="bg-yellow-100 dark:bg-yellow-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
                         style="min-width:110px">
                         Upselling<br>Rate
                     </th>
@@ -91,8 +91,8 @@
                     @foreach($displayCols as $col)
                     @php
                         $headerColor = match($col['group']) {
-                            'answered' => 'bg-green-50 dark:bg-green-950/40 text-green-800 dark:text-green-400',
-                            default    => 'bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-400',
+                            'answered' => 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400',
+                            default    => 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400',
                         };
                     @endphp
                     <th class="{{ $headerColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
@@ -118,7 +118,7 @@
                     {{-- Name — linked to that TSA's individual performance page when this
                          row has a real tsa_key (never true for a row with no key, though
                          none currently render without one). --}}
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                    <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
                         @if($row['tsa_key'])
                         <a href="{{ route('tsa-performance.individual', ['team' => $selectedTeam, 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                            class="group inline-flex items-center gap-1 hover:text-primary transition-colors cursor-pointer">
@@ -157,7 +157,7 @@
 
                 {{-- Hour TOTAL row --}}
                 <tr class="bg-slate-800 text-white font-bold">
-                    <td class="border border-slate-600 px-3 py-2.5 uppercase tracking-wider text-[11px]">TOTAL</td>
+                    <td class="sticky-col sticky-col-subtotal border border-slate-600 px-3 py-2.5 uppercase tracking-wider text-[11px]">TOTAL</td>
                     <td class="border border-slate-600 px-3 py-2.5 text-center {{ $block['totals']['total_called'] ? 'cursor-pointer hover:bg-slate-700' : '' }}"
                         @if($block['totals']['total_called']) data-drilldown data-dd-tsa="__all__" data-dd-hour="{{ $block['hour'] }}" data-dd-column="total_called" @endif>
                         {{ $block['totals']['total_called'] ?: '' }}
@@ -182,7 +182,7 @@
 
                 {{-- GRAND TOTAL row --}}
                 <tr class="bg-slate-900 text-white font-bold">
-                    <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
+                    <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                     <td class="border border-slate-700 px-3 py-3 text-center {{ $totals['total_called'] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
                         @if($totals['total_called']) data-drilldown data-dd-tsa="__all__" data-dd-column="total_called" @endif>
                         {{ $totals['total_called'] ?: '' }}
