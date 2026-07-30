@@ -68,11 +68,19 @@ class DashboardController extends Controller
             // Show every order attributed to a known TSA — not just is_upsell=true —
             // so orders excluded from gross sales (e.g. status "Restocking") are still
             // visible here with their status label, instead of silently disappearing.
+            //
+            // 25, not 10: this card is height-matched to Hourly Activity's chart
+            // (items-stretch on the parent grid) — 10 rows left a big empty gap
+            // below the table on any date with real volume, since the card's
+            // scrollable area (flex-1) was taller than 10 rows' worth of content.
+            // 25 comfortably fills that space on a normal day; the table's own
+            // overflow-y-auto still scrolls internally on a busier one instead of
+            // growing the card past its sibling's height.
             $recentOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->whereNotNull('tsa_name')
                 ->orderByDesc('pancake_created_at')
-                ->limit(10)
+                ->limit(25)
                 ->get();
 
             // TSA upsells currently sitting in "Restocking" (awaiting stock) — excluded

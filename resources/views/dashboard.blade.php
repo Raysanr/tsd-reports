@@ -239,7 +239,14 @@
             <p class="text-sm font-mono text-slate-400">Recent orders will appear here once synced</p>
         </div>
         @else
-        <div class="flex-1 overflow-y-auto" id="recentOrdersTable">
+        {{-- max-height fixed, not viewport/sibling-relative: with items-stretch on
+             the parent grid, an unbounded flex-1 here means this table's own
+             content (now up to 25 rows) can grow taller than Hourly Activity's
+             chart and drag THAT card's height up to match instead of the
+             intended other way around — a fixed cap breaks that feedback loop,
+             scrolling the rest internally. 600px matches the Hourly Activity
+             chart's own hardcoded max-width (it's a square SVG). --}}
+        <div class="flex-1 overflow-y-auto" style="max-height:600px" id="recentOrdersTable">
         <table class="w-full text-sm">
             <thead>
                 <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">
