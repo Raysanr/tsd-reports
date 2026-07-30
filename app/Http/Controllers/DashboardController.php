@@ -143,7 +143,22 @@ class DashboardController extends Controller
             // single $orders fetch — avoids a second identical query.
             $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->get();
-            $leadTally = ProductPerformance::tally($dayOrders);
+
+            // Total Leads/Pick-up Rate/Upselling Rate specifically need to match Leads
+            // Report's Grand Total (per this block's own comment above) — but Leads
+            // Report's ALL view filters by COALESCE(pancake_inserted_at,
+            // pancake_created_at) (real creation date, matching Pancake POS's own
+            // Created-At filter — see LeadsReportController::index()), not
+            // pancake_created_at (worked-at time) like $dayOrders above. Confirmed live:
+            // a lead created late one day but worked by a TSA the next lands in
+            // different calendar days under each column, so Dashboard's Total Leads
+            // (590) didn't tally with Leads Report's Grand Total (585) for the same
+            // date. $dayOrders itself stays pancake_created_at-based below — Hourly
+            // Activity and the TSA leaderboard intentionally use worked-at time,
+            // matching TSA Performance's own "calls today" figures.
+            $leadOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)->get();
+            $leadTally = ProductPerformance::tally($leadOrders);
 
             $stats['total_leads']    = $leadTally['total'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
