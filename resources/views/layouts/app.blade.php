@@ -500,45 +500,41 @@
      inside pushes the whole page wider than the viewport instead of scrolling internally. --}}
 <div class="flex-1 flex flex-col min-h-0 min-w-0">
 
-    {{-- Top bar — a fixed 3-column grid at md+ (title | search | controls), NOT a
-         free-flowing flex row: every page pushes a different amount of content into
-         @stack('topbar-right') (Dashboard: 2 icons; TSA Performance: team pills +
-         product dropdown + checkbox + date picker + presets + sync + settings link),
-         and with plain flex+justify-between the search bar's position shifted
-         left/right depending on how wide that varies per page. Grid columns are
-         sized independently of their content (both outer columns are equal
-         minmax(0,1fr) tracks), so the search bar's column is always the same width
-         and always centered, and the controls column always right-aligns and wraps
-         within its own space instead of dragging the search bar around. --}}
-    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap md:flex-nowrap md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:gap-4 shrink-0 shadow-sm">
-        <div class="flex items-center gap-3 min-w-0">
+    {{-- Top bar — plain flex row, two groups: (hamburger + title + search) on the
+         left, controls on the right. Search deliberately sits right next to the
+         title now (explicit request), not centered in its own grid track the way
+         it used to be — see git history for the old 3-column centering approach
+         if this ever needs revisiting. --}}
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap md:flex-nowrap shrink-0 shadow-sm">
+        <div class="flex items-center gap-4 min-w-0 flex-1 flex-wrap md:flex-nowrap">
             <button id="sidebarToggle" type="button" aria-label="Open menu"
                     class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
-            <div class="min-w-0">
+            <div class="min-w-0 shrink-0">
                 <h1 class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">@yield('title', 'Dashboard')</h1>
                 <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Reports · Pancake POS Integration')</p>
             </div>
-        </div>
 
-        {{-- Global search — TSA agents and Products only (see SearchController for why
-             orders aren't included). Debounced fetch to /search, results grouped by
-             type in a dropdown below the input. Hidden on the smallest screens
-             (sm:block) to keep the mobile header from overflowing next to the
-             hamburger button and page title. --}}
-        <div class="relative w-full sm:w-56 md:w-64 order-last sm:order-none md:justify-self-center">
-            <div class="relative">
-                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
-                </svg>
-                <input type="text" id="globalSearchInput" autocomplete="off" placeholder="Search TSA or product…"
-                    aria-label="Search TSA agents and products"
-                    class="w-full pl-8 pr-3 py-1.5 text-sm font-mono border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors">
+            {{-- Global search — TSA agents and Products only (see SearchController for
+                 why orders aren't included). Debounced fetch to /search, results
+                 grouped by type in a dropdown below the input. shrink-0 so it keeps its
+                 own width instead of getting squeezed as the title truncates; wraps
+                 onto its own row below the title on narrow screens instead of both
+                 competing for the same line. --}}
+            <div class="relative w-full sm:w-56 md:w-64 shrink-0 basis-full sm:basis-auto">
+                <div class="relative">
+                    <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"/>
+                    </svg>
+                    <input type="text" id="globalSearchInput" autocomplete="off" placeholder="Search TSA or product…"
+                        aria-label="Search TSA agents and products"
+                        class="w-full pl-8 pr-3 py-1.5 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors">
+                </div>
+                <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-80 overflow-y-auto"></div>
             </div>
-            <div id="globalSearchResults" class="hidden absolute left-0 right-0 top-full mt-1 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-80 overflow-y-auto"></div>
         </div>
 
         {{-- flex-wrap here so the toggle wraps as a true peer alongside the
