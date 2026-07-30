@@ -17,13 +17,16 @@ use Illuminate\Support\Facades\Log;
  * data wherever it's available (see TsaPerformanceController::showTsa()).
  *
  * The real folder tree (TSD 2026 RECORDING > TEAM <X> > <MONTH> CALL
- * RECORDINGS > <TSA NAME> > ...) nests inconsistently below the TSA-name
- * level — sometimes a cleanly-dated subfolder, sometimes "(FOLLOW UP)"
- * variants, sometimes files sitting directly in the TSA folder with no date
- * subfolder at all. Rather than trust any of that folder naming, every
- * recording's own filename ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is the
- * single source of truth for which date/hour it belongs to — the folder
- * structure is only ever used to narrow down WHICH files to even look at.
+ * RECORDINGS > <TSA NAME> > <MONTH> <YEAR> > <MONTH> <DAY> > ...) nests
+ * inconsistently below the TSA-name level — sometimes a "(FOLLOW UP)"
+ * variant, sometimes files sitting directly in the TSA folder with no date
+ * subfolder at all. Rather than trust any of that folder naming for WHICH
+ * files belong to the target date, every recording's own filename
+ * ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is the single source of truth for
+ * that. Folder naming IS trusted, though, for narrowing down WHICH files to
+ * even look at in the first place — see collectFilesForDate()'s fast path,
+ * which navigates straight to the target date's own folder instead of
+ * listing a TSA's entire multi-month upload history on every run.
  */
 class SyncCallRecordings extends Command
 {
@@ -148,7 +151,7 @@ class SyncCallRecordings extends Command
                 );
                 if (!$tsaFolder) continue; // no recordings folder for this TSA this month
 
-                $files = $this->collectFilesRecursively($token, $tsaFolder['id'], 0);
+                $files = $this->collectFilesForDate($token, $tsaFolder['id'], $date, $monthLabel);
 
                 foreach ($files as $file) {
                     if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
@@ -219,6 +222,50 @@ class SyncCallRecordings extends Command
     private function namesMatch(string $folderName, string $tsaName): bool
     {
         return strtoupper(trim($folderName)) === strtoupper(trim($tsaName));
+    }
+
+    /** Fast path: confirmed live across every TSA checked that the real folder
+     *  tree nests a "<MONTH> <YEAR>" folder (e.g. "JULY 2026") directly under
+     *  each TSA, and a "<MONTH> <DAY>" folder (e.g. "JULY 29", no leading zero)
+     *  under THAT, holding that day's files directly. Navigating straight there
+     *  avoids listing the TSA's entire multi-month file history on every single
+     *  run — confirmed live this was 2,257 files for one TSA alone (~30s just
+     *  to list, before a single file is even downloaded), when only the ~50
+     *  files for one actual target day are ever relevant. This is the direct
+     *  cause of AHT/OPT showing real data for only a couple of a day's hours
+     *  despite Drive having recordings for many more: the full walk was too
+     *  slow to reliably finish (every TSA, every 2-hourly run) before running
+     *  out of time/being interrupted, so which hours got downloaded before
+     *  that happened was effectively random.
+     *
+     *  Falls back to the original full recursive walk (slow, but handles the
+     *  messier variants the class doc already knows about — "(FOLLOW UP)"
+     *  folders, files with no date subfolder at all) if the fast path doesn't
+     *  find a matching day folder, so no previously-working case regresses. */
+    private function collectFilesForDate(string $token, string $tsaFolderId, Carbon $date, string $monthLabel): array
+    {
+        $yearMonthLabel = $monthLabel . ' ' . $date->format('Y');
+        $dayLabel       = $monthLabel . ' ' . (int) $date->format('j');
+
+        $level1 = $this->listChildren($token, $tsaFolderId);
+        $yearMonthFolder = collect($level1)->first(
+            fn($f) => $f['mimeType'] === 'application/vnd.google-apps.folder'
+                && str_contains(strtoupper(trim($f['name'])), $yearMonthLabel)
+        );
+
+        if ($yearMonthFolder) {
+            $level2 = $this->listChildren($token, $yearMonthFolder['id']);
+            $dayFolder = collect($level2)->first(
+                fn($f) => $f['mimeType'] === 'application/vnd.google-apps.folder'
+                    && strtoupper(trim($f['name'])) === $dayLabel
+            );
+
+            if ($dayFolder) {
+                return $this->collectFilesRecursively($token, $dayFolder['id'], 0);
+            }
+        }
+
+        return $this->collectFilesRecursively($token, $tsaFolderId, 0);
     }
 
     /** "<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a" — the phone number's own format
