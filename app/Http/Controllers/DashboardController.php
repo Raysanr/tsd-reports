@@ -37,6 +37,18 @@ class DashboardController extends Controller
         }
         session(['filters.dashboard.team' => $selectedTeam]);
 
+        // Toggle: Total Cross-Sell Sales excludes Restocking orders by default (they're
+        // pending, not yet shipped/paid — see the "Total Cancelled Orders" card's own
+        // comment below for why that exclusion happens automatically at sync time, not
+        // via a subtraction here). ON adds Restocking's revenue/count into Total
+        // Cross-Sell Sales instead of leaving it out — Total Restocking itself always
+        // keeps showing its own real number either way, never zeroed out by this.
+        $includeRestocking = filter_var(
+            $request->input('include_restocking', session('filters.dashboard.include_restocking', false)),
+            FILTER_VALIDATE_BOOLEAN
+        );
+        session(['filters.dashboard.include_restocking' => $includeRestocking]);
+
         $dateFrom = Carbon::parse($fromInput)->startOfDay();
         $dateTo   = Carbon::parse($toInput)->endOfDay();
 
@@ -120,6 +132,18 @@ class DashboardController extends Controller
                 ->whereIn('team', $orderTeams)
                 ->where('is_restocking_upsell', true);
 
+            // Include Restocking toggle (see $includeRestocking's own comment above):
+            // folds Restocking's revenue/count into Total Cross-Sell Sales instead of
+            // leaving it excluded. restocking_upsell_amount (not amount) is the same
+            // isolated add-on price $stats['restocking_value'] below already uses —
+            // adding it here can never double it, since $upsells (is_upsell=true)
+            // structurally never overlaps with is_restocking_upsell=true rows (the
+            // comment above this block explains why those two are mutually exclusive).
+            if ($includeRestocking) {
+                $totalOrders += (clone $restocking)->count();
+                $grossSales  += (clone $restocking)->sum('restocking_upsell_amount');
+            }
+
             // Cancelled upsells — different from Restocking: the customer cancelled just
             // the TSA's upsell add-on while their primary order kept going (is_upsell is
             // already forced false for these by SyncTodayOrders, so they're automatically
@@ -202,12 +226,23 @@ class DashboardController extends Controller
             $tsaLeaderboard = $dayOrders
                 ->whereNotNull('tsa_name')
                 ->groupBy('tsa_name')
-                ->map(function (Collection $orders, string $tsaName) {
+                ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
+                    $upsellCount = $orders->where('is_upsell', true)->count();
+                    $upsellSales = (float) $orders->where('is_upsell', true)->sum('amount');
+
+                    // Same Include Restocking toggle as Total Cross-Sell Sales above —
+                    // restocking_upsell_amount is the isolated add-on price, same
+                    // convention as everywhere else Restocking is counted.
+                    if ($includeRestocking) {
+                        $upsellCount += $orders->where('is_restocking_upsell', true)->count();
+                        $upsellSales += (float) $orders->where('is_restocking_upsell', true)->sum('restocking_upsell_amount');
+                    }
+
                     return (object) [
                         'tsa_name'     => $tsaName,
                         'total_calls'  => ProductPerformance::tally($orders)['total_called'],
-                        'upsell_count' => $orders->where('is_upsell', true)->count(),
-                        'upsell_sales' => (float) $orders->where('is_upsell', true)->sum('amount'),
+                        'upsell_count' => $upsellCount,
+                        'upsell_sales' => $upsellSales,
                     ];
                 })
                 ->values()
@@ -357,7 +392,7 @@ class DashboardController extends Controller
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'teamComparison',
             'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
-            'teams', 'selectedTeam'
+            'teams', 'selectedTeam', 'includeRestocking'
         ));
     }
 

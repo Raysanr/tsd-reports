@@ -68,6 +68,19 @@
                 ₱{{ number_format($stats['total_sales'], 2) }}
             </p>
             <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['total_orders'] }} {{ \Illuminate\Support\Str::plural('order', $stats['total_orders']) }}</p>
+
+            {{-- Off by default: Restocking (awaiting stock, not yet shipped/paid) is
+                 excluded from this total. ON folds its revenue/count in here instead —
+                 the Total Restocking card next to this one always keeps showing its
+                 own real number regardless, never zeroed out by this toggle. --}}
+            <label class="mt-2 inline-flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" id="includeRestockingToggle" {{ $includeRestocking ? 'checked' : '' }}
+                       class="sr-only peer">
+                <div class="relative w-7 h-4 bg-slate-300 dark:bg-slate-600 peer-checked:bg-yellow-600 rounded-full transition-colors
+                            after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full
+                            after:h-3 after:w-3 after:transition-transform peer-checked:after:translate-x-3"></div>
+                <span class="text-[10px] font-mono text-slate-400">Include Restocking</span>
+            </label>
         </div>
     </div>
 
@@ -748,5 +761,25 @@
         .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-pulse'); });
     });
 })();
+
+// Include Restocking toggle — delegated from document (not a direct listener on
+// the checkbox itself) since the toggle lives inside <main>: the team filter
+// form's own softRefresh replaces main.innerHTML wholesale, which would silently
+// drop a directly-attached listener on every filter click. date_from/date_to/team
+// are set explicitly from this load's own PHP values rather than read back off
+// window.location, so the very first toggle (before any filter's own query
+// string exists yet) still carries the right range instead of defaulting away.
+document.addEventListener('change', (e) => {
+    if (e.target.id !== 'includeRestockingToggle') return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set('include_restocking', e.target.checked ? '1' : '0');
+    url.searchParams.set('team', '{{ $selectedTeam }}');
+    url.searchParams.set('date_from', '{{ $dateFrom->toDateString() }}');
+    url.searchParams.set('date_to', '{{ $dateTo->copy()->startOfDay()->toDateString() }}');
+
+    window.softRefresh(url.toString(), { pushUrl: true, showLoading: true })
+        .then(ok => { if (!ok) window.location.href = url.toString(); });
+});
 </script>
 @endpush
