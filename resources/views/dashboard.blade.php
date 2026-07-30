@@ -288,6 +288,21 @@
             </tbody>
         </table>
         </div>
+
+        {{-- UI/UX fix: this card is stretched (items-stretch on the parent grid)
+             to match Hourly Activity's height, which is usually taller than a
+             flat 10-row table — mt-auto pins this footer to the bottom of
+             whatever leftover space that leaves, instead of it just sitting
+             empty below the last row. --}}
+        <div class="mt-auto px-5 py-3 border-t border-slate-100 dark:border-slate-700">
+            <a href="{{ route('leads-report', ['team' => 'all', 'range' => 'dates', 'date_from' => $dateFrom->toDateString(), 'date_to' => $dateTo->copy()->startOfDay()->toDateString()]) }}"
+               class="inline-flex items-center gap-1 text-xs font-mono font-semibold text-primary hover:underline">
+                View all orders
+                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+                </svg>
+            </a>
+        </div>
         @endif
     </div>
 
