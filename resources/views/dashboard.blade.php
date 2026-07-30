@@ -765,18 +765,25 @@
 // Include Restocking toggle — delegated from document (not a direct listener on
 // the checkbox itself) since the toggle lives inside <main>: the team filter
 // form's own softRefresh replaces main.innerHTML wholesale, which would silently
-// drop a directly-attached listener on every filter click. date_from/date_to/team
-// are set explicitly from this load's own PHP values rather than read back off
-// window.location, so the very first toggle (before any filter's own query
-// string exists yet) still carries the right range instead of defaulting away.
+// drop a directly-attached listener on every filter click.
+//
+// Bug: team/date_from/date_to used to be set unconditionally from this load's
+// own PHP values — correct on the very first toggle click, but this script
+// block only ever runs once per full page load, so those values go stale the
+// moment ANY other filter (team pill, date picker) pushes a new URL afterward.
+// Confirmed live: picking "SH Naturals" then toggling Restocking silently
+// reverted the team filter back to "ALL", since '{{ $selectedTeam }}' was still
+// the page's ORIGINAL value ('all'). Only fill a param in from PHP when the
+// CURRENT URL doesn't already carry it (i.e. no other filter control has been
+// touched yet this page load) — otherwise keep whatever's already there.
 document.addEventListener('change', (e) => {
     if (e.target.id !== 'includeRestockingToggle') return;
 
     const url = new URL(window.location.href);
     url.searchParams.set('include_restocking', e.target.checked ? '1' : '0');
-    url.searchParams.set('team', '{{ $selectedTeam }}');
-    url.searchParams.set('date_from', '{{ $dateFrom->toDateString() }}');
-    url.searchParams.set('date_to', '{{ $dateTo->copy()->startOfDay()->toDateString() }}');
+    if (!url.searchParams.has('team'))      url.searchParams.set('team', '{{ $selectedTeam }}');
+    if (!url.searchParams.has('date_from')) url.searchParams.set('date_from', '{{ $dateFrom->toDateString() }}');
+    if (!url.searchParams.has('date_to'))   url.searchParams.set('date_to', '{{ $dateTo->copy()->startOfDay()->toDateString() }}');
 
     window.softRefresh(url.toString(), { pushUrl: true, showLoading: true })
         .then(ok => { if (!ok) window.location.href = url.toString(); });
