@@ -221,7 +221,7 @@
 </div>
 
 {{-- RECENT ORDERS + HOURLY ACTIVITY — side by side, same height (stacks on mobile). --}}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
@@ -287,21 +287,6 @@
                 @endforeach
             </tbody>
         </table>
-        </div>
-
-        {{-- UI/UX fix: this card is stretched (items-stretch on the parent grid)
-             to match Hourly Activity's height, which is usually taller than a
-             flat 10-row table — mt-auto pins this footer to the bottom of
-             whatever leftover space that leaves, instead of it just sitting
-             empty below the last row. --}}
-        <div class="mt-auto px-5 py-3 border-t border-slate-100 dark:border-slate-700">
-            <a href="{{ route('leads-report', ['team' => 'all', 'range' => 'dates', 'date_from' => $dateFrom->toDateString(), 'date_to' => $dateTo->copy()->startOfDay()->toDateString()]) }}"
-               class="inline-flex items-center gap-1 text-xs font-mono font-semibold text-primary hover:underline">
-                View all orders
-                <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-                </svg>
-            </a>
         </div>
         @endif
     </div>
