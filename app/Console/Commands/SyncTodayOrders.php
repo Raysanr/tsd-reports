@@ -770,8 +770,9 @@ class SyncTodayOrders extends Command
         // disposition tag from Pancake (e.g. "Not answering ", trailing space and
         // all) isn't, and the strict in_array() comparison below would otherwise
         // silently never match it.
-        $matchedTag = strtoupper(trim($matchedTag));
-        $tagAt      = null;
+        $matchedTag  = strtoupper(trim($matchedTag));
+        $tagAt       = null;
+        $tagEditorId = null;
 
         foreach ($raw['histories'] ?? [] as $entry) {
             if (!isset($entry['tags']['new'])) continue;
@@ -783,6 +784,7 @@ class SyncTodayOrders extends Command
                 $tagAt = isset($entry['updated_at'])
                     ? Carbon::parse($entry['updated_at'], 'UTC')->setTimezone('Asia/Manila')
                     : $insertedAt;
+                $tagEditorId = $entry['editor_id'] ?? null;
                 break;
             }
         }
@@ -800,14 +802,28 @@ class SyncTodayOrders extends Command
         // Purchasing, then the actual "UPSELL TSD" tag — didn't happen until
         // 8:40 AM). The fix above (prefer the disposition tag's own add-time over
         // the assignment tag's) doesn't help this case, since they're the same
-        // stale timestamp. A genuine order-status change is a distinct history
-        // entry type (not a tag), so it can't be swept into that same automated
-        // batch — when the disposition is just this generic catch-all, prefer the
-        // first real status change after the tag's own timestamp, if one exists.
-        if (str_contains($matchedTag, 'CALL IN PROGRESS') || $matchedTag === 'CIP') {
+        // stale timestamp.
+        //
+        // First attempt at this (prefer ANY later status change) was itself wrong
+        // — confirmed live against orders 1338554/1338808/1339021/1339088: a
+        // Pancake order keeps getting status changes for HOURS after the real call
+        // (Purchasing -> Confirmed -> sent-to-partner -> "Picked up"), driven by
+        // the courier/fulfillment webhook (J&T Express — the `partner` field's
+        // picked_up_at matches these exactly) under shared system editor_ids
+        // (e.g. a84af695..., 4b09ee22..., or null) that recur identically across
+        // totally unrelated orders and TSAs — never the TSA's own account. That
+        // wrongly anchored several orders to a courier pickup timestamp hours
+        // later instead of the real, much-earlier call time.
+        //
+        // A status change only counts as evidence of real work when it was made by
+        // the SAME editor_id who added the disposition tag — i.e. the same person
+        // continuing to work this exact order (confirmed live: order 1339220's own
+        // status change WAS made by the same editor, GEMMA DIAZ, as the tag add).
+        if ($tagEditorId !== null && (str_contains($matchedTag, 'CALL IN PROGRESS') || $matchedTag === 'CIP')) {
             foreach ($raw['histories'] ?? [] as $entry) {
                 if (!isset($entry['status']['old'], $entry['status']['new'], $entry['updated_at'])) continue;
                 if ($entry['status']['old'] === $entry['status']['new']) continue;
+                if (($entry['editor_id'] ?? null) !== $tagEditorId) continue;
 
                 $statusAt = Carbon::parse($entry['updated_at'], 'UTC')->setTimezone('Asia/Manila');
                 if ($statusAt->gt($tagAt)) {

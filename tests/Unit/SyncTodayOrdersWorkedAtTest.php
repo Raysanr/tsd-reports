@@ -101,10 +101,12 @@ class SyncTodayOrdersWorkedAtTest extends TestCase
                             ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)'],
                         ],
                     ],
+                    'editor_id'  => '92fe3b84-1ced-42eb-94dc-96d10fe8fbfb', // Gemma's own account, both here and below
                     'updated_at' => '2026-07-29T23:46:46',
                 ],
                 [
                     'status'     => ['old' => 0, 'new' => 20],
+                    'editor_id'  => '92fe3b84-1ced-42eb-94dc-96d10fe8fbfb',
                     'updated_at' => '2026-07-30T00:40:27',
                 ],
                 [
@@ -112,10 +114,77 @@ class SyncTodayOrdersWorkedAtTest extends TestCase
                         'old' => [['id' => 1, 'name' => 'GEMMA'], ['id' => 2, 'name' => 'SINUXYL'], ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)']],
                         'new' => [['id' => 1, 'name' => 'GEMMA'], ['id' => 2, 'name' => 'SINUXYL'], ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)'], ['id' => 4, 'name' => 'UPSELL TSD - Sinuxyl Inhaler']],
                     ],
+                    'editor_id'  => '92fe3b84-1ced-42eb-94dc-96d10fe8fbfb',
                     'updated_at' => '2026-07-30T00:40:38',
                 ],
             ],
         ];
+    }
+
+    /**
+     * Real payload shape for Pancake orders #1338554/1338808/1339021/1339088
+     * (SH Naturals, 2026-07-29/30): the disposition tag ("Call in Progress
+     * (Ginseng)") and the FIRST status change (New -> Purchasing) were both made
+     * by the TSA's own account (editor_id 92fe3b84... = GEMMA DIAZ), seconds
+     * apart — genuine work, already correctly anchored by the tag's own
+     * timestamp with no override needed. But the order keeps receiving status
+     * changes for HOURS afterward (Purchasing -> Confirmed -> sent-to-partner ->
+     * "Picked up"), driven by the J&T Express courier/fulfillment webhook under
+     * shared system editor_ids (confirmed live: the `partner` field's
+     * picked_up_at matches these timestamps exactly) — a naive "any later status
+     * change" override incorrectly jumped to that courier pickup time instead.
+     */
+    private function courierFulfillmentFixture(): array
+    {
+        return [
+            'histories' => [
+                [
+                    'status'     => ['old' => 0, 'new' => 20],
+                    'editor_id'  => '92fe3b84-1ced-42eb-94dc-96d10fe8fbfb', // Gemma's own account
+                    'updated_at' => '2026-07-29T02:34:38',
+                ],
+                [
+                    'tags' => [
+                        'old' => [],
+                        'new' => [['id' => 3, 'name' => 'Call in Progress (Ginseng)']],
+                    ],
+                    'editor_id'  => '92fe3b84-1ced-42eb-94dc-96d10fe8fbfb', // same account, 39s later — the real call
+                    'updated_at' => '2026-07-29T02:35:17',
+                ],
+                [
+                    'status'     => ['old' => 20, 'new' => 1], // Purchasing -> Confirmed
+                    'editor_id'  => 'a84af695-67bf-4e51-a4f1-cb53d8993f5d', // courier/fulfillment system account
+                    'updated_at' => '2026-07-29T22:08:35',
+                ],
+                [
+                    'status'     => ['old' => 1, 'new' => 12], // sent to courier partner
+                    'editor_id'  => 'a84af695-67bf-4e51-a4f1-cb53d8993f5d',
+                    'updated_at' => '2026-07-29T22:15:03',
+                ],
+                [
+                    'status'     => ['old' => 9, 'new' => 2], // "Picked up" by courier — hours later
+                    'editor_id'  => null,
+                    'updated_at' => '2026-07-30T10:01:25',
+                ],
+            ],
+        ];
+    }
+
+    public function test_does_not_anchor_to_a_courier_fulfillment_status_change_made_by_a_different_editor(): void
+    {
+        $insertedAt = Carbon::parse('2026-07-29 09:01:01', 'Asia/Manila');
+
+        $workedAt = SyncTodayOrders::resolveWorkedAt(
+            $this->courierFulfillmentFixture(),
+            'Call in Progress (Ginseng)',
+            $insertedAt
+        );
+
+        $this->assertSame(
+            '2026-07-29 10:35:17',
+            $workedAt->format('Y-m-d H:i:s'),
+            'Expected the tag\'s own add-time (the real call), not the courier\'s much-later pickup status change.'
+        );
     }
 
     public function test_prefers_a_later_status_change_over_the_generic_call_in_progress_tags_own_timestamp(): void
