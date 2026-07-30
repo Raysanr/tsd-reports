@@ -644,6 +644,26 @@
 @push('topbar-right')
 <div class="flex items-center gap-3 flex-wrap">
 
+    {{-- Same ALL/SH Naturals/Eyecare filter as Leads Report and TSA Performance
+         (their own [data-filter-btn] team buttons) — a plain GET form so the
+         generic submit-intercept in app.js soft-refreshes in place instead of a
+         full page reload. Hidden date fields carry the currently viewed range
+         along with it, so switching teams never resets it back to today. --}}
+    <form method="GET" action="{{ route('dashboard') }}" class="contents">
+        <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
+        <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
+
+        <div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+            @foreach($teams as $key => $label)
+            <button type="submit" name="team" value="{{ $key }}" data-filter-btn
+                    class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200 motion-reduce:transition-none
+                           {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+                {{ $label }}
+            </button>
+            @endforeach
+        </div>
+    </form>
+
     {{-- Live refresh indicator — only when viewing today --}}
     @if($dateFrom->isToday() && $dateTo->copy()->startOfDay()->isToday())
     @include('partials.live-indicator')

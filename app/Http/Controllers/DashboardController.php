@@ -26,6 +26,17 @@ class DashboardController extends Controller
         $toInput   = $request->input('date_to',   session('filters.dashboard.date_to', $fromInput));
         session(['filters.dashboard.date_from' => $fromInput, 'filters.dashboard.date_to' => $toInput]);
 
+        // Same ALL/SH Naturals/Eyecare filter as Leads Report and TSA Performance
+        // (LeadsReportController::index()) — 'all' isn't a real config('teams') key,
+        // handled as its own branch below, same convention as those two pages.
+        $selectedTeam = $request->input('team', session('filters.dashboard.team', 'all'));
+        $teamsConfig  = config('teams', []);
+        $teams        = ['all' => 'ALL'] + array_map(fn($t) => $t['name'], $teamsConfig);
+        if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
+            $selectedTeam = 'all';
+        }
+        session(['filters.dashboard.team' => $selectedTeam]);
+
         $dateFrom = Carbon::parse($fromInput)->startOfDay();
         $dateTo   = Carbon::parse($toInput)->endOfDay();
 
@@ -53,7 +64,15 @@ class DashboardController extends Controller
         // showed 301 leads, Leads Report's Grand Total showed 292 for the identical
         // day — the 9-order gap was entirely Unmatched Orders, invisible anywhere
         // else in the app. Every query below now matches Leads Report's own scope.
-        $orderTeams = collect(config('teams'))->pluck('order_team')->all();
+        //
+        // Narrowed further to just the ONE selected team's order_team when the ALL/
+        // SH Naturals/Eyecare filter above picks a specific team — every widget below
+        // reads $orderTeams already, so this one line is what makes the whole page
+        // (KPIs, Recent Orders, Hourly Activity, TSA Leaderboard, Top Products,
+        // Restocking by TSA) follow the filter with no separate per-widget change.
+        $orderTeams = $selectedTeam === 'all'
+            ? collect($teamsConfig)->pluck('order_team')->all()
+            : [$teamsConfig[$selectedTeam]['order_team']];
 
         try {
             $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
@@ -244,7 +263,12 @@ class DashboardController extends Controller
             // no longer has one answer — skipped there, same restriction Leads
             // Report already applies.
             if ($dateFrom->isSameDay($dateTo)) {
+                // Scoped to the selected team's own TSAs — otherwise filtering to
+                // Eyecare alone could still pick up SH Naturals' earliest shift start
+                // (e.g. Gemma's 8 AM) as the cutoff, even though no Eyecare TSA
+                // actually starts that early.
                 $activeStarts = $shiftsByKey
+                    ->filter(fn($s) => in_array($s->team, $orderTeams, true))
                     ->reject(fn($s) => !$s->shift_start || $s->isOffOn($dateFrom))
                     ->map(fn($s) => (int) date('G', strtotime($s->shift_start)));
 
@@ -270,7 +294,11 @@ class DashboardController extends Controller
             // Team comparison — orders, upsell rate and revenue side by side, replacing
             // the old Shop Lines panel (which only showed revenue) with the metric this
             // whole app is actually built around: upsell rate, not just raw sales.
-            $teamComparison = collect(config('teams'))->map(function ($teamConfig) use ($dateFrom, $dateTo) {
+            // Only meaningful with every team on the page at once — filtered down to
+            // one team via the ALL/SH Naturals/Eyecare buttons above, there's nothing
+            // left to compare, so this stays empty and the view's own
+            // isNotEmpty() check hides the panel entirely.
+            $teamComparison = $selectedTeam !== 'all' ? collect() : collect($teamsConfig)->map(function ($teamConfig) use ($dateFrom, $dateTo) {
                 $base  = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team']);
                 $total = (clone $base)->count();
                 $upsellCount = (clone $base)->where('is_upsell', true)->count();
@@ -302,17 +330,22 @@ class DashboardController extends Controller
                     return $row;
                 });
 
-            $restockingByTeam = collect(config('teams'))->map(function ($teamConfig) use ($dateFrom, $dateTo) {
-                $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                    ->where('team', $teamConfig['order_team'])
-                    ->where('is_restocking_upsell', true);
+            // Scoped to $orderTeams (same as every other widget above) — 'By Brand'
+            // naturally collapses to the one selected team's own row instead of
+            // showing the other, filtered-out team's data alongside it.
+            $restockingByTeam = collect($teamsConfig)
+                ->filter(fn($teamConfig) => in_array($teamConfig['order_team'], $orderTeams, true))
+                ->map(function ($teamConfig) use ($dateFrom, $dateTo) {
+                    $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                        ->where('team', $teamConfig['order_team'])
+                        ->where('is_restocking_upsell', true);
 
-                return [
-                    'name'             => $teamConfig['name'],
-                    'restocking_count' => (clone $base)->count(),
-                    'restocking_value' => (clone $base)->sum('restocking_upsell_amount'),
-                ];
-            })->values();
+                    return [
+                        'name'             => $teamConfig['name'],
+                        'restocking_count' => (clone $base)->count(),
+                        'restocking_value' => (clone $base)->sum('restocking_upsell_amount'),
+                    ];
+                })->values();
 
         } catch (QueryException $e) {
             $dbError = 'Database schema not ready — run: php artisan migrate';
@@ -323,7 +356,8 @@ class DashboardController extends Controller
             'stats', 'recentOrders', 'apiConnected', 'dbError',
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'teamComparison',
-            'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues'
+            'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
+            'teams', 'selectedTeam'
         ));
     }
 
