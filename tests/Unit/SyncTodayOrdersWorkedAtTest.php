@@ -75,4 +75,90 @@ class SyncTodayOrdersWorkedAtTest extends TestCase
 
         $this->assertSame('2026-07-04 08:19:16', $workedAt->format('Y-m-d H:i:s'));
     }
+
+    /**
+     * Real payload shape for Pancake order #1339220 (SH Naturals/Sinuxyl,
+     * 2026-07-30): GEMMA, SINUXYL, and the generic "Call in Progress (Sinuxyl
+     * Inhaler)" tag were all added in ONE automated batch at 2026-07-29T23:46:46
+     * UTC (07:46:46 Manila) — before Gemma had done anything. Her real work only
+     * started at 2026-07-30T00:40:27 UTC (08:40:27 Manila), when the order's
+     * status changed from New (0) to Purchasing (20); the "UPSELL TSD" tag
+     * followed 11 seconds later. Fix #16 (prefer the disposition tag's own
+     * add-time) resolves to the SAME 07:46:46 timestamp here, since the
+     * disposition ("Call in Progress...") was bundled into that same batch — so
+     * this needs the separate status-change override (Fix #17).
+     */
+    private function genericCallInProgressFixture(): array
+    {
+        return [
+            'histories' => [
+                [
+                    'tags' => [
+                        'old' => [],
+                        'new' => [
+                            ['id' => 1, 'name' => 'GEMMA'],
+                            ['id' => 2, 'name' => 'SINUXYL'],
+                            ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)'],
+                        ],
+                    ],
+                    'updated_at' => '2026-07-29T23:46:46',
+                ],
+                [
+                    'status'     => ['old' => 0, 'new' => 20],
+                    'updated_at' => '2026-07-30T00:40:27',
+                ],
+                [
+                    'tags' => [
+                        'old' => [['id' => 1, 'name' => 'GEMMA'], ['id' => 2, 'name' => 'SINUXYL'], ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)']],
+                        'new' => [['id' => 1, 'name' => 'GEMMA'], ['id' => 2, 'name' => 'SINUXYL'], ['id' => 3, 'name' => 'Call in Progress (Sinuxyl Inhaler)'], ['id' => 4, 'name' => 'UPSELL TSD - Sinuxyl Inhaler']],
+                    ],
+                    'updated_at' => '2026-07-30T00:40:38',
+                ],
+            ],
+        ];
+    }
+
+    public function test_prefers_a_later_status_change_over_the_generic_call_in_progress_tags_own_timestamp(): void
+    {
+        $insertedAt = Carbon::parse('2026-07-30 00:00:49', 'Asia/Manila');
+
+        $workedAt = SyncTodayOrders::resolveWorkedAt(
+            $this->genericCallInProgressFixture(),
+            'Call in Progress (Sinuxyl Inhaler)',
+            $insertedAt
+        );
+
+        $this->assertSame('2026-07-30 08:40:27', $workedAt->format('Y-m-d H:i:s'));
+    }
+
+    public function test_still_anchors_to_the_tags_own_timestamp_when_no_later_status_change_exists(): void
+    {
+        $insertedAt = Carbon::parse('2026-07-30 00:00:49', 'Asia/Manila');
+
+        $fixture = $this->genericCallInProgressFixture();
+        unset($fixture['histories'][1]); // no status-change entry — order genuinely still in progress
+
+        $workedAt = SyncTodayOrders::resolveWorkedAt($fixture, 'Call in Progress (Sinuxyl Inhaler)', $insertedAt);
+
+        $this->assertSame('2026-07-30 07:46:46', $workedAt->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_specific_outcome_tag_is_unaffected_by_a_later_status_change(): void
+    {
+        // A later status change should only override the GENERIC "Call in
+        // Progress" catch-all — a specific outcome tag (e.g. DFR/CONFIRMED VIA
+        // CALL) already reflects a real, dispositioned call and must keep its
+        // own timestamp regardless of what happens to the order afterward.
+        $insertedAt = Carbon::parse('2026-07-04 06:13:32', 'Asia/Manila');
+
+        $fixture = $this->fixture();
+        $fixture['histories'][] = [
+            'status'     => ['old' => 0, 'new' => 20],
+            'updated_at' => '2026-07-04T02:00:00', // 10:00 AM Manila — after the DFR tag
+        ];
+
+        $workedAt = SyncTodayOrders::resolveWorkedAt($fixture, 'DFR', $insertedAt);
+
+        $this->assertSame('2026-07-04 08:19:16', $workedAt->format('Y-m-d H:i:s'));
+    }
 }

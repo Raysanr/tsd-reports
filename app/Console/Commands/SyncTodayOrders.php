@@ -771,6 +771,7 @@ class SyncTodayOrders extends Command
         // all) isn't, and the strict in_array() comparison below would otherwise
         // silently never match it.
         $matchedTag = strtoupper(trim($matchedTag));
+        $tagAt      = null;
 
         foreach ($raw['histories'] ?? [] as $entry) {
             if (!isset($entry['tags']['new'])) continue;
@@ -779,13 +780,43 @@ class SyncTodayOrders extends Command
             $oldNames = self::tagNamesOf($entry['tags']['old'] ?? []);
 
             if (\in_array($matchedTag, $newNames, true) && !\in_array($matchedTag, $oldNames, true)) {
-                return isset($entry['updated_at'])
+                $tagAt = isset($entry['updated_at'])
                     ? Carbon::parse($entry['updated_at'], 'UTC')->setTimezone('Asia/Manila')
                     : $insertedAt;
+                break;
             }
         }
 
-        return $insertedAt;
+        if ($tagAt === null) {
+            return $insertedAt;
+        }
+
+        // Fix #17: the generic "Call in Progress"/"CIP" catch-all (what
+        // extractDisposition() falls back to when no more specific outcome tag
+        // exists yet) can itself be auto-added in the SAME automated batch as the
+        // TSA assignment tag — confirmed live (order 1339220: GEMMA, SINUXYL, and
+        // "Call in Progress (Sinuxyl Inhaler)" were all added in one event at
+        // 7:46 AM, while Gemma's real work — the order's status moving from New to
+        // Purchasing, then the actual "UPSELL TSD" tag — didn't happen until
+        // 8:40 AM). The fix above (prefer the disposition tag's own add-time over
+        // the assignment tag's) doesn't help this case, since they're the same
+        // stale timestamp. A genuine order-status change is a distinct history
+        // entry type (not a tag), so it can't be swept into that same automated
+        // batch — when the disposition is just this generic catch-all, prefer the
+        // first real status change after the tag's own timestamp, if one exists.
+        if (str_contains($matchedTag, 'CALL IN PROGRESS') || $matchedTag === 'CIP') {
+            foreach ($raw['histories'] ?? [] as $entry) {
+                if (!isset($entry['status']['old'], $entry['status']['new'], $entry['updated_at'])) continue;
+                if ($entry['status']['old'] === $entry['status']['new']) continue;
+
+                $statusAt = Carbon::parse($entry['updated_at'], 'UTC')->setTimezone('Asia/Manila');
+                if ($statusAt->gt($tagAt)) {
+                    return $statusAt;
+                }
+            }
+        }
+
+        return $tagAt;
     }
 
     private static function tagNamesOf(array $tags): array
