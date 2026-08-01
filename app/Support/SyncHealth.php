@@ -28,21 +28,28 @@ class SyncHealth
         ];
     }
 
-    /** Strips any api_key query-string value from an error message before it's
-     *  returned in an HTTP response. SyncRun.error_message can contain the raw
-     *  request URI (SyncTodayOrders builds the Pancake request with api_key as
-     *  a query-string param, and Guzzle connection-exception messages —
-     *  timeouts, DNS blips — include the full request URI). Any endpoint that
-     *  surfaces this field to the browser (DashboardController::sync's JSON
-     *  response, SyncHealthController::retry's flash message) must run it
-     *  through here first — both are reachable by users who must never see
-     *  the live Pancake API key, the same key the Settings page masks from
-     *  them. Shared here (rather than duplicated per controller) so the two
-     *  copies of this security-relevant regex can never drift apart. */
+    /** Strips known secret query-string values from an error message before it's
+     *  persisted or shown anywhere. SyncRun.error_message and
+     *  drive_sync_last_message can both contain a raw request URI (SyncTodayOrders
+     *  builds the Pancake request with api_key as a query-string param, and Guzzle
+     *  connection-exception messages — timeouts, DNS blips — include the full
+     *  request URI; SyncCallRecordings' Google OAuth calls are body-based today,
+     *  not query-string, but are covered here too in case that ever changes).
+     *  Applied both at WRITE time (SyncTodayOrders::recordRun(), so the raw value
+     *  never reaches the database in the first place) and at every point one of
+     *  these fields is later surfaced to a browser (DashboardController::sync's
+     *  JSON response, SyncHealthController::retry's flash message, Sync Health's
+     *  run-history table) — defense in depth, not an either/or. Shared here
+     *  (rather than duplicated per call site) so every copy of this
+     *  security-relevant regex can never drift apart. */
     public static function redactSecrets(?string $message): ?string
     {
-        return $message === null
-            ? null
-            : preg_replace('/([?&]api_key=)[^&\s]+/i', '$1REDACTED', $message);
+        if ($message === null) return null;
+
+        return preg_replace(
+            '/([?&](?:api_key|client_secret|refresh_token|access_token)=)[^&\s]+/i',
+            '$1REDACTED',
+            $message
+        );
     }
 }

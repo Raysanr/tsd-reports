@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\CallRecordingHour;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\SyncHealth;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -85,10 +86,15 @@ class SyncCallRecordings extends Command
         try {
             return $this->sync();
         } catch (\Throwable $e) {
+            // Redacted before it touches storage/logs/console, not just before a
+            // browser sees it — same reasoning, and the same shared helper, as
+            // SyncTodayOrders::recordRun() (see SyncHealth::redactSecrets()).
+            $safeMessage = SyncHealth::redactSecrets($e->getMessage());
+
             Setting::set('drive_sync_last_status', 'error');
-            Setting::set('drive_sync_last_message', $e->getMessage());
-            Log::error('calls:sync-recordings failed', ['message' => $e->getMessage()]);
-            $this->error('Unexpected error: ' . $e->getMessage());
+            Setting::set('drive_sync_last_message', $safeMessage);
+            Log::error('calls:sync-recordings failed', ['message' => $safeMessage]);
+            $this->error('Unexpected error: ' . $safeMessage);
             return self::FAILURE;
         } finally {
             Setting::set('drive_sync_running', '');

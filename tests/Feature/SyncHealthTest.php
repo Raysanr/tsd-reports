@@ -100,6 +100,37 @@ class SyncHealthTest extends TestCase
         $this->assertStringNotContainsString('some-secret-value', $flashed);
     }
 
+    /**
+     * Explicit request: SyncRun.error_message used to store whatever a failed
+     * HTTP client threw completely unredacted — for a Guzzle connection error,
+     * that typically includes the full request URL, api_key and all. Every
+     * DISPLAY of this column already redacted it (see the flash-message test
+     * above, and Sync Health's own run-history table), but the raw value still
+     * sat in the database. SyncTodayOrders::recordRun() now redacts before the
+     * write, not just before display — this exercises that private method
+     * directly via reflection (a full simulated Guzzle connection exception
+     * requires either the pooled multi-page path or excessive HTTP-fake
+     * machinery for no extra coverage; the redaction logic itself is already
+     * covered independently in SyncHealthRedactSecretsTest).
+     */
+    public function test_sync_today_orders_redacts_the_api_key_before_writing_the_error_message(): void
+    {
+        $command = new \App\Console\Commands\SyncTodayOrders();
+
+        $method = new \ReflectionMethod($command, 'recordRun');
+        $method->setAccessible(true);
+        $method->invoke(
+            $command,
+            now(),
+            false,
+            'cURL error 6: could not resolve host for https://pos.pages.fm/api/v1/shops/1/orders?api_key=some-secret-value&page_size=100',
+        );
+
+        $run = SyncRun::latest('id')->first();
+        $this->assertStringNotContainsString('some-secret-value', $run->error_message);
+        $this->assertStringContainsString('api_key=REDACTED', $run->error_message);
+    }
+
     public function test_reconcile_statuses_corrects_stale_orders_and_reports_the_count(): void
     {
         $this->actingAs(User::factory()->create());

@@ -67,6 +67,54 @@ class AuthTest extends TestCase
         $this->assertGuest();
     }
 
+    /**
+     * Explicit request: POST /login had no throttling at all — unlimited
+     * password guesses against any known/guessed email. throttle:login
+     * (5/min, keyed by email+IP — see AppServiceProvider::boot()) now blocks
+     * a 6th rapid attempt with a 429, regardless of whether any of the first
+     * 5 attempts happened to guess the password correctly.
+     */
+    public function test_repeated_failed_logins_are_rate_limited(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('secret123')]);
+
+        for ($i = 0; $i < 5; $i++) {
+            $response = $this->post(route('login'), [
+                'email' => $user->email, 'password' => 'wrong-password',
+            ]);
+            $response->assertSessionHasErrors('email');
+        }
+
+        // 6th attempt in under a minute — even with the CORRECT password —
+        // is throttled before credentials are ever checked.
+        $response = $this->post(route('login'), [
+            'email' => $user->email, 'password' => 'secret123',
+        ]);
+
+        $response->assertStatus(429);
+        $this->assertGuest();
+    }
+
+    public function test_rate_limit_is_keyed_by_email_not_just_ip(): void
+    {
+        $attacked  = User::factory()->create(['password' => Hash::make('secret123')]);
+        $bystander = User::factory()->create(['password' => Hash::make('secret456')]);
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->post(route('login'), ['email' => $attacked->email, 'password' => 'wrong']);
+        }
+
+        // Same IP (Laravel's test client), but a DIFFERENT email — a
+        // legitimate coworker on a shared office/VPN IP must still be able
+        // to sign in even while someone else on that IP is being throttled.
+        $response = $this->post(route('login'), [
+            'email' => $bystander->email, 'password' => 'secret456',
+        ]);
+
+        $response->assertRedirect(route('dashboard'));
+        $this->assertAuthenticatedAs($bystander);
+    }
+
     public function test_login_rejects_a_deactivated_account_even_with_correct_password(): void
     {
         $user = User::factory()->inactive()->create(['password' => Hash::make('secret123')]);

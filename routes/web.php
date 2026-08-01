@@ -21,7 +21,10 @@ use App\Http\Controllers\UnmatchedOrdersController;
 // instead of seeing the login/register form again.
 Route::middleware('guest')->group(function () {
     Route::get('/login',     [AuthController::class, 'showLogin'])->name('login');
-    Route::post('/login',    [AuthController::class, 'login']);
+    // throttle:login — named limiter defined in AppServiceProvider (5/min,
+    // keyed by email+IP together). Previously unthrottled: unlimited password
+    // guesses against any known/guessed email address.
+    Route::post('/login',    [AuthController::class, 'login'])->middleware('throttle:login');
 
     Route::get('/auth/google',          [AuthController::class, 'redirectToGoogle'])->name('google.redirect');
     Route::get('/auth/google/callback', [AuthController::class, 'handleGoogleCallback'])->name('google.callback');

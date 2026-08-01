@@ -19,9 +19,13 @@
         <div class="px-6 py-5">
             <div class="flex gap-3">
                 <div class="relative flex-1">
+                    {{-- Masked (last 4 chars only, see SettingsController::mask()) — never
+                         the real saved key. Clearing this and clicking "Detect Shop" is how
+                         an admin actually changes it; leaving it as-is and just hitting
+                         "Save Settings" keeps the existing key untouched. --}}
                     <input type="password" id="apiKeyInput"
                         placeholder="Paste your API key here..."
-                        value="{{ $apiKey }}"
+                        value="{{ $apiKeyMasked }}"
                         class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 pr-10 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-transparent">
                     <button type="button" id="toggleApiKeyBtn"
                         style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94a3b8;padding:2px;">
@@ -99,7 +103,12 @@
         {{-- Save form — only contains sync interval + hidden fields, no nested forms --}}
         <form method="POST" action="{{ route('settings.save') }}" id="connectForm">
             @csrf
-            <input type="hidden" name="api_key"   id="formApiKey"   value="{{ $apiKey }}">
+            {{-- api_key starts EMPTY, not the real saved key — only "Detect Shop"
+                 succeeding (JS below) fills it in, when the admin is actually
+                 changing it. SettingsController::save() treats an empty submission
+                 as "key unchanged", not "clear the key". shop_id/shop_name aren't
+                 secrets, so those still just reflect the real current values. --}}
+            <input type="hidden" name="api_key"   id="formApiKey"   value="">
             <input type="hidden" name="shop_id"   id="formShopId"   value="{{ $shopId }}">
             <input type="hidden" name="shop_name" id="formShopName" value="{{ $shopName }}">
 
@@ -237,13 +246,23 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Client Secret</label>
-                    <input type="password" name="drive_client_secret" value="{{ old('drive_client_secret', $driveClientSecret) }}"
-                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                    {{-- Deliberately starts BLANK (not the masked string as a value) —
+                         a masked placeholder submitted back as-is would look like a
+                         genuinely new value to the server (see saveDrive()'s "blank
+                         means unchanged" check), overwriting the real secret with
+                         literal dots. The masked hint lives in the placeholder
+                         attribute instead, purely informational, never submitted.
+                         old() still redisplays what the admin actually typed if a
+                         save attempt just failed. --}}
+                    <input type="password" name="drive_client_secret" value="{{ old('drive_client_secret') }}"
+                        placeholder="{{ $driveClientSecretMasked ? 'Saved: ' . $driveClientSecretMasked . ' — leave blank to keep it' : 'Paste your Client Secret' }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Refresh Token</label>
-                    <input type="password" name="drive_refresh_token" value="{{ old('drive_refresh_token', $driveRefreshToken) }}"
-                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                    <input type="password" name="drive_refresh_token" value="{{ old('drive_refresh_token') }}"
+                        placeholder="{{ $driveRefreshTokenMasked ? 'Saved: ' . $driveRefreshTokenMasked . ' — leave blank to keep it' : 'Paste your Refresh Token' }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>

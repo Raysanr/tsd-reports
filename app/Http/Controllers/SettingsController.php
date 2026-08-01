@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
+use App\Support\SyncHealth;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Http;
@@ -14,8 +15,9 @@ class SettingsController extends Controller
 {
     public function index()
     {
-        $apiKey   = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
-        $apiSaved = !empty($apiKey);
+        $apiKey       = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
+        $apiKeyMasked = self::mask($apiKey);
+        $apiSaved     = !empty($apiKey);
 
         $shopId   = Setting::get('shop_id', '');
         $shopName = Setting::get('shop_name', '');
@@ -23,23 +25,44 @@ class SettingsController extends Controller
         $syncInterval = Setting::get('sync_interval', 1);
         $lastSynced   = Setting::get('last_synced');
 
-        $driveClientId         = Setting::get('drive_client_id', '');
-        $driveClientSecret     = Setting::get('drive_client_secret', '');
-        $driveRefreshToken     = Setting::get('drive_refresh_token', '');
-        $driveFolderShNaturals = Setting::get('drive_folder_sh_naturals', '');
-        $driveFolderEyecare    = Setting::get('drive_folder_eyecare', '');
-        $driveConnected        = !empty($driveRefreshToken);
+        $driveClientId           = Setting::get('drive_client_id', '');
+        $driveClientSecret       = Setting::get('drive_client_secret', '');
+        $driveClientSecretMasked = self::mask($driveClientSecret);
+        $driveRefreshToken       = Setting::get('drive_refresh_token', '');
+        $driveRefreshTokenMasked = self::mask($driveRefreshToken);
+        $driveFolderShNaturals   = Setting::get('drive_folder_sh_naturals', '');
+        $driveFolderEyecare      = Setting::get('drive_folder_eyecare', '');
+        $driveConnected          = !empty($driveRefreshToken);
 
         $driveSyncLastRun     = Setting::get('drive_sync_last_run');
         $driveSyncLastStatus  = Setting::get('drive_sync_last_status');
         $driveSyncLastMessage = Setting::get('drive_sync_last_message');
 
         return view('settings', compact(
-            'apiKey', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
-            'driveClientId', 'driveClientSecret', 'driveRefreshToken',
+            'apiKeyMasked', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
+            'driveClientId', 'driveClientSecretMasked', 'driveRefreshTokenMasked',
             'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
             'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage'
         ));
+    }
+
+    /**
+     * Never send a saved secret's real value back to the browser just to
+     * render the page — the Pancake API key and Google Drive client secret/
+     * refresh token used to be echoed in full into type="password" inputs
+     * (and a hidden field, for the API key), which only masks them VISUALLY;
+     * the actual plaintext value still sits in the page's raw HTML, readable
+     * via View Source/DevTools by anyone with access to that response.
+     * Last-4-plus-dots (same convention as Stripe/GitHub token displays) lets
+     * an admin recognize "yes, this is the key I saved" without exposing it.
+     * save()/saveDrive() below treat a blank resubmission of a masked field
+     * as "leave the existing value alone", not as "clear it".
+     */
+    private static function mask(string $value): string
+    {
+        if ($value === '') return '';
+
+        return str_repeat('•', 12) . substr($value, -4);
     }
 
     /** AJAX — verifies the API key against Pancake's /shops endpoint, returns shop id + name as JSON. */
@@ -52,6 +75,23 @@ class SettingsController extends Controller
 
     public function save(Request $request)
     {
+        // The API key field only ever shows a masked placeholder now (see
+        // mask() above) — formApiKey (the actual submitted field) stays empty
+        // unless the admin explicitly typed a new key and it passed "Detect
+        // Shop". An empty submission here means "didn't touch it", not
+        // "clear it" — same page, just save whatever else changed (currently
+        // only sync_interval) and leave the already-verified key/shop alone.
+        $existingApiKey  = Setting::get('pancake_api_key', '');
+        $submittedApiKey = trim((string) $request->input('api_key', ''));
+        $keyUnchanged    = $submittedApiKey === '' && $existingApiKey !== '';
+
+        if ($keyUnchanged) {
+            Setting::set('sync_interval', $request->input('sync_interval', 1));
+            ActivityLogger::log('settings.sync_interval_updated', null, 'Sync interval updated.');
+
+            return redirect()->route('settings')->with('success', 'Settings saved.');
+        }
+
         $request->validate([
             'api_key'       => 'required|string|min:8',
             'shop_id'       => 'required|string',
@@ -137,16 +177,32 @@ class SettingsController extends Controller
     {
         $request->validate([
             'drive_client_id'         => 'required|string',
-            'drive_client_secret'     => 'required|string',
-            'drive_refresh_token'     => 'required|string',
+            'drive_client_secret'     => 'nullable|string',
+            'drive_refresh_token'     => 'nullable|string',
             'drive_folder_sh_naturals'=> 'required|string',
             'drive_folder_eyecare'    => 'required|string',
         ]);
 
+        // Same masked-field convention as the Pancake API key above (see
+        // SettingsController::mask()) — Client Secret/Refresh Token only ever
+        // show a masked placeholder, never the real saved value, so a blank
+        // resubmission means "leave it alone", not "clear it". Only a
+        // genuinely-typed new value overrides what's already stored.
+        $clientSecret = trim((string) $request->input('drive_client_secret', ''));
+        $clientSecret = $clientSecret !== '' ? $clientSecret : Setting::get('drive_client_secret', '');
+        $refreshToken = trim((string) $request->input('drive_refresh_token', ''));
+        $refreshToken = $refreshToken !== '' ? $refreshToken : Setting::get('drive_refresh_token', '');
+
+        if ($clientSecret === '' || $refreshToken === '') {
+            return back()
+                ->withErrors(['drive_refresh_token' => 'Client Secret and Refresh Token are required.'])
+                ->withInput();
+        }
+
         if (!$this->verifyDriveToken(
             $request->input('drive_client_id'),
-            $request->input('drive_client_secret'),
-            $request->input('drive_refresh_token'),
+            $clientSecret,
+            $refreshToken,
         )) {
             return back()
                 ->withErrors(['drive_refresh_token' => 'Could not get an access token from Google with these credentials — double-check them and try again.'])
@@ -154,8 +210,8 @@ class SettingsController extends Controller
         }
 
         Setting::set('drive_client_id',         $request->input('drive_client_id'));
-        Setting::set('drive_client_secret',     $request->input('drive_client_secret'));
-        Setting::set('drive_refresh_token',     $request->input('drive_refresh_token'));
+        Setting::set('drive_client_secret',     $clientSecret);
+        Setting::set('drive_refresh_token',     $refreshToken);
         Setting::set('drive_folder_sh_naturals', $request->input('drive_folder_sh_naturals'));
         Setting::set('drive_folder_eyecare',     $request->input('drive_folder_eyecare'));
 
@@ -240,7 +296,7 @@ class SettingsController extends Controller
 
             return $response->successful() && !empty($response->json('access_token'));
         } catch (\Throwable $e) {
-            Log::error('drive:verifyToken failed', ['message' => $e->getMessage()]);
+            Log::error('drive:verifyToken failed', ['message' => SyncHealth::redactSecrets($e->getMessage())]);
             return false;
         }
     }
@@ -279,7 +335,7 @@ class SettingsController extends Controller
                 ]],
             ];
         } catch (\Throwable $e) {
-            Log::error('pancake:detectShop failed', ['message' => $e->getMessage()]);
+            Log::error('pancake:detectShop failed', ['message' => SyncHealth::redactSecrets($e->getMessage())]);
             return ['success' => false, 'message' => 'Connection failed. Check your API key.'];
         }
     }

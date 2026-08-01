@@ -94,17 +94,21 @@ class DashboardSyncFeedbackTest extends TestCase
      * app/Console/Commands/SyncTodayOrders.php:~104), and a connection-level
      * failure (timeout, DNS blip) on a pooled page fetch surfaces via
      * `$response->getMessage()` (~line 140-141), which — per documented
-     * Guzzle behavior — includes the full request URI, api_key and all. That
-     * string is persisted verbatim to SyncRun.error_message. Before this
-     * task, error_message was never returned outside the DB; sync() is the
-     * first place that puts it in an HTTP JSON response, and /sync is
-     * reachable by 'normal'-role users (routes/web.php) — the same tier the
-     * Settings page deliberately masks this exact key from. This test
-     * reproduces the real failure path (not a synthetic string): page 1
-     * returns a full page of orders so the sync paginates into
-     * Http::pool()'s concurrent-fetch branch, and page 2 there rejects with
-     * a ConnectException whose message embeds the live api_key, exactly as
-     * Guzzle would report a real DNS/timeout failure.
+     * Guzzle behavior — includes the full request URI, api_key and all.
+     * SyncTodayOrders::recordRun() now redacts that BEFORE it's ever written
+     * to SyncRun.error_message (see SyncHealth::redactSecrets()) — this used
+     * to persist verbatim, with redaction only applied at display time in
+     * whichever controller happened to surface it; a raw DB read (backup,
+     * direct query, a future code path that forgot to redact) would still
+     * have exposed it. sync() is also the first place this field reaches an
+     * HTTP JSON response at all, and /sync is reachable by 'normal'-role
+     * users (routes/web.php) — the same tier the Settings page deliberately
+     * masks this exact key from — so the response itself must be redacted
+     * too, independent of storage. This test reproduces the real failure
+     * path (not a synthetic string): page 1 returns a full page of orders so
+     * the sync paginates into Http::pool()'s concurrent-fetch branch, and
+     * page 2 there rejects with a ConnectException whose message embeds the
+     * live api_key, exactly as Guzzle would report a real DNS/timeout failure.
      */
     public function test_sync_endpoint_redacts_api_key_from_error_message_on_connection_failure(): void
     {
@@ -151,10 +155,12 @@ class DashboardSyncFeedbackTest extends TestCase
         $this->assertStringContainsString('REDACTED', $errorMessage);
         $this->assertStringContainsString('cURL error 6', $errorMessage);
 
-        // The raw secret really was in the underlying SyncRun row (proving
-        // this test exercised the real leak path, not a no-op) — redaction
-        // happens in the controller response, not in storage.
-        $this->assertStringContainsString('api_key=some-secret-value', SyncRun::first()->error_message);
+        // Redacted in storage now too, not just in the controller response —
+        // the underlying SyncRun row must never contain the raw secret either.
+        $storedMessage = SyncRun::first()->error_message;
+        $this->assertStringNotContainsString('some-secret-value', $storedMessage);
+        $this->assertStringContainsString('REDACTED', $storedMessage);
+        $this->assertStringContainsString('cURL error 6', $storedMessage);
     }
 
     public function test_sync_endpoint_sums_new_orders_and_upsell_values_across_multiple_days(): void

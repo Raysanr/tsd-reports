@@ -114,6 +114,60 @@ class SettingsControllerTest extends TestCase
         $this->assertSame('the-real-working-key', Setting::get('pancake_api_key'));
     }
 
+    /**
+     * Explicit request: the Pancake API key (and, below, the Drive client
+     * secret/refresh token) used to be echoed back into the page in full
+     * plaintext on every load — masked visually by type="password", but the
+     * real value still sat in the raw HTML, readable via View Source/DevTools
+     * by anyone with access to that response. index() must never render the
+     * real value anywhere now, only the masked last-4-chars form.
+     */
+    public function test_index_never_renders_the_real_api_key_or_drive_secrets(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Setting::set('pancake_api_key', 'super-secret-pancake-key-9999');
+        Setting::set('drive_client_secret', 'super-secret-drive-client-8888');
+        Setting::set('drive_refresh_token', 'super-secret-drive-refresh-7777');
+
+        $response = $this->get(route('settings'));
+
+        $response->assertOk();
+        $response->assertDontSee('super-secret-pancake-key-9999');
+        $response->assertDontSee('super-secret-drive-client-8888');
+        $response->assertDontSee('super-secret-drive-refresh-7777');
+        // The masked last-4 form is expected to still appear.
+        $response->assertSee('9999');
+        $response->assertSee('8888');
+        $response->assertSee('7777');
+    }
+
+    public function test_save_with_a_blank_api_key_keeps_the_existing_key_and_never_calls_pancake(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Setting::set('pancake_api_key', 'the-real-working-key');
+        Setting::set('shop_id', '30037101');
+        Setting::set('shop_name', 'My Shop');
+
+        // No Http::fake stub registered at all — a real call to Pancake here
+        // would throw "no matching fake" and fail the test, proving the
+        // verification step was correctly skipped for an unchanged key.
+        Http::fake();
+
+        $response = $this->post(route('settings.save'), [
+            'api_key'       => '',
+            'sync_interval' => '15',
+        ]);
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success');
+        $this->assertSame('the-real-working-key', Setting::get('pancake_api_key'));
+        $this->assertSame('30037101', Setting::get('shop_id'));
+        $this->assertSame(15, (int) Setting::get('sync_interval'));
+        Http::assertNothingSent();
+    }
+
     public function test_save_persists_settings_when_the_key_verifies_and_matches(): void
     {
         $this->actingAs(User::factory()->create());
@@ -180,6 +234,42 @@ class SettingsControllerTest extends TestCase
         $this->assertSame('refresh-token-xyz', Setting::get('drive_refresh_token'));
         $this->assertSame('folder-sh-naturals', Setting::get('drive_folder_sh_naturals'));
         $this->assertSame('folder-eyecare', Setting::get('drive_folder_eyecare'));
+    }
+
+    public function test_drive_save_with_blank_secret_and_token_keeps_the_existing_ones(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('drive_client_secret', 'the-real-client-secret');
+        Setting::set('drive_refresh_token', 'the-real-refresh-token');
+
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['access_token' => 'a-real-access-token'], 200),
+        ]);
+
+        $response = $this->post(route('settings.drive.save'), [
+            'drive_client_id'          => 'new-client-id',
+            'drive_client_secret'      => '', // left blank — keep existing
+            'drive_refresh_token'      => '', // left blank — keep existing
+            'drive_folder_sh_naturals' => 'new-folder-sh',
+            'drive_folder_eyecare'     => 'new-folder-eyecare',
+        ]);
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success');
+        $this->assertSame('the-real-client-secret', Setting::get('drive_client_secret'));
+        $this->assertSame('the-real-refresh-token', Setting::get('drive_refresh_token'));
+        $this->assertSame('new-client-id', Setting::get('drive_client_id'));
+        $this->assertSame('new-folder-sh', Setting::get('drive_folder_sh_naturals'));
+
+        // Verification still ran, using the EXISTING secret/token together
+        // with the newly-submitted client id — not skipped outright, since
+        // the client id (a non-secret) did genuinely change.
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://oauth2.googleapis.com/token'
+                && $request['client_id'] === 'new-client-id'
+                && $request['client_secret'] === 'the-real-client-secret'
+                && $request['refresh_token'] === 'the-real-refresh-token';
+        });
     }
 
     public function test_drive_clear_wipes_all_stored_drive_credentials(): void

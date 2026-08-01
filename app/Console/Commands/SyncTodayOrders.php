@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
+use App\Support\SyncHealth;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
@@ -467,7 +468,15 @@ class SyncTodayOrders extends Command
             // every single run there.
             'duration_ms'   => (int) round($runStart->diffInMilliseconds(now())),
             'success'       => $success,
-            'error_message' => $errorMessage,
+            // Redacted BEFORE it ever reaches the database, not just before display
+            // (Sync Health's table and the manual-retry flash message both already
+            // redacted at render time — see SyncHealthController::retry() and
+            // sync-health.blade.php — but the raw column itself still stored
+            // whatever a failed HTTP client threw, which for a connection error
+            // (Guzzle) typically includes the full request URL, api_key and all.
+            // Redacting at write time means every future read of this column is
+            // safe by construction, not dependent on each one remembering to redact).
+            'error_message' => SyncHealth::redactSecrets($errorMessage),
         ]);
     }
 
