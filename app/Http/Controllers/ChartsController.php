@@ -30,8 +30,23 @@ class ChartsController extends Controller
         // Fetch every order in range ONCE; every chart below slices this same
         // in-memory collection (by day, by team, by hour) rather than re-querying —
         // same pattern already established in Leads Report / ProductPerformance.
+        //
+        // Explicit select(): this page can hydrate thousands of orders at once (the
+        // default range alone is 14 days), and every column below is the full list
+        // actually read anywhere in this method or by ProductPerformance's
+        // tally()/matchingOrders()/buildRow()/conflictingProduct() — tsa_name,
+        // is_restocking_upsell/restocking_upsell_amount, cancelled_upsell_amount,
+        // and the 3 unused timestamp columns (each one a real Carbon object once
+        // hydrated) were dead weight on every single row. Confirmed live: this was
+        // a real contributor to Render's free-tier instance (0.1 CPU/512MB) OOM-
+        // crashing specifically on this page — see the investigation that led here.
         $orders = Order::whereBetween('pancake_created_at', [$from, $to])
             ->whereIn('team', $orderTeams)
+            ->select([
+                'id', 'pancake_created_at', 'team', 'status_code', 'is_upsell',
+                'is_returned_upsell', 'is_cancelled_upsell', 'raw_tags', 'disposition',
+                'amount', 'product', 'base_product', 'bundle_description', 'returned_upsell_amount',
+            ])
             ->get();
 
         $ordersByDate = $orders->groupBy(fn($o) => $o->pancake_created_at->toDateString());
