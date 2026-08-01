@@ -504,9 +504,22 @@
          left, controls on the right. Search deliberately sits right next to the
          title now (explicit request), not centered in its own grid track the way
          it used to be — see git history for the old 3-column centering approach
-         if this ever needs revisiting. --}}
-    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap md:flex-nowrap shrink-0 shadow-sm">
-        <div class="flex items-center gap-4 min-w-0 flex-1 flex-wrap md:flex-nowrap">
+         if this ever needs revisiting.
+
+         lg:flex-nowrap, not md: — the sidebar itself switches from an overlay
+         drawer to permanently static (id="sidebar", md:static above) at exactly
+         the same md: breakpoint, eating 256px of viewport width right as this
+         row would otherwise try to force itself onto one line. Confirmed live:
+         forcing nowrap at md: (768px) caused real horizontal page overflow on
+         8 of 13 report pages specifically in the 768-840px window — a real
+         tablet-portrait viewport width, not just a narrow desktop window — since
+         title+search's combined content doesn't fit in the ~450-500px left over
+         once the sidebar claims its 256px. Wrapping (the same behavior already
+         used below md:) all the way through lg: avoids that dead zone entirely;
+         nowrap only kicks in once the sidebar's static width is no longer a
+         meaningful fraction of the viewport. --}}
+    <header class="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap lg:flex-nowrap shrink-0 shadow-sm">
+        <div class="flex items-center gap-4 min-w-0 flex-1 flex-wrap lg:flex-nowrap">
             <button id="sidebarToggle" type="button" aria-label="Open menu"
                     class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -540,8 +553,10 @@
         {{-- flex-wrap here so the toggle wraps as a true peer alongside the
              pushed topbar-right content (which now uses display:contents to
              flatten its own nested wrappers) — one single wrap context
-             instead of several independently-wrapping ones. --}}
-        <div class="flex items-center justify-end gap-3 flex-wrap md:flex-nowrap md:justify-self-end">
+             instead of several independently-wrapping ones. lg:, not md: —
+             same sidebar-eats-768px-of-width reasoning as the title+search
+             group's own comment above. --}}
+        <div class="flex items-center justify-end gap-3 flex-wrap lg:flex-nowrap md:justify-self-end">
             @stack('topbar-right')
 
             {{-- Reload — a fixed, always-present control (same reasoning as the dark
