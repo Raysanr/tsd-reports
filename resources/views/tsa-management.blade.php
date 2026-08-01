@@ -27,7 +27,18 @@
     <form method="POST" action="{{ route('settings.shifts') }}" class="space-y-6">
         @csrf
 
+        {{-- Two colors, fixed order (never cycled per-TSA) — same cyan/emerald
+             convention as the Dashboard's Team Comparison ($teamColors there).
+             Every agent's own avatar below picks up their team's color instead
+             of one flat color for everyone: Kathleen Santilleses (SH Naturals)
+             and Katherine Chua (Eyecare) both reduce to the same "KA" initials,
+             and previously rendered as visually identical orange circles. --}}
+        @php $teamAvatarColors = ['#0891B2', '#059669']; @endphp
         @foreach($teamGroups as $group)
+        {{-- $loop->index (Blade's built-in), not the collection's own key — teamGroups
+             is keyed by config('teams')'s string slugs ('sh-naturals', 'eyecare'),
+             not sequential integers, so an arithmetic modulo needs $loop's index. --}}
+        @php $teamColor = $teamAvatarColors[$loop->index % count($teamAvatarColors)]; @endphp
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
                 <div class="w-7 h-7 rounded-full bg-yellow-700 text-white text-xs font-bold flex items-center justify-center">
@@ -54,7 +65,7 @@
                     <input type="checkbox" class="tsaCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer shrink-0" data-id="{{ $shift->id }}">
                     {{-- Avatar + name --}}
                     <div class="flex items-center gap-2.5 w-52 shrink-0">
-                        <div class="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style="background:{{ $teamColor }}">
                             {{ strtoupper(substr($shift->display_name, 0, 2)) }}
                         </div>
                         <div>

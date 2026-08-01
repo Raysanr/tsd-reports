@@ -20,6 +20,42 @@ class ActivityLogTest extends TestCase
         $this->get(route('audit-log'))->assertForbidden();
     }
 
+    /**
+     * Explicit request: user_id is nullOnDelete() (see the activity_logs
+     * migration's own comment) so a log row survives its actor's account being
+     * deleted later — but WHO did it was still lost, since only user_id was
+     * ever stored. actor_name/actor_email snapshot that at write time so the
+     * Activity Log page can still say who did it even after the account's gone.
+     */
+    public function test_activity_log_still_shows_the_actor_name_after_their_account_is_deleted(): void
+    {
+        $admin = User::factory()->create(['name' => 'Deleted Later Admin']);
+        $this->actingAs($admin);
+
+        $this->post(route('product-management.store'), [
+            'display_name' => 'Widget', 'match_keyword' => '', 'team' => 'SH Naturals',
+        ]);
+
+        $log = ActivityLog::where('action', 'product.created')->first();
+        $this->assertSame('Deleted Later Admin', $log->actor_name);
+
+        $admin->delete();
+        $log->refresh();
+
+        // user_id nulled by the FK's nullOnDelete, but the name survives via
+        // the snapshot column instead of falling back to "Unknown user".
+        $this->assertNull($log->user_id);
+        $this->assertSame('Deleted Later Admin', $log->actor_name);
+
+        $viewer = User::factory()->create();
+        $this->actingAs($viewer);
+        $response = $this->get(route('audit-log'));
+
+        $response->assertOk();
+        $response->assertSee('Deleted Later Admin');
+        $response->assertDontSee('Unknown user');
+    }
+
     public function test_creating_a_product_writes_an_activity_log_entry(): void
     {
         $admin = User::factory()->create();

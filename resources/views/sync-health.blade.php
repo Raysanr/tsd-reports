@@ -63,9 +63,9 @@
         <div class="min-w-0">
             <p class="text-xs font-mono font-semibold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-1">Failed Runs</p>
             <p class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
-                {{ number_format($failedRuns) }}
+                {{ number_format($failedRuns24h) }}
             </p>
-            <p class="mt-1.5 text-xs text-slate-400 font-mono">All-time failures</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">In the last 24h · {{ number_format($failedRuns) }} all-time</p>
         </div>
     </div>
 

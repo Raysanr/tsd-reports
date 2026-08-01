@@ -23,7 +23,15 @@ class SyncHealthController extends Controller
         $failedRuns  = SyncRun::where('success', false)->count();
         $successRate = $totalRuns > 0 ? round(($totalRuns - $failedRuns) / $totalRuns * 100, 1) : null;
 
-        return view('sync-health', compact('health', 'runs', 'totalRuns', 'failedRuns', 'successRate'));
+        // The card's headline number used to be the all-time failure count —
+        // a background job running every minute racks up hundreds of historical
+        // failures over months even when everything's fine right now, so that
+        // number sat in alarming red directly beside a green "Sync healthy"
+        // banner. 24h is what's actually actionable; all-time stays as
+        // secondary context underneath instead of disappearing.
+        $failedRuns24h = SyncRun::where('success', false)->where('ran_at', '>=', now()->subDay())->count();
+
+        return view('sync-health', compact('health', 'runs', 'totalRuns', 'failedRuns', 'failedRuns24h', 'successRate'));
     }
 
     /**

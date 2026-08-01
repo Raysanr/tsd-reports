@@ -35,6 +35,28 @@ class SyncHealthTest extends TestCase
         $response->assertSee('data-sortable-table', false);
     }
 
+    /**
+     * Explicit request: the "Failed Runs" card's headline number used to be the
+     * all-time failure count — a background job running every minute racks up
+     * hundreds of historical failures over months even when everything's fine
+     * right now, so that number sat in alarming red directly beside a green
+     * "Sync healthy" banner. failedRuns24h is the new headline figure; failedRuns
+     * (all-time) stays available as secondary context, not removed.
+     */
+    public function test_failed_runs_24h_excludes_older_failures_but_all_time_still_counts_them(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        SyncRun::create(['ran_at' => now()->subHours(2), 'total_synced' => 0, 'new_orders' => 0, 'upsell_count' => 0, 'upsell_sales' => 0, 'duration_ms' => 300, 'success' => false]);
+        SyncRun::create(['ran_at' => now()->subDays(10), 'total_synced' => 0, 'new_orders' => 0, 'upsell_count' => 0, 'upsell_sales' => 0, 'duration_ms' => 300, 'success' => false]);
+
+        $response = $this->get(route('sync-health'));
+
+        $response->assertOk();
+        $response->assertViewHas('failedRuns24h', 1);
+        $response->assertViewHas('failedRuns', 2);
+    }
+
     public function test_stale_status_is_flagged_correctly(): void
     {
         $this->actingAs(User::factory()->create());

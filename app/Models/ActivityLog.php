@@ -8,7 +8,7 @@ class ActivityLog extends Model
 {
     const UPDATED_AT = null; // append-only, never edited
 
-    protected $fillable = ['user_id', 'action', 'subject_type', 'subject_id', 'description'];
+    protected $fillable = ['user_id', 'actor_name', 'actor_email', 'action', 'subject_type', 'subject_id', 'description'];
 
     public function user()
     {

@@ -58,8 +58,9 @@
                 <td class="px-5 py-3 font-mono text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" data-sort-key="when" data-sort-value="{{ $log->created_at->timestamp }}" title="{{ $log->created_at->format('M j, Y g:i A') }}">
                     {{ $log->created_at->diffForHumans() }}
                 </td>
-                <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200" data-sort-key="who" data-sort-value="{{ $log->user?->name ?? 'Unknown user' }}">
-                    {{ $log->user?->name ?? 'Unknown user' }}
+                @php $actorName = $log->actor_name ?? $log->user?->name ?? 'Unknown user'; @endphp
+                <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200" data-sort-key="who" data-sort-value="{{ $actorName }}">
+                    {{ $actorName }}
                 </td>
                 <td class="px-4 py-3" data-sort-key="action" data-sort-value="{{ $actionLabel }}">
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono whitespace-nowrap bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400">
