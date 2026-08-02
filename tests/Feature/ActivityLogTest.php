@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ActivityLog;
 use App\Models\Product;
 use App\Models\Setting;
+use App\Models\SyncRun;
 use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -164,12 +165,27 @@ class ActivityLogTest extends TestCase
         ]);
     }
 
+    /**
+     * DashboardController::sync() now spawns the actual fetch as a detached
+     * background process and returns instantly (see that method's doc
+     * comment) — the Activity Log entry moved with the rest of the
+     * aggregation logic to syncStatus(), which the frontend polls until the
+     * background run lands. Seeds the SyncRun row directly here to simulate
+     * that landing, since the real background process can't run inside a
+     * test (see DashboardSyncFeedbackTest's class doc comment).
+     */
     public function test_dashboard_sync_button_writes_an_activity_log_entry(): void
     {
         $admin = User::factory()->create();
         $this->actingAs($admin);
 
-        $this->post(route('dashboard.sync'), ['date_from' => now()->toDateString()]);
+        $since = SyncRun::max('id') ?? 0;
+        SyncRun::create(['ran_at' => now(), 'success' => true, 'new_orders' => 0, 'upsell_count' => 0, 'upsell_sales' => 0]);
+
+        $this->getJson(route('dashboard.sync.status', [
+            'since' => $since, 'expected' => 1,
+            'date_from' => now()->toDateString(), 'date_to' => now()->toDateString(),
+        ]));
 
         $this->assertDatabaseHas('activity_logs', [
             'user_id' => $admin->id,

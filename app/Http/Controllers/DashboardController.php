@@ -396,6 +396,20 @@ class DashboardController extends Controller
         ));
     }
 
+    /**
+     * Spawns the actual Pancake fetch as a DETACHED background process
+     * (exec ... &), never Artisan::call() in-process — same fix already
+     * applied to CronController::run() for the identical reason. This
+     * container serves every request through a single php artisan serve
+     * worker (see Dockerfile — no php-fpm, no worker pool). Running a
+     * multi-page Pancake fetch synchronously here blocks that one worker for
+     * its whole duration, during which Render's own 5-second health check can
+     * time out and get the instance killed mid-sync — confirmed in
+     * production ("Instance failed... HTTP health check failed") every time
+     * Sync was clicked on a big day. The response now returns instantly with
+     * a {since, expected} marker; the frontend (dashboard.blade.php) polls
+     * syncStatus() below until the background runs it kicked off land.
+     */
     public function sync(Request $request)
     {
         $dateFrom = $request->input('date_from', now()->toDateString());
@@ -404,38 +418,98 @@ class DashboardController extends Controller
         $from = Carbon::parse($dateFrom);
         $to   = Carbon::parse($dateTo);
 
-        // Every Artisan::call below writes exactly one new SyncRun row
+        // Mirrors SyncTodayOrders' own overlap guard (see that class for the
+        // full reasoning) — checked here too so a click while a sync is
+        // already running gets an immediate, honest answer instead of
+        // silently spawning a process that will just skip itself and never
+        // post a result the frontend's polling would ever see land.
+        if ($this->pancakeSyncIsRunning()) {
+            return response()->json([
+                'success'       => false,
+                'new_orders'    => 0,
+                'upsell_count'  => 0,
+                'upsell_sales'  => 0.0,
+                'error_message' => 'A sync is already running — wait for it to finish before starting another.',
+            ], 200, [], JSON_PRESERVE_ZERO_FRACTION);
+        }
+
+        // Every pancake:sync-today run below writes exactly one new SyncRun row
         // (SyncTodayOrders::recordRun) — remember the high-water mark first so
-        // the rows created by THIS request can be picked out afterward without
-        // guessing how many days were in range.
+        // syncStatus() can tell whether THIS request's runs have all landed
+        // yet, and pick out just those rows once they have.
         // NOT safe against concurrent /sync requests: two overlapping requests
         // (e.g. two users syncing at once) can each pick up rows the other one
         // wrote, inflating one request's reported counts. Acceptable for now on
         // this low-traffic internal admin tool; would need per-request locking
         // or a request-scoped marker column to fix properly.
         $lastRunIdBeforeSync = SyncRun::max('id') ?? 0;
+        $expectedRuns        = $from->diffInDays($to) + 1;
 
-        while ($from->lte($to)) {
-            \Artisan::call('pancake:sync-today', ['--date' => $from->toDateString()]);
-            $from->addDay();
+        $php     = escapeshellarg(PHP_BINARY);
+        $artisan = escapeshellarg(base_path('artisan'));
+        $logFile = escapeshellarg(storage_path('logs/manual-sync.log'));
+
+        $commands = [];
+        for ($cursor = $from->copy(); $cursor->lte($to); $cursor->addDay()) {
+            $date = escapeshellarg($cursor->toDateString());
+            $commands[] = "{$php} {$artisan} pancake:sync-today --date={$date}";
         }
-
-        $runsFromThisSync = SyncRun::where('id', '>', $lastRunIdBeforeSync)->orderBy('id')->get();
-        $firstFailure      = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
-
-        $rangeLabel = $dateFrom === $dateTo ? $dateFrom : "{$dateFrom} to {$dateTo}";
-        ActivityLogger::log(
-            'dashboard.sync',
-            null,
-            $firstFailure === null
-                ? "Manually synced {$rangeLabel} — {$runsFromThisSync->sum('new_orders')} new orders."
-                : "Manually synced {$rangeLabel} — failed."
-        );
+        exec('(' . implode(' && ', $commands) . ") >> {$logFile} 2>&1 &");
 
         return response()->json([
+            'since'    => $lastRunIdBeforeSync,
+            'expected' => $expectedRuns,
+        ]);
+    }
+
+    /** Mirrors SyncTodayOrders::runningFlagIsStale() — kept in sync manually
+     *  since the two classes don't share a base; see that method for the full
+     *  reasoning on why staleness (not just presence) is what's checked. */
+    private function pancakeSyncIsRunning(): bool
+    {
+        if (Setting::get('pancake_sync_running') !== '1') {
+            return false;
+        }
+
+        $lastRun = Setting::get('pancake_sync_last_run');
+        return $lastRun && Carbon::parse($lastRun)->diffInMinutes(now()) <= 10;
+    }
+
+    /** Polled by the Sync button (dashboard.blade.php) after sync() above
+     *  kicks the actual work off in the background — see that method's doc
+     *  comment. 'done' stays false until every SyncRun row the request
+     *  expects has landed; once it has, logs the same Activity Log entry the
+     *  old synchronous version logged inline, and returns the same response
+     *  shape it used to return directly from sync(). */
+    public function syncStatus(Request $request)
+    {
+        $since    = (int) $request->input('since', 0);
+        $expected = max(1, (int) $request->input('expected', 1));
+
+        $runsFromThisSync = SyncRun::where('id', '>', $since)->orderBy('id')->get();
+
+        if ($runsFromThisSync->count() < $expected) {
+            return response()->json(['done' => false]);
+        }
+
+        $firstFailure = $runsFromThisSync->first(fn (SyncRun $run) => !$run->success);
+
+        $dateFrom = $request->input('date_from');
+        $dateTo   = $request->input('date_to', $dateFrom);
+        if ($dateFrom) {
+            $rangeLabel = $dateFrom === $dateTo ? $dateFrom : "{$dateFrom} to {$dateTo}";
+            ActivityLogger::log(
+                'dashboard.sync',
+                null,
+                $firstFailure === null
+                    ? "Manually synced {$rangeLabel} — {$runsFromThisSync->sum('new_orders')} new orders."
+                    : "Manually synced {$rangeLabel} — failed."
+            );
+        }
+
+        return response()->json([
+            'done'          => true,
             'success'       => $firstFailure === null,
-            'date_from'     => $dateFrom,
-            'date_to'       => $dateTo,
             'new_orders'    => (int) $runsFromThisSync->sum('new_orders'),
             'upsell_count'  => (int) $runsFromThisSync->sum('upsell_count'),
             'upsell_sales'  => (float) $runsFromThisSync->sum('upsell_sales'),

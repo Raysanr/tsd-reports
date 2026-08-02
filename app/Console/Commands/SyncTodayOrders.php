@@ -9,6 +9,7 @@ use App\Models\SyncRun;
 use App\Models\TsaShift;
 use App\Support\SyncHealth;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -50,10 +51,51 @@ class SyncTodayOrders extends Command
         }
     }
 
+    /** Generous vs. real durations (seconds up to ~1 minute for a big day, per
+     *  Sync Health data) — wide headroom so a container crash mid-run (the flag
+     *  never reaches the finally block below) can't block every future run,
+     *  scheduled or manual, forever. Mirrors SyncCallRecordings::runningFlagIsStale(). */
+    private const RUNNING_STALE_MINUTES = 10;
+
     public function handle(): int
     {
         ini_set('memory_limit', '-1');
         $runStart = now();
+
+        // withoutOverlapping() on the schedule registration (routes/console.php)
+        // only guards the SCHEDULER from launching a second instance of its own —
+        // it does nothing for DashboardController::sync()'s manual "Sync" button,
+        // which spawns this command via a raw detached exec(), bypassing Laravel's
+        // scheduler entirely. Without this guard, clicking Sync while the every-N-minute
+        // delta or 15-minute safety sweep is mid-run would run two heavy Pancake
+        // fetches at once on this single-worker container — the same bug already
+        // fixed for Drive syncs (SyncCallRecordings) after an identical outage.
+        if (Setting::get('pancake_sync_running') === '1' && !$this->runningFlagIsStale()) {
+            $this->warn('A sync is already running — skipping to avoid running two at once.');
+            return self::SUCCESS;
+        }
+
+        Setting::set('pancake_sync_running', '1');
+        Setting::set('pancake_sync_last_run', now()->toIso8601String());
+
+        try {
+            return $this->doSync($runStart);
+        } finally {
+            Setting::set('pancake_sync_running', '');
+        }
+    }
+
+    /** No timestamp at all can't be a genuinely in-progress run, so treat that
+     *  as stale too rather than block forever on a flag with nothing to measure
+     *  staleness against. */
+    private function runningFlagIsStale(): bool
+    {
+        $lastRun = Setting::get('pancake_sync_last_run');
+        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > self::RUNNING_STALE_MINUTES;
+    }
+
+    private function doSync(Carbon $runStart): int
+    {
         $this->loadTsaMaps();
         $this->products = Product::orderBy('sort_order')->get();
 
@@ -128,7 +170,7 @@ class SyncTodayOrders extends Command
             $pages = $page === 1 ? [1] : range($page, min($page + $concurrency - 1, 500));
 
             $responses = count($pages) === 1
-                ? [(string) $pages[0] => Http::withHeaders($headers)->timeout(30)->get($url, $fetchParams + ['page_number' => $pages[0]])]
+                ? [(string) $pages[0] => $this->safeGet($url, $headers, $fetchParams + ['page_number' => $pages[0]])]
                 : Http::pool(fn ($pool) => array_map(
                     fn ($p) => $pool->as((string) $p)->withHeaders($headers)->timeout(30)->get($url, $fetchParams + ['page_number' => $p]),
                     $pages
@@ -200,6 +242,22 @@ class SyncTodayOrders extends Command
         );
 
         return self::SUCCESS;
+    }
+
+    /** Mirrors Http::pool()'s own behavior of returning a failed request as a
+     *  Throwable instead of throwing (see the pooled page 2+ branch above) — page
+     *  1 is fetched alone, outside the pool, so without this a connection-level
+     *  failure (timeout, DNS blip) here would throw straight through handle() as
+     *  an uncaught exception instead of the graceful {success:false, error_message}
+     *  every caller (manual Sync button, Sync Health) depends on — and recordRun()
+     *  below would never even run to log the failure. */
+    private function safeGet(string $url, array $headers, array $params): Response|\Throwable
+    {
+        try {
+            return Http::withHeaders($headers)->timeout(30)->get($url, $params);
+        } catch (\Throwable $e) {
+            return $e;
+        }
     }
 
     /**

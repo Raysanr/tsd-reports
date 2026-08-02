@@ -722,6 +722,61 @@
     // The date-picker partial (mode='drp' on this page) publishes its currently
     // selected range to window.__datePicker.drp as the user interacts with it —
     // read from there instead of duplicating the picker's own state here.
+    // Sync now kicks the actual Pancake fetch off as a detached background
+    // process (DashboardController::sync()) and returns instantly — this
+    // container has only one web worker, and running a big day's fetch
+    // synchronously used to block it long enough for Render's own health
+    // check to kill the instance mid-sync. So instead of getting the result
+    // directly back from POST /sync, we poll /sync/status until the
+    // background runs it kicked off have actually landed.
+    const finishSyncUI = () => {
+        syncBtn.disabled = false;
+        document.getElementById('syncIcon').classList.remove('animate-pulse');
+    };
+
+    // Generous vs. real durations (seconds up to ~1 minute for a big day) —
+    // caps polling so a crashed/stuck background process (which would never
+    // post a final result) doesn't leave the button spinning forever.
+    const MAX_POLL_ATTEMPTS = 90; // ~3 minutes at 2s apart
+
+    function pollSyncStatus(since, expected, range, attempt = 0) {
+        if (attempt >= MAX_POLL_ATTEMPTS) {
+            window.showToast('Sync is taking longer than expected — check Sync Health for status.', 'error');
+            finishSyncUI();
+            return;
+        }
+
+        fetch(`/sync/status?since=${encodeURIComponent(since)}&expected=${encodeURIComponent(expected)}&date_from=${encodeURIComponent(range.from)}&date_to=${encodeURIComponent(range.to)}`)
+            .then(r => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then((data) => {
+                if (!data.done) {
+                    setTimeout(() => pollSyncStatus(since, expected, range, attempt + 1), 2000);
+                    return;
+                }
+
+                if (data.success) {
+                    const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    const message = data.new_orders > 0
+                        ? `Synced — ${data.new_orders} new order${data.new_orders === 1 ? '' : 's'}, ${data.upsell_count} upsell${data.upsell_count === 1 ? '' : 's'} (₱${peso})`
+                        : 'Synced — no new orders.';
+                    window.showToast(message, 'success');
+                } else {
+                    window.showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+                }
+                // Swap the freshly synced numbers in place — no full reload, no
+                // flicker, scroll position kept (softRefresh in resources/js/app.js).
+                window.softRefresh();
+                finishSyncUI();
+            })
+            .catch(() => {
+                window.showToast('Sync failed: request error.', 'error');
+                finishSyncUI();
+            });
+    }
+
     syncBtn.addEventListener('click', () => {
         const icon = document.getElementById('syncIcon');
         syncBtn.disabled = true;
@@ -744,21 +799,20 @@
             return r.json();
         })
         .then((data) => {
-            if (data.success) {
-                const peso = (data.upsell_sales || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                const message = data.new_orders > 0
-                    ? `Synced — ${data.new_orders} new order${data.new_orders === 1 ? '' : 's'}, ${data.upsell_count} upsell${data.upsell_count === 1 ? '' : 's'} (₱${peso})`
-                    : 'Synced — no new orders.';
-                window.showToast(message, 'success');
-            } else {
+            // sync() refused to start (e.g. a sync is already running) — it
+            // returns the same shape /sync/status does when done, so this is
+            // handled identically to a completed-but-failed poll.
+            if (data.success === false) {
                 window.showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+                finishSyncUI();
+                return;
             }
-            // Swap the freshly synced numbers in place — no full reload, no
-            // flicker, scroll position kept (softRefresh in resources/js/app.js).
-            return window.softRefresh();
+            pollSyncStatus(data.since, data.expected, range);
         })
-        .catch(() => window.showToast('Sync failed: request error.', 'error'))
-        .finally(() => { syncBtn.disabled = false; icon.classList.remove('animate-pulse'); });
+        .catch(() => {
+            window.showToast('Sync failed: request error.', 'error');
+            finishSyncUI();
+        });
     });
 })();
 

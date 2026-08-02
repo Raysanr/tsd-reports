@@ -45,6 +45,8 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
     Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync')
         ->middleware('role:super_admin,admin,normal');
+    Route::get('/sync/status',     [DashboardController::class,      'syncStatus'])->name('dashboard.sync.status')
+        ->middleware('role:super_admin,admin,normal');
     Route::get('/leads-report',    [LeadsReportController::class,    'index'])->name('leads-report');
     Route::get('/leads-report/drilldown', [LeadsReportController::class, 'drilldown'])->name('leads-report.drilldown');
     // Old URL kept alive for bookmarks/history — permanent redirect to the new name.
