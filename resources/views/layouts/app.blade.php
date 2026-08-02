@@ -278,6 +278,24 @@
        flash of the wrong width. Width goes from Tailwind's w-64 (16rem) down
        to 5rem — enough for the 18px icon plus its existing px-3 padding,
        centered instead of left-aligned once the label next to it is gone. */
+    /* #sidebar's own width transition — not gated by the md: media query below
+       since the property/duration declaration is harmless at any width (the
+       toggle that actually flips html.sidebar-collapsed is itself md:-only,
+       so this simply never has anything to animate below that breakpoint).
+       Labels animate via max-width + opacity instead of a display:none swap —
+       display can't be transitioned, so that would otherwise snap instantly
+       regardless of how smoothly the sidebar itself resizes around it.
+       overflow:hidden + white-space:nowrap keep the shrinking text from
+       wrapping mid-animation; max-width is set well above any real label's
+       rendered width so nothing is ever clipped at full size. */
+    #sidebar { transition: width 200ms ease-out; }
+    .sidebar-label, .sidebar-section-label, .sidebar-user-info {
+        max-width: 14rem;
+        opacity: 1;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: max-width 200ms ease-out, opacity 150ms ease-out;
+    }
     @media (min-width: 768px) {
         html.sidebar-collapsed #sidebar { width: 5rem; }
         /* The logo row normally lays out icon+text on the left and the
@@ -290,7 +308,7 @@
         html.sidebar-collapsed #sidebar .sidebar-header-row { flex-direction: column; gap: 0.5rem; }
         html.sidebar-collapsed #sidebar .sidebar-label,
         html.sidebar-collapsed #sidebar .sidebar-section-label,
-        html.sidebar-collapsed #sidebar .sidebar-user-info { display: none; }
+        html.sidebar-collapsed #sidebar .sidebar-user-info { max-width: 0; opacity: 0; }
         html.sidebar-collapsed #sidebar .nav-item { justify-content: center; }
         /* Avatar + sign-out button side by side don't fit the narrow 5rem
            rail once gap/padding are accounted for — stack them instead so
