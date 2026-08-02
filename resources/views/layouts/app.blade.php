@@ -11,6 +11,17 @@
         const stored = localStorage.getItem('theme');
         const isDark = stored === 'dark';
         if (isDark) document.documentElement.classList.add('dark');
+
+        // Same reasoning as dark mode above: applied on <html> here, before
+        // <body> (and #sidebar) exist yet, so the sidebar never flashes wide
+        // then snaps narrow (or vice versa) on every page load. Desktop-only
+        // concept — see the media query in the <style> block below, which
+        // scopes every rule this class drives to md: (768px) and up, matching
+        // where the sidebar itself switches from an off-canvas mobile drawer
+        // to a permanently static column.
+        if (localStorage.getItem('sidebarCollapsed') === '1') {
+            document.documentElement.classList.add('sidebar-collapsed');
+        }
     })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -256,6 +267,56 @@
 
     .sticky-col-subtotal { background-color: #1e293b; }
     .sticky-col-footer   { background-color: #0f172a; }
+
+    /* ─── Collapsible sidebar (icon-only rail) ───────────────────────────────
+       Desktop-only (md: / 768px+, matching #sidebar's own static/off-canvas
+       breakpoint) — the mobile drawer always shows full labels; collapsing
+       only makes sense once the sidebar is a permanent, space-competing
+       column. Toggled by #sidebarCollapseToggle (see the script near the
+       bottom of this file); state read/written via localStorage, applied to
+       <html> before first paint (see the <head> script above) to avoid a
+       flash of the wrong width. Width goes from Tailwind's w-64 (16rem) down
+       to 5rem — enough for the 18px icon plus its existing px-3 padding,
+       centered instead of left-aligned once the label next to it is gone. */
+    @media (min-width: 768px) {
+        html.sidebar-collapsed #sidebar { width: 5rem; }
+        /* The logo row normally lays out icon+text on the left and the
+           collapse toggle on the right (justify-between) — at 5rem wide with
+           px-6 padding, that's only ~32px of content width, not enough room
+           for the 36px logo icon AND the toggle button side by side (the
+           toggle would get squeezed off, leaving no visible way to expand
+           again). Stack them centered instead. */
+        html.sidebar-collapsed #sidebar .sidebar-header { padding-left: 0.5rem; padding-right: 0.5rem; }
+        html.sidebar-collapsed #sidebar .sidebar-header-row { flex-direction: column; gap: 0.5rem; }
+        html.sidebar-collapsed #sidebar .sidebar-label,
+        html.sidebar-collapsed #sidebar .sidebar-section-label,
+        html.sidebar-collapsed #sidebar .sidebar-user-info { display: none; }
+        html.sidebar-collapsed #sidebar .nav-item { justify-content: center; }
+        /* Avatar + sign-out button side by side don't fit the narrow 5rem
+           rail once gap/padding are accounted for — stack them instead so
+           neither gets squeezed or clipped. */
+        html.sidebar-collapsed #sidebar .sidebar-footer-row {
+            flex-direction: column;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        /* Settings' "API key not configured" dot uses ml-auto to sit at the
+           far right of the row next to its (now-hidden) label — with the
+           label gone, that would push it away from the icon it's meant to
+           badge. Reposition as a small corner badge on the icon instead. */
+        html.sidebar-collapsed #sidebar .nav-item { position: relative; }
+        html.sidebar-collapsed #sidebar .settings-alert-dot {
+            margin-left: 0;
+            position: absolute;
+            top: 6px;
+            right: 20px;
+        }
+        /* The collapse toggle's own icon flips to point the other way — a
+           single shared SVG rotated via CSS, not two swapped icons (the
+           dark-mode toggle's approach), since this is a pure 180° mirror with
+           nothing else changing between the two states. */
+        html.sidebar-collapsed #sidebarCollapseToggle svg { transform: rotate(180deg); }
+    }
     </style>
     @stack('head')
 </head>
@@ -310,8 +371,8 @@
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
 
     {{-- Logo --}}
-    <div class="px-6 py-5 border-b border-white/10">
-        <div class="flex items-center justify-between gap-3">
+    <div class="sidebar-header px-6 py-5 border-b border-white/10">
+        <div class="sidebar-header-row flex items-center justify-between gap-3">
             <div class="flex items-center gap-3 min-w-0">
                 <div class="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shrink-0">
                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -319,7 +380,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 7h-4v4"/>
                     </svg>
                 </div>
-                <div class="min-w-0">
+                <div class="min-w-0 sidebar-label">
                     <div class="text-white font-bold text-sm leading-tight font-mono truncate">TSD Reports</div>
                     <div class="text-yellow-300 text-[10px] font-mono tracking-widest uppercase truncate">Telesales Dashboard</div>
                 </div>
@@ -330,108 +391,117 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
+            {{-- Collapse/expand — desktop-only (see the media-query'd CSS rules
+                 driving html.sidebar-collapsed); the mobile drawer has its own
+                 open/close mechanism above and never collapses to icon-only. --}}
+            <button id="sidebarCollapseToggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"
+                    class="hidden md:inline-flex shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 cursor-pointer">
+                <svg class="w-4.5 h-4.5 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/>
+                </svg>
+            </button>
         </div>
     </div>
 
     {{-- Navigation --}}
     <nav class="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
 
-        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Main</p>
+        <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Main</p>
 
-        <a href="{{ route('dashboard') }}"
+        <a href="{{ route('dashboard') }}" title="Dashboard"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('dashboard') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
             </svg>
-            Dashboard
+            <span class="sidebar-label">Dashboard</span>
         </a>
 
-        <a href="{{ route('leads-report') }}"
+        <a href="{{ route('leads-report') }}" title="Leads Report"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('leads-report') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
-            Leads Report
+            <span class="sidebar-label">Leads Report</span>
         </a>
 
-        <a href="{{ route('tsa-performance') }}"
+        <a href="{{ route('tsa-performance') }}" title="TSA Performance"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('tsa-performance') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/>
             </svg>
-            TSA Performance
+            <span class="sidebar-label">TSA Performance</span>
         </a>
 
-        <a href="{{ route('charts') }}"
+        <a href="{{ route('charts') }}" title="Analytics"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('charts') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
             </svg>
-            Analytics
+            <span class="sidebar-label">Analytics</span>
         </a>
 
-        <a href="{{ route('rts-report') }}"
+        <a href="{{ route('rts-report') }}" title="RTS / Delivered"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('rts-report') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
             </svg>
-            RTS / Delivered
+            <span class="sidebar-label">RTS / Delivered</span>
         </a>
 
         @if(auth()->user()?->isAtLeastAdmin())
         <div class="my-3 border-t border-white/10"></div>
-        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
+        <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
 
-        <a href="{{ route('tsa-management') }}"
+        <a href="{{ route('tsa-management') }}" title="TSA Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('tsa-management*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
-            TSA Management
+            <span class="sidebar-label">TSA Management</span>
         </a>
 
-        <a href="{{ route('product-management') }}"
+        <a href="{{ route('product-management') }}" title="Product Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('product-management*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
             </svg>
-            Product Management
+            <span class="sidebar-label">Product Management</span>
         </a>
 
-        <a href="{{ route('user-management') }}"
+        <a href="{{ route('user-management') }}" title="User Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round"
                       d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
             </svg>
-            User Management
+            <span class="sidebar-label">User Management</span>
         </a>
 
-        <a href="{{ route('sync-health') }}"
+        <a href="{{ route('sync-health') }}" title="Sync Health"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('sync-health*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12h3l2.25-7.5 4.5 15L16.5 12H19.5"/>
             </svg>
-            Sync Health
+            <span class="sidebar-label">Sync Health</span>
         </a>
 
-        <a href="{{ route('audit-log') }}"
+        <a href="{{ route('audit-log') }}" title="Activity Log"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('audit-log*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -439,10 +509,10 @@
                       d="M9 12h3.75M9 15h3.75M9 18h3.75M3.75 4.5h10.5M3.75 4.5v15A2.25 2.25 0 006 21.75h12A2.25 2.25 0 0020.25 19.5V8.25a2.25 2.25 0 00-.659-1.591l-3.5-3.5A2.25 2.25 0 0014.5 2.5h-8.75A2.25 2.25 0 003.5 4.75z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 3v3.75a1.5 1.5 0 001.5 1.5h3.75"/>
             </svg>
-            Activity Log
+            <span class="sidebar-label">Activity Log</span>
         </a>
 
-        <a href="{{ route('unmatched-orders') }}"
+        <a href="{{ route('unmatched-orders') }}" title="Unmatched Orders"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('unmatched-orders*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -450,10 +520,10 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5h.008v.008H12V16.5z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18z"/>
             </svg>
-            Unmatched Orders
+            <span class="sidebar-label">Unmatched Orders</span>
         </a>
 
-        <a href="{{ route('settings') }}"
+        <a href="{{ route('settings') }}" title="Settings"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('settings*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -461,9 +531,9 @@
                       d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
-            Settings
+            <span class="sidebar-label">Settings</span>
             @if(!config('services.pancake.api_key'))
-                <span class="ml-auto w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
+                <span class="settings-alert-dot ml-auto w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
             @endif
         </a>
         @endif
@@ -474,11 +544,11 @@
          session) so it's spatially separated from the nav items above via the border
          and lives in its own row, not mixed into the nav list. --}}
     <div class="px-4 py-4 border-t border-white/10">
-        <div class="flex items-center gap-3 min-w-0">
+        <div class="sidebar-footer-row flex items-center gap-3 min-w-0" title="{{ auth()->user()->name ?? 'TSD Admin' }}">
             <div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {{ strtoupper(substr(auth()->user()->name ?? 'TSD', 0, 1)) }}
             </div>
-            <div class="min-w-0 flex-1">
+            <div class="sidebar-user-info min-w-0 flex-1">
                 <div class="text-white text-xs font-semibold truncate">{{ auth()->user()->name ?? 'TSD Admin' }}</div>
                 <div class="text-yellow-400 text-[10px] truncate">{{ auth()->user()->email ?? 'Pancake POS' }}</div>
             </div>
@@ -639,6 +709,23 @@
     // drawer open-but-invisible behind the now-static sidebar.
     window.addEventListener('resize', () => {
         if (window.innerWidth >= 768) closeSidebar();
+    });
+
+    // Desktop icon-only collapse — see the html.sidebar-collapsed rules in
+    // <style> above and the pre-paint script in <head> (avoids a flash of the
+    // wrong width on load, same approach as the dark-mode toggle).
+    const collapseBtn = document.getElementById('sidebarCollapseToggle');
+    function setCollapseLabel(collapsed) {
+        collapseBtn?.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        collapseBtn?.setAttribute('title', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    }
+    // The <head> script already applied the class before this ran — just
+    // reflect it in the button's label rather than assuming "not collapsed".
+    setCollapseLabel(document.documentElement.classList.contains('sidebar-collapsed'));
+    collapseBtn?.addEventListener('click', () => {
+        const collapsed = document.documentElement.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+        setCollapseLabel(collapsed);
     });
 })();
 </script>
