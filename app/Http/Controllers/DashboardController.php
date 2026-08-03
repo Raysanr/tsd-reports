@@ -335,17 +335,25 @@ class DashboardController extends Controller
             // one team via the ALL/SH Naturals/Eyecare buttons above, there's nothing
             // left to compare, so this stays empty and the view's own
             // isNotEmpty() check hides the panel entirely.
+            // total_calls uses ProductPerformance::tally()'s total_called (answered +
+            // unanswered), NOT a raw COUNT(*) of every order created that day — same
+            // fix, same reasoning, as the TSA Leaderboard and Hourly Activity above.
+            // Confirmed live: July 31 showed "106 calls" here for SH Naturals with 0
+            // upsells, which read as "TSAs worked all day and closed nothing" — the
+            // real story was 0 calls actually made (no one worked that day) and 106
+            // raw leads that arrived and sat undispositioned. A raw order count can't
+            // tell those two situations apart; total_called can.
             $teamComparison = $selectedTeam !== 'all' ? collect() : collect($teamsConfig)->map(function ($teamConfig) use ($dateFrom, $dateTo) {
-                $base  = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team']);
-                $total = (clone $base)->count();
-                $upsellCount = (clone $base)->where('is_upsell', true)->count();
+                $orders      = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team'])->get();
+                $totalCalled = ProductPerformance::tally($orders)['total_called'];
+                $upsellCount = $orders->where('is_upsell', true)->count();
 
                 return [
                     'name'         => $teamConfig['name'],
-                    'total_calls'  => $total,
+                    'total_calls'  => $totalCalled,
                     'upsell_count' => $upsellCount,
-                    'upsell_rate'  => $total > 0 ? round($upsellCount / $total * 100, 1) : 0.0,
-                    'revenue'      => (clone $base)->where('is_upsell', true)->sum('amount'),
+                    'upsell_rate'  => $totalCalled > 0 ? round($upsellCount / $totalCalled * 100, 1) : 0.0,
+                    'revenue'      => $orders->where('is_upsell', true)->sum('amount'),
                 ];
             })->values();
 
