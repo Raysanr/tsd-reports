@@ -298,14 +298,13 @@
     }
     @media (min-width: 768px) {
         html.sidebar-collapsed #sidebar { width: 5rem; }
-        /* The logo row normally lays out icon+text on the left and the
-           collapse toggle on the right (justify-between) — at 5rem wide with
-           px-6 padding, that's only ~32px of content width, not enough room
-           for the 36px logo icon AND the toggle button side by side (the
-           toggle would get squeezed off, leaving no visible way to expand
-           again). Stack them centered instead. */
-        html.sidebar-collapsed #sidebar .sidebar-header { padding-left: 0.5rem; padding-right: 0.5rem; }
-        html.sidebar-collapsed #sidebar .sidebar-header-row { flex-direction: column; gap: 0.5rem; }
+        /* The logo row's own px-6 padding (24px each side) leaves only ~32px
+           of content width at 5rem collapsed — not enough for the 36px logo
+           icon at its normal left-aligned spot. Tighten the padding and
+           center it (the collapse toggle itself lives outside this row now,
+           floating on the sidebar's edge — see the button above). */
+        html.sidebar-collapsed #sidebar .sidebar-header { padding-left: 0.75rem; padding-right: 0.75rem; }
+        html.sidebar-collapsed #sidebar .sidebar-header-row { justify-content: center; }
         html.sidebar-collapsed #sidebar .sidebar-label,
         html.sidebar-collapsed #sidebar .sidebar-section-label,
         html.sidebar-collapsed #sidebar .sidebar-user-info { max-width: 0; opacity: 0; }
@@ -385,8 +384,24 @@
      header) sliding in over the content. At md+: back to a normal static column,
      always visible, exactly like before. --}}
 <aside id="sidebar"
-       class="fixed md:static inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
+       class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
+
+    {{-- Collapse/expand — a small circular button floating on the sidebar's own
+         right edge (half on, half off), not inline in the header — desktop-only
+         (see the media-query'd html.sidebar-collapsed rules in <style> above);
+         the mobile drawer has its own open/close mechanism below and never
+         collapses to icon-only. #sidebar needed md:relative (was md:static) so
+         this can anchor to the SIDEBAR itself, not whatever positioned ancestor
+         happened to be next up the tree. --}}
+    <button id="sidebarCollapseToggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"
+            class="hidden md:flex absolute -right-3.5 top-16 z-10 items-center justify-center w-7 h-7 rounded-full
+                   bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-md
+                   text-slate-500 dark:text-slate-300 hover:text-primary hover:border-primary transition-colors cursor-pointer">
+        <svg class="w-3.5 h-3.5 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+    </button>
 
     {{-- Logo --}}
     <div class="sidebar-header px-6 py-5 border-b border-white/10">
@@ -407,15 +422,6 @@
                     class="md:hidden shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 cursor-pointer">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-            {{-- Collapse/expand — desktop-only (see the media-query'd CSS rules
-                 driving html.sidebar-collapsed); the mobile drawer has its own
-                 open/close mechanism above and never collapses to icon-only. --}}
-            <button id="sidebarCollapseToggle" type="button" aria-label="Collapse sidebar" title="Collapse sidebar"
-                    class="hidden md:inline-flex shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 cursor-pointer">
-                <svg class="w-4.5 h-4.5 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"/>
                 </svg>
             </button>
         </div>
