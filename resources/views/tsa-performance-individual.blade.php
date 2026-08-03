@@ -33,7 +33,7 @@
 {{-- KPI CARDS — rates not shown anywhere in the main hourly table (only Upselling
      Rate is), so these are the reason this page exists rather than just re-showing
      the same table filtered to one row. --}}
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
 
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
         <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">Total Called Leads</p>
@@ -63,6 +63,14 @@
             {{ $summary['upselling_rate'] !== null ? $summary['upselling_rate'].'%' : '—' }}
         </p>
         <p class="mt-2 text-xs text-slate-400 font-mono">Upsell ÷ (Upsell + CVC)</p>
+    </div>
+
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 shadow-sm">
+        <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-2">AOV</p>
+        <p class="text-3xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none">
+            ₱{{ number_format($summary['aov'], 2) }}
+        </p>
+        <p class="mt-2 text-xs text-slate-400 font-mono">Average per upsell order</p>
     </div>
 
 </div>

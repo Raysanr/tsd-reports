@@ -712,6 +712,12 @@ class TsaPerformanceController extends Controller
         // drift from how these are defined everywhere else in the app.
         $row = array_merge($row, $this->productRates($row));
 
+        // AOV — same definition as the Dashboard's own AOV card (gross upsell
+        // revenue ÷ upsell order count, "average per upsell order"), scoped to
+        // just this TSA/slice's own upsell orders instead of the whole company's.
+        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum('amount');
+        $row['aov'] = $row['upsell_confirmation'] > 0 ? $row['upsell_sales'] / $row['upsell_confirmation'] : 0.0;
+
         return $row;
     }
 
