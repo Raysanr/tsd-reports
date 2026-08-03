@@ -597,7 +597,7 @@
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
             <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Today's TSA Leaderboard</h2>
-            <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsells</p>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsell sales (₱)</p>
         </div>
 
         @if($tsaLeaderboard->isEmpty())

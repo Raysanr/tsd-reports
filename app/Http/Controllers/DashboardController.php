@@ -211,8 +211,10 @@ class DashboardController extends Controller
             // Last 20 runs, oldest→newest, for the sync activity trend below.
             $syncRuns = SyncRun::orderByDesc('ran_at')->limit(20)->get()->reverse()->values();
 
-            // Today's TSA leaderboard — ranked by upsells (the metric the rest of this
-            // app is built around), total calls and rate alongside it for context.
+            // Today's TSA leaderboard — ranked by upsell SALES (₱), not upsell count,
+            // per explicit request: a TSA who closed fewer but higher-value upsells
+            // should outrank one with more but cheaper ones. Count and rate still
+            // shown alongside for context, just not what determines the order.
             // total_calls uses ProductPerformance::tally()'s total_called (answered +
             // unanswered), NOT a raw COUNT(*) of every order tagged to the TSA —
             // confirmed in production: Katherine showed 42 "calls" here but 41 on her
@@ -246,7 +248,7 @@ class DashboardController extends Controller
                     ];
                 })
                 ->values()
-                ->sort(fn ($a, $b) => [$b->upsell_count, $b->total_calls] <=> [$a->upsell_count, $a->total_calls])
+                ->sort(fn ($a, $b) => [$b->upsell_sales, $b->upsell_count] <=> [$a->upsell_sales, $a->upsell_count])
                 ->values()
                 ->map(function ($row) use ($shiftsByKey, $teamNames) {
                     $shift = $shiftsByKey->get($row->tsa_name);
@@ -256,8 +258,8 @@ class DashboardController extends Controller
                     return $row;
                 });
 
-            // Top TSA by upsells — same ranking as the leaderboard below, surfaced as a
-            // KPI-row spotlight so it's visible without scrolling.
+            // Top TSA by upsell sales — same ranking as the leaderboard below, surfaced
+            // as a KPI-row spotlight so it's visible without scrolling.
             $topTsa = $tsaLeaderboard->first();
 
             // Top upsell products — which items are actually driving today's cross-sell
