@@ -643,6 +643,18 @@ class SyncTodayOrders extends Command
     // If only one item remains on the order and it matches that base name, the
     // add-on was removed (upsell cancelled) — the remaining item is NOT an
     // upsell, regardless of what the (now-stale) tag still says.
+    //
+    // Confirmed in production (order #1341487): most upsell tags don't name the
+    // base at all — just the add-on, either "UPSELL TSD - <Addon>" (no "+") or
+    // "Upsell TSD (<Addon>)". That order's sole remaining item was the ₱500 base
+    // "Sinuxyl", tagged "UPSELL TSD - Sinuxyl Inhaler" (the ₱1,000 inhaler add-on
+    // its own internal note referenced was never actually added, or was later
+    // removed) — the "+"-only check above never fires for a tag with nothing to
+    // split, so this counted as a live ₱500 upsell instead of a cancelled one.
+    // Same underlying signal, inverted: if the tag instead names ONLY the
+    // add-on, the sole remaining item NOT matching that name is what proves the
+    // add-on is gone (a genuine, still-live single-item upsell order's one item
+    // IS the add-on itself, by definition).
     private function remainingItemIsJustTheBase(array $raw): bool
     {
         $items = $raw['items'] ?? [];
@@ -651,21 +663,38 @@ class SyncTodayOrders extends Command
         $tags     = $raw['tags'] ?? [];
         $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
 
+        $vi   = $items[0]['variation_info'] ?? [];
+        $name = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $vi['name'] ?? $items[0]['product_name'] ?? ''));
+        if ($name === '') return false;
+
         foreach ($tagNames as $tag) {
-            if (!preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', $tag, $m)) {
+            if (preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', $tag, $m)) {
+                $parts = array_map('trim', explode('+', $m[1]));
+
+                if (count($parts) >= 2) {
+                    // "Base + Addon" named together — sole item matching the BASE
+                    // proves the add-on half was removed.
+                    $base = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
+                    if ($base !== '' && str_contains($name, $base)) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                // Single name, no "+" — that name IS the add-on. Sole item NOT
+                // matching it means the add-on itself is missing.
+                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
+                if ($addon !== '' && !str_contains($name, $addon)) {
+                    return true;
+                }
                 continue;
             }
-            $parts = array_map('trim', explode('+', $m[1]));
-            if (count($parts) < 2) continue; // no base/add-on split named in this tag
 
-            $base = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
-            if ($base === '') continue;
-
-            $vi   = $items[0]['variation_info'] ?? [];
-            $name = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $vi['name'] ?? $items[0]['product_name'] ?? ''));
-
-            if ($name !== '' && str_contains($name, $base)) {
-                return true;
+            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', $tag, $m)) {
+                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $m[1]));
+                if ($addon !== '' && !str_contains($name, $addon)) {
+                    return true;
+                }
             }
         }
 
