@@ -260,8 +260,14 @@
                         {{ $hour['label'] }}
                     </td>
                     @foreach($products as $product)
-                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">
-                        {{ $hour['counts'][$product->id] ?: '' }}
+                    @php
+                        $qty = $hour['counts'][$product->id] ?? 0;
+                        $amt = $hour['amounts'][$product->id] ?? 0.0;
+                    @endphp
+                    <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                        @if($qty)
+                            {{ $qty }}@if($amt > 0)<span class="text-slate-400 dark:text-slate-500"> | </span><span class="text-accent">₱{{ number_format($amt, 2) }}</span>@endif
+                        @endif
                     </td>
                     @endforeach
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
@@ -296,8 +302,14 @@
                 <tr class="bg-slate-900 text-white font-bold">
                     <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
                     @foreach($products as $product)
-                    <td class="border border-slate-700 px-2 py-3 text-center">
-                        {{ $productTotals[$product->id] ?: '' }}
+                    @php
+                        $totalQty = $productTotals[$product->id] ?? 0;
+                        $totalAmt = $productAmountTotals[$product->id] ?? 0.0;
+                    @endphp
+                    <td class="border border-slate-700 px-2 py-3 text-center whitespace-nowrap">
+                        @if($totalQty)
+                            {{ $totalQty }}@if($totalAmt > 0)<span class="text-slate-400"> | </span><span class="text-yellow-300">₱{{ number_format($totalAmt, 2) }}</span>@endif
+                        @endif
                     </td>
                     @endforeach
                     <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">

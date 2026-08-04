@@ -298,8 +298,9 @@ class TsaPerformanceController extends Controller
             ->get()
             ->groupBy(fn($r) => (int) $r->hour);
 
-        $productHourlyRows = [];
-        $productTotals     = $products->mapWithKeys(fn($p) => [$p->id => 0]);
+        $productHourlyRows  = [];
+        $productTotals      = $products->mapWithKeys(fn($p) => [$p->id => 0]);
+        $productAmountTotals = $products->mapWithKeys(fn($p) => [$p->id => 0.0]);
         $grandRowTotal      = 0;
         $grandTsaLeads      = 0;
         $grandAnswered      = 0;
@@ -323,10 +324,13 @@ class TsaPerformanceController extends Controller
             // called-leads count for the same hour (confirmed live: a lead still
             // sitting New/un-called inflated the per-product sum by 1 past the
             // real total called that hour).
-            $counts   = $products->mapWithKeys(function ($product) use ($hourOrders, $products) {
-                return [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)['catered']];
-            });
-            $rowTotal = $counts->sum();
+            // Computed once per product per hour and split into both 'counts' (qty)
+            // and 'amounts' (₱ upsell revenue) below, rather than calling buildRow()
+            // twice — same underlying row, just reading two different keys off it.
+            $productRows = $products->mapWithKeys(fn($product) => [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)]);
+            $counts      = $productRows->map(fn($row) => $row['catered']);
+            $amounts     = $productRows->map(fn($row) => $row['upsell_sales']);
+            $rowTotal    = $counts->sum();
 
             // Same per-hour disposition tally already used for the hourly breakdown
             // table above — reused here (not recomputed differently) so "answered"/
@@ -386,7 +390,8 @@ class TsaPerformanceController extends Controller
             // called activity yet renders entirely blank anyway — skip it.
             if ($hourRow['total_called'] === 0) continue;
 
-            $productTotals      = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
+            $productTotals       = $productTotals->map(fn($v, $id) => $v + $counts[$id]);
+            $productAmountTotals = $productAmountTotals->map(fn($v, $id) => $v + $amounts[$id]);
             $grandRowTotal      += $rowTotal;
             $grandTsaLeads      += $hourRow['total_called'];
             $grandAnswered      += $answered;
@@ -399,6 +404,7 @@ class TsaPerformanceController extends Controller
             $productHourlyRows[] = [
                 'label'       => HourFormatter::rangeLabel($hour),
                 'counts'      => $counts,
+                'amounts'     => $amounts,
                 'row_total'   => $rowTotal,
                 'tsa_leads'   => $hourRow['total_called'],
                 'answered'    => $answered,
@@ -422,6 +428,7 @@ class TsaPerformanceController extends Controller
             'products'          => $products,
             'productHourlyRows' => $productHourlyRows,
             'productTotals'     => $productTotals,
+            'productAmountTotals' => $productAmountTotals,
             'grandRowTotal'     => $grandRowTotal,
             'grandTsaLeads'     => $grandTsaLeads,
             'grandAnswered'     => $grandAnswered,
