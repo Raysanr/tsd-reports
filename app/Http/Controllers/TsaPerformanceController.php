@@ -621,16 +621,19 @@ class TsaPerformanceController extends Controller
             return $row;
         })->values();
 
-        // Grand Total — scoped to orders actually claimed by one of the TSAs shown
-        // above (not every order in range), so this number always equals the sum of
-        // the visible rows instead of silently running higher with no row to explain
-        // the gap. This deliberately does NOT count leads with no TSA at all — that's
-        // a real choice (they're excluded from this page's total entirely, not just
-        // hidden), made after trying a visible "Unassigned" row and being asked to
-        // remove it in favor of this instead.
-        $grandTotal = ProductPerformance::tally(
-            $orders->whereIn('tsa_name', $shifts->pluck('tsa_key'))
-        );
+        // Grand Total — explicit request: this used to be scoped to only orders
+        // claimed by one of the TSAs shown above, excluding leads with no TSA at
+        // all, so ALL's total ran LOWER than SH Naturals' total + Eyecare's total
+        // (each team's own page already folds unclaimed leads into ITS total —
+        // no visible "Unassigned" row since an earlier request removed that, but
+        // the leads still count). Now uses the exact same $orders this view
+        // already fetched (every order for these teams, claimed or not), so the
+        // three filters (ALL / SH Naturals / Eyecare) always tally: ALL's total
+        // equals the sum of the per-team pages' totals, the same way Catered
+        // Leads and Total Called Leads are already the same underlying number
+        // (see buildRow()'s 'catered' => 'total_called' below) just labeled
+        // differently per view.
+        $grandTotal = ProductPerformance::tally($orders);
 
         $teams = $this->teamsMenu($teamsConfig);
 
