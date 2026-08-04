@@ -231,4 +231,49 @@ class LeadsReportStaleTagConflictTest extends TestCase
             return $audicure['total']['total'] === 1;
         });
     }
+
+    /**
+     * Confirmed in production (order #1341848): the conflicting-product check
+     * above used to only look for a same-team alternative, so a stale tag
+     * pointing to a DIFFERENT team's product slipped through unopposed. Real
+     * item was Pterygium (Eyecare), but the order's own team column was SH
+     * Naturals (resolved from whichever TSA claimed it, not the product — see
+     * SyncTodayOrders::extractTsaInfo()), and it still carried a leftover
+     * "Call in Progress (Sinuxyl Inhaler)" disposition tag. On the ALL view
+     * (the only place a cross-team conflict is even checkable, since only it
+     * passes every product regardless of team — see indexAll()), this order
+     * counted toward BOTH Pterygium and Sinuxyl, inflating the row sum above
+     * Grand Total by exactly one lead.
+     */
+    public function test_a_cross_team_stale_tag_does_not_double_count_on_the_all_view(): void
+    {
+        Order::create([
+            'pancake_order_id'   => 'cross-team-stale-tag-1',
+            'team'               => 'SH Naturals', // resolved from the TSA's own team, not the product
+            'tsa_name'           => TsaShift::where('team', 'SH Naturals')->first()->tsa_key,
+            'disposition'        => 'FSD UNCLEARED ORDER',
+            'product'            => 'Pterygium',
+            'base_product'       => 'Pterygium',
+            'bundle_description' => '2 Pterygium Drops',
+            'raw_tags'           => ['MARIEL', 'Call in Progress (Sinuxyl Inhaler)', 'FSD UNCLEARED ORDER'],
+            'is_upsell'          => false,
+            'status_code'        => 9,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $today = now()->toDateString();
+        $response = $this->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productRows', function ($rows) {
+            $sinuxyl   = $rows->firstWhere(fn($r) => $r['display_name'] === 'SINUXYL');
+            $pterygium = $rows->firstWhere(fn($r) => $r['display_name'] === 'PTERYGIUM');
+
+            return $sinuxyl['total'] === 0 && $pterygium['total'] === 1;
+        });
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+    }
 }

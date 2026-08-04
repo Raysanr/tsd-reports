@@ -126,17 +126,32 @@ class ProductPerformance
     }
 
     /** True when $product's own keyword does NOT match the order's cart item
-     *  (`product` column) but a DIFFERENT same-team product's keyword DOES —
-     *  the stale-tag mismatch pattern: a TSA left an old/wrong tag on the order
-     *  in Pancake POS itself (this app has no way to edit Pancake's tags), so
-     *  the tag says one product while the actual cart item says another.
-     *  Extracted so buildRow()'s counting guard and the tag-conflict review
-     *  queue (Support\TagConflicts) share the exact same definition of "this is
-     *  a conflict" and can never drift apart.
+     *  (`product` column) but a DIFFERENT product's keyword DOES — the stale-tag
+     *  mismatch pattern: a TSA left an old/wrong tag on the order in Pancake POS
+     *  itself (this app has no way to edit Pancake's tags), so the tag says one
+     *  product while the actual cart item says another. Extracted so buildRow()'s
+     *  counting guard and any future tag-conflict review queue share the exact
+     *  same definition of "this is a conflict" and can never drift apart.
+     *
+     *  Not team-restricted — confirmed in production: order #1341848's real item
+     *  was Pterygium (Eyecare), but it carried a leftover "Call in Progress
+     *  (Sinuxyl Inhaler)" disposition tag from an earlier stage, AND the order's
+     *  own team column was SH Naturals (team is resolved from whichever TSA
+     *  claimed the lead, not from the product — a TSA can legitimately work a
+     *  lead outside her own team's usual catalog). A same-team-only conflict
+     *  check can never find Pterygium as the "real" product there, since it
+     *  isn't in SH Naturals' own roster — so the stale Sinuxyl tag matched
+     *  unopposed, double-counting the order under both products on the ALL
+     *  view (Leads Report/TSA Performance's cross-team pages, which already
+     *  pass every product here regardless of team — see indexAll() in both
+     *  controllers). $teamProducts' name is a holdover from when every caller
+     *  passed a same-team-only list; some now pass every product on purpose.
      *
      *  Returns the conflicting Product, or null when there's no conflict —
      *  either $product's own keyword DOES match the cart item (a real, if
-     *  oddly-tagged, match), or no other same-team product matches it either. */
+     *  oddly-tagged, match), or no other product in $teamProducts matches it
+     *  either (which still means same-team-only for callers that only pass
+     *  same-team products, e.g. the per-team drill-down). */
     public static function conflictingProduct(Product $product, Order $order, Collection $teamProducts): ?Product
     {
         // Same bundle_description/base_product fallback as matchingOrders() above —
@@ -149,7 +164,6 @@ class ProductPerformance
         }
 
         return $teamProducts->first(fn ($other) => $other->id !== $product->id
-            && $other->team === $product->team
             && ($other->matchesText($order->product) || $other->matchesText($order->base_product) || $other->matchesText($order->bundle_description)));
     }
 
