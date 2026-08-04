@@ -210,4 +210,106 @@ class ReconcileOrderStatusesTest extends TestCase
 
         $this->artisan('pancake:reconcile-statuses')->assertFailed();
     }
+
+    /**
+     * Second, separate pass — reconcileStaleUpsellTags(). The bug this closes:
+     * an order stays fully ACTIVE (never Cancelled/Deleted/Restocking) but its
+     * upsell add-on item was removed or never added, leaving a stale upsell
+     * tag. The Cancelled/Deleted sweep above would never touch it — confirmed
+     * live, order #1341487 (₱500, tagged "UPSELL TSD - Sinuxyl Inhaler", only
+     * remaining item the base "Sinuxyl") stayed wrong for months.
+     */
+    public function test_corrects_a_still_active_order_whose_upsell_add_on_was_removed(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1341487',
+            'status_code'         => 8, // Packaging — fully active, not void
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Sinuxyl',
+            'base_product'        => 'Sinuxyl', // the bug's structural signature
+            'amount'              => 500.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'  => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*'  => Http::response(['data' => [
+                'id'          => 1341487,
+                'status'      => 8,
+                'total_price' => 500,
+                'tags'        => [['id' => 1, 'name' => 'UPSELL TSD - Sinuxyl Inhaler']],
+                'items'       => [
+                    ['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1341487')->first();
+        $this->assertFalse($order->is_upsell);
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(500.0, (float) $order->cancelled_upsell_amount);
+        $this->assertSame(500.0, (float) $order->amount);
+    }
+
+    /** A local candidate (product == base_product) that turns out, once
+     *  actually checked live, to have 2 real items — a genuine upsell, just
+     *  one where product/base_product happened to be recorded identically for
+     *  an unrelated reason — must be left alone, not "corrected" incorrectly. */
+    public function test_leaves_a_candidate_alone_when_live_data_shows_it_is_not_actually_stale(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1341999',
+            'status_code'         => 2,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Clear Sight 3.0',
+            'base_product'        => 'Clear Sight 3.0',
+            'amount'              => 800.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
+                'id'     => 1341999,
+                'status' => 2,
+                'tags'   => [],
+                'items'  => [
+                    ['variation_info' => ['name' => 'Clear Sight 3.0'], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Clear Sight 3.0'], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1341999')->first();
+        $this->assertTrue($order->is_upsell);
+        $this->assertFalse($order->is_cancelled_upsell);
+        $this->assertSame(800.0, (float) $order->amount);
+    }
+
+    /** A local order that's neither is_upsell nor matching product==base_product
+     *  is never even a candidate — no per-order lookup should fire for it at
+     *  all (Http::fake with no matching pattern would throw if one did). */
+    public function test_does_not_check_orders_outside_the_candidate_shape_at_all(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'   => '1342000',
+            'status_code'        => 2,
+            'is_upsell'          => false,
+            'product'            => 'Sinuxyl',
+            'base_product'       => 'Sinuxyl',
+            'pancake_created_at' => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+    }
 }

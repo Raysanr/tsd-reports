@@ -320,7 +320,7 @@ class SyncTodayOrders extends Command
             // (Order::VOID_STATUSES) — the order itself is still active, only the
             // upsell portion was cancelled, so it's excluded from is_upsell here
             // rather than counted as a live cross-sell.
-            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && $this->remainingItemIsJustTheBase($raw);
+            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw);
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
 
             // Returned upsell: the order carries the TSA's upsell tag but its status is
@@ -549,7 +549,7 @@ class SyncTodayOrders extends Command
             // removed instead of the original (order #1325213: customer cancelled
             // the upsell, staff deleted the LUMICARE OIL line, leaving only the
             // original Clear Sight 3.0 — that's not a ₱1,000 upsell, it's ₱0).
-            if ($this->remainingItemIsJustTheBase($raw)) {
+            if (Order::remainingItemIsJustTheBase($raw)) {
                 return 0.0;
             }
             $vi = $items[0]['variation_info'] ?? [];
@@ -606,7 +606,7 @@ class SyncTodayOrders extends Command
         $itemName = fn (array $item) => ($item['variation_info'] ?? [])['name'] ?? $item['product_name'] ?? null;
 
         if ($isUpsell) {
-            if (count($items) < 2 && $this->remainingItemIsJustTheBase($raw)) {
+            if (count($items) < 2 && Order::remainingItemIsJustTheBase($raw)) {
                 return ['name' => null, 'display_id' => null, 'base_name' => null]; // upsell add-on was removed; nothing valid to show
             }
             $hintIndex = $this->findItemIndexByTagHint($raw);
@@ -636,69 +636,6 @@ class SyncTodayOrders extends Command
             'display_id' => $vi['display_id'] ?? null,
             'base_name'  => $itemName($items[0]),
         ];
-    }
-
-    // Fix #8: "UPSELL TSD - Base + Addon1 + Addon2" names the ORIGINAL product
-    // first (before the first "+"); the add-ons after it are the actual upsell.
-    // If only one item remains on the order and it matches that base name, the
-    // add-on was removed (upsell cancelled) — the remaining item is NOT an
-    // upsell, regardless of what the (now-stale) tag still says.
-    //
-    // Confirmed in production (order #1341487): most upsell tags don't name the
-    // base at all — just the add-on, either "UPSELL TSD - <Addon>" (no "+") or
-    // "Upsell TSD (<Addon>)". That order's sole remaining item was the ₱500 base
-    // "Sinuxyl", tagged "UPSELL TSD - Sinuxyl Inhaler" (the ₱1,000 inhaler add-on
-    // its own internal note referenced was never actually added, or was later
-    // removed) — the "+"-only check above never fires for a tag with nothing to
-    // split, so this counted as a live ₱500 upsell instead of a cancelled one.
-    // Same underlying signal, inverted: if the tag instead names ONLY the
-    // add-on, the sole remaining item NOT matching that name is what proves the
-    // add-on is gone (a genuine, still-live single-item upsell order's one item
-    // IS the add-on itself, by definition).
-    private function remainingItemIsJustTheBase(array $raw): bool
-    {
-        $items = $raw['items'] ?? [];
-        if (count($items) !== 1) return false;
-
-        $tags     = $raw['tags'] ?? [];
-        $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
-
-        $vi   = $items[0]['variation_info'] ?? [];
-        $name = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $vi['name'] ?? $items[0]['product_name'] ?? ''));
-        if ($name === '') return false;
-
-        foreach ($tagNames as $tag) {
-            if (preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', $tag, $m)) {
-                $parts = array_map('trim', explode('+', $m[1]));
-
-                if (count($parts) >= 2) {
-                    // "Base + Addon" named together — sole item matching the BASE
-                    // proves the add-on half was removed.
-                    $base = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
-                    if ($base !== '' && str_contains($name, $base)) {
-                        return true;
-                    }
-                    continue;
-                }
-
-                // Single name, no "+" — that name IS the add-on. Sole item NOT
-                // matching it means the add-on itself is missing.
-                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
-                if ($addon !== '' && !str_contains($name, $addon)) {
-                    return true;
-                }
-                continue;
-            }
-
-            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', $tag, $m)) {
-                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $m[1]));
-                if ($addon !== '' && !str_contains($name, $addon)) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     // Fix #7: "Upsell TSD (Product Name)" tags name one exact product. Find the

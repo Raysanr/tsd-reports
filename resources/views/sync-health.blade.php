@@ -125,17 +125,23 @@
     </form>
 </div>
 
-{{-- FIX STALE ORDER STATUSES — Pancake's list-orders endpoint excludes
-     canceled/deleted orders by default, so the regular sync (above) can never
-     learn an order was removed after it was already synced — its local status
-     sits stale forever. This explicitly asks for removed orders and corrects
-     any local mismatch. Safe to run synchronously (small JSON list calls, not
-     file downloads) — confirmed live: 181 of 831 checked were stale on a
-     90-day window. --}}
+{{-- FIX STALE ORDER STATUSES — two separate corrections, both things the
+     regular sync above can never catch on its own once an order's own
+     updated_at stops changing:
+     1. Pancake's list-orders endpoint excludes canceled/deleted orders by
+        default, so a removed order's local status sits stale forever. This
+        explicitly asks for removed orders and corrects any local mismatch.
+        Safe to run synchronously (small JSON list calls, not file
+        downloads) — confirmed live: 181 of 831 checked were stale on a
+        90-day window.
+     2. An order can stay fully ACTIVE (never canceled/deleted) but have its
+        upsell add-on item removed, leaving a stale upsell tag behind —
+        confirmed live: 87 such orders going back months, ₱68,389 of
+        overcounted upsell revenue, none of them caught by check #1. --}}
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4 mb-6">
     <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-1">Fix Stale Order Statuses</h2>
     <p class="text-xs font-mono text-slate-400 mb-3">
-        Corrects local orders Pancake has since canceled/deleted — the regular sync can't catch this on its own (Pancake hides removed orders from normal queries).
+        Corrects local orders Pancake has since canceled/deleted, and orders whose upsell add-on item was removed while the order stayed active — the regular sync can't catch either on its own once an order stops changing.
     </p>
     <form method="POST" action="{{ route('sync-health.reconcile-statuses') }}" class="flex items-end gap-3 flex-wrap">
         @csrf

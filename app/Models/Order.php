@@ -135,6 +135,69 @@ class Order extends Model
         return false;
     }
 
+    /**
+     * True when an order's tags say it's an upsell but only ONE item remains on
+     * it — the add-on was removed (upsell cancelled), and that sole item is NOT
+     * itself the add-on. Shared by SyncTodayOrders (applied at sync time) and
+     * ReconcileOrderStatuses (re-checks orders already marked is_upsell=true
+     * against Pancake's current live data, catching cases synced before this
+     * detection existed or before a later edit removed the add-on).
+     *
+     * Handles every upsell-tag naming convention seen in production:
+     *   "UPSELL TSD - Base + Addon"  — sole item matching the named BASE proves
+     *                                  the add-on half was removed.
+     *   "UPSELL TSD - Addon"         — that name IS the add-on (no base named);
+     *   "Upsell TSD (Addon)"           sole item NOT matching it means the
+     *                                  add-on itself is missing.
+     *
+     * Confirmed in production (order #1341487): most real upsell tags use the
+     * single-name forms, not the "Base + Addon" one — a ₱500 order whose only
+     * remaining item was the base "Sinuxyl", tagged "UPSELL TSD - Sinuxyl
+     * Inhaler" (the add-on), kept counting as a live upsell for months before
+     * this handled that format too.
+     */
+    public static function remainingItemIsJustTheBase(array $raw): bool
+    {
+        $items = $raw['items'] ?? [];
+        if (count($items) !== 1) return false;
+
+        $tags     = $raw['tags'] ?? [];
+        $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
+
+        $vi   = $items[0]['variation_info'] ?? [];
+        $name = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $vi['name'] ?? $items[0]['product_name'] ?? ''));
+        if ($name === '') return false;
+
+        foreach ($tagNames as $tag) {
+            if (preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', $tag, $m)) {
+                $parts = array_map('trim', explode('+', $m[1]));
+
+                if (count($parts) >= 2) {
+                    $base = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
+                    if ($base !== '' && str_contains($name, $base)) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $parts[0]));
+                if ($addon !== '' && !str_contains($name, $addon)) {
+                    return true;
+                }
+                continue;
+            }
+
+            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', $tag, $m)) {
+                $addon = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $m[1]));
+                if ($addon !== '' && !str_contains($name, $addon)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public function getIsVoidStatusAttribute(): bool
     {
         return in_array($this->status_code, self::VOID_STATUSES, true);

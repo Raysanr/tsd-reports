@@ -37,11 +37,18 @@ use Illuminate\Support\Facades\Log;
  * itself is corrected — e.g. an order sitting in Restocking (is_restocking_
  * upsell=true) that later actually gets Deleted in Pancake would keep
  * counting toward Total Restocking forever without this.
+ *
+ * Second, separate pass: reconcileStaleUpsellTags() below catches a related
+ * but distinct kind of drift — an order still fully ACTIVE (never Canceled/
+ * Deleted/Restocking at all) whose upsell add-on item was removed or never
+ * added, leaving a stale upsell tag on an otherwise-ordinary order. See that
+ * method's own docblock for why it needs its own live per-order lookups
+ * rather than reusing this class's Cancelled/Deleted-status query above.
  */
 class ReconcileOrderStatuses extends Command
 {
     protected $signature = 'pancake:reconcile-statuses {--days=30 : How many past days to check}';
-    protected $description = 'Correct local orders whose status is stale because Pancake canceled/deleted them after syncing';
+    protected $description = 'Correct local orders whose status is stale because Pancake canceled/deleted them after syncing, or whose upsell tag is stale because the add-on item was removed';
 
     public function handle(): int
     {
@@ -132,9 +139,13 @@ class ReconcileOrderStatuses extends Command
             $page++;
         }
 
+        [$upsellChecked, $upsellCorrected] = $apiError === null
+            ? $this->reconcileStaleUpsellTags($apiKey, $shopId, $from, $to)
+            : [0, 0];
+
         Setting::set('order_status_reconcile_last_run', now()->toIso8601String());
-        Setting::set('order_status_reconcile_last_checked', $checkedCount);
-        Setting::set('order_status_reconcile_last_corrected', $correctedCount);
+        Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked);
+        Setting::set('order_status_reconcile_last_corrected', $correctedCount + $upsellCorrected);
 
         if ($apiError !== null) {
             Log::error('pancake:reconcile-statuses failed', ['message' => $apiError]);
@@ -142,6 +153,63 @@ class ReconcileOrderStatuses extends Command
         }
 
         $this->info("Checked {$checkedCount} Pancake-removed order(s) from the last {$days} day(s); corrected {$correctedCount} stale local record(s).");
+        $this->info("Checked {$upsellChecked} still-active order(s) tagged as upsells; corrected {$upsellCorrected} whose add-on item was actually removed.");
         return self::SUCCESS;
+    }
+
+    /**
+     * Second pass, separate from the Cancelled/Deleted-status sweep above: an
+     * order can carry a stale upsell tag while still very much ACTIVE (not
+     * void at all) — the add-on item itself was removed or never added, while
+     * the order kept shipping normally. SyncTodayOrders' own sync only
+     * re-examines an order when Pancake's updated_at for it falls in whatever
+     * window that sync run targets; an old, closed order whose updated_at
+     * never changes again would otherwise stay wrong forever once its window
+     * has passed (confirmed in production: 87 such orders going back to April,
+     * ₱68,389 of overcounted upsell revenue, none of them Cancelled/Deleted —
+     * "Fix Now"'s existing pass above would never have touched any of them).
+     *
+     * Bounded to a small, precise local candidate set first (is_upsell=true,
+     * product and base_product identical — the structural signature this bug
+     * always leaves, see Order::remainingItemIsJustTheBase()'s docblock) so
+     * this stays cheap enough to run as part of the daily schedule, not just
+     * a one-off manual pass: only genuine suspects get an individual live
+     * Pancake lookup, not every upsell order in the window.
+     */
+    private function reconcileStaleUpsellTags(string $apiKey, string $shopId, Carbon $from, Carbon $to): array
+    {
+        $candidates = Order::where('is_upsell', true)
+            ->where('is_cancelled_upsell', false)
+            ->whereNotNull('product')
+            ->whereColumn('product', 'base_product')
+            ->whereBetween('pancake_created_at', [$from, $to])
+            ->get();
+
+        $checked   = 0;
+        $corrected = 0;
+
+        foreach ($candidates as $local) {
+            $checked++;
+
+            $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(15)
+                ->get("https://pos.pages.fm/api/v1/shops/{$shopId}/orders/{$local->pancake_order_id}", ['api_key' => $apiKey]);
+
+            if (!$response->successful()) continue;
+            $raw = $response->json()['data'] ?? $response->json();
+            if (!is_array($raw) || !isset($raw['items'])) continue;
+
+            if (!Order::remainingItemIsJustTheBase($raw)) continue;
+
+            $local->update([
+                'is_upsell'               => false,
+                'is_cancelled_upsell'     => true,
+                'cancelled_upsell_amount' => (float) $local->amount,
+                'amount'                  => (float) ($raw['total_price'] ?? $raw['cod'] ?? 0),
+            ]);
+            $corrected++;
+            $this->line("  Corrected #{$local->pancake_order_id}: stale upsell tag, add-on item was removed");
+        }
+
+        return [$checked, $corrected];
     }
 }
