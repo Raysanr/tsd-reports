@@ -271,6 +271,38 @@ class ProductPerformance
         return round($columns['upsell_confirmation'] / $denominator * 100, 1);
     }
 
+    /** Sums multiple buildRow()/tally() rows into one combined row — for a Grand
+     *  Total defined as literally "the sum of the rows shown above it", not a
+     *  separately-tallied distinct-order count. The two definitions necessarily
+     *  diverge whenever an order legitimately counts toward more than one
+     *  product's row (a cross-team combo SKU — see matchingOrders()'s
+     *  $explicitMatch comment): tally() counts that order once, but summing the
+     *  per-product rows counts it once per product it matched. Confirmed live:
+     *  Leads Report's per-product totals added up to 1 more than tally()'s Grand
+     *  Total on a day with exactly one such combo order (#1343222, "10 Pterygium
+     *  Drops + 10 Sinuxyl", counted in both PTERYGIUM's and SINUXYL's rows).
+     *  Every additive count/amount field is summed; rate fields are recomputed
+     *  from the summed totals rather than averaged (averaging percentages across
+     *  rows of different sizes is meaningless). */
+    public static function sumRows(Collection $rows): array
+    {
+        $keys = [
+            'total', 'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
+            'repeat_order_upsell', 'rude_customer', 'relatives_confirmation', 'dfr', 'double_order',
+            'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number', 'upsell_sales',
+            'answered', 'unanswered', 'total_called', 'catered', 'excess',
+        ];
+
+        $summed = array_fill_keys($keys, 0);
+        foreach ($rows as $row) {
+            foreach ($keys as $key) {
+                $summed[$key] += $row[$key] ?? 0;
+            }
+        }
+
+        return array_merge($summed, self::rates($summed));
+    }
+
     private static function count(Collection $orders, string $keyword): int
     {
         return self::countAny($orders, [$keyword]);

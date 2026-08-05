@@ -172,9 +172,10 @@ class LeadsReportStaleTagConflictTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             return $sinuxyl['total']['total'] === 1;
         });
-        // ...without the order being pulled into SH Naturals' own Grand Total —
-        // it isn't SH Naturals' order, only its bundle overlaps.
-        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
+        // ...and Grand Total, now defined as the sum of the rows above it (not a
+        // separately-tallied distinct-order count), reflects that too — even
+        // though the order itself belongs to Eyecare Team, not SH Naturals.
+        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
 
         // Eyecare's own report still counts it too (its actual team + primary item).
         $eyecareResponse = $this->get(route('leads-report', [
