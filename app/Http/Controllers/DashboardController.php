@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -199,9 +200,32 @@ class DashboardController extends Controller
             // date. $dayOrders itself stays pancake_created_at-based below — Hourly
             // Activity and the TSA leaderboard intentionally use worked-at time,
             // matching TSA Performance's own "calls today" figures.
-            $leadOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)->get();
-            $leadTally = ProductPerformance::tally($leadOrders);
+            //
+            // Grand Total is the SUM of Leads Report's per-product rows, not a
+            // distinct-order tally() — see ProductPerformance::sumRows()'s own doc
+            // comment. A cross-team combo order (e.g. a Pterygium order bundling
+            // Sinuxyl units) legitimately counts toward two products' rows there, so
+            // a bare tally() here ran 1 lower than Leads Report's Grand Total on any
+            // day with such an order (confirmed live: Dashboard 600 vs Leads Report
+            // 601). Matching that means building the same per-product rows Leads
+            // Report builds — against the same cross-team match pool it uses (every
+            // configured team's orders, not just $orderTeams, for the same combo-order
+            // reason) — and summing those, instead of tallying $leadOrders directly.
+            $leadMatchPool = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
+                ->get();
+
+            $leadProducts = $selectedTeam === 'all'
+                ? Product::orderBy('sort_order')->get()->sortBy(fn($p) => array_search($p->team, $orderTeams))->values()
+                : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
+
+            $leadProductRows = $leadProducts
+                ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $leadMatchPool, $leadProducts)])
+                ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
+                ->pluck('row')
+                ->values();
+
+            $leadTally = ProductPerformance::sumRows($leadProductRows);
 
             $stats['total_leads']    = $leadTally['total'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
