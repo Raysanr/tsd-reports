@@ -591,18 +591,29 @@
 </div>
 @endif
 
-{{-- TODAY'S TSA LEADERBOARD + TOP UPSELL PRODUCTS --}}
+{{-- TSA LEADERBOARD + TOP UPSELL PRODUCTS --}}
+@php
+    // "Today's" only when the selected range genuinely IS today — this card's
+    // data always reflects whatever date_from/date_to is active (same
+    // $dateFrom/$dateTo every other Dashboard widget uses), but the label used
+    // to say "Today's" unconditionally, which was actively misleading the one
+    // time it mattered most: looking at a past day's numbers.
+    $leaderboardIsToday = $dateFrom->isToday() && $dateTo->isToday();
+    $leaderboardRangeLabel = $dateFrom->isSameDay($dateTo)
+        ? $dateFrom->format('M j, Y')
+        : $dateFrom->format('M j') . ' – ' . $dateTo->format('M j, Y');
+@endphp
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
 
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
-            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Today's TSA Leaderboard</h2>
-            <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsell sales (₱)</p>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $leaderboardIsToday ? "Today's TSA Leaderboard" : 'TSA Leaderboard' }}</h2>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsell sales (₱){{ $leaderboardIsToday ? '' : ' · ' . $leaderboardRangeLabel }}</p>
         </div>
 
         @if($tsaLeaderboard->isEmpty())
         <div class="py-16 flex flex-col items-center justify-center text-center gap-3">
-            <p class="text-sm font-mono text-slate-400">No calls logged yet today</p>
+            <p class="text-sm font-mono text-slate-400">{{ $leaderboardIsToday ? 'No calls logged yet today' : 'No calls logged for ' . $leaderboardRangeLabel }}</p>
         </div>
         @else
         <div class="divide-y divide-slate-100 dark:divide-slate-700">
