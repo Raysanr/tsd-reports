@@ -97,4 +97,91 @@ class LeadsReportDrilldownTest extends TestCase
         $this->assertCount(2, $ids);
         $this->assertTrue($ids->contains('dd-5'));
     }
+
+    /** Once a 'column' is passed, this narrows to just the orders that specific
+     *  disposition column counted — not every order matching the product. */
+    public function test_a_column_param_narrows_to_that_disposition_only(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        Order::create(['pancake_order_id' => 'dd-6', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 09:00:00', 'pancake_inserted_at' => '2026-07-24 09:00:00', 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'dd-7', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Call Back', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 09:00:00', 'pancake_inserted_at' => '2026-07-24 09:00:00', 'synced_at' => now()]);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'column' => 'confirmed_via_call',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-6'], $ids->all());
+    }
+
+    /** Unlike the plain (no-column) Total drilldown above, a column-scoped
+     *  request DOES exclude DELETED_STATUSES — matching what
+     *  ProductPerformance::tally() actually counted into that column's number,
+     *  since (unlike the Total diagnostic) this popover claims to show exactly
+     *  the orders behind a specific already-correct count. */
+    public function test_a_column_param_excludes_deleted_statuses(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        Order::create(['pancake_order_id' => 'dd-8', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 09:00:00', 'pancake_inserted_at' => '2026-07-24 09:00:00', 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'dd-9', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 7, 'pancake_created_at' => '2026-07-24 10:00:00', 'pancake_inserted_at' => '2026-07-24 10:00:00', 'synced_at' => now()]);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'column' => 'confirmed_via_call',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-8'], $ids->all());
+    }
+
+    public function test_excess_column_returns_orders_never_called(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        Order::create(['pancake_order_id' => 'dd-10', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 09:00:00', 'pancake_inserted_at' => '2026-07-24 09:00:00', 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'dd-11', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => null, 'status_code' => 9, 'pancake_created_at' => '2026-07-24 10:00:00', 'pancake_inserted_at' => '2026-07-24 10:00:00', 'synced_at' => now()]);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'column' => 'excess',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-11'], $ids->all());
+    }
+
+    /** The ALL view's disposition columns (Catered Leads + all 13 metric
+     *  columns) used to be plain, non-clickable numbers — only the Total
+     *  Leads column had drilldown wired up. Confirms a disposition cell now
+     *  renders as clickable too. */
+    public function test_the_all_view_wires_drilldown_onto_disposition_columns_too(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Order::create(['pancake_order_id' => 'dd-12', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 09:00:00', 'pancake_inserted_at' => '2026-07-24 09:00:00', 'synced_at' => now()]);
+
+        $response = $this->get(route('leads-report', ['team' => 'all', 'range' => 'dates', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24']));
+
+        $response->assertOk();
+        $response->assertSee('data-dd-column="catered"', false);
+        $response->assertSee('data-dd-cell-product="' . $product->id . '"', false);
+    }
+
+    /** The per-team hourly page's TOTAL row (bottom, whole-range) is now
+     *  clickable — the individual hourly rows above it deliberately stay
+     *  plain (shift-cutoff backlog-lumping makes their displayed numbers not
+     *  correspond to a simple date+hour query — see the view's own comment). */
+    public function test_the_per_team_pages_product_total_row_is_clickable(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        $this->order('dd-13', 'SH Naturals', '2026-07-24 09:00:00', ['SINUXYL']);
+
+        $response = $this->get(route('leads-report', ['team' => 'sh-naturals', 'range' => 'dates', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24']));
+
+        $response->assertOk();
+        $response->assertSee('data-dd-cell-product="' . $product->id . '"', false);
+        $response->assertSee('data-dd-endpoint="' . route('leads-report.drilldown') . '"', false);
+    }
 }

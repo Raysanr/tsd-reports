@@ -83,7 +83,18 @@
         </thead>
         <tbody>
             @foreach($tsaRows as $row)
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            {{-- data-dd-* live on the ROW itself, not a shared table-wide wrapper —
+                 unlike every other drilldown table, a row here can belong to a
+                 DIFFERENT team than the row above/below it (this is the cross-team
+                 combined view), so there's no single team to declare once for the
+                 whole table. [data-drilldown]'s closest('[data-dd-team]') still
+                 finds this correctly since it walks up from the clicked cell and
+                 stops at the first match, which is this <tr> — no JS changes
+                 needed. Rows with no real team_key (shouldn't normally occur, see
+                 indexAll()'s own comment) skip drilldown entirely rather than
+                 send an invalid team to the endpoint. --}}
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                @if($row['team_key']) data-dd-team="{{ $row['team_key'] }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}" @endif>
                 <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
                     @if($row['team_key'])
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
@@ -95,11 +106,13 @@
                     @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['team_key'] && $row['catered'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}"
+                    @if($row['team_key'] && $row['catered']) data-drilldown data-dd-tsa="{{ $row['tsa_key'] }}" data-dd-column="catered" title="Click to see the orders behind this total" @endif>
                     {{ $row['catered'] ?: '' }}
                 </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $row['team_key'] && $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}"
+                    @if($row['team_key'] && $row[$col['key']]) data-drilldown data-dd-tsa="{{ $row['tsa_key'] }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $row[$col['key']] ?: '' }}
                 </td>
                 @endforeach

@@ -303,6 +303,78 @@ class ProductPerformance
         return array_merge($summed, self::rates($summed));
     }
 
+    /** Same categorization rules as tally() above, but returning the actual
+     *  matching Order models for one column instead of just a count — powers
+     *  every drill-down popover (TsaPerformanceController::drilldown(),
+     *  LeadsReportController::drilldown()) that shows "which orders made up
+     *  this number" when a table cell is clicked. Kept as a separate method
+     *  (not a tally() refactor) so this addition can't accidentally change
+     *  tally()'s own well-tested counts. Originally lived as a private method
+     *  on TsaPerformanceController; moved here so Leads Report's drilldown
+     *  can use the exact same categorization instead of a second hand-copied
+     *  version that could drift out of sync with it. */
+    public static function ordersForColumn(Collection $orders, string $column): Collection
+    {
+        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+
+        $isRealUpsell = fn($o) => $o->is_upsell
+            || $o->is_returned_upsell
+            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        $nonUpsell = $orders->reject($isRealUpsell);
+
+        if ($column === 'upsell_confirmation') {
+            return $orders->filter($isRealUpsell)->values();
+        }
+
+        $keywordMap = [
+            'confirmed_via_call'     => ['confirmed via call'],
+            'call_back'              => ['call back'],
+            'call_dropped'           => ['call dropped'],
+            'repeat_order_upsell'    => ['repeat order'],
+            'rude_customer'          => ['rude customer'],
+            'relatives_confirmation' => ['relatives'],
+            'dfr'                    => ['dfr'],
+            'double_order'           => ['double order'],
+            'fsd_uncleared'          => ['fsd'],
+            'not_answering'          => ['not answering'],
+            'unattended'             => ['unattended'],
+            'invalid_number'         => ['invalid number'],
+        ];
+
+        if (isset($keywordMap[$column])) {
+            return $nonUpsell->filter(function ($o) use ($keywordMap, $column) {
+                $disposition = str_replace("'", '', $o->disposition ?? '');
+                foreach ($keywordMap[$column] as $kw) {
+                    if (stripos($disposition, $kw) !== false) return true;
+                }
+                return false;
+            })->values();
+        }
+
+        // 'catered' is Leads Report's own label for the exact same union this
+        // app calls 'total_called' everywhere else (see tally()'s 'catered' =>
+        // 'total_called' line above) — accepted as an alias so a Leads Report
+        // cell can pass either name without the view needing to know which
+        // internal key its own controller happens to use.
+        if ($column === 'total_called' || $column === 'catered') {
+            $calledIds = collect([self::ordersForColumn($orders, 'upsell_confirmation')->pluck('id')]);
+            foreach (array_keys($keywordMap) as $key) {
+                $calledIds->push(self::ordersForColumn($orders, $key)->pluck('id'));
+            }
+            return $orders->whereIn('id', $calledIds->flatten()->unique())->values();
+        }
+
+        // Excess = Total - Catered (see tally()'s 'excess' line) — the
+        // reconciling remainder, so its own "which orders" answer is simply
+        // whichever of these orders didn't land in the Called union above.
+        if ($column === 'excess') {
+            $calledIds = self::ordersForColumn($orders, 'total_called')->pluck('id');
+            return $orders->whereNotIn('id', $calledIds)->values();
+        }
+
+        return collect();
+    }
+
     private static function count(Collection $orders, string $keyword): int
     {
         return self::countAny($orders, [$keyword]);

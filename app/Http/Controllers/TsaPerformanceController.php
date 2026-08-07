@@ -504,7 +504,7 @@ class TsaPerformanceController extends Controller
                 : $orders->where('tsa_name', $tsaKey)->values();
         }
 
-        $matching = $this->ordersForColumn($orders, (string) $column);
+        $matching = ProductPerformance::ordersForColumn($orders, (string) $column);
 
         return response()->json(
             $matching
@@ -525,57 +525,6 @@ class TsaPerformanceController extends Controller
                 ])
                 ->values()
         );
-    }
-
-    /** Same categorization rules as buildRow() above, but returning the actual
-     *  matching Order models for one column instead of just a count — kept as
-     *  a separate method (not a buildRow() refactor) so this drill-down
-     *  addition can't accidentally change buildRow()'s well-tested counts. */
-    private function ordersForColumn(Collection $orders, string $column): Collection
-    {
-        $isRealUpsell = fn($o) => $o->is_upsell
-            || $o->is_returned_upsell
-            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
-        $nonUpsell = $orders->reject($isRealUpsell);
-
-        if ($column === 'upsell_confirmation') {
-            return $orders->filter($isRealUpsell)->values();
-        }
-
-        $keywordMap = [
-            'confirmed_via_call'     => ['confirmed via call'],
-            'call_back'              => ['call back'],
-            'call_dropped'           => ['call dropped'],
-            'repeat_order_upsell'    => ['repeat order'],
-            'rude_customer'          => ['rude customer'],
-            'relatives_confirmation' => ['relatives'],
-            'dfr'                    => ['dfr'],
-            'double_order'           => ['double order'],
-            'fsd_uncleared'          => ['fsd'],
-            'not_answering'          => ['not answering'],
-            'unattended'             => ['unattended'],
-            'invalid_number'         => ['invalid number'],
-        ];
-
-        if (isset($keywordMap[$column])) {
-            return $nonUpsell->filter(function ($o) use ($keywordMap, $column) {
-                $disposition = str_replace("'", '', $o->disposition ?? '');
-                foreach ($keywordMap[$column] as $kw) {
-                    if (stripos($disposition, $kw) !== false) return true;
-                }
-                return false;
-            })->values();
-        }
-
-        if ($column === 'total_called') {
-            $calledIds = collect([$this->ordersForColumn($orders, 'upsell_confirmation')->pluck('id')]);
-            foreach (array_keys($keywordMap) as $key) {
-                $calledIds->push($this->ordersForColumn($orders, $key)->pluck('id'));
-            }
-            return $orders->whereIn('id', $calledIds->flatten()->unique())->values();
-        }
-
-        return collect();
     }
 
     /** Team-button menu shared by the hourly view and the ALL view, so they can

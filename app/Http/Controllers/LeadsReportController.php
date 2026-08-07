@@ -397,6 +397,8 @@ class LeadsReportController extends Controller
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to   = Carbon::parse($dateTo)->endOfDay();
 
+        $column = $request->query('column');
+
         // Same cross-team match pool as index()/indexAll() — a combo can bundle
         // this product under a different team's primary order (see the
         // matchingOrders() docblock), so the pool can't be pre-filtered to one team.
@@ -407,6 +409,18 @@ class LeadsReportController extends Controller
 
         $teamProducts = Product::where('team', $product->team)->get();
         $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+
+        // A disposition/count column (Called Leads, Confirmed via Call, Excess,
+        // etc.) — same categorization ProductPerformance::tally() itself uses,
+        // so "which orders" can never drift from what the cell's own number
+        // counted. Omitted entirely = the plain product Total cell, which keeps
+        // showing EVERY matching order including any DELETED_STATUSES ones per
+        // this method's own docblock above (a deliberate diagnostic view) —
+        // ordersForColumn()'s own DELETED_STATUSES exclusion only applies once
+        // a specific column is actually requested.
+        if ($column) {
+            $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
+        }
 
         $result = $matching
             ->sortByDesc(fn($o) => $o->effective_created_at)

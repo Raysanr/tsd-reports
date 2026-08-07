@@ -78,4 +78,26 @@ class TsaPerformanceAllViewTest extends TestCase
         $this->assertSame(2, $eyeTotal);
         $this->assertSame($shTotal + $eyeTotal, $allTotal);
     }
+
+    /** Each row's drilldown context (team, tsa) lives on its own <tr> — not a
+     *  single table-wide attribute — since this view combines rows from every
+     *  team into one table. Confirms both the per-row team attribute and a
+     *  real disposition cell actually render as clickable/wired. */
+    public function test_a_tsa_row_carries_its_own_teams_drilldown_context(): void
+    {
+        $date = '2026-08-04';
+
+        Order::factory()->create([
+            'pancake_order_id' => 'sh-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));
+
+        $response->assertOk();
+        $response->assertSee('data-dd-team="sh-naturals"', false);
+        $response->assertSee('data-dd-tsa="Gemma"', false);
+        $response->assertSee('data-dd-column="confirmed_via_call"', false);
+    }
 }

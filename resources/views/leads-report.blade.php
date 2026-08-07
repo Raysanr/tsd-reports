@@ -176,7 +176,15 @@
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
     <div class="flex flex-col lg:flex-row">
-    <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}" data-scroll-shadow>
+    {{-- data-dd-* only matter for this table's own TOTAL row below (whole-range,
+         one product) — the hourly rows above deliberately stay non-interactive:
+         the shift-cutoff backlog-lumping in buildHourlyRows() means a single
+         hour's displayed row can represent several real hours' worth of orders
+         at once, which the drilldown endpoint has no way to reproduce
+         correctly without risking a popover that doesn't actually match what's
+         shown. --}}
+    <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}" data-scroll-shadow
+         data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -218,18 +226,25 @@
             </tr>
             @endforeach
 
-            {{-- TOTAL row --}}
+            {{-- TOTAL row — the only row in this table with working drill-down;
+                 see the wrapper div's own comment above for why the hourly
+                 rows above it don't get the same treatment. --}}
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $table['total']['total'] ?: '' }}</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $table['total']['total_called'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $table['total']['total'] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total']['total']) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" title="Click to see the orders behind this total" @endif>{{ $table['total']['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $table['total']['total_called'] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total']['total_called']) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="total_called" title="Click to see the orders behind this total" @endif>{{ $table['total']['total_called'] ?: '' }}</td>
                 @foreach($answeredCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">{{ $table['total'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $table['total'][$col['key']] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total'][$col['key']]) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $table['total'][$col['key']] ?: '' }}</td>
                 @endforeach
                 @foreach($unansweredCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center">{{ $table['total'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center {{ $table['total'][$col['key']] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total'][$col['key']]) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $table['total'][$col['key']] ?: '' }}</td>
                 @endforeach
-                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">{{ $table['total']['excess'] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300 {{ $table['total']['excess'] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total']['excess']) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="excess" title="Click to see the orders behind this total" @endif>{{ $table['total']['excess'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $table['total']['pick_up_rate'] !== null ? $table['total']['pick_up_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">{{ $table['total']['conversion_rate'] !== null ? $table['total']['conversion_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-yellow-300">{{ $table['total']['upselling_rate'] !== null ? $table['total']['upselling_rate'].'%' : '—' }}</td>

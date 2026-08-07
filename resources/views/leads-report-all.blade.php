@@ -104,11 +104,13 @@
                     @if($row['total']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $row['total'] ?: '' }}
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['catered'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}"
+                    @if($row['catered']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="catered" title="Click to see the orders behind this total" @endif>
                     {{ $row['catered'] ?: '' }}
                 </td>
                 @foreach($metricCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 dark:text-rose-400 font-semibold' : 'text-slate-700 dark:text-slate-200') }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 dark:text-rose-400 font-semibold' : 'text-slate-700 dark:text-slate-200') }} {{ $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}"
+                    @if($row[$col['key']]) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $row[$col['key']] ?: '' }}
                 </td>
                 @endforeach
