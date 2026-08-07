@@ -581,11 +581,14 @@ document.addEventListener('click', async (e) => {
                 //
                 // Order ID is click-to-copy (data-copy-order-id, handled below) —
                 // status/time get style="user-select:none" so a drag-select across
-                // the row (the natural way to grab the ID) can't pick them up too;
-                // only the ID itself is ever selectable/copyable here.
+                // the row (or several rows) can't pick them up too; only the ID
+                // itself is ever selectable/copyable here. The "#" is drawn via
+                // .order-id-copy's own ::before rule (app.css), not real text, so
+                // a drag-select (single row or many) copies bare digits only —
+                // matches what the click-to-copy handler below already copied.
                 popover.innerHTML = orders.map(o => `
                     <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                        <span class="text-primary font-semibold cursor-pointer hover:underline" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">#${escapeHtml(o.id)}</span>
+                        <span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">${escapeHtml(o.id)}</span>
                         ${o.status ? `<span class="text-slate-400 dark:text-slate-500" style="user-select:none">${escapeHtml(o.status)}</span>` : ''}
                         <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
                     </div>

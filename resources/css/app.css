@@ -174,3 +174,12 @@ th[data-sort-key][data-sort-active="desc"]::after {
     content: '▼';
     opacity: 1;
 }
+
+/* Drill-down popover order IDs (resources/js/app.js) — the leading "#" is
+   drawn via ::before instead of being real text, since CSS-generated
+   content is never part of a browser's native text selection/copy. That
+   makes a drag-select across several rows (or the existing click-to-copy)
+   grab just the bare digits, not "#1344656", with no extra JS needed. */
+.order-id-copy::before {
+    content: '#';
+}
