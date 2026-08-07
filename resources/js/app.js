@@ -578,11 +578,16 @@ document.addEventListener('click', async (e) => {
                 // order status, e.g. to spot one Pancake has since cancelled/deleted
                 // that hasn't re-synced) — TSA Performance's response has no such
                 // field, so that middle span just doesn't render there.
+                //
+                // Order ID is click-to-copy (data-copy-order-id, handled below) —
+                // status/time get style="user-select:none" so a drag-select across
+                // the row (the natural way to grab the ID) can't pick them up too;
+                // only the ID itself is ever selectable/copyable here.
                 popover.innerHTML = orders.map(o => `
                     <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                        <span class="text-primary font-semibold">#${escapeHtml(o.id)}</span>
-                        ${o.status ? `<span class="text-slate-400 dark:text-slate-500">${escapeHtml(o.status)}</span>` : ''}
-                        <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap">${escapeHtml(o.time || '—')}</span>
+                        <span class="text-primary font-semibold cursor-pointer hover:underline" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">#${escapeHtml(o.id)}</span>
+                        ${o.status ? `<span class="text-slate-400 dark:text-slate-500" style="user-select:none">${escapeHtml(o.status)}</span>` : ''}
+                        <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
                     </div>
                 `).join('');
                 positionPopover(cell, popover);
@@ -590,6 +595,20 @@ document.addEventListener('click', async (e) => {
             .catch(() => {
                 if (popover?.dataset.forCell === cellKey) popover.innerHTML = '<p class="px-3 py-3 text-rose-500">Failed to load.</p>';
             });
+    });
+
+    // Click-to-copy the order ID — separate listener (not folded into the
+    // drilldown one above) so a click on the ID inside an already-open
+    // popover doesn't also run that listener's own cell/close-popover logic.
+    document.addEventListener('click', (e) => {
+        const idEl = e.target.closest('[data-copy-order-id]');
+        if (!idEl) return;
+
+        navigator.clipboard.writeText(idEl.dataset.copyOrderId).then(() => {
+            const original = idEl.textContent;
+            idEl.textContent = 'Copied!';
+            setTimeout(() => { idEl.textContent = original; }, 900);
+        }).catch(() => {});
     });
 
     document.addEventListener('keydown', (e) => {
