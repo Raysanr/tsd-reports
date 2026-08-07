@@ -71,8 +71,8 @@
 
             {{-- Off by default: Restocking (awaiting stock, not yet shipped/paid) is
                  excluded from this total. ON folds its revenue/count in here instead —
-                 the Total Restocking card next to this one always keeps showing its
-                 own real number regardless, never zeroed out by this toggle. --}}
+                 the Total Restocking card next to this one blanks its own number out
+                 when this is ON, since that revenue is now counted here instead. --}}
             <label class="mt-2 inline-flex items-center gap-1.5 cursor-pointer select-none">
                 <input type="checkbox" id="includeRestockingToggle" {{ $includeRestocking ? 'checked' : '' }}
                        class="sr-only peer">
@@ -93,9 +93,19 @@
         <div class="min-w-0 w-full">
             <p class="text-xs font-mono font-semibold text-yellow-600 dark:text-yellow-400 uppercase tracking-wider mb-1">Total Restocking</p>
             <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
-                ₱{{ number_format($stats['restocking_value'], 2) }}
+                @if($includeRestocking)
+                    —
+                @else
+                    ₱{{ number_format($stats['restocking_value'], 2) }}
+                @endif
             </p>
-            <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $stats['restocking_count']) }} awaiting stock</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">
+                @if($includeRestocking)
+                    Included in Cross-Sell Sales above
+                @else
+                    {{ $stats['restocking_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $stats['restocking_count']) }} awaiting stock
+                @endif
+            </p>
         </div>
     </div>
 

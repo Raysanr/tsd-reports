@@ -9,8 +9,8 @@ use Tests\TestCase;
 
 /**
  * Explicit request: a toggle so Total Cross-Sell Sales can optionally include
- * Restocking orders' revenue instead of always excluding it — Total Restocking
- * itself must keep showing its own real number regardless of the toggle.
+ * Restocking orders' revenue instead of always excluding it — once folded in,
+ * the Total Restocking card blanks its own amount instead of double-showing it.
  */
 class DashboardIncludeRestockingToggleTest extends TestCase
 {
@@ -110,5 +110,18 @@ class DashboardIncludeRestockingToggleTest extends TestCase
         });
         // Top TSA Today spotlight is just the leaderboard's own top row — should follow too.
         $on->assertViewHas('topTsa', fn ($top) => $top && $top->tsa_name === 'Gemma' && (float) $top->upsell_sales === 1300.0);
+    }
+
+    public function test_the_total_restocking_card_blanks_its_amount_once_folded_into_cross_sell_sales(): void
+    {
+        $this->seedOrders();
+
+        $off = $this->get(route('dashboard', ['date_from' => '2026-07-22', 'date_to' => '2026-07-22']));
+        $off->assertDontSee('Included in Cross-Sell Sales above');
+
+        $on = $this->get(route('dashboard', [
+            'include_restocking' => '1', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+        $on->assertSee('Included in Cross-Sell Sales above');
     }
 }
