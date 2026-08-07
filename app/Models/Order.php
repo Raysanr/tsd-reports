@@ -228,6 +228,89 @@ class Order extends Model
         return false;
     }
 
+    /**
+     * True when Pancake's own histories log shows this order's item list has
+     * only ever contained one DISTINCT product, ever — not just currently.
+     * remainingItemIsJustTheBase() above only recognizes two specific tag
+     * phrasings ("UPSELL TSD - Base + Addon" and "Upsell TSD (Addon)"); a tag
+     * like "TSD UPSELL SCAR CREAM" (no dash, no parens) names a product that,
+     * for a genuine remains-after-void order, is definitionally identical to
+     * the sole remaining item's own name — so no name-based check can ever
+     * tell that case apart from an order that was simply mistagged despite
+     * never having a real base-plus-addon relationship at all. History can:
+     * a genuine void leaves a removed item whose variation_id never resurfaces;
+     * a same-item price/edit correction does not. Confirmed live (order
+     * #1341759, 2026-08-07): tagged "TSD UPSELL SCAR CREAM", sole item "Scar
+     * Cream" — the only items history entry is that exact variation_id being
+     * removed and re-added at a corrected price (₱499 -> ₱500), never a
+     * different product. Counted as a live ₱500 upsell for days despite never
+     * being one. Only meaningful with a live per-order lookup (needs
+     * `histories`, which the regular per-page sync never fetches) — see
+     * ReconcileOrderStatuses::reconcileStaleUpsellTags(), which already pulls
+     * the full order for its own check and can reuse the same response here.
+     */
+    public static function historyShowsOnlyOneDistinctItemEverExisted(array $raw): bool
+    {
+        $ids = collect($raw['items'] ?? [])->pluck('variation_id')->filter()->values()->all();
+
+        foreach ($raw['histories'] ?? [] as $history) {
+            foreach ($history['items'] ?? [] as $change) {
+                if (($change['old']['variation_info'] ?? null) !== null) {
+                    $ids[] = $change['variation_id'] ?? null;
+                }
+            }
+        }
+
+        return count(array_unique(array_filter($ids))) <= 1;
+    }
+
+    /**
+     * True when Pancake's items history shows a DIFFERENT product (not the
+     * current sole item) was genuinely added and later fully removed, while
+     * the current sole item's own variation_id was never touched at all —
+     * meaning it's been on the order since creation (the real base), and the
+     * add-then-removed item was the genuine upsell add-on that got
+     * cancelled. Distinct from historyShowsOnlyOneDistinctItemEverExisted()
+     * above, which catches the OPPOSITE failure (no second product ever
+     * existed at all) — this one catches a genuine base+addon relationship
+     * whose tag just doesn't fit either phrasing remainingItemIsJustTheBase()
+     * recognizes. Confirmed live (order #1342174, 2026-08-07): tagged "TSD
+     * UPSELL - GINSENG SERUM", naming the BASE product in the slot that
+     * phrasing normally reserves for the addon (a tagging mistake, not a
+     * parsing gap) — so the name-based check concluded the genuinely-base
+     * "Ginseng Serum" that remained WAS the addon, when the real addon (Belo
+     * Set, ₱1200, added then fully removed) is what the history shows.
+     */
+    public static function historyShowsADifferentItemWasAddedThenRemoved(array $raw): bool
+    {
+        $items = $raw['items'] ?? [];
+        if (count($items) !== 1) return false;
+
+        $currentId = $items[0]['variation_id'] ?? null;
+        if ($currentId === null) return false;
+
+        $currentItemTouched = false;
+        $otherAdded   = false;
+        $otherRemoved = false;
+
+        foreach ($raw['histories'] ?? [] as $history) {
+            foreach ($history['items'] ?? [] as $change) {
+                if (($change['variation_id'] ?? null) === $currentId) {
+                    $currentItemTouched = true;
+                    continue;
+                }
+                if (($change['old']['variation_info'] ?? null) === null && ($change['new']['variation_info'] ?? null) !== null) {
+                    $otherAdded = true;
+                }
+                if (($change['old']['variation_info'] ?? null) !== null && ($change['new']['variation_info'] ?? null) === null) {
+                    $otherRemoved = true;
+                }
+            }
+        }
+
+        return !$currentItemTouched && $otherAdded && $otherRemoved;
+    }
+
     public function getIsVoidStatusAttribute(): bool
     {
         return in_array($this->status_code, self::VOID_STATUSES, true);

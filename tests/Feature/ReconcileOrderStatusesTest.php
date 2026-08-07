@@ -312,4 +312,163 @@ class ReconcileOrderStatusesTest extends TestCase
 
         $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
     }
+
+    /**
+     * Confirmed live (order #1341759, 2026-08-07): tagged "TSD UPSELL SCAR
+     * CREAM" — no dash, no parens, so remainingItemIsJustTheBase() never
+     * recognizes the phrasing at all. The sole item is "Scar Cream", which
+     * trivially matches the tag's own named product (it always will, for this
+     * phrasing), so name-based matching alone can't tell this apart from a
+     * genuine remains-after-void order. The items history proves it: the only
+     * items event is the exact same variation_id being removed and re-added
+     * at a corrected price (₱499 -> ₱500) — never a different product — so
+     * this order was never a real 2-item upsell to begin with.
+     */
+    public function test_corrects_a_still_active_order_whose_tag_never_matched_a_recognized_phrasing_but_history_proves_it_was_never_a_real_upsell(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1341759',
+            'status_code'         => 3,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Scar Cream',
+            'base_product'        => 'Scar Cream',
+            'amount'              => 500.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
+                'id'          => 1341759,
+                'status'      => 3,
+                'total_price' => 500,
+                'tags'        => [['id' => 1, 'name' => 'TSD UPSELL SCAR CREAM']],
+                'items'       => [
+                    ['variation_id' => 'ea15484b-d86c', 'variation_info' => ['name' => 'Scar Cream', 'retail_price' => 500], 'quantity' => 1],
+                ],
+                'histories' => [
+                    [
+                        'items' => [
+                            ['variation_id' => 'ea15484b-d86c', 'old' => ['variation_info' => ['name' => 'Scar Cream', 'retail_price' => 499]], 'new' => null],
+                            ['variation_id' => 'ea15484b-d86c', 'old' => null, 'new' => ['variation_info' => ['name' => 'Scar Cream', 'retail_price' => 500]]],
+                        ],
+                    ],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1341759')->first();
+        $this->assertFalse($order->is_upsell);
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(500.0, (float) $order->amount);
+    }
+
+    /** Guard against the new history check over-firing: a candidate whose tag
+     *  doesn't match a recognized phrasing either, but whose history proves a
+     *  GENUINELY DIFFERENT product once existed (a real base, later voided,
+     *  leaving a real addon behind) must be left alone as a live upsell. */
+    public function test_leaves_a_candidate_alone_when_history_proves_a_genuinely_different_item_once_existed(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1341760',
+            'status_code'         => 3,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Belo Set',
+            'base_product'        => 'Belo Set',
+            'amount'              => 1200.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
+                'id'          => 1341760,
+                'status'      => 3,
+                'total_price' => 1200,
+                'tags'        => [['id' => 1, 'name' => 'TSD UPSELL BELO SET']],
+                'items'       => [
+                    ['variation_id' => 'addon-item', 'variation_info' => ['name' => 'Belo Set', 'retail_price' => 1200], 'quantity' => 1],
+                ],
+                'histories' => [
+                    [
+                        'items' => [
+                            // The real base product, genuinely voided — a different
+                            // variation_id than the surviving item, never re-added.
+                            ['variation_id' => 'ginseng-serum', 'old' => ['variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 1000]], 'new' => null],
+                        ],
+                    ],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1341760')->first();
+        $this->assertTrue($order->is_upsell);
+        $this->assertFalse($order->is_cancelled_upsell);
+        $this->assertSame(1200.0, (float) $order->amount);
+    }
+
+    /**
+     * Confirmed live (order #1342174, 2026-08-07): tagged "TSD UPSELL -
+     * GINSENG SERUM" — the dash IS present, but the named product is the
+     * BASE ("Ginseng Serum"), not the addon, a tagging mistake rather than a
+     * missing phrasing. remainingItemIsJustTheBase()'s name match concludes
+     * the sole remaining item (also "Ginseng Serum") IS the addon, so it
+     * never flags this one. The real story, visible only in history: "Belo
+     * Set" (₱1200) was added, then fully removed — Ginseng Serum's own
+     * variation_id is never touched at all, proving it was the original base
+     * all along.
+     */
+    public function test_corrects_a_still_active_order_whose_tag_names_the_base_instead_of_the_addon(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1342174',
+            'status_code'         => 11,
+            'is_upsell'           => false,
+            'is_restocking_upsell' => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ginseng Serum',
+            'base_product'        => 'Ginseng Serum',
+            'amount'              => 499.0,
+            'restocking_upsell_amount' => 499.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
+                'id'          => 1342174,
+                'status'      => 11,
+                'total_price' => 499,
+                'tags'        => [['id' => 1, 'name' => 'TSD UPSELL - GINSENG SERUM']],
+                'items'       => [
+                    ['variation_id' => 'ginseng-serum-x', 'variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 499], 'quantity' => 1],
+                ],
+                'histories' => [
+                    [
+                        'items' => [
+                            ['variation_id' => 'belo-set-x', 'old' => null, 'new' => ['variation_info' => ['name' => 'Belo Set', 'retail_price' => 1200]]],
+                        ],
+                    ],
+                    [
+                        'items' => [
+                            ['variation_id' => 'belo-set-x', 'old' => ['variation_info' => ['name' => 'Belo Set', 'retail_price' => 1200]], 'new' => null],
+                        ],
+                    ],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1342174')->first();
+        $this->assertFalse($order->is_upsell);
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(499.0, (float) $order->amount);
+    }
 }

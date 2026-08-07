@@ -178,7 +178,15 @@ class ReconcileOrderStatuses extends Command
      */
     private function reconcileStaleUpsellTags(string $apiKey, string $shopId, Carbon $from, Carbon $to): array
     {
-        $candidates = Order::where('is_upsell', true)
+        // is_restocking_upsell candidates alongside is_upsell ones: the same
+        // stale-tag bug hits a Restocking-status order just as easily (its
+        // own isolated amount lives in restocking_upsell_amount instead of
+        // amount, but the structural signature — and the fix — is the same).
+        // Confirmed live, order #1342174 (2026-08-07): a Restocking order
+        // whose only history event was a genuine addon being added then
+        // removed, tagged in a way remainingItemIsJustTheBase() couldn't
+        // recognize (see that check's own call site below).
+        $candidates = Order::where(fn ($q) => $q->where('is_upsell', true)->orWhere('is_restocking_upsell', true))
             ->where('is_cancelled_upsell', false)
             ->whereNotNull('product')
             ->whereColumn('product', 'base_product')
@@ -198,13 +206,33 @@ class ReconcileOrderStatuses extends Command
             $raw = $response->json()['data'] ?? $response->json();
             if (!is_array($raw) || !isset($raw['items'])) continue;
 
-            if (!Order::remainingItemIsJustTheBase($raw)) continue;
+            // Three independent signals catch three different shapes of the
+            // same underlying bug — see each method's own doc comment for why
+            // no single one covers all of them. The history-based ones only
+            // apply to a currently-single-item order (same precondition the
+            // first one's single-item branch already uses) — irrelevant
+            // otherwise.
+            $isStale = Order::remainingItemIsJustTheBase($raw)
+                || (count($raw['items']) === 1 && (
+                    Order::historyShowsOnlyOneDistinctItemEverExisted($raw)
+                    || Order::historyShowsADifferentItemWasAddedThenRemoved($raw)
+                ));
+            if (!$isStale) continue;
+
+            // A restocking candidate's isolated amount lives in
+            // restocking_upsell_amount, not amount (see that column's own
+            // sync-time comment) — preserve whichever one actually held it.
+            $preservedAmount = $local->is_restocking_upsell
+                ? (float) $local->restocking_upsell_amount
+                : (float) $local->amount;
 
             $local->update([
-                'is_upsell'               => false,
-                'is_cancelled_upsell'     => true,
-                'cancelled_upsell_amount' => (float) $local->amount,
-                'amount'                  => (float) ($raw['total_price'] ?? $raw['cod'] ?? 0),
+                'is_upsell'                => false,
+                'is_restocking_upsell'     => false,
+                'restocking_upsell_amount' => 0,
+                'is_cancelled_upsell'      => true,
+                'cancelled_upsell_amount'  => $preservedAmount,
+                'amount'                   => (float) ($raw['total_price'] ?? $raw['cod'] ?? 0),
             ]);
             $corrected++;
             $this->line("  Corrected #{$local->pancake_order_id}: stale upsell tag, add-on item was removed");

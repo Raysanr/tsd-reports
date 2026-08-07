@@ -707,25 +707,59 @@ class SyncTodayOrders extends Command
 
     private function extractTsaInfo(array $tagNames, array $raw = [], ?string $productName = null, ?string $bundleDescription = null): array
     {
-        // Primary: explicit name tag (JULIE, GEMMA, etc.)
-        foreach ($tagNames as $tag) {
-            $key = strtoupper(trim($tag));
-            if (isset($this->tsaMap[$key])) {
-                // matched_tag lets resolveWorkedAt() find, in Pancake's histories log,
-                // the moment this specific tag was actually added to the order.
-                return $this->tsaMap[$key] + ['matched_tag' => $key];
-            }
-        }
-
-        // Fallback: check assigning_seller on upsell items (index 1+)
+        // Primary: assigning_seller on the upsell item(s) (index 1+) — a real Pancake
+        // account (who actually closed the add-on), not free-text tag parsing. Tags
+        // stay reliable in the overwhelming majority of cases (confirmed live,
+        // 2026-08-07: 45 of 46 upsell orders on one date agreed with the account
+        // signal — the 1 disagreement was an admin editing a stale order after the
+        // fact, not a genuine TSA mismatch) but are structurally vulnerable to an
+        // order carrying two different TSAs' name tags at once, which
+        // extractTsaInfo() would previously resolve by whichever tag Pancake happened
+        // to list first — not necessarily the TSA who actually gets credit. The
+        // account field can't have that ambiguity: Pancake records exactly one
+        // assigning_seller per item. Only ever checked for items[1:] — item 0 is the
+        // customer's original/base product, whose assigning_seller is the marketer/
+        // page account that created the lead, not a TSA, so it's deliberately never
+        // consulted here.
+        $sellerInfo = null;
         foreach (\array_slice($raw['items'] ?? [], 1) as $item) {
             $seller = strtolower($item['assigning_seller']['name'] ?? '');
             foreach ($this->sellerMap as $keyword => $info) {
                 if ($seller !== '' && str_contains($seller, $keyword)) {
-                    // No tag was matched, so there's no history entry to look up —
-                    // resolveWorkedAt() falls back to insertion time for this case.
-                    return $info + ['matched_tag' => null];
+                    $sellerInfo = $info;
+                    break 2;
                 }
+            }
+        }
+
+        // matched_tag still comes from the tag list when one agrees with whoever the
+        // account signal above identified — resolveWorkedAt() uses it to find the
+        // precise moment that tag was added in Pancake's histories log. Without this,
+        // every order with an account match would fall back to insertion time instead
+        // of the more accurate tag-add time, even when a perfectly good tag exists.
+        // Deliberately ignores a DISAGREEING tag (a different TSA's name) rather than
+        // trusting its timestamp for the account-identified TSA.
+        $matchedTag = null;
+        foreach ($tagNames as $tag) {
+            $key = strtoupper(trim($tag));
+            if (isset($this->tsaMap[$key]) && (!$sellerInfo || $this->tsaMap[$key]['name'] === $sellerInfo['name'])) {
+                $matchedTag = $key;
+                break;
+            }
+        }
+
+        if ($sellerInfo) {
+            return $sellerInfo + ['matched_tag' => $matchedTag];
+        }
+
+        // Fallback: no assigning_seller match — e.g. a single-item order (nothing at
+        // index 1+ to check at all) or a genuinely new TSA whose seller_keywords
+        // hasn't been configured on the TSA Management page yet. Same tag-scan this
+        // method always used as its primary signal before the account check above.
+        foreach ($tagNames as $tag) {
+            $key = strtoupper(trim($tag));
+            if (isset($this->tsaMap[$key])) {
+                return $this->tsaMap[$key] + ['matched_tag' => $key];
             }
         }
 
