@@ -91,8 +91,13 @@ class DashboardController extends Controller
             $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->exists();
 
+            // realUpsell(), not a bare is_upsell=true — see Order::scopeRealUpsell()'s
+            // own doc comment: is_upsell alone undercounts once a genuine upsell is
+            // later returned/cancelled in Pancake. Confirmed live against real Pancake
+            // POS + the logistics system, both of which still count a later-returned
+            // upsell toward the day's total.
             $upsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)->where('is_upsell', true);
+                ->whereIn('team', $orderTeams)->realUpsell();
 
             $totalOrders = (clone $upsells)->count();
             $grossSales  = (clone $upsells)->sum('amount');
@@ -253,8 +258,15 @@ class DashboardController extends Controller
                 ->whereNotNull('tsa_name')
                 ->groupBy('tsa_name')
                 ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
-                    $upsellCount = $orders->where('is_upsell', true)->count();
-                    $upsellSales = (float) $orders->where('is_upsell', true)->sum('amount');
+                    // Order::isRealUpsell() — see its own doc comment. Leads Report/
+                    // TSA Performance already counted both is_upsell and
+                    // is_returned_upsell; this leaderboard was the one place that
+                    // never got the same fix — confirmed live against real Pancake
+                    // POS + the logistics system, both of which count a
+                    // later-returned upsell toward the day's total same as any other.
+                    $realUpsells = $orders->filter(fn ($o) => Order::isRealUpsell($o));
+                    $upsellCount = $realUpsells->count();
+                    $upsellSales = (float) $realUpsells->sum('amount');
 
                     // Same Include Restocking toggle as Total Cross-Sell Sales above —
                     // restocking_upsell_amount is the isolated add-on price, same
@@ -290,7 +302,7 @@ class DashboardController extends Controller
             // revenue, not just which TSA is closing them.
             $topProducts = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
-                ->where('is_upsell', true)
+                ->realUpsell()
                 ->whereNotNull('product')
                 ->selectRaw('product, COUNT(*) as upsell_count, SUM(amount) as total_sales')
                 ->groupBy('product')
@@ -370,14 +382,17 @@ class DashboardController extends Controller
             $teamComparison = $selectedTeam !== 'all' ? collect() : collect($teamsConfig)->map(function ($teamConfig) use ($dateFrom, $dateTo) {
                 $orders      = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team'])->get();
                 $totalCalled = ProductPerformance::tally($orders)['total_called'];
-                $upsellCount = $orders->where('is_upsell', true)->count();
+                // Order::isRealUpsell(), not a bare is_upsell — see its own doc
+                // comment (same fix as Total Cross-Sell Sales/Top Upsell Products above).
+                $realUpsells = $orders->filter(fn ($o) => Order::isRealUpsell($o));
+                $upsellCount = $realUpsells->count();
 
                 return [
                     'name'         => $teamConfig['name'],
                     'total_calls'  => $totalCalled,
                     'upsell_count' => $upsellCount,
                     'upsell_rate'  => $totalCalled > 0 ? round($upsellCount / $totalCalled * 100, 1) : 0.0,
-                    'revenue'      => $orders->where('is_upsell', true)->sum('amount'),
+                    'revenue'      => $realUpsells->sum('amount'),
                 ];
             })->values();
 

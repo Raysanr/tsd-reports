@@ -88,12 +88,15 @@ class ChartsController extends Controller
                 $calledSeries[$team][] = $tally['total_called'];
 
                 // Cross-sell/upsell revenue only — matches the Dashboard's "Total
-                // Cross-Sell Sales" definition, NOT Leads Report's full-realized-revenue
-                // one. Confirmed with the user: the full-revenue figure (base product +
-                // upsells) reads as implausibly large here compared to the Dashboard
-                // number they're used to, even though it isn't a miscount — it's just
-                // answering a bigger question. This chart answers the Dashboard's question.
-                $salesSeries[$team][] = (float) $teamDayOrders->where('is_upsell', true)->sum('amount');
+                // Cross-Sell Sales" definition (Order::isRealUpsell(), not a bare
+                // is_upsell — see that method's own doc comment), NOT Leads Report's
+                // full-realized-revenue one. Confirmed with the user: the full-revenue
+                // figure (base product + upsells) reads as implausibly large here
+                // compared to the Dashboard number they're used to, even though it
+                // isn't a miscount — it's just answering a bigger question. This chart
+                // answers the Dashboard's question, so it needs the same fix that
+                // question's own number got.
+                $salesSeries[$team][] = (float) $teamDayOrders->filter(fn ($o) => Order::isRealUpsell($o))->sum('amount');
             }
 
             // Combined (both teams) disposition mix for that day.

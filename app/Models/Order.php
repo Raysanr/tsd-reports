@@ -135,6 +135,36 @@ class Order extends Model
         return false;
     }
 
+    /** is_upsell alone undercounts: SyncTodayOrders resets it to false once a
+     *  genuine upsell is later returned/cancelled in Pancake (is_returned_upsell
+     *  is set instead, preserving that it WAS a real upsell — see that flag's own
+     *  doc comment). Confirmed live (2026-08-07): Gemma showed 18 upsells on the
+     *  Dashboard's TSA Leaderboard for a date real Pancake POS and the logistics
+     *  system both counted as 20 — the 3-order gap was exactly her returned
+     *  upsells that day. TsaPerformanceController::buildRow() and
+     *  ProductPerformance::tally() already had this right; this is the single
+     *  shared definition every other "how many/how much did this TSA/team
+     *  upsell" query should use instead of re-deriving its own is_upsell-only
+     *  version and quietly drifting out of sync with Pancake again. Deliberately
+     *  does NOT also fold in ProductPerformance's tag-fallback branch (catches a
+     *  genuinely different, rarer case — an order with an upsell tag but neither
+     *  flag set — and that fallback has its own known edge case letting a
+     *  Restocking-status order slip through, so it isn't safe to blindly copy
+     *  here). Use realUpsell()/scopeRealUpsell() for a query builder, this for
+     *  an already-fetched Order/Collection. */
+    public static function isRealUpsell(self $order): bool
+    {
+        return $order->is_upsell || $order->is_returned_upsell;
+    }
+
+    /** Query-builder counterpart to isRealUpsell() above — same definition,
+     *  usable directly in a ->where()/->sum()/->count() chain instead of having
+     *  to ->get() first just to filter in PHP. */
+    public function scopeRealUpsell($query)
+    {
+        return $query->where(fn ($q) => $q->where('is_upsell', true)->orWhere('is_returned_upsell', true));
+    }
+
     /**
      * True when an order's tags say it's an upsell but only ONE item remains on
      * it — the add-on was removed (upsell cancelled), and that sole item is NOT
