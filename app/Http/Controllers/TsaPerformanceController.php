@@ -122,6 +122,24 @@ class TsaPerformanceController extends Controller
             })->values();
         }
 
+        // Flat day-total summary — explicit request: the same one-row-per-TSA +
+        // Grand Total table indexAll() shows, displayed above this page's own
+        // hourly breakdown rather than replacing it. Built from the exact same
+        // $orders this page already fetched (respects the product filter above
+        // too, so it never disagrees with the hourly blocks below it) — same
+        // shift/tally/team shape as indexAll()'s own $tsaRows/$grandTotal, just
+        // scoped to the one selected team instead of looping every team.
+        $ordersByTsaFlat = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsaFlat, $selectedTeam, $teamsConfig) {
+            $row = ProductPerformance::tally($ordersByTsaFlat->get($shift->tsa_key, collect()));
+            $row['display_name'] = $shift->display_name;
+            $row['team']         = $teamsConfig[$selectedTeam]['name'];
+            $row['team_key']     = $selectedTeam;
+            $row['tsa_key']      = $shift->tsa_key;
+            return $row;
+        })->values();
+        $grandTotal = ProductPerformance::tally($orders);
+
         $allKeys        = $shifts->keys();
         $ordersByHour   = $orders->groupBy(fn($o) => (int) $o->pancake_created_at->format('G'));
 
@@ -209,7 +227,8 @@ class TsaPerformanceController extends Controller
             'dateFrom', 'dateTo', 'hourBlocks', 'totals',
             'teams', 'selectedTeam', 'metricCols',
             'totalPickUpRate', 'totalConversionRate', 'totalUpsellingRate',
-            'availableProducts', 'selectedProduct'
+            'availableProducts', 'selectedProduct',
+            'tsaRows', 'grandTotal'
         ));
     }
 
