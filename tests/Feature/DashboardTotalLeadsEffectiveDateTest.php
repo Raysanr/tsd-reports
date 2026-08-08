@@ -9,15 +9,14 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Explicit request: Dashboard's "Total Leads" must tally with Leads Report's
- * Grand Total on any date, not just by coincidence — confirmed live that a
- * backlog lead (created one day, worked by a TSA the next) inflated Dashboard's
- * count for the worked day while Leads Report excluded it, since Leads Report
- * filters by COALESCE(pancake_inserted_at, pancake_created_at) (real creation
- * date, matching Pancake POS's own Created-At filter) while Dashboard's Total
- * Leads was filtering by pancake_created_at alone (worked-at time) — see
- * DashboardController::index()'s $leadOrders comment. Same effective-date rule
- * already covered for Leads Report itself in LeadsReportEffectiveDateTest.
+ * Explicit request (2026-08-08): Dashboard's "Total Leads"/Pick-up Rate/
+ * Upselling Rate must tally with TSA Performance's Grand Total, not Leads
+ * Report's — reversing an earlier fix. Confirmed live that using Leads
+ * Report's COALESCE(pancake_inserted_at, pancake_created_at) convention made
+ * Dashboard disagree with TSA Performance's Grand Total (which has always
+ * filtered by pancake_created_at/worked-at time alone) on any day with a
+ * backlog lead — created one day, worked the next. Dashboard now filters the
+ * same way TSA Performance always has: pancake_created_at only, no COALESCE.
  */
 class DashboardTotalLeadsEffectiveDateTest extends TestCase
 {
@@ -29,7 +28,7 @@ class DashboardTotalLeadsEffectiveDateTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    public function test_an_order_created_yesterday_but_worked_today_is_NOT_in_todays_total_leads(): void
+    public function test_an_order_created_yesterday_but_worked_today_counts_in_todays_total_leads(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
 
@@ -51,10 +50,10 @@ class DashboardTotalLeadsEffectiveDateTest extends TestCase
         $response = $this->get(route('dashboard', ['date_from' => $today, 'date_to' => $today]));
 
         $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['total_leads'] === 0);
+        $response->assertViewHas('stats', fn ($stats) => $stats['total_leads'] === 1);
     }
 
-    public function test_an_order_created_today_but_worked_yesterday_still_counts_in_todays_total_leads(): void
+    public function test_an_order_created_today_but_worked_yesterday_does_not_count_in_todays_total_leads(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
 
@@ -68,7 +67,7 @@ class DashboardTotalLeadsEffectiveDateTest extends TestCase
             'is_upsell'           => false,
             'status_code'         => 1,
             'pancake_inserted_at' => now(),              // created today
-            'pancake_created_at'  => now()->subDay(),    // but somehow tagged yesterday
+            'pancake_created_at'  => now()->subDay(),    // but worked yesterday
             'synced_at'           => now(),
         ]);
 
@@ -76,10 +75,10 @@ class DashboardTotalLeadsEffectiveDateTest extends TestCase
         $response = $this->get(route('dashboard', ['date_from' => $today, 'date_to' => $today]));
 
         $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['total_leads'] === 1);
+        $response->assertViewHas('stats', fn ($stats) => $stats['total_leads'] === 0);
     }
 
-    public function test_a_pre_backfill_order_with_no_pancake_inserted_at_falls_back_to_worked_at(): void
+    public function test_a_pre_backfill_order_with_no_pancake_inserted_at_still_counts_by_worked_at(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
 
@@ -92,7 +91,7 @@ class DashboardTotalLeadsEffectiveDateTest extends TestCase
             'raw_tags'            => ['SINUXYL', strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
             'is_upsell'           => false,
             'status_code'         => 1,
-            'pancake_inserted_at' => null,   // never backfilled
+            'pancake_inserted_at' => null,   // never backfilled — irrelevant now, pancake_created_at is the only signal
             'pancake_created_at'  => now(),
             'synced_at'           => now(),
         ]);

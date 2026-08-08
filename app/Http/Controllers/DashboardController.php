@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
-use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -193,44 +192,24 @@ class DashboardController extends Controller
             $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->get();
 
-            // Total Leads/Pick-up Rate/Upselling Rate specifically need to match Leads
-            // Report's Grand Total (per this block's own comment above) — but Leads
-            // Report's ALL view filters by COALESCE(pancake_inserted_at,
-            // pancake_created_at) (real creation date, matching Pancake POS's own
-            // Created-At filter — see LeadsReportController::index()), not
-            // pancake_created_at (worked-at time) like $dayOrders above. Confirmed live:
-            // a lead created late one day but worked by a TSA the next lands in
-            // different calendar days under each column, so Dashboard's Total Leads
-            // (590) didn't tally with Leads Report's Grand Total (585) for the same
-            // date. $dayOrders itself stays pancake_created_at-based below — Hourly
-            // Activity and the TSA leaderboard intentionally use worked-at time,
-            // matching TSA Performance's own "calls today" figures.
-            //
-            // Grand Total is the SUM of Leads Report's per-product rows, not a
-            // distinct-order tally() — see ProductPerformance::sumRows()'s own doc
-            // comment. A cross-team combo order (e.g. a Pterygium order bundling
-            // Sinuxyl units) legitimately counts toward two products' rows there, so
-            // a bare tally() here ran 1 lower than Leads Report's Grand Total on any
-            // day with such an order (confirmed live: Dashboard 600 vs Leads Report
-            // 601). Matching that means building the same per-product rows Leads
-            // Report builds — against the same cross-team match pool it uses (every
-            // configured team's orders, not just $orderTeams, for the same combo-order
-            // reason) — and summing those, instead of tallying $leadOrders directly.
-            $leadMatchPool = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
-                ->get();
-
-            $leadProducts = $selectedTeam === 'all'
-                ? Product::orderBy('sort_order')->get()->sortBy(fn($p) => array_search($p->team, $orderTeams))->values()
-                : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
-
-            $leadProductRows = $leadProducts
-                ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $leadMatchPool, $leadProducts)])
-                ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
-                ->pluck('row')
-                ->values();
-
-            $leadTally = ProductPerformance::sumRows($leadProductRows);
+            // Total Leads/Pick-up Rate/Upselling Rate now deliberately match TSA
+            // Performance's own Grand Total, not Leads Report's — explicit request:
+            // reusing $dayOrders (same pancake_created_at/worked-at filter, same
+            // $orderTeams scope) and feeding it straight into ProductPerformance::
+            // tally(), the exact function + argument shape TsaPerformanceController::
+            // indexAll() already uses for ITS Grand Total row. Previously this built
+            // a separate COALESCE(pancake_inserted_at, pancake_created_at)-filtered
+            // pool summed through per-product rows to match Leads Report instead —
+            // confirmed live (2026-08-08) that choice was exactly why Dashboard's
+            // Pick-up/Upselling Rate disagreed with TSA Performance's Grand Total on
+            // any day with backlog leads (created one day, worked the next). Leads
+            // Report and TSA Performance already used two different date
+            // conventions from each other before this change; Dashboard can only
+            // ever match one of the two, and matching TSA Performance was the
+            // explicit choice here. Also removes a second full-table fetch that
+            // existed solely for this — one less large unscoped query on every
+            // Dashboard load.
+            $leadTally = ProductPerformance::tally($dayOrders);
 
             $stats['total_leads']    = $leadTally['total'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
