@@ -336,20 +336,33 @@ class TsaPerformanceController extends Controller
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
 
-            // 'catered' (== total_called), not 'total' — this column is labeled
-            // "Total Catered Leads" and must match tsa_leads/total_called below.
-            // 'total' counts every matching lead including ones with no worked
-            // disposition yet, which let this column read higher than the actual
-            // called-leads count for the same hour (confirmed live: a lead still
-            // sitting New/un-called inflated the per-product sum by 1 past the
-            // real total called that hour).
-            // Computed once per product per hour and split into both 'counts' (qty)
-            // and 'amounts' (₱ upsell revenue) below, rather than calling buildRow()
-            // twice — same underlying row, just reading two different keys off it.
+            // Computed once per product per hour and split into three keys below,
+            // rather than calling buildRow() twice — same underlying row, just
+            // reading different keys off it.
             $productRows = $products->mapWithKeys(fn($product) => [$product->id => ProductPerformance::buildRow($product, $hourOrders, $products)]);
-            $counts      = $productRows->map(fn($row) => $row['catered']);
-            $amounts     = $productRows->map(fn($row) => $row['upsell_sales']);
-            $rowTotal    = $counts->sum();
+
+            // 'catered' (== total_called) feeds ONLY the separate "Total Catered
+            // Leads" column below (must match tsa_leads/total_called there) — 'total'
+            // counts every matching lead including ones with no worked disposition
+            // yet, which let this column read higher than the actual called-leads
+            // count for the same hour (confirmed live: a lead still sitting New/
+            // un-called inflated the per-product sum by 1 past the real total
+            // called that hour).
+            $catered  = $productRows->map(fn($row) => $row['catered']);
+            $rowTotal = $catered->sum();
+
+            // Explicit request (2026-08-11): each per-product cell's qty must be
+            // how many of that hour's leads for this product were an actual
+            // upsell — not every catered lead for it. 'catered' included every
+            // called lead regardless of outcome, so a product with real call
+            // volume but no upsells that hour showed a bare count with no ₱
+            // amount next to it (confusing — reads as "4 upsells" when it's
+            // really "4 leads called, 0 upsold"). 'upsell_confirmation' is the
+            // same $isRealUpsell-filtered count buildRow()'s own upsell_sales
+            // amount is derived from, so qty and ₱ never disagree on which
+            // orders they're counting.
+            $counts  = $productRows->map(fn($row) => $row['upsell_confirmation']);
+            $amounts = $productRows->map(fn($row) => $row['upsell_sales']);
 
             // Same per-hour disposition tally already used for the hourly breakdown
             // table above — reused here (not recomputed differently) so "answered"/

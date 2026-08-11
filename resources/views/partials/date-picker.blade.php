@@ -32,6 +32,11 @@
                     elsewhere in the form (e.g. "Retry Sync") as the deliberate
                     action trigger. Default true (existing behavior everywhere
                     else: Apply both sets the field(s) and submits).
+      rangeMonths  Only relevant when mode='range'. How many months the inline
+                    calendar shows side by side on desktop (still a single
+                    month on mobile, same as always). Default 2 (Dashboard's
+                    original range picker). Sync Health's "Fix Now" passes 1 —
+                    still a real start/end range, just a narrower calendar.
 --}}
 @php
     $mode         = $mode ?? 'single';
@@ -43,6 +48,7 @@
     $minDate      = $minDate ?? '2026-06-01';
     $showLabel    = $showLabel ?? false;
     $autoSubmit   = $autoSubmit ?? true;
+    $rangeMonths  = $rangeMonths ?? 2;
 
     $initFrom = $isRange ? $dateFrom->toDateString() : $date;
     $initTo   = $isRange ? $dateTo->copy()->startOfDay()->toDateString() : $date;
@@ -108,7 +114,7 @@
          they're conceptually used. max-h-[85vh]+overflow-y-auto: a stacked
          mobile layout (8 presets + a full calendar) can run taller than short
          phone screens. --}}
-    <div id="{{ $uid }}Panel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto w-[min(285px,calc(100vw-2rem))] {{ $isRange ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
+    <div id="{{ $uid }}Panel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[85vh] overflow-y-auto w-[min(285px,calc(100vw-2rem))] {{ $isRange && $rangeMonths > 1 ? 'sm:w-[700px]' : 'sm:w-[440px]' }}">
         {{-- Always side-by-side (sidebar + calendar), matching the desktop design
              exactly at every screen size — mobile just shrinks both (narrower
              sidebar, smaller calendar cells; see the mobile flatpickr overrides
@@ -295,11 +301,13 @@
         fp = flatpickr(fpInput, {
             mode       : isRange ? 'range' : 'single',
             inline     : true,
-            // Range mode (Dashboard) shows two months side by side for span picking;
-            // single-date report pages stay on one month. Forced to 1 below the sm
-            // breakpoint regardless of mode — two months side by side can't fit
-            // even at the panel's full mobile width without overflowing again.
-            showMonths : isRange && window.matchMedia('(min-width: 640px)').matches ? 2 : 1,
+            // Range mode shows rangeMonths side by side for span picking (Dashboard's
+            // original picker: 2; Sync Health's "Fix Now": 1 — still a real range,
+            // narrower calendar); single-date report pages stay on one month. Forced
+            // to 1 below the sm breakpoint regardless of mode — multiple months
+            // side by side can't fit even at the panel's full mobile width without
+            // overflowing again.
+            showMonths : isRange && window.matchMedia('(min-width: 640px)').matches ? {{ $rangeMonths }} : 1,
             minDate    : '{{ $minDate }}',
             maxDate    : 'today',
             defaultDate: isRange ? [selFrom, selTo] : [selFrom],

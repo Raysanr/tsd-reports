@@ -224,7 +224,17 @@ class ProductPerformance
         // Cross-sell/upsell revenue only — the Dashboard's "Total Cross-Sell Sales"
         // definition (add-on items' value), NOT full realized revenue. Same
         // convention already confirmed for the Analytics daily sales trend.
-        $row['upsell_sales'] = (float) $orders->where('is_upsell', true)->sum('amount');
+        //
+        // $isRealUpsell, not a bare is_upsell=true (fixed 2026-08-11): this used
+        // to miss is_returned_upsell orders entirely — an upsell later Returned/
+        // Returning has is_upsell forced false (same as any void status), so its
+        // revenue silently dropped out of this sum while upsell_confirmation
+        // above (already $isRealUpsell-filtered) still counted it toward qty —
+        // a product/hour cell could show e.g. "4" upsells with an amount that
+        // only reflected 3 of them. Safe now that amount itself holds the
+        // isolated add-on price for a returned-upsell row too, not the whole
+        // order's total (see SyncTodayOrders::handle()'s own fix, same date).
+        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum('amount');
 
         $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
             + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];

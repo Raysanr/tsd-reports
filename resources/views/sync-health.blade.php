@@ -168,6 +168,7 @@
                 'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->subDays(30)->toDateString())),
                 'dateTo'   => \Illuminate\Support\Carbon::parse(old('date_to', now()->toDateString())),
                 'submit' => 'form', 'autoSubmit' => false, 'showLabel' => true,
+                'rangeMonths' => 1,
             ])
         </div>
         <button type="submit"
