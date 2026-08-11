@@ -8,21 +8,44 @@ set -e
 mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
 chmod -R 775 storage bootstrap/cache
 
-# Cron Job service mode (2026-08-11): a second Railway service ("tsd-reports-
-# scheduler") runs this SAME image on a `* * * * *` schedule with Custom
-# Start Command set to the single word `schedule`, replacing the external-
-# pinger approach (cron-job.org hitting /cron/run) this app used on Render,
-# which never got repointed during the Railway migration and left the whole
-# scheduler silently dead. Deliberately skips config:cache/route:cache/
-# view:cache/migrate below — those exist for the long-running web server,
-# where paying that cost once per boot is worth it; here Railway spins up a
-# brand-new container every single minute, so re-paying it every run would
-# be pure waste for zero benefit (Laravel falls back to reading .env/config
-# directly with no cache present — a performance optimization, not a
-# requirement) — and skips the self-check block too, since that needs a
-# running HTTP server and this is a one-shot artisan command, not one.
+# Scheduler service modes (2026-08-11) — replacing the external-pinger
+# approach (cron-job.org hitting /cron/run) this app used on Render, which
+# never got repointed during the Railway migration and left the whole
+# scheduler silently dead:
+#
+#   schedule       one-shot `schedule:run`, for a Railway Cron Job service.
+#                  Simple and cheap, but Railway enforces a 5-minute minimum
+#                  interval — routes/console.php's 2-minute delta sync would
+#                  only actually align (and so effectively run) every ~10
+#                  minutes under this mode, since Laravel's scheduler only
+#                  fires a job when the CURRENT minute matches its own cron
+#                  expression, not "haven't run in a while, catch up now".
+#   schedule:work  long-running `schedule:work`, for a normal persistent
+#                  Railway service (no Cron Schedule set on it) instead of a
+#                  Cron Job one. Laravel's own loop checks every minute
+#                  internally — no external trigger of any kind, and no
+#                  5-minute floor, so every job in routes/console.php
+#                  (including the 2-minute delta sync) runs on its actual
+#                  configured interval, full fidelity with the pre-migration
+#                  design. Costs a small always-on container instead of a
+#                  briefly-spun-up one every 5 minutes — the tradeoff for
+#                  not being capped at 5-minute granularity.
+#
+# Both skip config:cache/route:cache/view:cache/migrate below — those exist
+# for the long-running WEB server, where paying that cost once per boot is
+# worth it; a one-shot artisan command re-paying it every invocation (mode 1)
+# or a worker that only needs it once at its own single startup anyway
+# (mode 2, no benefit to Laravel's file-based cache surviving a restart it
+# never has here) gets nothing from it (Laravel falls back to reading
+# .env/config directly with no cache present — a performance optimization,
+# not a requirement) — and both skip the self-check block too, since that
+# needs a running HTTP server and neither of these is one.
 if [ "$1" = "schedule" ]; then
     exec php artisan schedule:run
+fi
+
+if [ "$1" = "schedule:work" ]; then
+    exec php artisan schedule:work
 fi
 
 php artisan config:cache
