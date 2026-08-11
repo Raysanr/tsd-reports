@@ -131,6 +131,27 @@ class SyncHealthTest extends TestCase
         $this->assertStringContainsString('api_key=REDACTED', $run->error_message);
     }
 
+    /**
+     * Real bug (2026-08-10): the "Fix Now" date-range picker's visible
+     * trigger label showed only the start date ("Jul 11, 2026") on first
+     * render, silently dropping the end date, even though the calendar
+     * panel underneath had the full correct range selected — this was the
+     * first-ever usage combining mode='range' with showLabel=true (every
+     * prior showLabel trigger was single-date), which exposed a spot in
+     * the shared partial that had never needed to handle a range before.
+     */
+    public function test_fix_now_pickers_initial_label_shows_the_full_range_not_just_the_start_date(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->get(route('sync-health'));
+
+        $response->assertOk();
+        $from = now()->subDays(30)->format('M d, Y');
+        $to   = now()->format('M d, Y');
+        $response->assertSee("id=\"reconcileDrpLabel\">{$from} – {$to}<", false);
+    }
+
     public function test_reconcile_statuses_corrects_stale_orders_and_reports_the_count(): void
     {
         $this->actingAs(User::factory()->create());
@@ -150,6 +171,70 @@ class SyncHealthTest extends TestCase
         $response->assertRedirect(route('sync-health'));
         $response->assertSessionHas('success');
         $this->assertStringContainsString('corrected 1 stale', session('success'));
+        $this->assertSame(7, Order::where('pancake_order_id', '1335548')->first()->status_code);
+    }
+
+    /** Explicit request (2026-08-10): "Fix Now" should also correct Total
+     *  Cross-Sell Sales' actual number — the flash message must say so
+     *  when it happened, not just report the status-fix count. */
+    public function test_reconcile_statuses_reports_amount_corrections_in_the_flash_message(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        Order::factory()->create([
+            'pancake_order_id'    => '1350030',
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ear Relief Balm',
+            'base_product'        => 'AudiCure',
+            'amount'              => 400.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1350030*' => Http::response(['data' => [
+                'id'    => 1350030,
+                'items' => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 600], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        $response = $this->post(route('sync-health.reconcile-statuses'), ['days' => 30]);
+
+        $response->assertSessionHas('success');
+        $this->assertStringContainsString('refreshed 1 upsell amount', session('success'));
+        $this->assertSame(600.0, (float) Order::where('pancake_order_id', '1350030')->first()->amount);
+    }
+
+    /** Explicit request (2026-08-10): "Fix Now" now sends date_from/date_to
+     *  from the shared range picker instead of a "days back" number — this
+     *  must take priority over --days' default, not silently ignore it. */
+    public function test_reconcile_statuses_accepts_an_explicit_date_range_from_the_picker(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        Order::factory()->create(['pancake_order_id' => '1335548', 'status_code' => 0]);
+
+        Http::fake(function ($request) {
+            $expectedFrom = \Illuminate\Support\Carbon::parse('2026-01-01', 'Asia/Manila')->startOfDay()->timestamp;
+            if ((int) ($request->data()['startDateTime'] ?? 0) !== $expectedFrom) {
+                return Http::response(['data' => []], 200);
+            }
+            return Http::response(['data' => [['id' => 1335548, 'status' => 7]]], 200);
+        });
+
+        $response = $this->post(route('sync-health.reconcile-statuses'), ['date_from' => '2026-01-01', 'date_to' => '2026-01-09']);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('success');
         $this->assertSame(7, Order::where('pancake_order_id', '1335548')->first()->status_code);
     }
 

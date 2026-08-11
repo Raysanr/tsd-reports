@@ -392,17 +392,34 @@ class SyncTodayOrders extends Command
             if ($isUpsell) {
                 $this->warnIfAmbiguousUpsellItems($raw);
             }
-            $amount = $isUpsell
-                ? $this->extractUpsellAmount($raw)
+            // Root-cause fix (2026-08-11): amount must be the isolated add-on
+            // price for EVERY row Order::scopeRealUpsell() counts as revenue
+            // (is_upsell OR is_returned_upsell) — not just is_upsell. Before
+            // this, a Returned/Returning order fell to the total_price
+            // branch below (is_upsell is forced false for it, same as any
+            // VOID_STATUSES row), so every SUM(amount) query scoped to
+            // realUpsell() (Dashboard's Total Cross-Sell Sales, Charts,
+            // TsaPerformanceController's upsell_sales) silently included the
+            // ORIGINAL product's price too for any upsell that was later
+            // returned — confirmed live (2026-08-11), Mariel/Aug 1: order
+            // #1340544 stored amount=1300 (full order) instead of 500 (the
+            // real add-on value already correctly sitting in
+            // returned_upsell_amount two lines below) — an ₱800 overcount
+            // from one single order. RtsReportController already knew to
+            // read returned_upsell_amount instead of amount for exactly
+            // this reason; every other consumer didn't.
+            $amount = ($isUpsell || $isReturnedUpsell)
+                ? Order::extractUpsellAmount($raw)
                 : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
 
-            // See $isReturnedUpsell comment above — this is the isolated add-on price,
-            // computed independently of $amount (which holds the whole order's total
-            // for this row, since is_upsell is forced false by the void status).
-            $returnedUpsellAmount = $isReturnedUpsell ? $this->extractUpsellAmount($raw) : 0.0;
+            // Same value as $amount now for a Returned/Returning row (see the
+            // fix above) — kept as its own column anyway since
+            // RtsReportController and others already read it by name, and
+            // removing the redundancy isn't this fix's job.
+            $returnedUpsellAmount = $isReturnedUpsell ? Order::extractUpsellAmount($raw) : 0.0;
 
             // Same reasoning as $returnedUpsellAmount above, for the Restocking case.
-            $restockingUpsellAmount = $isRestockingUpsell ? $this->extractUpsellAmount($raw) : 0.0;
+            $restockingUpsellAmount = $isRestockingUpsell ? Order::extractUpsellAmount($raw) : 0.0;
 
             $parsed[] = [
                 'pancake_order_id'        => (string)$raw['id'],
@@ -538,49 +555,6 @@ class SyncTodayOrders extends Command
         ]);
     }
 
-    // Sum retail_price of items AFTER the first — those are the items the TSA added
-    private function extractUpsellAmount(array $raw): float
-    {
-        $items = $raw['items'] ?? [];
-
-        // Single-item order tagged UPSELL TSD: that item IS the upsell (original was voided)
-        if (count($items) < 2) {
-            // Fix #8: this assumption is backwards when it's the ADD-ON that got
-            // removed instead of the original (order #1325213: customer cancelled
-            // the upsell, staff deleted the LUMICARE OIL line, leaving only the
-            // original Clear Sight 3.0 — that's not a ₱1,000 upsell, it's ₱0).
-            if (Order::remainingItemIsJustTheBase($raw)) {
-                return 0.0;
-            }
-            $vi = $items[0]['variation_info'] ?? [];
-            return (float)($vi['retail_price'] ?? $raw['total_price'] ?? $raw['cod'] ?? 0);
-        }
-
-        // Fix #7: a "(Product Name)" tag names one exact upsell item — match it by
-        // name instead of assuming item order, since Pancake doesn't guarantee the
-        // added-on item is listed last (see order #1325787).
-        $hintIndex = $this->findItemIndexByTagHint($raw);
-        if ($hintIndex !== null) {
-            $vi    = $items[$hintIndex]['variation_info'] ?? [];
-            $price = (float)($vi['retail_price'] ?? 0);
-            $qty   = (int)($items[$hintIndex]['quantity'] ?? 1);
-            return $price * $qty;
-        }
-
-        $upsellAmount = 0.0;
-        foreach (\array_slice($items, 1) as $item) {
-            $vi    = $item['variation_info'] ?? [];
-            $price = (float)($vi['retail_price'] ?? 0);
-            $qty   = (int)($item['quantity'] ?? 1);
-            $upsellAmount += $price * $qty;
-        }
-
-        // Fix #2: never fall back to total_price — that includes item 0 (original product).
-        // If retail_price is missing/zero on all upsell items, return 0 rather than
-        // inflating the total with the original order value.
-        return $upsellAmount;
-    }
-
     // For upsell orders, show the upsell product name (item 1+), not the original
     /** Returns ['name' => ..., 'display_id' => ..., 'base_name' => ...] for the same
      *  item extractUpsellProduct() used to return just the name for. display_id is
@@ -609,7 +583,7 @@ class SyncTodayOrders extends Command
             if (count($items) < 2 && Order::remainingItemIsJustTheBase($raw)) {
                 return ['name' => null, 'display_id' => null, 'base_name' => null]; // upsell add-on was removed; nothing valid to show
             }
-            $hintIndex = $this->findItemIndexByTagHint($raw);
+            $hintIndex = Order::findItemIndexByTagHint($raw);
             if ($hintIndex !== null) {
                 $vi = $items[$hintIndex]['variation_info'] ?? [];
                 // Base = the other item, whichever one ISN'T the tag-identified
@@ -638,40 +612,6 @@ class SyncTodayOrders extends Command
         ];
     }
 
-    // Fix #7: "Upsell TSD (Product Name)" tags name one exact product. Find the
-    // item whose name matches it, rather than trusting item array order — order
-    // #1325787 had AudiCure (the customer's original repeat item) listed after
-    // Ear Relief Balm (the actual TSA upsell), which the old index-1 assumption
-    // recorded backwards.
-    private function findItemIndexByTagHint(array $raw): ?int
-    {
-        $tags     = $raw['tags'] ?? [];
-        $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
-
-        $hint = null;
-        foreach ($tagNames as $tag) {
-            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', $tag, $m)) {
-                $hint = trim($m[1]);
-                break;
-            }
-        }
-        if ($hint === null) return null;
-
-        $items    = $raw['items'] ?? [];
-        $hintNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $hint));
-
-        foreach ($items as $i => $item) {
-            $vi       = $item['variation_info'] ?? [];
-            $name     = $vi['name'] ?? $item['product_name'] ?? '';
-            $nameNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $name));
-            if ($nameNorm !== '' && str_contains($nameNorm, $hintNorm)) {
-                return $i;
-            }
-        }
-
-        return null;
-    }
-
     /**
      * extractUpsellAmount()'s fallback (no "(Product Name)" tag hint) assumes the
      * ORIGINAL item is always items[0] and everything after it is the TSA's add-on
@@ -688,7 +628,7 @@ class SyncTodayOrders extends Command
     {
         $items = $raw['items'] ?? [];
         if (count($items) < 2) return;
-        if ($this->findItemIndexByTagHint($raw) !== null) return;
+        if (Order::findItemIndexByTagHint($raw) !== null) return;
 
         $names = array_map(function ($item) {
             $vi = $item['variation_info'] ?? [];

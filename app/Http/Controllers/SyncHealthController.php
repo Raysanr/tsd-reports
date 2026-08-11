@@ -68,26 +68,49 @@ class SyncHealthController extends Controller
     /**
      * Manual trigger for pancake:reconcile-statuses — corrects local orders
      * Pancake has since canceled/deleted, which the regular sync can never catch
-     * on its own (see that command's docblock). Safe to run synchronously here,
-     * unlike SyncCallRecordings' "Sync Now": this is small sequential JSON list
-     * calls, not multi-MB file downloads, so even a 90-day window finishes in
-     * seconds rather than minutes.
+     * on its own (see that command's docblock).
+     *
+     * 2026-08-10: "Fix Now" switched from a "days back" number input to the
+     * same date-range picker every other report uses, so date_from/date_to
+     * (an explicit calendar range) is now the primary path — --days is kept
+     * as the fallback default (30) for any caller that only sends `days` or
+     * nothing at all, so nothing already depending on that shape breaks.
+     *
+     * Note on "safe to run synchronously": true for the list-fetch pass (a
+     * handful of paginated JSON calls), but the second pass makes one live
+     * Pancake lookup PER SUSPECT ORDER in the window — confirmed live
+     * (2026-08-10), a 9-day window checked 647 orders and took long enough,
+     * with zero progress feedback on a plain form POST, to look indistin-
+     * guishable from a hang even though it did complete. Both HTTP call
+     * sites are now resilient to a single slow/failed request (see that
+     * command's own try/catch), but the wall-clock time for a wide range
+     * is still real — this endpoint would benefit from a progress indicator
+     * or a background job if wide ranges become the norm rather than the
+     * exception.
      */
     public function reconcileStatuses(Request $request)
     {
         $data = $request->validate([
-            'days' => 'nullable|integer|min:1|max:365',
+            'days'      => 'nullable|integer|min:1|max:365',
+            'date_from' => 'nullable|date',
+            'date_to'   => 'nullable|date|after_or_equal:date_from',
         ]);
 
-        $exitCode = \Artisan::call('pancake:reconcile-statuses', ['--days' => $data['days'] ?? 30]);
+        $options = !empty($data['date_from'])
+            ? ['--from' => $data['date_from'], '--to' => $data['date_to'] ?? now('Asia/Manila')->toDateString()]
+            : ['--days' => $data['days'] ?? 30];
 
-        $failed    = $exitCode !== 0;
-        $checked   = (int) Setting::get('order_status_reconcile_last_checked', 0);
-        $corrected = (int) Setting::get('order_status_reconcile_last_corrected', 0);
+        $exitCode = \Artisan::call('pancake:reconcile-statuses', $options);
+
+        $failed         = $exitCode !== 0;
+        $checked        = (int) Setting::get('order_status_reconcile_last_checked', 0);
+        $corrected      = (int) Setting::get('order_status_reconcile_last_corrected', 0);
+        $amountCorrected = (int) Setting::get('order_status_reconcile_last_amount_corrected', 0);
 
         $message = $failed
             ? 'Reconciliation failed — check the Pancake API key/shop ID.'
-            : "Checked {$checked} Pancake-removed order(s); corrected {$corrected} stale local record(s).";
+            : "Checked {$checked} Pancake-removed order(s); corrected {$corrected} stale local record(s)"
+                . ($amountCorrected > 0 ? ", refreshed {$amountCorrected} upsell amount(s)." : '.');
 
         ActivityLogger::log('sync-health.reconcile-statuses', null, $message);
 

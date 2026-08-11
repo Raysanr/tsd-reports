@@ -125,7 +125,7 @@
     </form>
 </div>
 
-{{-- FIX STALE ORDER STATUSES — two separate corrections, both things the
+{{-- FIX STALE ORDER STATUSES — three separate corrections, all things the
      regular sync above can never catch on its own once an order's own
      updated_at stops changing:
      1. Pancake's list-orders endpoint excludes canceled/deleted orders by
@@ -137,19 +137,38 @@
      2. An order can stay fully ACTIVE (never canceled/deleted) but have its
         upsell add-on item removed, leaving a stale upsell tag behind —
         confirmed live: 87 such orders going back months, ₱68,389 of
-        overcounted upsell revenue, none of them caught by check #1. --}}
+        overcounted upsell revenue, none of them caught by check #1.
+     3. Explicit request (2026-08-10): re-verifies `amount` itself against
+        live Pancake data for every order still counted as an upsell, so
+        Dashboard's Total Cross-Sell Sales reflects a real current number,
+        not just whether an order still qualifies at all. This is the most
+        expensive of the three (one live lookup per current upsell in the
+        window, not just narrow suspects), so a wide date range can take
+        noticeably longer — see ReconcileOrderStatuses::reconcileUpsell
+        Amounts()'s own doc comment. --}}
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4 mb-6">
     <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-1">Fix Stale Order Statuses</h2>
     <p class="text-xs font-mono text-slate-400 mb-3">
-        Corrects local orders Pancake has since canceled/deleted, and orders whose upsell add-on item was removed while the order stayed active — the regular sync can't catch either on its own once an order stops changing.
+        Corrects local orders Pancake has since canceled/deleted, orders whose upsell add-on item was removed while the order stayed active, and refreshes upsell amounts against live Pancake data so Total Cross-Sell Sales stays accurate — the regular sync can't catch any of this on its own once an order stops changing.
     </p>
     <form method="POST" action="{{ route('sync-health.reconcile-statuses') }}" class="flex items-end gap-3 flex-wrap">
         @csrf
         <div>
-            <label for="reconcileDays" class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Days back</label>
-            <input type="number" name="days" id="reconcileDays" min="1" max="365"
-                   value="{{ old('days', 30) }}"
-                   class="w-24 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-sm font-mono text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500">
+            <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Date range</label>
+            {{-- Same shared range picker as Dashboard, swapped in for the old
+                 plain "Days back" number input (explicit request, 2026-08-10)
+                 — an explicit calendar range, not just "N days back from
+                 today", so a specific past window can be targeted directly.
+                 submit='form'+autoSubmit=false: picking a range only updates
+                 the hidden date_from/date_to fields, same "Fix Now" button
+                 below stays the deliberate trigger (mirrors "Retry a Date"
+                 above). --}}
+            @include('partials.date-picker', [
+                'mode' => 'range', 'id' => 'reconcileDrp',
+                'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->subDays(30)->toDateString())),
+                'dateTo'   => \Illuminate\Support\Carbon::parse(old('date_to', now()->toDateString())),
+                'submit' => 'form', 'autoSubmit' => false, 'showLabel' => true,
+            ])
         </div>
         <button type="submit"
                 class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
@@ -158,7 +177,10 @@
             </svg>
             Fix Now
         </button>
-        @error('days')
+        @error('date_from')
+        <p class="text-xs font-mono text-red-600 dark:text-red-400 w-full">{{ $message }}</p>
+        @enderror
+        @error('date_to')
         <p class="text-xs font-mono text-red-600 dark:text-red-400 w-full">{{ $message }}</p>
         @enderror
     </form>

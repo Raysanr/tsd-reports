@@ -229,6 +229,93 @@ class Order extends Model
     }
 
     /**
+     * The order's isolated upsell add-on price — NEVER total_price, which
+     * includes the customer's original item too (Fix #2, moved here
+     * 2026-08-10 from SyncTodayOrders so ReconcileOrderStatuses' amount-
+     * refresh pass — reconcileUpsellAmounts() — computes the exact same
+     * value sync time did, not a reimplementation that could drift from it).
+     *
+     * A single remaining item (base was voided) IS the add-on, unless
+     * remainingItemIsJustTheBase() proves it's actually the reverse (the
+     * add-on itself was removed, leaving the original — see that method's
+     * own docblock, Fix #8). Multiple items: a "(Product Name)" tag names
+     * the exact add-on by name (Fix #7 — Pancake doesn't guarantee the
+     * add-on is listed last); otherwise every item after index 0 is summed,
+     * assuming positional order (see findItemIndexByTagHint()'s own
+     * docblock for when this positional fallback is genuinely ambiguous).
+     */
+    public static function extractUpsellAmount(array $raw): float
+    {
+        $items = $raw['items'] ?? [];
+
+        if (count($items) < 2) {
+            if (self::remainingItemIsJustTheBase($raw)) {
+                return 0.0;
+            }
+            $vi = $items[0]['variation_info'] ?? [];
+            return (float) ($vi['retail_price'] ?? $raw['total_price'] ?? $raw['cod'] ?? 0);
+        }
+
+        $hintIndex = self::findItemIndexByTagHint($raw);
+        if ($hintIndex !== null) {
+            $vi    = $items[$hintIndex]['variation_info'] ?? [];
+            $price = (float) ($vi['retail_price'] ?? 0);
+            $qty   = (int) ($items[$hintIndex]['quantity'] ?? 1);
+            return $price * $qty;
+        }
+
+        $upsellAmount = 0.0;
+        foreach (\array_slice($items, 1) as $item) {
+            $vi    = $item['variation_info'] ?? [];
+            $price = (float) ($vi['retail_price'] ?? 0);
+            $qty   = (int) ($item['quantity'] ?? 1);
+            $upsellAmount += $price * $qty;
+        }
+
+        // Never fall back to total_price — that includes item 0 (original
+        // product). If retail_price is missing/zero on every upsell item,
+        // return 0 rather than inflating the total with the base's value.
+        return $upsellAmount;
+    }
+
+    /**
+     * "Upsell TSD (Product Name)" tags name one exact product — find the
+     * item whose name matches it rather than trusting item array order
+     * (order #1325787 had the customer's original repeat item listed AFTER
+     * the actual TSA upsell, which a bare index-1 assumption records
+     * backwards). Returns null when no such tag exists, in which case
+     * extractUpsellAmount() falls back to its positional assumption.
+     */
+    public static function findItemIndexByTagHint(array $raw): ?int
+    {
+        $tags     = $raw['tags'] ?? [];
+        $tagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $tags);
+
+        $hint = null;
+        foreach ($tagNames as $tag) {
+            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', $tag, $m)) {
+                $hint = trim($m[1]);
+                break;
+            }
+        }
+        if ($hint === null) return null;
+
+        $items    = $raw['items'] ?? [];
+        $hintNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $hint));
+
+        foreach ($items as $i => $item) {
+            $vi       = $item['variation_info'] ?? [];
+            $name     = $vi['name'] ?? $item['product_name'] ?? '';
+            $nameNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $name));
+            if ($nameNorm !== '' && str_contains($nameNorm, $hintNorm)) {
+                return $i;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * True when Pancake's own histories log shows this order's item list has
      * only ever contained one DISTINCT product, ever — not just currently.
      * remainingItemIsJustTheBase() above only recognizes two specific tag

@@ -4,7 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\Setting;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Psr7\Request as Psr7Request;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -203,10 +207,125 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertSame(0.0, (float) $order->restocking_upsell_amount);
     }
 
+    /**
+     * Explicit request (2026-08-10): "Fix Now" switched from a "days back"
+     * number to the shared date-range picker, so the command needs a real
+     * explicit-range option — --days alone can't express "Aug 1-9" once
+     * today isn't the end of the window.
+     */
+    public function test_from_and_to_options_target_an_explicit_range_instead_of_days_back(): void
+    {
+        // Outside --days=30's window (so this proves --from is actually
+        // driving the query, not silently falling back to --days' default).
+        Order::factory()->create(['pancake_order_id' => 'old-order', 'status_code' => 0]);
+
+        Http::fake(function ($request) {
+            $from = $request->data()['startDateTime'] ?? null;
+            $to   = $request->data()['endDateTime'] ?? null;
+            $expectedFrom = \Illuminate\Support\Carbon::parse('2026-01-01', 'Asia/Manila')->startOfDay()->timestamp;
+            $expectedTo   = \Illuminate\Support\Carbon::parse('2026-01-09', 'Asia/Manila')->endOfDay()->timestamp;
+
+            if ((int) $from !== $expectedFrom || (int) $to !== $expectedTo) {
+                return Http::response(['data' => []], 200);
+            }
+
+            return Http::response(['data' => [['id' => 'old-order', 'status' => 7]]], 200);
+        });
+
+        Artisan::call('pancake:reconcile-statuses', ['--from' => '2026-01-01', '--to' => '2026-01-09']);
+
+        $this->assertSame(7, Order::where('pancake_order_id', 'old-order')->first()->status_code);
+    }
+
+    /** --to defaults to today when only --from is given. */
+    public function test_from_without_to_defaults_the_end_of_the_range_to_today(): void
+    {
+        Http::fake(function ($request) {
+            $to = (int) ($request->data()['endDateTime'] ?? 0);
+            $expectedTo = \Illuminate\Support\Carbon::now('Asia/Manila')->endOfDay()->timestamp;
+            $this->assertEqualsWithDelta($expectedTo, $to, 2);
+            return Http::response(['data' => []], 200);
+        });
+
+        $this->artisan('pancake:reconcile-statuses', ['--from' => '2026-01-01'])->assertSuccessful();
+    }
+
     public function test_fails_gracefully_without_credentials(): void
     {
         Setting::set('pancake_api_key', '');
         Setting::set('shop_id', '');
+
+        $this->artisan('pancake:reconcile-statuses')->assertFailed();
+    }
+
+    /**
+     * Real production crash (2026-08-10): "Fix Now" on Sync Health with
+     * days=9 threw an uncaught Illuminate\Http\Client\ConnectionException
+     * (cURL error 28, 15s timeout) for one specific order (#1341832) among
+     * the candidates, which propagated all the way through Artisan::call()
+     * to SyncHealthController::reconcileStatuses() as a fatal 500 — instead
+     * of just skipping that one order and correcting the rest. The list-
+     * fetch pass above already has an $apiError/self::FAILURE path for a
+     * non-2xx response; this pass's per-candidate lookup had no equivalent
+     * for a connection-level failure (a thrown exception, not a response),
+     * so nothing ever caught it.
+     */
+    public function test_a_connection_timeout_on_one_candidates_lookup_does_not_crash_the_whole_run(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1341832', // the one that times out
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Sinuxyl',
+            'base_product'        => 'Sinuxyl',
+            'amount'              => 500.0,
+            'pancake_created_at'  => now(),
+        ]);
+        Order::factory()->create([
+            'pancake_order_id'    => '1341487', // must still get corrected despite the above
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Sinuxyl',
+            'base_product'        => 'Sinuxyl',
+            'amount'              => 500.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1341832*' => function () {
+                throw new ConnectionException('cURL error 28: Operation timed out after 15001 milliseconds with 0 bytes received');
+            },
+            'pos.pages.fm/api/v1/shops/*/orders/1341487*' => Http::response(['data' => [
+                'id' => 1341487, 'status' => 8, 'total_price' => 500,
+                'tags'  => [['id' => 1, 'name' => 'UPSELL TSD - Sinuxyl Inhaler']],
+                'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 500], 'quantity' => 1]],
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        // The timed-out one is left exactly as it was — never corrected,
+        // never crashed the process, safe to pick up again next run.
+        $this->assertTrue(Order::where('pancake_order_id', '1341832')->first()->is_upsell);
+        // The other candidate's correction still went through.
+        $this->assertFalse(Order::where('pancake_order_id', '1341487')->first()->is_upsell);
+    }
+
+    /** Same class of bug, first pass: the paginated list-fetch's own
+     *  Http::get() (distinct call site from the per-candidate one above) was
+     *  equally unguarded — a connection failure here must resolve through
+     *  the existing $apiError/self::FAILURE path (matching a non-2xx
+     *  response), not escape as an uncaught exception either. */
+    public function test_a_connection_timeout_on_the_list_fetch_fails_gracefully_instead_of_crashing(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => function () {
+                throw new ConnectionException('cURL error 28: Operation timed out after 15001 milliseconds with 0 bytes received');
+            },
+        ]);
 
         $this->artisan('pancake:reconcile-statuses')->assertFailed();
     }
@@ -273,13 +392,18 @@ class ReconcileOrderStatusesTest extends TestCase
 
         Http::fake([
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            // retail_price included on both items (unlike before pass 3
+            // existed) — this same live response now also feeds
+            // reconcileUpsellAmounts(), which needs a realistic price to
+            // confirm $800 is genuinely still correct, not just untouched
+            // because the field happened to be absent.
             'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
                 'id'     => 1341999,
                 'status' => 2,
                 'tags'   => [],
                 'items'  => [
-                    ['variation_info' => ['name' => 'Clear Sight 3.0'], 'quantity' => 1],
-                    ['variation_info' => ['name' => 'Clear Sight 3.0'], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Clear Sight 3.0', 'retail_price' => 800], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Clear Sight 3.0', 'retail_price' => 800], 'quantity' => 1],
                 ],
             ]], 200),
         ]);
@@ -470,5 +594,219 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertFalse($order->is_upsell);
         $this->assertTrue($order->is_cancelled_upsell);
         $this->assertSame(499.0, (float) $order->amount);
+    }
+
+    /**
+     * Third pass — explicit request (2026-08-10): "Fix Now" should also
+     * correct Total Cross-Sell Sales' actual number, not just which orders
+     * count toward it. product/base_product deliberately differ here so
+     * reconcileStaleUpsellTags()'s narrower candidate query (pass 2) never
+     * touches this order first — this is testing pass 3 in isolation.
+     */
+    public function test_corrects_a_still_active_upsells_amount_when_it_has_drifted_from_live_pancake_data(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1350001',
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ear Relief Balm',
+            'base_product'        => 'AudiCure', // != product, so pass 2 skips it
+            'amount'              => 400.0,      // stale — live shows 600
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1350001*' => Http::response(['data' => [
+                'id'    => 1350001,
+                'items' => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 600], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1350001')->first();
+        $this->assertTrue($order->is_upsell); // still a real upsell — only the amount was wrong
+        $this->assertSame(600.0, (float) $order->amount);
+    }
+
+    /** An amount that already matches live data is left alone — and NOT
+     *  counted as corrected (proven via the flash message elsewhere;
+     *  here just confirming the value itself doesn't churn). */
+    public function test_leaves_an_upsells_amount_alone_when_it_already_matches_live_data(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1350002',
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ear Relief Balm',
+            'base_product'        => 'AudiCure',
+            'amount'              => 600.0, // already correct
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1350002*' => Http::response(['data' => [
+                'id'    => 1350002,
+                'items' => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 600], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $this->assertSame(0, (int) Setting::get('order_status_reconcile_last_amount_corrected'));
+        $this->assertSame(600.0, (float) Order::where('pancake_order_id', '1350002')->first()->amount);
+    }
+
+    /**
+     * Real risk with pooled concurrency: one order's connection failure
+     * must not silently drop every other order in the same batch — proven
+     * here with a genuine Guzzle-level rejection (same technique
+     * SyncTodayOrdersOverlapAndErrorHandlingTest already uses for its own
+     * pooled-request failure test), not a bare thrown exception, since
+     * that's the proven way a pool failure actually surfaces in this
+     * Laravel version's Http::fake.
+     */
+    public function test_a_connection_failure_on_one_upsells_amount_check_does_not_stop_others_in_the_same_batch(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1350010', // this one fails
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ear Relief Balm',
+            'base_product'        => 'AudiCure',
+            'amount'              => 400.0,
+            'pancake_created_at'  => now(),
+        ]);
+        Order::factory()->create([
+            'pancake_order_id'    => '1350011', // this one must still get corrected
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Ear Relief Balm',
+            'base_product'        => 'AudiCure',
+            'amount'              => 400.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), '/orders?')) {
+                return Http::response(['data' => []], 200);
+            }
+            if (str_contains($request->url(), '/orders/1350010')) {
+                $url = $request->url();
+                return Create::rejectionFor(new ConnectException(
+                    "cURL error 28: Operation timed out for {$url}",
+                    new Psr7Request('GET', $url)
+                ));
+            }
+            return Http::response(['data' => [
+                'id'    => 1350011,
+                'items' => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 600], 'quantity' => 1],
+                ],
+            ]], 200);
+        });
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        $this->assertSame(400.0, (float) Order::where('pancake_order_id', '1350010')->first()->amount);
+        $this->assertSame(600.0, (float) Order::where('pancake_order_id', '1350011')->first()->amount);
+    }
+
+    /**
+     * Real production bug (2026-08-11), Mariel/Aug 1: order #1340544 was
+     * synced with amount=1300 (the WHOLE order's total_price — the old,
+     * wrong behavior for a Returned/Returning row) instead of 500 (the real
+     * add-on value, already sitting correctly in returned_upsell_amount).
+     * This pass now includes is_returned_upsell rows specifically so
+     * already-synced bad data like this gets corrected retroactively, not
+     * just future syncs (see SyncTodayOrders::handle()'s own fix, same date).
+     */
+    public function test_corrects_a_returned_upsells_amount_from_the_whole_order_total_down_to_just_the_add_on(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1350020',
+            'status_code'         => 5, // Returning — void, is_upsell forced false
+            'is_upsell'           => false,
+            'is_returned_upsell'  => true,
+            'amount'              => 1300.0, // stale: the whole order's total
+            'returned_upsell_amount' => 500.0, // already correct, untouched by this pass
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1350020*' => Http::response(['data' => [
+                'id'    => 1350020,
+                'items' => [
+                    ['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Sinuxyl Inhaler', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        $order = Order::where('pancake_order_id', '1350020')->first();
+        $this->assertSame(500.0, (float) $order->amount);
+        $this->assertSame(500.0, (float) $order->returned_upsell_amount); // unchanged, was already right
+    }
+
+    /**
+     * Real production bug (2026-08-11), Mariel/Aug 1, order #1340590:
+     * tagged "Upsell TSD (Ear Relief Balm)" but the live order's sole
+     * remaining item is "AudiCure" — the base, not the addon
+     * (remainingItemIsJustTheBase() proves it). This pass's candidate
+     * query never checked is_returned_upsell rows at all before this fix,
+     * so an order that was NEVER a genuine surviving upsell stayed counted
+     * as one (contributing to TSA Performance's upsell count) indefinitely.
+     */
+    public function test_corrects_a_stale_tag_on_a_returned_upsell_whose_remaining_item_is_just_the_base(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'       => '1340590',
+            'status_code'            => 5, // Returning
+            'is_upsell'              => false,
+            'is_returned_upsell'     => true,
+            'is_cancelled_upsell'    => false,
+            'product'                => 'AudiCure',
+            'base_product'           => 'AudiCure', // matches — candidate signature
+            'amount'                 => 0.0,
+            'returned_upsell_amount' => 0.0,
+            'pancake_created_at'     => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1340590*' => Http::response(['data' => [
+                'id'          => 1340590,
+                'status'      => 5,
+                'total_price' => 800,
+                'tags'        => [['id' => 1, 'name' => 'Upsell TSD (Ear Relief Balm)']],
+                'items'       => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 800], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1340590')->first();
+        $this->assertFalse($order->is_returned_upsell);
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(0.0, (float) $order->returned_upsell_amount);
+        $this->assertSame(800.0, (float) $order->amount);
     }
 }

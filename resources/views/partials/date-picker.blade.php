@@ -82,7 +82,16 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
         @if($showLabel)
-        <span id="{{ $uid }}Label">{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}</span>
+        {{-- Same range-aware expression as title/aria-label above — this is
+             the first usage to ever combine mode='range' with showLabel=true
+             (Sync Health's "Fix Now", 2026-08-10; every prior showLabel
+             trigger was single-mode, e.g. "Retry a Date"), which is exactly
+             why this one spot was still range-blind: nothing before had
+             ever exercised that combination. Client-side updateLabel()
+             already computed this correctly post-interaction (same "from –
+             to" logic) — this was only wrong on first render, before Apply
+             was ever clicked. --}}
+        <span id="{{ $uid }}Label">{{ \Carbon\Carbon::parse($initFrom)->format('M d, Y') }}{{ $isRange && $initFrom !== $initTo ? ' – ' . \Carbon\Carbon::parse($initTo)->format('M d, Y') : '' }}</span>
         @else
         <span id="{{ $uid }}Dot" class="{{ $initFrom === now('Asia/Manila')->toDateString() && $initTo === now('Asia/Manila')->toDateString() ? 'hidden' : '' }} absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-yellow-600 border border-white"></span>
         @endif
