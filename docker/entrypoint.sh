@@ -8,6 +8,23 @@ set -e
 mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
 chmod -R 775 storage bootstrap/cache
 
+# Cron Job service mode (2026-08-11): a second Railway service ("tsd-reports-
+# scheduler") runs this SAME image on a `* * * * *` schedule with Custom
+# Start Command set to the single word `schedule`, replacing the external-
+# pinger approach (cron-job.org hitting /cron/run) this app used on Render,
+# which never got repointed during the Railway migration and left the whole
+# scheduler silently dead. Deliberately skips config:cache/route:cache/
+# view:cache/migrate below — those exist for the long-running web server,
+# where paying that cost once per boot is worth it; here Railway spins up a
+# brand-new container every single minute, so re-paying it every run would
+# be pure waste for zero benefit (Laravel falls back to reading .env/config
+# directly with no cache present — a performance optimization, not a
+# requirement) — and skips the self-check block too, since that needs a
+# running HTTP server and this is a one-shot artisan command, not one.
+if [ "$1" = "schedule" ]; then
+    exec php artisan schedule:run
+fi
+
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
