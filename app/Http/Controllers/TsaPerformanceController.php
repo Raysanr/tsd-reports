@@ -102,8 +102,17 @@ class TsaPerformanceController extends Controller
         // LEADS" bulk action before anyone touched it; `whereIn(...)` alone would
         // silently drop these since SQL IN never matches NULL, hiding them from every
         // team's report entirely instead of counting them as that team's Excess).
-        // whereBetween (not whereDate) keeps the query sargable against the pancake_created_at index.
-        $orders = Order::whereBetween('pancake_created_at', [$from, $to])
+        // Date scope: which DAY an order counts under now matches POS (explicit
+        // request, 2026-08-11 — "accurate from POS", after Leads Report showed 256
+        // for Eyecare/Aug 10 against Dashboard's 255) — same COALESCE(pancake_
+        // inserted_at, pancake_created_at) expression Leads Report already uses
+        // (see Order::getEffectiveCreatedAtAttribute()'s doc comment), not a new
+        // convention invented here. Deliberately does NOT touch $ordersByHour
+        // below, which still buckets by pancake_created_at (the worked-at
+        // timestamp) — an hourly CALL ACTIVITY view needs the hour work actually
+        // happened in, not the hour the lead first arrived in Pancake; changing
+        // that would make the hourly table stop meaning what its own columns say.
+        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->where(function ($q) use ($shifts, $teamsConfig, $selectedTeam) {
                 $q->whereIn('tsa_name', $shifts->keys())
                   ->orWhere(function ($q2) use ($teamsConfig, $selectedTeam) {
@@ -282,8 +291,11 @@ class TsaPerformanceController extends Controller
         // span both rest and working days, so a single banner would be misleading.
         $isRestDay = $dateFrom === $dateTo && $shift->isOffOn($from);
 
+        // Same POS-accurate date scope as index()/indexAll() (see that comment) —
+        // hour-bucketing further down in this method deliberately still uses
+        // pancake_created_at (worked-at), unchanged.
         $orders = Order::where('tsa_name', $tsaKey)
-            ->whereBetween('pancake_created_at', [$from, $to])
+            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->get();
 
         $summary = $this->buildRow($shift, $tsaKey, $orders);
@@ -529,11 +541,12 @@ class TsaPerformanceController extends Controller
         $column  = $request->query('column');
         $product = $request->query('product', 'all');
 
-        // Same order-scoping as index() above: this team's roster, plus
-        // never-claimed orders still attributable to this team by product.
+        // Same order-scoping AND date scope (POS-accurate, see index()'s comment)
+        // as index()/indexAll() above — drilldown popovers must show the exact
+        // same order set the row/cell they were opened from was built from.
         $shifts = TsaShift::where('team', $teamsConfig[$team]['order_team'])->get()->keyBy('tsa_key');
 
-        $orders = Order::whereBetween('pancake_created_at', [$from, $to])
+        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->where(function ($q) use ($shifts, $teamsConfig, $team) {
                 $q->whereIn('tsa_name', $shifts->keys())
                   ->orWhere(function ($q2) use ($teamsConfig, $team) {
@@ -610,7 +623,8 @@ class TsaPerformanceController extends Controller
         // needs — this reverses that lookup so each row can still link out.
         $teamKeyByOrderTeam = collect($teamsConfig)->mapWithKeys(fn($t, $key) => [$t['order_team'] => $key]);
 
-        $orders = Order::whereBetween('pancake_created_at', [$from, $to])
+        // Same POS-accurate date scope as index() (see that comment).
+        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->whereIn('team', $orderTeams)
             ->get();
 

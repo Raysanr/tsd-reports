@@ -189,26 +189,25 @@ class DashboardController extends Controller
             // those same metrics are defined everywhere else in the app. Fetched once
             // and reused below for Hourly Activity too, same as ChartsController's
             // single $orders fetch — avoids a second identical query.
-            $dayOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+            //
+            // Date scope (2026-08-11, revised): back to COALESCE(pancake_inserted_at,
+            // pancake_created_at) — same expression Leads Report uses — so WHICH DAY
+            // an order counts under matches POS (explicit request, "accurate from
+            // POS", after Leads Report showed 256 for Eyecare/Aug 10 against this
+            // card's 255). This reverses the 2026-08-08 change described below, which
+            // deliberately chose the opposite; that choice fixed a real disagreement
+            // between this card and TSA Performance's Grand Total, and TSA
+            // Performance's own date-range filters were switched to the same POS
+            // expression in this same change, so the two still agree — see
+            // TsaPerformanceController::index()'s matching comment. What's still
+            // untouched: $ordersByHour below (Hourly Activity's hour buckets) keeps
+            // reading pancake_created_at directly — the worked-at timestamp — same
+            // reasoning as TSA Performance's own hourly breakdown: a "calls per hour"
+            // chart needs the hour work actually happened in, not the hour a lead
+            // first arrived in Pancake.
+            $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->get();
 
-            // Total Leads/Pick-up Rate/Upselling Rate now deliberately match TSA
-            // Performance's own Grand Total, not Leads Report's — explicit request:
-            // reusing $dayOrders (same pancake_created_at/worked-at filter, same
-            // $orderTeams scope) and feeding it straight into ProductPerformance::
-            // tally(), the exact function + argument shape TsaPerformanceController::
-            // indexAll() already uses for ITS Grand Total row. Previously this built
-            // a separate COALESCE(pancake_inserted_at, pancake_created_at)-filtered
-            // pool summed through per-product rows to match Leads Report instead —
-            // confirmed live (2026-08-08) that choice was exactly why Dashboard's
-            // Pick-up/Upselling Rate disagreed with TSA Performance's Grand Total on
-            // any day with backlog leads (created one day, worked the next). Leads
-            // Report and TSA Performance already used two different date
-            // conventions from each other before this change; Dashboard can only
-            // ever match one of the two, and matching TSA Performance was the
-            // explicit choice here. Also removes a second full-table fetch that
-            // existed solely for this — one less large unscoped query on every
-            // Dashboard load.
             $leadTally = ProductPerformance::tally($dayOrders);
 
             $stats['total_leads']    = $leadTally['total'];
