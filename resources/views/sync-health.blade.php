@@ -162,10 +162,15 @@
                  submit='form'+autoSubmit=false: picking a range only updates
                  the hidden date_from/date_to fields, same "Fix Now" button
                  below stays the deliberate trigger (mirrors "Retry a Date"
-                 above). --}}
+                 above). Default is just today (explicit request, 2026-08-11)
+                 — a 30-day default was the dominant cost in that same day's
+                 incident (see SyncHealthController's MAX_RECONCILE_DAYS doc
+                 comment): defaulting to the widest useful range instead of
+                 the narrowest meant every click ran near the newly-added cap
+                 unless someone remembered to shrink it first. --}}
             @include('partials.date-picker', [
                 'mode' => 'range', 'id' => 'reconcileDrp',
-                'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->subDays(30)->toDateString())),
+                'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->toDateString())),
                 'dateTo'   => \Illuminate\Support\Carbon::parse(old('date_to', now()->toDateString())),
                 'submit' => 'form', 'autoSubmit' => false, 'showLabel' => true,
                 'rangeMonths' => 1,

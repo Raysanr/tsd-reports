@@ -28,5 +28,17 @@ php artisan migrate --force
     fi
 ) &
 
+# PHP's built-in server (what `artisan serve` wraps) handles exactly ONE
+# request at a time unless this is set — confirmed as the root cause of a
+# real incident (2026-08-11): a single slow admin action (Sync Health's "Fix
+# Now") made every other route return 499 for every user for its entire
+# duration, because nothing else could be served while it ran. This alone
+# doesn't make any individual request faster, but it stops one slow request
+# from taking the whole app down for everyone else. Still a stopgap, not a
+# real production server (no php-fpm/nginx — see the Dockerfile's own
+# comment on this being free-tier-right-sized, not high-traffic-ready);
+# revisit if concurrent load ever outgrows a handful of workers.
+export PHP_CLI_SERVER_WORKERS="${PHP_CLI_SERVER_WORKERS:-4}"
+
 # Render injects $PORT at runtime; 8080 is only a local-testing fallback.
 exec php artisan serve --host 0.0.0.0 --port "${PORT:-8080}"

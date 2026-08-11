@@ -140,16 +140,17 @@ class SyncHealthTest extends TestCase
      * prior showLabel trigger was single-date), which exposed a spot in
      * the shared partial that had never needed to handle a range before.
      */
-    public function test_fix_now_pickers_initial_label_shows_the_full_range_not_just_the_start_date(): void
+    public function test_fix_now_pickers_initial_label_defaults_to_just_today(): void
     {
         $this->actingAs(User::factory()->create());
 
         $response = $this->get(route('sync-health'));
 
         $response->assertOk();
-        $from = now()->subDays(30)->format('M d, Y');
-        $to   = now()->format('M d, Y');
-        $response->assertSee("id=\"reconcileDrpLabel\">{$from} – {$to}<", false);
+        $today = now()->format('M d, Y');
+        // Single day, not a range — date-picker.blade.php only renders the
+        // " – " dash when from !== to, and both default to today now.
+        $response->assertSee("id=\"reconcileDrpLabel\">{$today}<", false);
     }
 
     public function test_reconcile_statuses_corrects_stale_orders_and_reports_the_count(): void
