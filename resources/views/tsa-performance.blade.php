@@ -84,10 +84,18 @@
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 data-dd-team="{{ $row['team_key'] }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
                 <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
+                    @if($row['tsa_key'] && $row['tsa_key'] !== 'unassigned')
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                        class="text-primary hover:underline">
                         {{ $row['display_name'] }}
                     </a>
+                    @else
+                    {{-- No individual page for leads nobody claimed — a link here
+                         would 404 (showTsa() requires a real tsa_shifts row). Cell
+                         drilldowns below still work: drilldown() already has an
+                         explicit 'unassigned' case (tsa_name IS NULL). --}}
+                    <span class="text-slate-500 dark:text-slate-400 italic">{{ $row['display_name'] }}</span>
+                    @endif
                 </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['catered'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}"
                     @if($row['catered']) data-drilldown data-dd-tsa="{{ $row['tsa_key'] }}" data-dd-column="catered" title="Click to see the orders behind this total" @endif>
@@ -225,10 +233,11 @@
                 @foreach($block['rows'] as $row)
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     {{-- Name — linked to that TSA's individual performance page when this
-                         row has a real tsa_key (never true for a row with no key, though
-                         none currently render without one). --}}
+                         row has a real tsa_key. tsa_key === 'unassigned' (2026-08-11: now
+                         rendered as a real row, see index()'s flat-summary comment) is
+                         truthy but has no real tsa_shifts row — a link would 404. --}}
                     <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">
-                        @if($row['tsa_key'])
+                        @if($row['tsa_key'] && $row['tsa_key'] !== 'unassigned')
                         <a href="{{ route('tsa-performance.individual', ['team' => $selectedTeam, 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                            class="group inline-flex items-center gap-1 hover:text-primary transition-colors cursor-pointer">
                             {{ $row['display_name'] }}

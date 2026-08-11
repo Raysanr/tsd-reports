@@ -138,6 +138,27 @@ class TsaPerformanceController extends Controller
             $row['tsa_key']      = $shift->tsa_key;
             return $row;
         })->values();
+
+        // Explicit request (2026-08-11): rows + this row must sum back to Grand
+        // Total — before this, leads matching the team's products but claimed by
+        // no TSA at all (see the $orders query comment above — Fix #15's "swept
+        // by the midnight UNCATERED LEADS bulk action" case) counted toward Grand
+        // Total but had nowhere to show up, so e.g. 73+43+0 could silently read
+        // "117" with no visible source for the extra 1. tsa_key stays the literal
+        // string 'unassigned' (not null) so drilldown() below still resolves it
+        // (it already has an explicit case for that exact value) — the blade
+        // views key off tsa_key === 'unassigned' specifically to skip the
+        // individual-TSA-page link this row has no real page for.
+        $unassignedOrders = $ordersByTsaFlat->get('__unassigned__', collect());
+        if ($unassignedOrders->isNotEmpty()) {
+            $unassignedRow = ProductPerformance::tally($unassignedOrders);
+            $unassignedRow['display_name'] = 'Unassigned';
+            $unassignedRow['team']         = $teamsConfig[$selectedTeam]['name'];
+            $unassignedRow['team_key']     = $selectedTeam;
+            $unassignedRow['tsa_key']      = 'unassigned';
+            $tsaRows->push($unassignedRow);
+        }
+
         $grandTotal = ProductPerformance::tally($orders);
 
         $allKeys        = $shifts->keys();
@@ -172,12 +193,15 @@ class TsaPerformanceController extends Controller
                 $rows[] = $row;
             }
 
-            // Never-claimed-by-any-TSA orders (see the query comment above) — still
-            // folded into the hour/Grand Total row so this team's Excess isn't silently
-            // absorbed into nothing, but no longer rendered as its own visible "Unassigned"
-            // row (removed per request — the Excess Leads column that row existed to
-            // surface is no longer shown in this view either, so a row with nothing
-            // visible in any column was just noise).
+            // Never-claimed-by-any-TSA orders (see the query comment above) — folded
+            // into the hour/Grand Total row AND rendered as its own visible row
+            // (2026-08-11: restored — this view's rows must sum back to Grand Total,
+            // see index()'s flat-summary comment for the "73+43+0 ≠ 117" report that
+            // prompted it). Was previously folded into totals only, with no visible
+            // row, per an earlier explicit request ("a row with nothing visible in
+            // any column was just noise") — that reasoning doesn't apply here: if
+            // this bucket is non-empty, total_called > 0 for it same as any other
+            // row, so it's never actually blank.
             $unassignedOrders = $ordersByTsa->get('__unassigned__', collect());
             if ($unassignedOrders->isNotEmpty()) {
                 $row = $this->buildRow(null, 'unassigned', $unassignedOrders, 'Unassigned');
@@ -186,6 +210,8 @@ class TsaPerformanceController extends Controller
                     $blockTotals[$col] += $row[$col];
                     $totals[$col]      += $row[$col];
                 }
+
+                $rows[] = $row;
             }
 
             // UI/UX review finding: an hour where leads arrived but nobody had
@@ -595,19 +621,42 @@ class TsaPerformanceController extends Controller
             ->sortBy(fn($s) => array_search($s->team, $orderTeams))
             ->values();
 
-        $ordersByTsa = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+        $ordersByTsa      = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+        $unassignedOrders = $ordersByTsa->get('__unassigned__', collect());
 
-        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsa, $teamsConfig, $teamKeyByOrderTeam) {
-            $row     = ProductPerformance::tally($ordersByTsa->get($shift->tsa_key, collect()));
-            $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
+        // Built team-by-team (not a flat ->map() over $shifts) so each team's
+        // "Unassigned" row (leads matching that team's products but claimed by no
+        // TSA — see index()'s identical addition, 2026-08-11, for the "73+43+0 ≠
+        // 117" report that prompted it) lands directly after that team's own
+        // roster rows, same grouping $shifts is already sorted into.
+        $tsaRows = collect();
+        foreach ($orderTeams as $orderTeam) {
+            foreach ($shifts->where('team', $orderTeam) as $shift) {
+                $row     = ProductPerformance::tally($ordersByTsa->get($shift->tsa_key, collect()));
+                $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
 
-            $row['display_name'] = $shift->display_name;
-            $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
-            $row['team_key']     = $teamKey;
-            $row['tsa_key']      = $shift->tsa_key;
+                $row['display_name'] = $shift->display_name;
+                $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
+                $row['team_key']     = $teamKey;
+                $row['tsa_key']      = $shift->tsa_key;
 
-            return $row;
-        })->values();
+                $tsaRows->push($row);
+            }
+
+            $teamUnassigned = $unassignedOrders->filter(fn($o) => $o->team === $orderTeam);
+            if ($teamUnassigned->isNotEmpty()) {
+                $teamKey = $teamKeyByOrderTeam[$orderTeam] ?? null;
+                $row     = ProductPerformance::tally($teamUnassigned);
+
+                $row['display_name'] = 'Unassigned';
+                $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $orderTeam;
+                $row['team_key']     = $teamKey;
+                $row['tsa_key']      = 'unassigned';
+
+                $tsaRows->push($row);
+            }
+        }
+        $tsaRows = $tsaRows->values();
 
         // Grand Total — explicit request: this used to be scoped to only orders
         // claimed by one of the TSAs shown above, excluding leads with no TSA at
@@ -661,10 +710,13 @@ class TsaPerformanceController extends Controller
         $row = [
             'display_name'           => $displayNameOverride ?? $shift?->display_name ?? ucfirst($key),
             // Carried through so the view can link a real TSA's name to their individual
-            // performance page (route('tsa-performance.individual')). Null for rows with
-            // no real key (there are none rendered currently, but keeps this safe if one
-            // is ever added back).
-            'tsa_key'                => $shift ? $key : null,
+            // performance page (route('tsa-performance.individual')) — except when this
+            // IS the 'unassigned' bucket (2026-08-11: now rendered as a real row, see
+            // index()'s flat-summary comment), which the blade views specifically check
+            // for by value to skip that link (no real tsa_shifts row exists for it, so
+            // linking would 404) while still letting cell drilldowns resolve it (
+            // drilldown() already has an explicit 'unassigned' case).
+            'tsa_key'                => $key,
             'total'                  => $orders->count(),
             'confirmed_via_call'     => $this->count($nonUpsell, 'confirmed via call'),
             'upsell_confirmation'    => $orders->filter($isRealUpsell)->count(),

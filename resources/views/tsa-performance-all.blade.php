@@ -96,13 +96,18 @@
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 @if($row['team_key']) data-dd-team="{{ $row['team_key'] }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}" @endif>
                 <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
-                    @if($row['team_key'])
+                    @if($row['team_key'] && $row['tsa_key'] && $row['tsa_key'] !== 'unassigned')
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
                        class="text-primary hover:underline">
                         {{ $row['display_name'] }}
                     </a>
                     @else
-                    <span class="text-slate-700 dark:text-slate-200">{{ $row['display_name'] }}</span>
+                    {{-- No individual page for leads nobody claimed (tsa_key ===
+                         'unassigned') — a link would 404, showTsa() requires a
+                         real tsa_shifts row. Cell drilldowns still work via the
+                         data-dd-tsa attribute below (drilldown() has an explicit
+                         'unassigned' case). --}}
+                    <span class="text-slate-700 dark:text-slate-200 {{ $row['tsa_key'] === 'unassigned' ? 'italic text-slate-500 dark:text-slate-400' : '' }}">{{ $row['display_name'] }}</span>
                     @endif
                     <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
                 </td>
