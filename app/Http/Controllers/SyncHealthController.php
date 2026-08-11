@@ -16,12 +16,30 @@ class SyncHealthController extends Controller
      *  `php artisan serve` as a single process (no php-fpm, no queue worker;
      *  see the Dockerfile), so a wide range looped synchronously here risks
      *  hitting Railway's request timeout and freezing the whole app for every
-     *  user mid-request. 3 is a deliberately conservative starting point given
-     *  no production timing data exists yet for a full-day pancake:sync-today
-     *  call (unlike reconcile-statuses, which already has a measured data
-     *  point: a 9-day window took long enough to look like a hang) — revisit
-     *  upward once a real duration-per-day number is known. */
-    private const MAX_TSA_REMATCH_DAYS = 3;
+     *  user mid-request. Cut from 3 to 1 after a real production incident
+     *  (2026-08-11): a POST to this endpoint took 3m9s and every other route
+     *  returned 499 (client gave up) for the ENTIRE duration — confirmed via
+     *  Railway network logs this app has no request concurrency at all
+     *  (`PHP_CLI_SERVER_WORKERS` is unset in .env.example, so `php artisan
+     *  serve` handles exactly one request at a time), so any slow request
+     *  here doesn't just make its own caller wait, it takes the whole app
+     *  down for everyone until it finishes. See MAX_RECONCILE_DAYS below too
+     *  — that incident's range was very likely the default 30-day reconcile
+     *  window (uncapped until this same fix), not just this addition. */
+    private const MAX_TSA_REMATCH_DAYS = 1;
+
+    /** Hard cap on how wide a date_from/date_to span reconcile-statuses itself
+     *  will run over per click, regardless of what's selected in the picker —
+     *  added after the 2026-08-11 incident above. Set to 9, not lower: that's
+     *  the exact width reconcile-statuses' own doc comment already measured
+     *  as "took long enough to look like a hang, but did complete" — a real,
+     *  tested (see SyncHealthTest::test_reconcile_statuses_accepts_an_explicit_
+     *  date_range_from_the_picker) known-good boundary, not a guess. Fix
+     *  Now's picker defaults to a 30-day window, which — uncapped until this
+     *  fix — was very likely most of that incident's 3m9s on its own, before
+     *  MAX_TSA_REMATCH_DAYS's addition on top. Same "run the days closest to
+     *  date_to" reasoning as the re-match cap. */
+    private const MAX_RECONCILE_DAYS = 9;
 
     public function index(Request $request)
     {
@@ -96,13 +114,17 @@ class SyncHealthController extends Controller
      *
      * Why it's capped to MAX_TSA_REMATCH_DAYS instead of the whole selected
      * range: this service runs `php artisan serve` as a single process, no
-     * queue worker to push this into the background — looping a full-day
-     * Pancake re-fetch over a wide range inside one synchronous request risks
-     * a Railway request timeout that would freeze the app for every user
-     * mid-request. Runs the days closest to date_to (most likely to matter —
-     * e.g. right after editing a TSA's keywords) rather than refusing outright
-     * on a wide range. Reconciliation itself is unaffected by this cap — it
-     * still runs across the FULL selected range, same as before.
+     * queue worker to push this into the background, and (confirmed via a
+     * real incident, 2026-08-11) no request concurrency either — a slow
+     * request here doesn't just make its own caller wait, it makes the WHOLE
+     * APP return 499s for every other user until it finishes. Runs the days
+     * closest to date_to (most likely to matter — e.g. right after editing a
+     * TSA's keywords) rather than refusing outright on a wide range.
+     * Reconciliation itself is ALSO now capped, to MAX_RECONCILE_DAYS — it
+     * used to run across the full selected range unconditionally, which was
+     * very likely the dominant cost in that same incident (reconcile-
+     * statuses' own doc comment below already measured 9 days as borderline-
+     * hang territory; Fix Now's picker defaults to 30).
      *
      * 2026-08-10: "Fix Now" switched from a "days back" number input to the
      * same date-range picker every other report uses, so date_from/date_to
@@ -139,12 +161,26 @@ class SyncHealthController extends Controller
         // to whatever the regular list-orders endpoint still shows. Running
         // it first keeps reconcile-statuses as the final word on those fields,
         // same guarantee it already had before this addition existed.
-        $rematchSummary = null;
+        $rematchSummary  = null;
+        $reconcileCapped = null;
+
         if (!empty($data['date_from'])) {
-            $rematchSummary = $this->rematchTsaAttribution(
-                $data['date_from'],
-                $data['date_to'] ?? now('Asia/Manila')->toDateString()
-            );
+            $requestedFrom = $data['date_from'];
+            $requestedTo   = $data['date_to'] ?? now('Asia/Manila')->toDateString();
+
+            $rematchSummary = $this->rematchTsaAttribution($requestedFrom, $requestedTo);
+
+            // Clamp reconcile-statuses to MAX_RECONCILE_DAYS closest to $requestedTo,
+            // same "days nearest the end date matter most" reasoning as the re-match
+            // cap above — this is what actually caused the 2026-08-11 incident
+            // (see MAX_RECONCILE_DAYS's doc comment), not the re-match addition alone.
+            $requestedSpanDays = Carbon::parse($requestedFrom)->diffInDays(Carbon::parse($requestedTo)) + 1;
+            if ($requestedSpanDays > self::MAX_RECONCILE_DAYS) {
+                $cappedFrom = Carbon::parse($requestedTo)->subDays(self::MAX_RECONCILE_DAYS - 1)->toDateString();
+                $reconcileCapped = "reconciliation limited to the most recent " . self::MAX_RECONCILE_DAYS
+                    . " of {$requestedSpanDays} selected days";
+                $data['date_from'] = $cappedFrom;
+            }
         }
 
         $options = !empty($data['date_from'])
@@ -161,7 +197,8 @@ class SyncHealthController extends Controller
         $message = $failed
             ? 'Reconciliation failed — check the Pancake API key/shop ID.'
             : "Checked {$checked} Pancake-removed order(s); corrected {$corrected} stale local record(s)"
-                . ($amountCorrected > 0 ? ", refreshed {$amountCorrected} upsell amount(s)." : '.');
+                . ($amountCorrected > 0 ? ", refreshed {$amountCorrected} upsell amount(s)." : '.')
+                . ($reconcileCapped ? " ({$reconcileCapped})" : '');
 
         if ($rematchSummary) {
             $message .= ' ' . $rematchSummary;
