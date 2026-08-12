@@ -128,4 +128,44 @@ class SyncTodayOrdersCancelledUpsellSingleNameTagTest extends TestCase
         $this->assertTrue($order->is_upsell);
         $this->assertFalse($order->is_cancelled_upsell);
     }
+
+    /**
+     * Confirmed live (2026-08-12), order #1347336 (Joana): a SEPARATE
+     * PARCEL-tagged order has the same base-only shape as a cancelled
+     * upsell (sole remaining item matches the tag's named base) — but the
+     * add-on wasn't cancelled, it shipped as its own sibling order instead.
+     * Must still count as a real upsell, not a cancelled one, and its
+     * amount must not be zeroed out either — it's a real TSA-driven sale.
+     */
+    public function test_single_item_order_with_separate_parcel_tag_still_counts_as_a_live_upsell(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1347336,
+            'status'      => 8,
+            'total_price' => 1000,
+            'cod'         => 1000,
+            'inserted_at' => '2026-08-12T14:51:00',
+            'updated_at'  => '2026-08-12T14:51:00',
+            'tags'        => [
+                ['id' => 1, 'name' => 'JOANA'],
+                ['id' => 2, 'name' => 'UPSELL TSD - Pterygium + Haplunas'],
+                ['id' => 3, 'name' => 'SEPARATE PARCEL'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'Pterygium', 'retail_price' => 1000], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-08-12']);
+
+        $order = Order::where('pancake_order_id', '1347336')->first();
+
+        $this->assertNotNull($order);
+        $this->assertTrue($order->is_upsell, 'A SEPARATE PARCEL order must still count as a live upsell, not a cancelled one');
+        $this->assertFalse($order->is_cancelled_upsell);
+        $this->assertSame(1000.0, (float) $order->amount, 'A SEPARATE PARCEL order\'s amount must not be zeroed out — it is a real TSA sale');
+    }
 }

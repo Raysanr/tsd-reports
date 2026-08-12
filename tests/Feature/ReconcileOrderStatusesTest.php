@@ -668,6 +668,51 @@ class ReconcileOrderStatusesTest extends TestCase
     }
 
     /**
+     * Confirmed live (2026-08-12), order #1347336 (Joana): a SEPARATE
+     * PARCEL order's sole remaining item is the tag's named BASE, the exact
+     * shape extractUpsellAmount() would normally zero out as a cancelled
+     * upsell. Without the SEPARATE PARCEL exception in extractUpsellAmount()
+     * itself, this pass would recompute 0 from live data on every run and
+     * silently zero the amount right back out even after SyncTodayOrders
+     * correctly stored it — same class of bug as the stale-tag pass this
+     * file already guards elsewhere.
+     */
+    public function test_does_not_zero_a_separate_parcel_upsells_amount_on_reconcile(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1347336',
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => null,
+            'base_product'        => null,
+            'amount'              => 1000.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'      => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1347336*' => Http::response(['data' => [
+                'id'    => 1347336,
+                'tags'  => [
+                    ['id' => 1, 'name' => 'JOANA'],
+                    ['id' => 2, 'name' => 'UPSELL TSD - Pterygium + Haplunas'],
+                    ['id' => 3, 'name' => 'SEPARATE PARCEL'],
+                ],
+                'items' => [
+                    ['variation_info' => ['name' => 'Pterygium', 'retail_price' => 1000], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1347336')->first();
+        $this->assertTrue($order->is_upsell);
+        $this->assertSame(1000.0, (float) $order->amount);
+    }
+
+    /**
      * Real risk with pooled concurrency: one order's connection failure
      * must not silently drop every other order in the same batch — proven
      * here with a genuine Guzzle-level rejection (same technique

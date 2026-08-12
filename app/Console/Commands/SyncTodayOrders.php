@@ -320,7 +320,18 @@ class SyncTodayOrders extends Command
             // (Order::VOID_STATUSES) — the order itself is still active, only the
             // upsell portion was cancelled, so it's excluded from is_upsell here
             // rather than counted as a live cross-sell.
-            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw);
+            //
+            // Explicit request (2026-08-12), confirmed live on order #1347336
+            // (Joana): a SEPARATE PARCEL-tagged order has the exact same
+            // structural shape as a cancelled upsell — a single remaining item
+            // matching the tag's named base — but for the opposite reason: the
+            // add-on was never cancelled, it shipped as its own sibling Pancake
+            // order instead (see Order::hasSeparateParcelTag(),
+            // LinkSeparateParcelOrders). That's still a real TSA upsell, so it
+            // must count toward upsell_confirmation the same as any other live
+            // upsell — just excluded here so it isn't miscounted as cancelled.
+            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
+                && !Order::hasSeparateParcelTag($tagNames);
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
 
             // Returned upsell: the order carries the TSA's upsell tag but its status is
@@ -423,6 +434,11 @@ class SyncTodayOrders extends Command
 
             $parsed[] = [
                 'pancake_order_id'        => (string)$raw['id'],
+                // Needed to group this order with its "separate parcel"
+                // siblings from the same customer — see
+                // LinkSeparateParcelOrders. Same field/fallback SyncPancakeLeads
+                // already uses for the same purpose.
+                'customer_phone'          => $raw['bill_phone_number'] ?? ($raw['customer']['phone_numbers'][0] ?? null),
                 'team'                    => $tsaInfo['team'],
                 'tsa_name'                => $tsaInfo['name'],
                 'disposition'             => $disposition,
@@ -509,6 +525,7 @@ class SyncTodayOrders extends Command
                 $chunk,
                 ['pancake_order_id'],
                 [
+                    'customer_phone',
                     'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',

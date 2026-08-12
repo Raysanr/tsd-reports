@@ -13,6 +13,7 @@ class Order extends Model
 
     protected $fillable = [
         'pancake_order_id',
+        'customer_phone',
         'team',
         'tsa_name',
         'disposition',
@@ -135,6 +136,27 @@ class Order extends Model
         return false;
     }
 
+    /** Explicit request (2026-08-13): a real Pancake tag (not the free-text
+     *  "note" field some orders already carry a version of, e.g. "SEPERATE
+     *  PARCEL TSD") marking an order as one of several parcels from the same
+     *  customer/same call — e.g. a base product and an upsell add-on that
+     *  had to ship as two separate Pancake orders. Tolerates the
+     *  SEPARATE/SEPERATE misspelling already seen in production notes, same
+     *  spirit as hasUpsellTag()'s own word-order tolerance. See
+     *  LinkSeparateParcelOrders, which uses this to find sibling orders (same
+     *  customer_phone, same calendar day) and fill in a missing tsa_name/team
+     *  from whichever sibling DOES have one — never overwrites an order that
+     *  already has its own attribution. */
+    public static function hasSeparateParcelTag(array $tagNames): bool
+    {
+        foreach ($tagNames as $tag) {
+            if (preg_match('/\bSEP[EA]RATE\s+PARCEL\b/i', $tag)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** is_upsell alone undercounts: SyncTodayOrders resets it to false once a
      *  genuine upsell is later returned/cancelled in Pancake (is_returned_upsell
      *  is set instead, preserving that it WAS a real upsell — see that flag's own
@@ -243,13 +265,26 @@ class Order extends Model
      * add-on is listed last); otherwise every item after index 0 is summed,
      * assuming positional order (see findItemIndexByTagHint()'s own
      * docblock for when this positional fallback is genuinely ambiguous).
+     *
+     * Explicit request (2026-08-12), confirmed live on order #1347336
+     * (Joana): remainingItemIsJustTheBase() is deliberately skipped here
+     * when the order carries the SEPARATE PARCEL tag — same reasoning as
+     * SyncTodayOrders' is_cancelled_upsell check (see that assignment's own
+     * comment). This is the single source of truth for is_upsell's amount
+     * at BOTH sync time and ReconcileOrderStatuses::reconcileUpsellAmounts()
+     * (per the "moved here" note above), so fixing it here alone keeps a
+     * split-parcel order's amount from being zeroed at sync, or from
+     * drifting back to 0 on the next amount-reconcile pass.
      */
     public static function extractUpsellAmount(array $raw): float
     {
         $items = $raw['items'] ?? [];
 
         if (count($items) < 2) {
-            if (self::remainingItemIsJustTheBase($raw)) {
+            $tags     = $raw['tags'] ?? [];
+            $tagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $tags);
+
+            if (self::remainingItemIsJustTheBase($raw) && !self::hasSeparateParcelTag($tagNames)) {
                 return 0.0;
             }
             $vi = $items[0]['variation_info'] ?? [];
