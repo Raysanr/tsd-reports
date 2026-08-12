@@ -50,8 +50,36 @@ class AuthTest extends TestCase
             'password' => 'secret123',
         ]);
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('hub'));
         $this->assertAuthenticatedAs($user);
+    }
+
+    /**
+     * Explicit request: login always lands on the Hub, no exceptions — one
+     * real login page shared by both TSD systems. A plain redirect()->
+     * intended(route('hub')) breaks this: visiting a protected page (e.g.
+     * the dashboard) while logged out stores THAT page as the "intended"
+     * destination, and intended() prefers it over the route('hub')
+     * fallback on every subsequent login — even after logging out and back
+     * in — since nothing ever clears that stored URL. Confirmed live: a
+     * user who ever visits the dashboard directly while signed out never
+     * lands on the Hub again until intended() is dropped entirely.
+     */
+    public function test_login_lands_on_the_hub_even_after_the_guest_first_tried_to_visit_the_dashboard_directly(): void
+    {
+        $user = User::factory()->create(['password' => Hash::make('secret123')]);
+
+        // Simulates the guest hitting a protected URL first — this is what
+        // stores an "intended" URL in the session that intended() would
+        // otherwise prefer over route('hub').
+        $this->get(route('dashboard'));
+
+        $response = $this->post(route('login'), [
+            'email'    => $user->email,
+            'password' => 'secret123',
+        ]);
+
+        $response->assertRedirect(route('hub'));
     }
 
     public function test_login_fails_with_wrong_password(): void
@@ -111,7 +139,7 @@ class AuthTest extends TestCase
             'email' => $bystander->email, 'password' => 'secret456',
         ]);
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('hub'));
         $this->assertAuthenticatedAs($bystander);
     }
 
@@ -138,12 +166,23 @@ class AuthTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_a_signed_in_user_visiting_login_is_redirected_to_the_dashboard(): void
+    /** Updated 2026-08-12 — this used to assert the dashboard, which was
+     *  the actual bug: "sometimes logging in redirects to the dashboard
+     *  instead of the Hub." An already-authenticated session hitting this
+     *  route never reaches AuthController (whose own login flows always go
+     *  to the Hub) — Laravel's stock RedirectIfAuthenticated guest
+     *  middleware intercepts first and defaults to the 'dashboard' route
+     *  since one exists. See AppServiceProvider's redirectUsing() override,
+     *  which fixes this to agree with every other login path. Duplicated in
+     *  HubRedirectTest (that file's own dedicated coverage for Hub
+     *  behavior) — kept here too since this is where this exact regression
+     *  was previously locked in. */
+    public function test_a_signed_in_user_visiting_login_is_redirected_to_the_hub(): void
     {
         $this->actingAs(User::factory()->create());
 
         $response = $this->get(route('login'));
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('hub'));
     }
 }

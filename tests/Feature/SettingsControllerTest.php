@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Setting;
+use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -346,5 +347,265 @@ class SettingsControllerTest extends TestCase
         $response = $this->post(route('settings.drive.sync-now'), ['date' => now('Asia/Manila')->addDay()->toDateString()]);
 
         $response->assertSessionHasErrors('date');
+    }
+
+    // ------------------------------------------------------------------
+    // Ported/merged from call-tracker's own SettingsControllerTest (merged
+    // into one app 2026-08-12). Only the genuinely NEW cases below —
+    // detect/save-rejection/index-masking/blank-key/save-persists were
+    // already covered above by tsd-reports' own pre-existing tests, so
+    // call-tracker's duplicates of those were not re-added.
+    // ------------------------------------------------------------------
+
+    /** call-tracker's own role was 'tsa' (a role value the merged User
+     *  model still supports — see e.g. LeadControllerTest) — the settings
+     *  routes are gated by role:super_admin,admin, so a tsa-role user must
+     *  be forbidden the same way a 'normal' user already is (see
+     *  RoleAccessTest::test_normal_user_is_forbidden_from_config_pages). */
+    public function test_a_tsa_role_user_cannot_reach_settings_or_its_sub_routes(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->get(route('settings'))->assertForbidden();
+        $this->actingAs($user)->postJson(route('settings.detect'), ['api_key' => 'x'])->assertForbidden();
+        $this->actingAs($user)->post(route('settings.clear'))->assertForbidden();
+    }
+
+    /** Genuinely new — tsd-reports' existing file never exercised
+     *  settings.clear() at all. */
+    public function test_clear_disconnects_the_pancake_connection(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'the-real-working-key');
+        Setting::set('shop_id', '30037101');
+        Setting::set('shop_name', 'My Shop');
+
+        $response = $this->post(route('settings.clear'));
+
+        $response->assertRedirect(route('settings'));
+        $this->assertSame('', Setting::get('pancake_api_key', ''));
+        $this->assertSame('', Setting::get('shop_id', ''));
+        $this->assertSame('', Setting::get('shop_name', ''));
+    }
+
+    /**
+     * New coverage for Phase 3's overdue_threshold_hours field on the main
+     * save() action — genuinely new, tsd-reports' pre-existing save tests
+     * never sent this field at all.
+     */
+    public function test_save_persists_overdue_threshold_hours_when_provided(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops*' => Http::response(['shops' => [['id' => 30037101, 'name' => 'My Shop']]], 200),
+        ]);
+
+        $response = $this->post(route('settings.save'), [
+            'api_key' => 'a-working-key',
+            'shop_id' => '30037101',
+            'shop_name' => 'My Shop',
+            'overdue_threshold_hours' => 5,
+        ]);
+
+        $response->assertRedirect(route('settings'));
+        $this->assertSame(5, (int) Setting::get('overdue_threshold_hours'));
+    }
+
+    /**
+     * The field was deliberately made nullable (not required) so it doesn't
+     * break the pre-existing save flow that never sends it (see
+     * SettingsController@save's own comment) — an omitted submission must
+     * leave whatever was already saved alone, not clobber it to null/0.
+     */
+    public function test_save_without_overdue_threshold_hours_leaves_the_existing_value_unchanged(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('overdue_threshold_hours', 8);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops*' => Http::response(['shops' => [['id' => 30037101, 'name' => 'My Shop']]], 200),
+        ]);
+
+        $response = $this->post(route('settings.save'), [
+            'api_key' => 'a-working-key',
+            'shop_id' => '30037101',
+            'shop_name' => 'My Shop',
+            // overdue_threshold_hours intentionally omitted.
+        ]);
+
+        $response->assertRedirect(route('settings'));
+        $this->assertSame(8, (int) Setting::get('overdue_threshold_hours'));
+    }
+
+    /** Unsigned test JWT with the given exp claim — SettingsController never
+     *  verifies the signature (Pancake's job), it only reads the payload. */
+    private function fakeJwt(int $expTimestamp): string
+    {
+        $header  = rtrim(strtr(base64_encode(json_encode(['alg' => 'HS256', 'typ' => 'JWT'])), '+/', '-_'), '=');
+        $payload = rtrim(strtr(base64_encode(json_encode(['name' => 'Test User', 'exp' => $expTimestamp])), '+/', '-_'), '=');
+
+        return "{$header}.{$payload}.fakesignature";
+    }
+
+    /** Genuinely new — the access-token routes/fields (Phase 3's Pancake
+     *  Access Token section) had zero test coverage in tsd-reports' existing
+     *  file before this merge; saveAccessToken()/clearAccessToken() already
+     *  existed on SettingsController (ported verbatim in Phase 3) but were
+     *  never exercised. */
+    public function test_a_tsa_role_user_cannot_reach_the_access_token_routes(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->post(route('settings.access-token.save'), ['pancake_access_token' => 'x'])->assertForbidden();
+        $this->actingAs($user)->post(route('settings.access-token.clear'))->assertForbidden();
+    }
+
+    public function test_saving_an_access_token_persists_it_and_never_calls_pancake(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Http::fake();
+
+        $token = $this->fakeJwt(now()->addDays(90)->timestamp);
+        $response = $this->post(route('settings.access-token.save'), ['pancake_access_token' => $token]);
+
+        $response->assertRedirect(route('settings'));
+        $response->assertSessionHas('success');
+        $this->assertSame($token, Setting::get('pancake_access_token'));
+        Http::assertNothingSent();
+    }
+
+    /**
+     * NOTE (adapted, not verbatim): call-tracker's own version asserted an
+     * absolute formatted date (e.g. "Sep 11, 2026"). settings.blade.php's
+     * actual Pancake Access Token section (read directly before writing
+     * this) instead renders "Expires {{ $accessTokenExpiresAt->diffForHumans() }}"
+     * (e.g. "Expires in 4 weeks") — no absolute date string is ever printed
+     * there, so the assertion checks for "Expires" (the label this section
+     * actually shows for a non-past expiry) instead.
+     */
+    public function test_index_never_renders_the_real_access_token_and_shows_its_expiry(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $token = $this->fakeJwt(now()->addDays(30)->timestamp);
+        Setting::set('pancake_access_token', $token);
+
+        $response = $this->get(route('settings'));
+
+        $response->assertOk();
+        $response->assertDontSee($token, false);
+        $response->assertSee('Expires');
+    }
+
+    /**
+     * NOTE (adapted, not verbatim): call-tracker's own version asserted the
+     * page said "paste a fresh one" for an expired token. The merged
+     * settings.blade.php's actual Pancake Access Token section (read
+     * directly before writing this) instead renders "Expired" next to the
+     * expiry date for a past $accessTokenExpiresAt — that copy never
+     * existed in the merged view, so the assertion was updated to match
+     * the real rendered behavior instead of the old standalone app's wording.
+     */
+    public function test_index_flags_an_expired_access_token(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_access_token', $this->fakeJwt(now()->subDay()->timestamp));
+
+        $response = $this->get(route('settings'));
+
+        $response->assertOk();
+        $response->assertSee('Expired');
+    }
+
+    public function test_clearing_the_access_token_removes_it(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_access_token', $this->fakeJwt(now()->addDays(90)->timestamp));
+
+        $response = $this->post(route('settings.access-token.clear'));
+
+        $response->assertRedirect(route('settings'));
+        $this->assertSame('', Setting::get('pancake_access_token', ''));
+    }
+
+    /**
+     * Explicit request (2026-08-13): Settings is reachable both from TSD
+     * Reports' own Config section and from Call Tracker's own sidebar,
+     * without it looking like you left the area you were in. Same
+     * controller/data either way — only which layout wraps it changes.
+     */
+    public function test_settings_page_renders_inside_tsd_reports_own_layout_when_visited_from_there(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->get(route('settings'));
+
+        $response->assertOk();
+        // TSD Reports' own layout brands itself "Telesales Dashboard" in the
+        // sidebar logo block; Call Tracker's own layout never says this.
+        $response->assertSee('Telesales Dashboard');
+    }
+
+    public function test_settings_page_renders_inside_call_trackers_own_layout_when_visited_from_there(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->get(route('calls.settings'));
+
+        $response->assertOk();
+        // Call Tracker's own layout brands itself "TSD Telesales" in the
+        // sidebar logo block; TSD Reports' own layout never says this.
+        $response->assertSee('TSD Telesales');
+        $response->assertDontSee('Telesales Dashboard');
+    }
+
+    public function test_saving_settings_from_call_tracker_redirects_back_to_call_trackers_settings_page(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'existing-key');
+        Setting::set('shop_id', '30037101');
+
+        $response = $this->post(route('settings.save'), [
+            'api_key'          => '',
+            'sync_interval'    => '5',
+            '_redirect_route'  => 'calls.settings',
+        ]);
+
+        $response->assertRedirect(route('calls.settings'));
+    }
+
+    public function test_saving_settings_from_tsd_reports_redirects_back_to_tsd_reports_settings_page(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'existing-key');
+        Setting::set('shop_id', '30037101');
+
+        $response = $this->post(route('settings.save'), [
+            'api_key'          => '',
+            'sync_interval'    => '5',
+            '_redirect_route'  => 'settings',
+        ]);
+
+        $response->assertRedirect(route('settings'));
+    }
+
+    /** An unrecognized/forged _redirect_route value must not be trusted
+     *  straight into route() — falls back to 'settings', same allowlisting
+     *  UserManagementController's own redirectToCaller() already does. */
+    public function test_an_unrecognized_redirect_route_falls_back_to_settings(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'existing-key');
+        Setting::set('shop_id', '30037101');
+
+        $response = $this->post(route('settings.save'), [
+            'api_key'          => '',
+            'sync_interval'    => '5',
+            '_redirect_route'  => 'dashboard',
+        ]);
+
+        $response->assertRedirect(route('settings'));
     }
 }

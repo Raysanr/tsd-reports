@@ -82,6 +82,7 @@
         <form id="userForm" method="POST" action="{{ route('user-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
             <input type="hidden" name="_method" id="userFormMethod" value="">
+            <input type="hidden" name="_redirect_route" value="user-management">
 
             <div>
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Full name</label>
@@ -119,6 +120,7 @@
 <form id="toggleActiveUserForm" method="POST" style="display:none">
     @csrf
     @method('PATCH')
+    <input type="hidden" name="_redirect_route" value="user-management">
 </form>
 
 @push('scripts')

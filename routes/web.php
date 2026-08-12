@@ -42,6 +42,8 @@ Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 // Every report/config page requires a signed-in, active user — 'active' force-logs-out
 // anyone deactivated mid-session (see EnsureUserIsActive).
 Route::middleware(['auth', 'active'])->group(function () {
+    Route::get('/hub', fn () => view('hub'))->name('hub');
+
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
     Route::post('/sync',           [DashboardController::class,      'sync'])->name('dashboard.sync')
         ->middleware('role:super_admin,admin,normal');
@@ -96,10 +98,69 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::post('/settings/drive',           [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
         Route::post('/settings/drive/clear',     [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
         Route::post('/settings/drive/sync-now',  [SettingsController::class, 'syncDriveNow'])->name('settings.drive.sync-now');
+        // Ported from call-tracker (merged into one app 2026-08-12) — folded
+        // onto this same Settings page rather than a second one, since both
+        // would otherwise edit the same underlying Pancake connection.
+        Route::post('/settings/access-token',        [SettingsController::class, 'saveAccessToken'])->name('settings.access-token.save');
+        Route::post('/settings/access-token/clear',  [SettingsController::class, 'clearAccessToken'])->name('settings.access-token.clear');
 
         Route::get('/user-management',                    [UserManagementController::class, 'index'])->name('user-management');
         Route::post('/user-management',                    [UserManagementController::class, 'store'])->name('user-management.store');
         Route::put('/user-management/{user}',               [UserManagementController::class, 'update'])->name('user-management.update');
         Route::patch('/user-management/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('user-management.toggle-active');
+
+        // Hub-styled entry point to the SAME controller/data/rules as
+        // /user-management above (explicit request, 2026-08-12) — a
+        // separate view+route pair, not a separate feature, so there's only
+        // ever one place these business rules live.
+        Route::get('/hub/users',                    [UserManagementController::class, 'hubIndex'])->name('hub.users');
+        Route::post('/hub/users',                    [UserManagementController::class, 'store'])->name('hub.users.store');
+        Route::put('/hub/users/{user}',               [UserManagementController::class, 'update'])->name('hub.users.update');
+        Route::patch('/hub/users/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('hub.users.toggle-active');
+    });
+
+    // Call Tracker — ported from the standalone call-tracker app (merged into
+    // one Laravel app 2026-08-12). Fully qualified class names throughout
+    // this group (not `use` imports at the top of this file) — several of
+    // these short class names (DashboardController, TsaManagementController,
+    // SyncHealthController, ActivityLogController) already collide with this
+    // file's own existing imports above, which are a DIFFERENT set of
+    // classes for TSD Reports' own unrelated pages.
+    Route::prefix('calls')->name('calls.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CallTracker\DashboardController::class, 'index'])->name('dashboard');
+
+        Route::get('/leads', [\App\Http\Controllers\CallTracker\LeadController::class, 'index'])->name('leads.index');
+        Route::get('/leads/{lead}', [\App\Http\Controllers\CallTracker\LeadController::class, 'show'])->name('leads.show');
+        Route::get('/leads/{lead}/conversation', [\App\Http\Controllers\CallTracker\LeadController::class, 'conversation'])->name('leads.conversation');
+        Route::get('/leads/{lead}/tags', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchTags'])->name('leads.tags');
+        Route::post('/leads/{lead}/disposition', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateDisposition'])->name('leads.disposition');
+        Route::get('/leads/{lead}/products', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchProducts'])->name('leads.products');
+        Route::post('/leads/{lead}/upsell', [\App\Http\Controllers\CallTracker\LeadController::class, 'addUpsell'])->name('leads.upsell');
+        Route::post('/leads/{lead}/call-click', [\App\Http\Controllers\CallTracker\LeadController::class, 'logCallClick'])->name('leads.call-click');
+
+        Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
+        Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
+
+        Route::middleware('role:super_admin,admin')->group(function () {
+            Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');
+            Route::post('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'store'])->name('tsa-management.store');
+            Route::get('/tsa-management/pos-users', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
+            Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
+            Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
+
+            Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
+            Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
+            Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
+            Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');
+
+            Route::get('/call-recordings', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'index'])->name('call-recordings');
+            Route::get('/call-recordings/{recording}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
+
+            // Same shared SettingsController@index as TSD Reports' own
+            // /settings — reuses the one form/data, just rendered inside
+            // Call Tracker's own layout (see SettingsController::index()'s
+            // $layout logic and redirectToCaller()).
+            Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+        });
     });
 });

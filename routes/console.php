@@ -7,6 +7,7 @@ use App\Console\Commands\SyncTodayOrders;
 use App\Console\Commands\PancakeReconcile;
 use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
+use App\Console\Commands\SyncPancakeLeads;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -73,3 +74,9 @@ foreach ([1, 2, 3] as $daysAgo) {
 // (no incremental cache), so a tighter interval would burn Drive API calls/bandwidth
 // re-fetching files that haven't changed since the last run.
 Schedule::command(SyncCallRecordings::class)->cron('0 */2 * * *')->withoutOverlapping();
+
+// Ported from call-tracker (merged into one app 2026-08-12) — pulls
+// unclaimed Pancake orders and round-robin assigns each to a TSA. Rides the
+// same persistent `schedule:work` service as everything else above, no
+// second scheduler/service needed.
+Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping();

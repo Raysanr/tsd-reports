@@ -36,6 +36,10 @@ class User extends Authenticatable
         'avatar',
         'role',
         'is_active',
+        // Ported from call-tracker (merged into one app 2026-08-12) — which
+        // TSA row this user is, for Call Tracker's per-TSA pages. Null for
+        // every user who isn't a TSA (most admins/normal reporting users).
+        'tsa_id',
     ];
 
     /**
@@ -60,6 +64,12 @@ class User extends Authenticatable
             'password' => 'hashed',
             'is_active' => 'boolean',
         ];
+    }
+
+    /** Ported from call-tracker (merged into one app 2026-08-12). */
+    public function tsa(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(TsaShift::class, 'tsa_id');
     }
 
     public function isSuperAdmin(): bool

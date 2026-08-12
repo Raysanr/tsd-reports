@@ -289,4 +289,48 @@ class ActivityLogTest extends TestCase
             'action'  => 'product.hidden',
         ]);
     }
+
+    /**
+     * Ported from call-tracker's own ActivityLogTest (merged into one app
+     * 2026-08-12) — the one genuinely new case from that file. Its other
+     * test ("a tsa cannot reach the activity log") duplicated what
+     * test_normal_role_user_cannot_access_audit_log() above already covers
+     * for the same underlying ActivityLog/audit-log page, so it wasn't
+     * ported. This one proves the ported CallTracker\TsaManagementController
+     * genuinely calls the SAME ActivityLogger::log() this whole file
+     * exercises (Phase 3 wiring), not call-tracker's own now-deleted copy —
+     * route -> calls.tsa-management.update, Tsa -> TsaShift.
+     *
+     * NOTE (adapted, not verbatim): call-tracker's own version asserted the
+     * raw action string 'tsa.updated' appeared on the page. tsd-reports'
+     * audit-log.blade.php (read directly before writing this) transforms
+     * every "{subject}.{verb}" action string into a human label before
+     * rendering it (e.g. 'tsa.updated' -> 'Updated', stripping the subject
+     * prefix) — the raw dotted string is never actually printed anywhere.
+     * Every other test in this file that cares about the exact action
+     * string asserts it against the activity_logs row directly rather than
+     * against rendered HTML — this test now does the same, plus a lighter
+     * assertOk()+assertSee('Admin Person') check that the page itself still
+     * renders without error and shows the actor.
+     */
+    public function test_updating_a_tsas_products_via_call_rotation_writes_an_activity_log_entry(): void
+    {
+        $admin = User::factory()->create(['name' => 'Admin Person']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        $this->actingAs($admin)->post(route('calls.tsa-management.update', $gemma), [
+            'active'   => '1',
+            'products' => $gemma->products()->pluck('products.id')->all(),
+        ]);
+
+        $this->assertDatabaseHas('activity_logs', [
+            'user_id' => $admin->id,
+            'action'  => 'tsa.updated',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('audit-log'));
+
+        $response->assertOk();
+        $response->assertSee('Admin Person');
+    }
 }

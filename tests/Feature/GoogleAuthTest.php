@@ -30,9 +30,21 @@ class GoogleAuthTest extends TestCase
 
         $response = $this->get(route('google.callback'));
 
-        $response->assertRedirect(route('dashboard'));
+        $response->assertRedirect(route('hub'));
         $this->assertAuthenticatedAs($user);
         $this->assertDatabaseHas('users', ['id' => $user->id, 'google_id' => 'google-123']);
+    }
+
+    public function test_google_sign_in_lands_on_the_hub_even_after_the_guest_first_tried_to_visit_the_dashboard_directly(): void
+    {
+        $user = User::factory()->create(['email' => 'existing@example.com', 'google_id' => null]);
+        $this->fakeGoogleUser('existing@example.com');
+
+        $this->get(route('dashboard')); // stores dashboard as the "intended" URL
+
+        $response = $this->get(route('google.callback'));
+
+        $response->assertRedirect(route('hub'));
     }
 
     public function test_google_sign_in_does_not_create_an_account_for_an_unmatched_email(): void

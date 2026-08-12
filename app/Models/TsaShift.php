@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TsaShift extends Model
@@ -12,11 +15,91 @@ class TsaShift extends Model
     protected $fillable = [
         'tsa_key', 'pos_user_id', 'display_name', 'team', 'tag_keywords', 'seller_keywords',
         'shift_start', 'shift_end', 'sort_order', 'rest_day_of_week',
+        // Ported from call-tracker's own `Tsa` model (merged into one app
+        // 2026-08-12) — see the add_call_tracker_columns_to_tsa_shifts_table
+        // migration.
+        'phone_number', 'dialer_host', 'api_token', 'active',
+        'status', 'status_changed_at', 'status_locked_by',
+    ];
+
+    protected $casts = [
+        'active' => 'boolean',
+        'status_changed_at' => 'datetime',
+    ];
+
+    /** Real-time availability states a TSA switches between via the topbar
+     *  dropdown — distinct from `active` (an admin-controlled, rarely-
+     *  changed "is this TSA enabled at all" flag). Only 'login' makes a TSA
+     *  eligible for round-robin assignment — see RoundRobinAssigner::next().
+     *  LOCKED mirrors Pancake's own conversation-receive-mode "Lock" option
+     *  — admin-only to set, and while set, the TSA's own topbar dropdown
+     *  can't change it away (see TsaStatusController::update()'s guard). */
+    public const STATUS_LOGIN       = 'login';
+    public const STATUS_BREAK       = 'break';
+    public const STATUS_DNA_HUDDLE  = 'dna_huddle';
+    public const STATUS_COACHING    = 'coaching';
+    public const STATUS_LOGOUT      = 'logout';
+    public const STATUS_LOCKED      = 'locked';
+
+    /** Every real status, in display order — icon key used by the status
+     *  panel partial to render Pancake's own icon-per-row look. */
+    public const STATUSES = [
+        self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
+        self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'away'],
+        self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'away'],
+        self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'away'],
+        self::STATUS_LOGOUT     => ['label' => 'Logout',     'description' => "Shift ended, can't receive leads",              'icon' => 'away'],
+        self::STATUS_LOCKED     => ['label' => 'Lock',       'description' => 'Admin feature — lock a TSA out of receiving leads and changing this status', 'icon' => 'lock'],
+    ];
+
+    /** Options a TSA can pick for THEMSELVES on the topbar dropdown — every
+     *  real status except Lock, which only an admin can set. */
+    public const SELF_SERVICE_STATUSES = [
+        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_DNA_HUDDLE, self::STATUS_COACHING, self::STATUS_LOGOUT,
     ];
 
     public function restDays()
     {
         return $this->hasMany(TsaRestDay::class);
+    }
+
+    public function statusLockedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'status_locked_by');
+    }
+
+    public function products(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'product_tsa', 'tsa_id', 'product_id')->withPivot('position');
+    }
+
+    public function leads(): HasMany
+    {
+        return $this->hasMany(Lead::class, 'tsa_id');
+    }
+
+    public function statusLogs(): HasMany
+    {
+        return $this->hasMany(TsaStatusLog::class, 'tsa_id')->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    public function callEvents(): HasMany
+    {
+        return $this->hasMany(CallEvent::class, 'tsa_id');
+    }
+
+    public function callRecordings(): HasMany
+    {
+        return $this->hasMany(CallRecording::class, 'tsa_id');
+    }
+
+    /** A fresh random secret for this TSA's phone-side call automation
+     *  (MacroDroid) to authenticate its webhook with. Not saved here; the
+     *  caller decides when to persist it (e.g. only on an explicit
+     *  "Regenerate" action, not as a side effect of an unrelated update). */
+    public static function generateApiToken(): string
+    {
+        return bin2hex(random_bytes(24));
     }
 
     /**

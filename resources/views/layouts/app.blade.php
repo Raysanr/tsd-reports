@@ -430,6 +430,17 @@
     {{-- Navigation --}}
     <nav class="flex-1 px-3 py-5 space-y-1 overflow-y-auto">
 
+        {{-- Explicit request (2026-08-13): a back button to the Hub — the
+             one shared switcher between TSD Reports and Call Tracker. --}}
+        <a href="{{ route('hub') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+            <span class="sidebar-label">Back to Hub</span>
+        </a>
+        <div class="my-3 border-t border-white/10"></div>
+
         <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Main</p>
 
         <a href="{{ route('dashboard') }}" title="Dashboard"

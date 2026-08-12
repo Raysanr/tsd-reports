@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
@@ -16,6 +18,19 @@ class Product extends Model
     protected $casts = [
         'is_hidden' => 'boolean',
     ];
+
+    /** Ported from call-tracker (merged into one app 2026-08-12) — this
+     *  product's round-robin roster (see product_tsa's 'position' column
+     *  for rotation order). */
+    public function tsas(): BelongsToMany
+    {
+        return $this->belongsToMany(TsaShift::class, 'product_tsa', 'product_id', 'tsa_id')->withPivot('position');
+    }
+
+    public function leads(): HasMany
+    {
+        return $this->hasMany(Lead::class);
+    }
 
     /** The string actually used for substring matching against a tag or a
      *  cart's product name — falls back to display_name when no shorter

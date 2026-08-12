@@ -47,7 +47,16 @@ class AuthController extends Controller
         // separate, unauthenticated-actor code path in ActivityLogger.
         ActivityLogger::log('auth.login', Auth::user(), "Logged in as \"{$credentials['email']}\".");
 
-        return redirect()->intended(route('dashboard'));
+        // Deliberately NOT redirect()->intended() — the whole point of the
+        // Hub redirect is "always land here after logging in", but
+        // intended() prefers whatever protected URL a guest tried to visit
+        // BEFORE reaching login (stored in session by redirectGuestsTo) over
+        // this fallback. That stored URL persists across logout/login too,
+        // since nothing here ever clears it — so intended() would silently
+        // skip the Hub for good the first time anyone visits the dashboard
+        // directly while signed out. A plain route('hub') redirect has no
+        // such override.
+        return redirect()->route('hub');
     }
 
     public function redirectToGoogle()
@@ -98,7 +107,16 @@ class AuthController extends Controller
 
         ActivityLogger::log('auth.login', $user, "Logged in as \"{$user->email}\" (Google).");
 
-        return redirect()->intended(route('dashboard'));
+        // Deliberately NOT redirect()->intended() — the whole point of the
+        // Hub redirect is "always land here after logging in", but
+        // intended() prefers whatever protected URL a guest tried to visit
+        // BEFORE reaching login (stored in session by redirectGuestsTo) over
+        // this fallback. That stored URL persists across logout/login too,
+        // since nothing here ever clears it — so intended() would silently
+        // skip the Hub for good the first time anyone visits the dashboard
+        // directly while signed out. A plain route('hub') redirect has no
+        // such override.
+        return redirect()->route('hub');
     }
 
     public function logout(Request $request)

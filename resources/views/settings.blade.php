@@ -1,4 +1,8 @@
-@extends('layouts.app')
+{{-- Reachable from both TSD Reports' own Config section (route 'settings')
+     and Call Tracker's own sidebar (route 'calls.settings') — one shared
+     form/data either way (see SettingsController), rendered inside
+     whichever area's layout the visitor actually came from. --}}
+@extends($layout ?? 'layouts.app')
 @section('title', 'Settings')
 @section('subtitle', 'Connect your Pancake POS account')
 
@@ -87,6 +91,7 @@
                 {{-- Disconnect is its OWN standalone form — never nested --}}
                 <form method="POST" action="{{ route('settings.clear') }}">
                     @csrf
+                    <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
                     <button type="submit"
                             class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
                         Disconnect
@@ -103,6 +108,7 @@
         {{-- Save form — only contains sync interval + hidden fields, no nested forms --}}
         <form method="POST" action="{{ route('settings.save') }}" id="connectForm">
             @csrf
+            <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
             {{-- api_key starts EMPTY, not the real saved key — only "Detect Shop"
                  succeeding (JS below) fills it in, when the admin is actually
                  changing it. SettingsController::save() treats an empty submission
@@ -128,6 +134,15 @@
                         <option value="30" {{ $syncInterval == 30 ? 'selected' : '' }}>Every 30 minutes</option>
                         <option value="60" {{ $syncInterval == 60 ? 'selected' : '' }}>Every hour</option>
                     </select>
+                </div>
+                {{-- Ported from call-tracker (merged into one app 2026-08-12)
+                     — how long an assigned-but-uncalled lead sits before
+                     Call Tracker's Overdue view surfaces it. --}}
+                <div class="flex-1">
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Overdue threshold (hours)</label>
+                    <input type="number" name="overdue_threshold_hours" min="1" max="72"
+                        value="{{ old('overdue_threshold_hours', $overdueThresholdHours) }}"
+                        class="block w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                 </div>
                 <button type="submit" id="connectBtn"
                     class="inline-flex items-center gap-2 px-5 py-2.5 bg-yellow-700 hover:bg-yellow-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer mt-4">
@@ -189,6 +204,7 @@
                      the common case (re-check right now) still needs no typing. --}}
                 <form method="POST" action="{{ route('settings.drive.sync-now') }}" class="flex items-center gap-1.5">
                     @csrf
+                    <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
                     <input type="date" name="date" value="{{ now('Asia/Manila')->toDateString() }}"
                            max="{{ now('Asia/Manila')->toDateString() }}"
                            aria-label="Date to sync"
@@ -199,6 +215,7 @@
                 </form>
                 <form method="POST" action="{{ route('settings.drive.clear') }}" onsubmit="return confirm('Disconnect Google Drive? Real OPT/AHT data will stop syncing until reconnected.');">
                     @csrf
+                    <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
                     <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
                         Disconnect
                     </button>
@@ -232,6 +249,7 @@
 
         <form method="POST" action="{{ route('settings.drive.save') }}">
             @csrf
+            <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
             @if($errors->has('drive_refresh_token'))
             <div class="mx-6 mt-4 px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
                 {{ $errors->first('drive_refresh_token') }}
@@ -284,6 +302,56 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                     </svg>
                     Save &amp; Verify
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {{-- Pancake Access Token — ported from call-tracker (merged into one app
+         2026-08-12). A personal Pancake login session JWT, distinct from the
+         Pancake API key above (which is a stable integration key) — feeds
+         Call Tracker's conversation-message viewer, which the public orders
+         API has no equivalent for. Expires (~90 days); this shows when. --}}
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-sky-100 dark:border-sky-900 shadow-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700">
+            <div class="flex items-center gap-3">
+                <div class="w-7 h-7 rounded-full bg-sky-700 text-white text-xs font-bold flex items-center justify-center">P</div>
+                <div class="flex-1">
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">Pancake Access Token</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Feeds Call Tracker's conversation viewer</p>
+                </div>
+                @if($accessTokenMasked)
+                <form method="POST" action="{{ route('settings.access-token.clear') }}" onsubmit="return confirm('Clear the Pancake access token? Conversation history will stop loading in Call Tracker until a new one is saved.');">
+                    @csrf
+                    <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
+                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">
+                        Clear
+                    </button>
+                </form>
+                @endif
+            </div>
+            @if($accessTokenExpiresAt)
+            <p class="mt-3 text-xs {{ $accessTokenExpiresAt->isPast() ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400' }}">
+                {{ $accessTokenExpiresAt->isPast() ? 'Expired' : 'Expires' }} {{ $accessTokenExpiresAt->diffForHumans() }}
+            </p>
+            @endif
+        </div>
+        <form method="POST" action="{{ route('settings.access-token.save') }}">
+            @csrf
+            <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
+            @if($errors->has('pancake_access_token'))
+            <div class="mx-6 mt-4 px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-400">
+                {{ $errors->first('pancake_access_token') }}
+            </div>
+            @endif
+            <div class="px-6 py-5 flex items-end gap-3">
+                <div class="flex-1">
+                    <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Session Token</label>
+                    <input type="text" name="pancake_access_token" placeholder="{{ $accessTokenMasked ?: 'Paste your Pancake session token' }}"
+                        class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent">
+                </div>
+                <button type="submit" class="inline-flex items-center gap-2 px-5 py-2.5 bg-sky-700 hover:bg-sky-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer">
+                    Save
                 </button>
             </div>
         </form>

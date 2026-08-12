@@ -49,4 +49,16 @@ return [
         'secret' => env('CRON_SECRET'),
     ],
 
+    // Explicit request (2026-08-13): show Call Tracker's Hub card as
+    // "Coming soon" in production rather than a live link, at least until
+    // the call-recording storage question (see Phase 5 of the merge plan —
+    // no S3 bucket/volume provisioned yet) is resolved. This gates ONLY the
+    // Hub card's display, not the /calls/* routes themselves — someone who
+    // knows the direct URL (testing) can still reach it either way.
+    // Defaults true so local dev/tests are unaffected; set explicitly false
+    // on Railway to show "Coming soon" there.
+    'call_tracker' => [
+        'enabled' => env('CALL_TRACKER_ENABLED', true),
+    ],
+
 ];

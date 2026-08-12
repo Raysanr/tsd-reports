@@ -2,19 +2,34 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\SyncHealth;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class SettingsController extends Controller
 {
+    /** Which named route the mutating actions below send the browser back
+     *  to — see redirectToCaller()'s own doc comment for why this exists. */
+    private const RETURN_ROUTES = ['settings', 'calls.settings'];
+
     public function index()
     {
+        // Explicit request (2026-08-13): this same page is now reachable
+        // both from TSD Reports' own Config section (route 'settings') and
+        // from Call Tracker's own sidebar (route 'calls.settings', added
+        // alongside this) — one shared form/data (see redirectToCaller()),
+        // but rendered inside whichever area's own layout/branding the
+        // visitor actually came from, so clicking it from Call Tracker
+        // doesn't look like leaving to a different app.
+        $layout = request()->routeIs('calls.*') ? 'layouts.calls' : 'layouts.app';
+
         $apiKey       = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $apiKeyMasked = self::mask($apiKey);
         $apiSaved     = !empty($apiKey);
@@ -38,11 +53,20 @@ class SettingsController extends Controller
         $driveSyncLastStatus  = Setting::get('drive_sync_last_status');
         $driveSyncLastMessage = Setting::get('drive_sync_last_message');
 
+        // Ported from call-tracker (merged into one app 2026-08-12) — Call
+        // Tracker's own two extra Settings fields, folded onto this page.
+        $overdueThresholdHours = LeadController::overdueThresholdHours();
+        $accessToken           = Setting::get('pancake_access_token', '');
+        $accessTokenMasked     = self::mask($accessToken);
+        $accessTokenExpiresAt  = self::decodeJwtExpiry($accessToken);
+
         return view('settings', compact(
+            'layout',
             'apiKeyMasked', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
             'driveClientId', 'driveClientSecretMasked', 'driveRefreshTokenMasked',
             'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
-            'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage'
+            'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage',
+            'overdueThresholdHours', 'accessTokenMasked', 'accessTokenExpiresAt'
         ));
     }
 
@@ -85,11 +109,24 @@ class SettingsController extends Controller
         $submittedApiKey = trim((string) $request->input('api_key', ''));
         $keyUnchanged    = $submittedApiKey === '' && $existingApiKey !== '';
 
+        // Ported from call-tracker (merged into one app 2026-08-12).
+        // Nullable, not required: this field lives on the SAME form as the
+        // pre-existing Pancake connect/sync-interval save, and every
+        // existing caller of this action (including tests written before
+        // this field existed) doesn't send it — an unset submission leaves
+        // the previously-saved value alone rather than erroring.
+        $thresholdData = $request->validate([
+            'overdue_threshold_hours' => ['nullable', 'integer', 'min:1', 'max:72'],
+        ]);
+        if (array_key_exists('overdue_threshold_hours', $thresholdData) && $thresholdData['overdue_threshold_hours'] !== null) {
+            Setting::set('overdue_threshold_hours', $thresholdData['overdue_threshold_hours']);
+        }
+
         if ($keyUnchanged) {
             Setting::set('sync_interval', $request->input('sync_interval', 1));
             ActivityLogger::log('settings.sync_interval_updated', null, 'Sync interval updated.');
 
-            return redirect()->route('settings')->with('success', 'Settings saved.');
+            return $this->redirectToCaller($request)->with('success', 'Settings saved.');
         }
 
         $request->validate([
@@ -137,7 +174,7 @@ class SettingsController extends Controller
         // API key itself — same as the flash message this description mirrors.
         ActivityLogger::log('settings.pancake_connected', null, $message);
 
-        return redirect()->route('settings')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     public function saveShifts(Request $request)
@@ -155,7 +192,7 @@ class SettingsController extends Controller
         return redirect()->route('tsa-management')->with('success', 'Shift schedules saved.');
     }
 
-    public function clear()
+    public function clear(Request $request)
     {
         Setting::set('pancake_api_key', '');
         Setting::set('shop_id', '');
@@ -164,7 +201,7 @@ class SettingsController extends Controller
         $message = 'Disconnected.';
         ActivityLogger::log('settings.pancake_disconnected', null, $message);
 
-        return redirect()->route('settings')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /**
@@ -218,10 +255,10 @@ class SettingsController extends Controller
         $message = 'Google Drive credentials saved and verified.';
         ActivityLogger::log('settings.drive_connected', null, $message);
 
-        return redirect()->route('settings')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
-    public function clearDrive()
+    public function clearDrive(Request $request)
     {
         foreach (['drive_client_id', 'drive_client_secret', 'drive_refresh_token', 'drive_folder_sh_naturals', 'drive_folder_eyecare'] as $key) {
             Setting::set($key, '');
@@ -230,7 +267,7 @@ class SettingsController extends Controller
         $message = 'Google Drive disconnected.';
         ActivityLogger::log('settings.drive_disconnected', null, $message);
 
-        return redirect()->route('settings')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /**
@@ -250,7 +287,7 @@ class SettingsController extends Controller
     public function syncDriveNow(Request $request)
     {
         if (empty(Setting::get('drive_refresh_token'))) {
-            return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
+            return $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
         }
 
         // The command itself also guards against this (see SyncCallRecordings::
@@ -258,7 +295,7 @@ class SettingsController extends Controller
         // overlap — this check just avoids spawning a doomed-to-skip process and
         // gives the user an immediate, honest message instead of a silent no-op.
         if (Setting::get('drive_sync_running') === '1') {
-            return redirect()->route('settings')->withErrors(['drive_refresh_token' => 'A sync is already running — wait for it to finish before starting another.']);
+            return $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => 'A sync is already running — wait for it to finish before starting another.']);
         }
 
         // Explicit date, not just "sync today": confirmed in production — a
@@ -281,7 +318,68 @@ class SettingsController extends Controller
 
         ActivityLogger::log('settings.drive_sync_now', null, "Manually triggered Google Drive call-recording sync for {$date}.");
 
-        return redirect()->route('settings')->with('success', "Google Drive sync for {$date} started in the background — refresh this page in a minute or two to see the result.");
+        return $this->redirectToCaller($request)->with('success', "Google Drive sync for {$date} started in the background — refresh this page in a minute or two to see the result.");
+    }
+
+    /**
+     * Ported from call-tracker (merged into one app 2026-08-12).
+     *
+     * A personal Pancake login session token (JWT — name/session_id/fb_id
+     * baked into the payload), distinct from the pancake_api_key above,
+     * which is a stable, scoped integration key for the public orders API.
+     * This one carries whoever pasted it's own identity and expires — used
+     * for whatever Pancake features aren't reachable through the public API
+     * (e.g. conversation messages, see PancakeConversationApi). Never
+     * verified server-side on save (no known safe "check this session
+     * token" endpoint), just stored — same blank-means-unchanged masking
+     * convention as every other secret here.
+     */
+    public function saveAccessToken(Request $request)
+    {
+        $data = $request->validate(['pancake_access_token' => ['required', 'string']]);
+
+        Setting::set('pancake_access_token', $data['pancake_access_token']);
+        ActivityLogger::log('settings.pancake_access_token_saved', null, 'Pancake access token saved.');
+
+        return $this->redirectToCaller($request)->with('success', 'Access token saved.');
+    }
+
+    public function clearAccessToken(Request $request)
+    {
+        Setting::set('pancake_access_token', '');
+        ActivityLogger::log('settings.pancake_access_token_cleared', null, 'Pancake access token cleared.');
+
+        return $this->redirectToCaller($request)->with('success', 'Access token cleared.');
+    }
+
+    /** Same reasoning as UserManagementController's own redirectToCaller() —
+     *  this page is reachable both from TSD Reports' own Config section and
+     *  from Call Tracker's sidebar (2026-08-13), both posting to the SAME
+     *  actions above, and each needs to land back on whichever one it came
+     *  from rather than always jumping to TSD Reports' own view. An explicit
+     *  hidden `_redirect_route` field (set per-form in settings.blade.php),
+     *  allowlisted against RETURN_ROUTES — never passed straight to route(). */
+    private function redirectToCaller(Request $request): \Illuminate\Http\RedirectResponse
+    {
+        $target = $request->input('_redirect_route');
+        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'settings';
+
+        return redirect()->route($target);
+    }
+
+    /** Reads the 'exp' claim straight out of the JWT payload for display —
+     *  no signature verification, this is Pancake's job when the token is
+     *  actually used; we're only decoding it to warn an admin before it
+     *  silently expires. */
+    private static function decodeJwtExpiry(string $token): ?Carbon
+    {
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) return null;
+
+        $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
+        if (!isset($payload['exp'])) return null;
+
+        return Carbon::createFromTimestamp($payload['exp']);
     }
 
     private function verifyDriveToken(string $clientId, string $clientSecret, string $refreshToken): bool
