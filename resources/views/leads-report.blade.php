@@ -76,6 +76,142 @@
     }
 @endphp
 
+{{-- PRODUCT SUMMARY — one row per product, whole range, no hourly split. Same
+     table shape/columns as the ALL view's own per-product table (explicit
+     request, 2026-08-12: "a table like in the ALL filter... before this Grand
+     Total"), reusing $productTables — already computed above for the hourly
+     cards further down this same page, not a second query. Each row is
+     literally $table['total'] (ProductPerformance::buildRow()'s own output,
+     same shape the ALL view's $productRows already has), so this can never
+     disagree with either the per-product hourly cards below or the Grand
+     Total section right under it — same underlying rows either way. --}}
+@if($productTables->isNotEmpty())
+<div class="flex items-center justify-end gap-3 mb-2">
+    <input type="text" data-table-filter="productSummaryTable" placeholder="Filter…" aria-label="Filter products"
+           class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+    @include('partials.table-actions', ['target' => 'productSummaryTable', 'name' => 'product-summary-' . $selectedTeam, 'title' => 'Product Summary', 'subtitle' => $snapshotDateLabel])
+</div>
+
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6" style="max-height:calc(100vh - 180px)" id="productSummaryTable" data-sortable-table data-scroll-shadow
+     data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
+        <thead class="sticky top-0 z-20 shadow-sm">
+            <tr>
+                <th rowspan="2" data-sort-key="product"
+                    class="sticky-col bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap"
+                    style="min-width:180px">
+                    Product
+                </th>
+                <th rowspan="2" data-sort-key="total"
+                    class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                    Total<br>Leads
+                </th>
+                <th rowspan="2" data-sort-key="catered"
+                    class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">
+                    Catered<br>Leads
+                </th>
+                <th colspan="7"
+                    class="bg-green-200 dark:bg-green-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">
+                    Answered Called Leads
+                </th>
+                <th colspan="6"
+                    class="bg-red-200 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
+                    Unanswered Call Leads
+                </th>
+                <th colspan="1"
+                    class="bg-rose-300 dark:bg-rose-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide">
+                    Excess Leads
+                </th>
+                <th rowspan="2" data-sort-key="pickUpRate"
+                    class="bg-blue-100 dark:bg-blue-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight"
+                    style="min-width:90px">
+                    Pick-up<br>Rate
+                </th>
+                <th rowspan="2" data-sort-key="conversionRate"
+                    class="bg-orange-100 dark:bg-orange-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight"
+                    style="min-width:90px">
+                    Conversion<br>Rate
+                </th>
+                <th rowspan="2" data-sort-key="upsellingRate"
+                    class="bg-yellow-100 dark:bg-yellow-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide leading-tight"
+                    style="min-width:90px">
+                    Upselling<br>Rate
+                </th>
+            </tr>
+            <tr>
+                @foreach($metricCols as $col)
+                @php
+                    $summaryHeaderColor = match($col['group']) {
+                        'answered' => 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400',
+                        'excess'   => 'bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-400',
+                        default    => 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400',
+                    };
+                @endphp
+                <th class="{{ $summaryHeaderColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
+                    style="min-width:{{ $col['min_width'] }}px" data-sort-key="{{ $col['key'] }}">
+                    {!! $col['label'] !!}
+                </th>
+                @endforeach
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($productTables as $table)
+            @php($row = $table['total'])
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap" data-sort-key="product" data-sort-value="{{ $row['display_name'] }}">
+                    {{ $row['display_name'] }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['total'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="total" data-sort-value="{{ $row['total'] }}"
+                    @if($row['total']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" title="Click to see the orders behind this total" @endif>
+                    {{ $row['total'] ?: '' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['catered'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="catered" data-sort-value="{{ $row['catered'] }}"
+                    @if($row['catered']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="catered" title="Click to see the orders behind this total" @endif>
+                    {{ $row['catered'] ?: '' }}
+                </td>
+                @foreach($metricCols as $col)
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 dark:text-rose-400 font-semibold' : 'text-slate-700 dark:text-slate-200') }} {{ $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}"
+                    @if($row[$col['key']]) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
+                    {{ $row[$col['key']] ?: '' }}
+                </td>
+                @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="pickUpRate" data-sort-value="{{ $row['pick_up_rate'] ?? '' }}">
+                    {{ $row['pick_up_rate'] !== null ? $row['pick_up_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="conversionRate" data-sort-value="{{ $row['conversion_rate'] ?? '' }}">
+                    {{ $row['conversion_rate'] !== null ? $row['conversion_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="upsellingRate" data-sort-value="{{ $row['upselling_rate'] ?? '' }}">
+                    {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
+                </td>
+            </tr>
+            @endforeach
+        </tbody>
+        <tfoot>
+            <tr class="bg-slate-900 text-white font-bold">
+                <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
+                @foreach($metricCols as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : ($col['group'] === 'excess' ? 'text-rose-300' : '') }}">
+                    {{ $grandTotal[$col['key']] ?: '' }}
+                </td>
+                @endforeach
+                <td class="border border-slate-700 px-3 py-3 text-center text-blue-300">
+                    {{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-700 px-3 py-3 text-center text-orange-300">
+                    {{ $grandTotal['conversion_rate'] !== null ? $grandTotal['conversion_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">
+                    {{ $grandTotal['upselling_rate'] !== null ? $grandTotal['upselling_rate'].'%' : '—' }}
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+@endif
+
 {{-- GRAND TOTAL — all products combined, whole range. One tally over every order
      (not a sum of the per-product totals below, which would double-count orders
      matching multiple product keywords and drop ones matching none). --}}
