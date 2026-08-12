@@ -8,6 +8,7 @@ use App\Console\Commands\PancakeReconcile;
 use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
 use App\Console\Commands\SyncPancakeLeads;
+use App\Console\Commands\LinkSeparateParcelOrders;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -41,6 +42,12 @@ Schedule::command(SyncTodayOrders::class)->everyFifteenMinutes()->withoutOverlap
 // and Carbon::now('Asia/Manila')->subDay() inside the command means "yesterday" is
 // always correct regardless of what timezone the server's cron actually fires in.
 Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping();
+
+// Explicit request (2026-08-13): fills in a missing TSA/team on a "separate
+// parcel" order's siblings (same customer, same day) once the group is
+// tagged — same hourly cadence as the reconciliation check above, since a
+// tag can be added well after both orders already synced.
+Schedule::command(LinkSeparateParcelOrders::class)->hourly()->withoutOverlapping();
 
 // Corrects local orders Pancake has since canceled/deleted — the regular sync
 // above can never catch this on its own: Pancake's list-orders endpoint
