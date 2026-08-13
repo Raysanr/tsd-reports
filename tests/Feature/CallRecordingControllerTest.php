@@ -28,7 +28,7 @@ class CallRecordingControllerTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('local');
+        Storage::fake('call_recordings');
     }
 
     public function test_a_valid_token_uploads_and_stores_a_recording(): void
@@ -50,7 +50,7 @@ class CallRecordingControllerTest extends TestCase
         $recording = CallRecording::first();
         $this->assertNotNull($recording);
         $this->assertSame($gemma->id, $recording->tsa_id);
-        Storage::disk('local')->assertExists($recording->disk_path);
+        Storage::disk('call_recordings')->assertExists($recording->disk_path);
     }
 
     public function test_an_unknown_token_is_rejected(): void
@@ -183,7 +183,7 @@ class CallRecordingControllerTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
 
-        Storage::disk('local')->put('call-recordings/1/test.mp3', 'fake-audio-bytes');
+        Storage::disk('call_recordings')->put('call-recordings/1/test.mp3', 'fake-audio-bytes');
         $recording = CallRecording::create([
             'tsa_id' => $gemma->id, 'disk_path' => 'call-recordings/1/test.mp3',
             'original_filename' => 'test.mp3', 'file_size_bytes' => 17, 'recorded_at' => now(),
@@ -199,7 +199,7 @@ class CallRecordingControllerTest extends TestCase
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
 
-        Storage::disk('local')->put('call-recordings/1/test.mp3', 'fake-audio-bytes');
+        Storage::disk('call_recordings')->put('call-recordings/1/test.mp3', 'fake-audio-bytes');
         $recording = CallRecording::create([
             'tsa_id' => $gemma->id, 'disk_path' => 'call-recordings/1/test.mp3',
             'original_filename' => 'test.mp3', 'file_size_bytes' => 17, 'recorded_at' => now(),

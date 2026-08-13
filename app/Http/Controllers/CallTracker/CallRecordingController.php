@@ -21,9 +21,11 @@ use Illuminate\Support\Facades\Storage;
  * role-gated) and API (stateless, routes/api.php, no session/CSRF) halves
  * don't share a controller across two totally different auth models.
  *
- * NOTE: Storage::disk('local') recordings are ephemeral on Railway (wiped on
- * every redeploy/restart) — see the merge plan's Phase 5, a separate
- * pre-launch blocker, not addressed here.
+ * Stored on the 'call_recordings' disk (config/filesystems.php), pointed at
+ * a persistent Railway Volume in production via CALL_RECORDINGS_DISK_ROOT —
+ * previously the generic 'local' disk, which was wiped on every Railway
+ * redeploy/restart (fixed 2026-08-13, see CallRecordingController's own
+ * doc comment for the upload side of this same fix).
  */
 class CallRecordingController extends Controller
 {
@@ -56,8 +58,8 @@ class CallRecordingController extends Controller
      *  public URL, gated by the same admin-role route middleware as index(). */
     public function stream(CallRecording $recording)
     {
-        abort_unless(Storage::disk('local')->exists($recording->disk_path), 404);
+        abort_unless(Storage::disk('call_recordings')->exists($recording->disk_path), 404);
 
-        return Storage::disk('local')->response($recording->disk_path, $recording->original_filename);
+        return Storage::disk('call_recordings')->response($recording->disk_path, $recording->original_filename);
     }
 }

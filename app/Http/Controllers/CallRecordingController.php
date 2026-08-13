@@ -30,9 +30,11 @@ use Illuminate\Support\Str;
  * the same way as CallEventController — a per-TSA api_token, no browser
  * session involved.
  *
- * NOTE: TsaShift::api_token doesn't exist until Phase 4 — this endpoint
- * 401s until then. Storage::disk('local') is ephemeral on Railway (Phase 5,
- * separate pre-launch blocker, not addressed here).
+ * Stored on the 'call_recordings' disk (config/filesystems.php), not the
+ * generic 'local' one — production points its root at a persistent Railway
+ * Volume via CALL_RECORDINGS_DISK_ROOT, so an upload survives the next
+ * redeploy/restart instead of silently vanishing (the previous behavior,
+ * fixed 2026-08-13).
  */
 class CallRecordingController extends Controller
 {
@@ -57,7 +59,7 @@ class CallRecordingController extends Controller
         $diskPath = $file->storeAs(
             "call-recordings/{$tsa->id}",
             $recordedAt->format('Y-m-d_His') . '_' . Str::random(8) . '.' . $file->getClientOriginalExtension(),
-            'local'
+            'call_recordings'
         );
 
         [$leadId, $callEventId] = $this->matchLeadAndCallEvent($tsa, $data['phone_number'] ?? null, $recordedAt);

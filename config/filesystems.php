@@ -47,6 +47,23 @@ return [
             'report' => false,
         ],
 
+        // Real call recordings (CallRecordingController) — deliberately its own
+        // disk, not the generic 'local' one, so production can point ONLY this
+        // disk's root at a persistent Railway Volume (env CALL_RECORDINGS_DISK_ROOT)
+        // without needing every other local-storage use in the app to move too.
+        // Defaults to the exact same root Laravel's own 'local' disk uses, so an
+        // unset env var (local dev, CI, tests) behaves identically to before this
+        // disk existed. See CallRecordingController's own doc comment for why this
+        // mattered: uploads were previously silently wiped on every Railway
+        // redeploy/restart.
+        'call_recordings' => [
+            'driver' => 'local',
+            'root' => env('CALL_RECORDINGS_DISK_ROOT', storage_path('app/private')),
+            'serve' => true,
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
