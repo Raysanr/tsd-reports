@@ -193,65 +193,14 @@
 {{-- Disposition breakdown pie for the Grand Total row — same pattern as
      leads-report.blade.php's own charts. --}}
 @if($grandTotal['total'] > 0)
-<div class="shrink-0 w-full lg:w-[26rem] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex flex-col items-center justify-center">
-    <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-        <canvas id="allGrandTotalChart" width="380" height="340"></canvas>
-    </div>
-</div>
+@include('partials.pie-chart-panel', ['id' => 'allGrandTotalChart'])
 @endif
 </div>
 
 @endif
 @endsection
 
-@if(!empty($chartsData))
-@push('scripts')
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-{{-- data-rerun: app.js's softRefresh re-executes this after swapping <main> in
-     place (see charts.blade.php for the full explanation of this pattern) —
-     same script as leads-report.blade.php's own chart init, duplicated here
-     since this is a separate blade file for the cross-team ALL view. --}}
-<script data-rerun>
-(function () {
-    const charts = @json($chartsData);
-
-    const rootStyles = getComputedStyle(document.documentElement);
-    const labelColor = (rootStyles.getPropertyValue('--chart-label') || '').trim() || '#94a3b8';
-
-    charts.forEach(({ id, chart }) => {
-        const el = document.getElementById(id);
-        if (!el || chart.data.length === 0) return;
-
-        new Chart(el, {
-            type: 'pie',
-            data: {
-                labels: chart.labels,
-                datasets: [{ data: chart.data, backgroundColor: chart.colors, borderWidth: 1 }],
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 10, font: { size: 9, family: "'Fira Code', monospace" }, color: labelColor },
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => {
-                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
-                                return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
-                            },
-                        },
-                    },
-                },
-            },
-        });
-    });
-})();
-</script>
-@endpush
-@endif
+@include('partials.disposition-pie-charts')
 
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">

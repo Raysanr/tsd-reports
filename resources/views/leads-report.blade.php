@@ -222,11 +222,7 @@
      this page (see $chartsData's own comment), just rendered next to the
      table a reader sees first. --}}
 @if($grandTotal['total'] > 0)
-<div class="shrink-0 w-full lg:w-[26rem] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex flex-col items-center justify-center">
-    <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-        <canvas id="productSummaryChart" width="380" height="340"></canvas>
-    </div>
-</div>
+@include('partials.pie-chart-panel', ['id' => 'productSummaryChart'])
 @endif
 </div>
 @endif
@@ -243,7 +239,7 @@
             @include('partials.table-actions', ['target' => 'grandTotalTable', 'name' => 'grand-total-' . $selectedTeam, 'chart' => 'grandTotalChart', 'title' => 'Grand Total — All Products', 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
-    <div class="flex flex-col lg:flex-row">
+    <div class="flex flex-col lg:flex-row gap-4">
     <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable" data-scroll-shadow>
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
@@ -308,11 +304,7 @@
     {{-- Disposition breakdown pie — matches the source sheet's per-tab chart.
          Built client-side (data-rerun script below) from this same $grandTotal
          data already on the page, not a separate query. --}}
-    <div class="shrink-0 w-full lg:w-[26rem] border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
-        <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-            <canvas id="grandTotalChart" width="380" height="340"></canvas>
-        </div>
-    </div>
+    @include('partials.pie-chart-panel', ['id' => 'grandTotalChart'])
     </div>
 </div>
 @endif
@@ -330,7 +322,7 @@
     @if(empty($table['hourlyRows']))
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
-    <div class="flex flex-col lg:flex-row">
+    <div class="flex flex-col lg:flex-row gap-4">
     {{-- data-dd-* only matter for this table's own TOTAL row below (whole-range,
          one product) — the hourly rows above deliberately stay non-interactive:
          the shift-cutoff backlog-lumping in buildHourlyRows() means a single
@@ -411,11 +403,7 @@
     {{-- Disposition breakdown pie — matches the source sheet's per-product tab
          chart. Built client-side (data-rerun script below) from this same
          $table['total'] data already on the page, not a separate query. --}}
-    <div class="shrink-0 w-full lg:w-[26rem] border-t lg:border-t-0 lg:border-l border-slate-100 dark:border-slate-700 p-4 flex flex-col items-center justify-center">
-        <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
-            <canvas id="productChart-{{ $loop->index }}" width="380" height="340"></canvas>
-        </div>
-    </div>
+    @include('partials.pie-chart-panel', ['id' => 'productChart-' . $loop->index])
     </div>
     @endif
 </div>
@@ -516,54 +504,7 @@
 
 @endsection
 
-@if(!empty($chartsData))
-@push('scripts')
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
-{{-- data-rerun: app.js's softRefresh re-executes this after swapping <main> in
-     place (see charts.blade.php for the full explanation of this pattern) —
-     the canvases these target live inside the swapped region, and re-running
-     picks up fresh @json data on every filter change. --}}
-<script data-rerun>
-(function () {
-    const charts = @json($chartsData);
-
-    const rootStyles = getComputedStyle(document.documentElement);
-    const labelColor = (rootStyles.getPropertyValue('--chart-label') || '').trim() || '#94a3b8';
-
-    charts.forEach(({ id, chart }) => {
-        const el = document.getElementById(id);
-        if (!el || chart.data.length === 0) return;
-
-        new Chart(el, {
-            type: 'pie',
-            data: {
-                labels: chart.labels,
-                datasets: [{ data: chart.data, backgroundColor: chart.colors, borderWidth: 1 }],
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 10, font: { size: 9, family: "'Fira Code', monospace" }, color: labelColor },
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => {
-                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
-                                return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
-                            },
-                        },
-                    },
-                },
-            },
-        });
-    });
-})();
-</script>
-@endpush
-@endif
+@include('partials.disposition-pie-charts')
 
 @push('topbar-right')
 {{-- contents: this div and the form below it exist for grouping/submission
