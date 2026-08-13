@@ -234,7 +234,11 @@ class ProductPerformance
         // only reflected 3 of them. Safe now that amount itself holds the
         // isolated add-on price for a returned-upsell row too, not the whole
         // order's total (see SyncTodayOrders::handle()'s own fix, same date).
-        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum('amount');
+        // A Restocking-status row recovered by $isRealUpsell's tag-fallback
+        // branch still needs Order::realUpsellAmount() specifically — its
+        // 'amount' column is the raw order total, not the isolated add-on
+        // (see that method's own doc comment, fixed 2026-08-13).
+        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum(fn (Order $o) => $o->realUpsellAmount());
 
         $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
             + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];

@@ -187,6 +187,24 @@ class Order extends Model
         return $query->where(fn ($q) => $q->where('is_upsell', true)->orWhere('is_returned_upsell', true));
     }
 
+    /** The correct isolated add-on price for a row ProductPerformance::tally()'s
+     *  (and TsaPerformanceController::buildRow()'s identical) $isRealUpsell
+     *  fallback branch recovers — the "known edge case" flagged in isRealUpsell()'s
+     *  own doc comment above, now actually fixed. 'amount' already holds the
+     *  isolated add-on price for is_upsell/is_returned_upsell rows (see
+     *  SyncTodayOrders::flushOrders()), but a Restocking-status order recovered
+     *  only via the bare hasUpsellTag() fallback has 'amount' sitting at the raw
+     *  order total instead — the isolated figure lives in restocking_upsell_amount
+     *  instead (see SyncTodayOrders' $isRestockingUpsell branch). Confirmed live
+     *  (2026-08-13, order #1348150, Julie): a ₱1,800 Clear Sight + Lumicare Oil/
+     *  Haplunas order in Restocking status showed ₱1,800 upsell revenue in the
+     *  Per-Product Hourly Breakdown instead of the real ₱1,000 add-on value,
+     *  already sitting correctly in restocking_upsell_amount the whole time. */
+    public function realUpsellAmount(): float
+    {
+        return $this->is_restocking_upsell ? (float) $this->restocking_upsell_amount : (float) $this->amount;
+    }
+
     /**
      * True when an order's tags say it's an upsell but only ONE item remains on
      * it — the add-on was removed (upsell cancelled), and that sole item is NOT

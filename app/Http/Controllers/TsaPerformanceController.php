@@ -772,7 +772,12 @@ class TsaPerformanceController extends Controller
         // AOV — same definition as the Dashboard's own AOV card (gross upsell
         // revenue ÷ upsell order count, "average per upsell order"), scoped to
         // just this TSA/slice's own upsell orders instead of the whole company's.
-        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum('amount');
+        // Order::realUpsellAmount(), not a bare 'amount' — a Restocking-status
+        // row recovered by $isRealUpsell's tag-fallback branch has 'amount'
+        // sitting at the raw order total, not the isolated add-on (see that
+        // method's own doc comment, fixed 2026-08-13, same bug as
+        // ProductPerformance::tally()'s identical sum).
+        $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum(fn (Order $o) => $o->realUpsellAmount());
         $row['aov'] = $row['upsell_confirmation'] > 0 ? $row['upsell_sales'] / $row['upsell_confirmation'] : 0.0;
 
         return $row;
