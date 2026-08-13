@@ -68,6 +68,11 @@
 
     $chartsData = [];
     if ($grandTotal['total'] > 0) {
+        // Same $grandTotal data as the Grand Total section's own pie further down
+        // this page — the Product Summary table's totals ARE $grandTotal (see that
+        // table's own doc comment above), so this is a second canvas rendering the
+        // identical numbers, not a second query.
+        $chartsData[] = ['id' => 'productSummaryChart', 'chart' => $buildChartData($grandTotal)];
         $chartsData[] = ['id' => 'grandTotalChart', 'chart' => $buildChartData($grandTotal)];
     }
     foreach ($productTables as $i => $table) {
@@ -89,10 +94,11 @@
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="productSummaryTable" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    @include('partials.table-actions', ['target' => 'productSummaryTable', 'name' => 'product-summary-' . $selectedTeam, 'title' => 'Product Summary', 'subtitle' => $snapshotDateLabel])
+    @include('partials.table-actions', ['target' => 'productSummaryTable', 'name' => 'product-summary-' . $selectedTeam, 'chart' => 'productSummaryChart', 'title' => 'Product Summary', 'subtitle' => $snapshotDateLabel])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-6" style="max-height:calc(100vh - 180px)" id="productSummaryTable" data-sortable-table data-scroll-shadow
+<div class="flex flex-col lg:flex-row gap-4 mb-6">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-w-0" style="max-height:calc(100vh - 180px)" id="productSummaryTable" data-sortable-table data-scroll-shadow
      data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
@@ -209,6 +215,19 @@
             </tr>
         </tfoot>
     </table>
+</div>
+
+{{-- Disposition breakdown pie for the Product Summary table above — same
+     $grandTotal data as the Grand Total section's own chart further down
+     this page (see $chartsData's own comment), just rendered next to the
+     table a reader sees first. --}}
+@if($grandTotal['total'] > 0)
+<div class="shrink-0 w-full lg:w-[26rem] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex flex-col items-center justify-center">
+    <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+        <canvas id="productSummaryChart" width="380" height="340"></canvas>
+    </div>
+</div>
+@endif
 </div>
 @endif
 

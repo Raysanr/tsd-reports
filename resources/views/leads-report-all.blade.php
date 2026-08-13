@@ -9,6 +9,42 @@
     // full month names instead of $rangeLabel's abbreviated form.
     $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
         . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
+
+    // Disposition pie chart for the Grand Total row — same colors/labels/build
+    // logic as leads-report.blade.php's own chart (kept in sync by hand since
+    // these are separate blade files for the per-team vs. cross-team views;
+    // see that file for the full reasoning on the color choices).
+    $dispositionColors = [
+        'confirmed_via_call'     => '#16a34a',
+        'upsell_confirmation'    => '#15803d',
+        'call_back'              => '#4ade80',
+        'call_dropped'           => '#86efac',
+        'repeat_order_upsell'    => '#059669',
+        'rude_customer'          => '#10b981',
+        'relatives_confirmation' => '#34d399',
+        'dfr'                    => '#f59e0b',
+        'double_order'           => '#fb923c',
+        'fsd_uncleared'          => '#fbbf24',
+        'not_answering'          => '#f97316',
+        'unattended'             => '#fdba74',
+        'invalid_number'         => '#fcd34d',
+        'excess'                 => '#e11d48',
+    ];
+    $dispositionLabels = collect($metricCols)->pluck('label', 'key')
+        ->map(fn($label) => strip_tags(str_replace(['-<br>', '<br>'], ['', ' '], $label)));
+
+    $chartsData = [];
+    if ($grandTotal['total'] > 0) {
+        $labels = $data = $colors = [];
+        foreach ($dispositionColors as $key => $color) {
+            if (($grandTotal[$key] ?? 0) > 0) {
+                $labels[] = $dispositionLabels[$key];
+                $data[]   = $grandTotal[$key];
+                $colors[] = $color;
+            }
+        }
+        $chartsData[] = ['id' => 'allGrandTotalChart', 'chart' => compact('labels', 'data', 'colors')];
+    }
 @endphp
 
 {{-- ALL — one row per product, combined across every team, for the whole window
@@ -28,10 +64,11 @@
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="productAllTable" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'title' => 'Leads Report — All Products, All Teams', 'subtitle' => $snapshotDateLabel])
+    @include('partials.table-actions', ['target' => 'productAllTable', 'name' => 'leads-report-all', 'chart' => 'allGrandTotalChart', 'title' => 'Leads Report — All Products, All Teams', 'subtitle' => $snapshotDateLabel])
 </div>
 
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table data-scroll-shadow
+<div class="flex flex-col lg:flex-row gap-4">
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-w-0" style="max-height:calc(100vh - 180px)" id="productAllTable" data-sortable-table data-scroll-shadow
      data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
@@ -153,8 +190,68 @@
     </table>
 </div>
 
+{{-- Disposition breakdown pie for the Grand Total row — same pattern as
+     leads-report.blade.php's own charts. --}}
+@if($grandTotal['total'] > 0)
+<div class="shrink-0 w-full lg:w-[26rem] bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-4 flex flex-col items-center justify-center">
+    <div class="w-full border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+        <canvas id="allGrandTotalChart" width="380" height="340"></canvas>
+    </div>
+</div>
+@endif
+</div>
+
 @endif
 @endsection
+
+@if(!empty($chartsData))
+@push('scripts')
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+{{-- data-rerun: app.js's softRefresh re-executes this after swapping <main> in
+     place (see charts.blade.php for the full explanation of this pattern) —
+     same script as leads-report.blade.php's own chart init, duplicated here
+     since this is a separate blade file for the cross-team ALL view. --}}
+<script data-rerun>
+(function () {
+    const charts = @json($chartsData);
+
+    const rootStyles = getComputedStyle(document.documentElement);
+    const labelColor = (rootStyles.getPropertyValue('--chart-label') || '').trim() || '#94a3b8';
+
+    charts.forEach(({ id, chart }) => {
+        const el = document.getElementById(id);
+        if (!el || chart.data.length === 0) return;
+
+        new Chart(el, {
+            type: 'pie',
+            data: {
+                labels: chart.labels,
+                datasets: [{ data: chart.data, backgroundColor: chart.colors, borderWidth: 1 }],
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 10, font: { size: 9, family: "'Fira Code', monospace" }, color: labelColor },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
+                                return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    });
+})();
+</script>
+@endpush
+@endif
 
 @push('topbar-right')
 <div class="flex items-center gap-4 flex-wrap">
