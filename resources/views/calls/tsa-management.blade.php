@@ -244,6 +244,45 @@
             <p class="text-xs font-mono text-slate-400">No token yet — click "Generate token" above, then follow the MacroDroid setup steps that appear.</p>
             @endif
         </div>
+
+        {{-- Call recording auto-upload — a separate setup from the
+             MacroDroid one above: that one logs WHICH number was called and
+             for how long, this one uploads the actual audio. Uses the same
+             api_token, kept as its own card since it needs extra software
+             (Phone Link + a recorder) the call-log setup doesn't. --}}
+        @if($tsa->api_token)
+        <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 -mt-2">
+            <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Call recording auto-upload</h3>
+            <details class="text-xs font-mono text-slate-500 dark:text-slate-400">
+                <summary class="cursor-pointer text-primary-dark hover:underline">Setup steps ↓</summary>
+                <ol class="list-decimal list-inside mt-2 space-y-3 text-slate-600 dark:text-slate-300">
+                    <li>
+                        <strong>Set up Phone Link</strong> on {{ $tsa->display_name }}'s PC and pair it with their phone (search "Phone Link" in the Windows Start menu, or Settings → Bluetooth & devices). Confirm calls show up on the PC when the phone rings — Phone Link only mirrors the audio, it doesn't save a file on its own.
+                    </li>
+                    <li>
+                        <strong>Install a free recorder</strong> — <a href="https://obsproject.com" target="_blank" rel="noopener" class="text-primary hover:underline">OBS Studio</a> is recommended. Add an Audio Output source, set it to record only that source (not the screen), and set the output format to mp3 or wav in Settings → Output. Pick a recording folder you'll remember, e.g. <code>C:\Users\{{ Str::slug($tsa->display_name, '') }}\Videos\Call Recordings</code>.
+                    </li>
+                    <li>
+                        <strong>Get the auto-upload script.</strong> In the app's code repository, under <code>tools/recording-uploader/</code>, there's <code>upload-recordings.ps1</code> and a full <code>README.md</code> with these same steps. Copy that folder onto {{ $tsa->display_name }}'s PC.
+                    </li>
+                    <li>
+                        <strong>Edit the script</strong> (right-click → Edit in Notepad) and fill in the top 3 lines:
+                        <div class="mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 select-all">$ApiToken = "{{ $tsa->api_token }}"</div>
+                        plus <code>$WatchFolder</code> (the exact folder from step 2 — must match exactly).
+                    </li>
+                    <li>
+                        <strong>Run it</strong>: right-click the script → "Run with PowerShell", and leave the window open — it watches the folder and uploads each new recording automatically, moving it into an "Uploaded" subfolder afterward so nothing uploads twice.
+                    </li>
+                    <li>
+                        <strong>Test it for real.</strong> Make one actual call, hang up, let the recorder finish saving. It should upload within a few seconds and appear on the <a href="{{ route('calls.call-recordings') }}" class="text-primary hover:underline">Call Recordings</a> page.
+                    </li>
+                    <li>
+                        <strong>Start it automatically every day:</strong> press <kbd>Win+R</kbd>, type <code>shell:startup</code>, press Enter, then paste a shortcut to the script into that folder — it'll launch on its own every time this PC starts.
+                    </li>
+                </ol>
+            </details>
+        </div>
+        @endif
     @endforeach
 </div>
 

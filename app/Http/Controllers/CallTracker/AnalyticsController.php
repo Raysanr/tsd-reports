@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Controller;
+use App\Models\CallEvent;
 use App\Models\Lead;
 use App\Models\TsaShift;
 use Illuminate\Http\Request;
@@ -26,7 +27,21 @@ class AnalyticsController extends Controller
             ->whereBetween('assigned_at', [$from, $to])
             ->get();
 
-        $rows = TsaShift::orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads) {
+        // AHT (Average Handle Time) — real per-call durations from
+        // CallEvent.duration_seconds (MacroDroid's own call-log report, see
+        // the auto-upload setup on Call Rotation), not an estimate. Missing
+        // durations (e.g. a call event logged before duration_seconds
+        // existed, or MacroDroid failing to report one) are excluded rather
+        // than treated as 0 — a handle time of "zero seconds" would quietly
+        // drag every average down. Missed calls are excluded outright: a
+        // call nobody answered has no handle time to average in at all.
+        $callEvents = CallEvent::whereIn('tsa_id', TsaShift::pluck('id'))
+            ->where('direction', '!=', 'missed')
+            ->whereNotNull('duration_seconds')
+            ->whereBetween('occurred_at', [$from, $to])
+            ->get();
+
+        $rows = TsaShift::orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $callEvents) {
             $mine   = $leads->where('tsa_id', $tsa->id);
             $called = $mine->where('status', 'called');
 
@@ -40,6 +55,9 @@ class AnalyticsController extends Controller
             $responseMinutes = $called->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
                 ->map(fn (Lead $l) => $l->assigned_at->diffInMinutes($l->called_at));
 
+            $myCallEvents = $callEvents->where('tsa_id', $tsa->id);
+            $ahtSeconds   = $myCallEvents->isNotEmpty() ? (int) round($myCallEvents->avg('duration_seconds')) : null;
+
             return [
                 'tsa'               => $tsa,
                 'total'             => $mine->count(),
@@ -49,8 +67,20 @@ class AnalyticsController extends Controller
                 'confirm_rate'      => $called->count() ? round($confirmed / $called->count() * 100, 1) : null,
                 'no_answer_rate'    => $called->count() ? round($noAnswer / $called->count() * 100, 1) : null,
                 'avg_response_mins' => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
+                'aht_seconds'       => $ahtSeconds,
+                'aht_call_count'    => $myCallEvents->count(),
             ];
         });
+
+        // Team-wide AHT trend, one point per calendar day in range (Asia/Manila,
+        // matching every other date boundary in this controller) — a per-TSA
+        // trend would be unreadable with more than 2-3 TSAs on one line chart,
+        // so this answers "is handle time getting better or worse overall",
+        // while the per-TSA bar chart above already covers "who's fastest".
+        $ahtTrend = $callEvents
+            ->groupBy(fn (CallEvent $e) => $e->occurred_at->timezone('Asia/Manila')->toDateString())
+            ->map(fn ($dayEvents) => (int) round($dayEvents->avg('duration_seconds')))
+            ->sortKeys();
 
         // Chart payload — same $rows data, reshaped into plain arrays keyed by
         // TSA display name. Kept separate from $rows (which the table already
@@ -65,6 +95,10 @@ class AnalyticsController extends Controller
             'noAnswerRate'    => $rows->pluck('no_answer_rate')->values(),
             'avgResponseMins' => $rows->pluck('avg_response_mins')->values(),
             'hasAnyCalls'     => $rows->sum('called') > 0,
+            'ahtSeconds'      => $rows->pluck('aht_seconds')->values(),
+            'ahtTrendLabels'  => $ahtTrend->keys()->values(),
+            'ahtTrendSeconds' => $ahtTrend->values()->values(),
+            'hasAnyAht'       => $callEvents->isNotEmpty(),
         ];
 
         return view('calls.analytics', [

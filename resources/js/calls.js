@@ -8,9 +8,10 @@
 // (call-tracker's own routes were unprefixed).
 import './bootstrap';
 import {
-    Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, Title,
+    Chart, BarController, BarElement, LineController, LineElement, PointElement,
+    CategoryScale, LinearScale, Tooltip, Legend, Title,
 } from 'chart.js';
-Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, Title);
+Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Title);
 
 // Sidebar badge counts — no websocket/queue infra in this stack, so a cheap
 // periodic poll is the "free" version of a live notification badge.
@@ -665,6 +666,40 @@ document.addEventListener('keydown', (e) => {
 // the brand accent and shouldn't share it. Guarded the same way every other
 // page-specific block in this file is — canvases only exist on the Call
 // Analytics page, so this is a no-op everywhere else.
+// Overview/AHT tab switcher (Call Analytics page) — plain show/hide, no
+// page reload. The AHT charts are built lazily, the first time that tab is
+// actually switched to (see below): Chart.js measures its canvas at
+// creation time, and a canvas inside a display:none container measures as
+// 0x0, which draws a blank/broken chart that a later show never fixes.
+// Building it on first reveal instead avoids that entirely.
+let ahtChartsBuilt = false;
+window.switchAnalyticsTab = function (tab) {
+    const overviewPanel = document.getElementById('analyticsTabOverview');
+    const ahtPanel       = document.getElementById('analyticsTabAht');
+    const overviewBtn    = document.getElementById('analyticsTabOverviewBtn');
+    const ahtBtn         = document.getElementById('analyticsTabAhtBtn');
+    if (!overviewPanel || !ahtPanel) return;
+
+    const showingAht = tab === 'aht';
+    overviewPanel.classList.toggle('hidden', showingAht);
+    ahtPanel.classList.toggle('hidden', !showingAht);
+
+    const activeClasses   = ['border-primary', 'text-primary-dark'];
+    const inactiveClasses = ['border-transparent', 'text-slate-500', 'dark:text-slate-400'];
+    [[overviewBtn, !showingAht], [ahtBtn, showingAht]].forEach(([btn, isActive]) => {
+        if (!btn) return;
+        btn.classList.toggle('border-primary', isActive);
+        btn.classList.toggle('text-primary-dark', isActive);
+        btn.classList.toggle('border-transparent', !isActive);
+        btn.classList.toggle('text-slate-500', !isActive);
+    });
+
+    if (showingAht && !ahtChartsBuilt) {
+        ahtChartsBuilt = true;
+        window.buildAhtCharts?.();
+    }
+};
+
 (function initAnalyticsCharts() {
     const dataEl = document.getElementById('analyticsChartData');
     if (!dataEl) return;
@@ -672,15 +707,6 @@ document.addEventListener('keydown', (e) => {
     const data = JSON.parse(dataEl.textContent);
     const emptyState = document.getElementById('analyticsChartsEmpty');
     const chartsWrap = document.getElementById('analyticsChartsWrap');
-
-    // No TSA has a single logged call in this range — an empty/all-zero bar
-    // chart reads as broken, not as "no data yet" (empty-data-state
-    // guideline). Show a plain message instead of three blank axis frames.
-    if (!data.hasAnyCalls) {
-        emptyState?.classList.remove('hidden');
-        chartsWrap?.classList.add('hidden');
-        return;
-    }
 
     const isDark = () => document.documentElement.classList.contains('dark');
     const tooltipBase = {
@@ -695,6 +721,87 @@ document.addEventListener('keydown', (e) => {
     const gridBase = { color: isDark() ? '#334155' : '#E7DFC9', drawTicks: false };
     const tickColor = isDark() ? '#94A3B8' : '#756B52';
     const tickFont = { family: 'Fira Code', size: 11 };
+
+    // Formats seconds as "3m 42s" for tooltips — matches the AHT table's own
+    // format (see analytics.blade.php) so a chart and its table never
+    // disagree about how a duration reads.
+    const formatSeconds = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
+
+    // Exposed separately from the 3 Overview charts below (and NOT gated on
+    // data.hasAnyCalls, a completely different data source — Lead status vs
+    // real CallEvent durations) — called lazily by switchAnalyticsTab() the
+    // first time the AHT tab is actually shown, since a canvas built while
+    // its container is display:none measures 0x0 and draws blank.
+    window.buildAhtCharts = function () {
+        if (!data.hasAnyAht) return;
+
+        const byTsaCanvas = document.getElementById('chartAhtByTsa');
+        if (byTsaCanvas) {
+            const withAht = data.labels
+                .map((label, i) => ({ label, seconds: data.ahtSeconds[i] }))
+                .filter((r) => r.seconds !== null);
+
+            new Chart(byTsaCanvas, {
+                type: 'bar',
+                data: {
+                    labels: withAht.map((r) => r.label),
+                    datasets: [{ data: withAht.map((r) => r.seconds), backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 28 }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { ...tooltipBase, callbacks: { label: (ctx) => `Avg: ${formatSeconds(ctx.raw)}` } },
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
+                        y: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => formatSeconds(v) } },
+                    },
+                },
+            });
+        }
+
+        const trendCanvas = document.getElementById('chartAhtTrend');
+        if (trendCanvas) {
+            new Chart(trendCanvas, {
+                type: 'line',
+                data: {
+                    labels: data.ahtTrendLabels,
+                    datasets: [{
+                        data: data.ahtTrendSeconds,
+                        borderColor: '#CA8A04',
+                        backgroundColor: 'rgba(202,138,4,0.12)',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#CA8A04',
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { ...tooltipBase, callbacks: { label: (ctx) => `Avg: ${formatSeconds(ctx.raw)}` } },
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
+                        y: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => formatSeconds(v) } },
+                    },
+                },
+            });
+        }
+    };
+
+    // No TSA has a single logged call in this range — an empty/all-zero bar
+    // chart reads as broken, not as "no data yet" (empty-data-state
+    // guideline). Show a plain message instead of three blank axis frames.
+    if (!data.hasAnyCalls) {
+        emptyState?.classList.remove('hidden');
+        chartsWrap?.classList.add('hidden');
+        return;
+    }
 
     // Chart 1 — Call Volume & Coverage: Total Leads (capacity, muted) vs
     // Called (actual work done, brand primary) side by side per TSA. The
