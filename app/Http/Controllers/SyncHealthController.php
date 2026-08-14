@@ -206,6 +206,21 @@ class SyncHealthController extends Controller
 
         ActivityLogger::log('sync-health.reconcile-statuses', null, $message);
 
+        // AJAX path (explicit request, 2026-08-14): "Fix Now" used to be a
+        // plain form POST — a full page reload for an action that can run
+        // long on a wide range. The JS now submits this via fetch with
+        // Accept: application/json instead, wants an in-page loading state
+        // it can render/cancel client-side rather than a browser navigation.
+        // A canceled fetch doesn't reach here at all (the connection drops
+        // before this method returns) — this is a genuine "cancel just
+        // stops watching", the reconciliation itself finishes server-side
+        // regardless, matching Artisan::call() above having no cancellation
+        // hook of its own. The redirect() fallback below still runs this
+        // same logic for a plain (non-JS) form submit.
+        if ($request->expectsJson()) {
+            return response()->json(['success' => !$failed, 'message' => $message]);
+        }
+
         return redirect()->route('sync-health')
             ->with($failed ? 'error' : 'success', $message);
     }

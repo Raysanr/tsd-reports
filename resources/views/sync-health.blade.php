@@ -151,7 +151,13 @@
     <p class="text-xs font-mono text-slate-400 mb-3">
         Corrects local orders Pancake has since canceled/deleted, orders whose upsell add-on item was removed while the order stayed active, and refreshes upsell amounts against live Pancake data so Total Cross-Sell Sales stays accurate — the regular sync can't catch any of this on its own once an order stops changing.
     </p>
-    <form method="POST" action="{{ route('sync-health.reconcile-statuses') }}" class="flex items-end gap-3 flex-wrap">
+    {{-- id="reconcileForm": submitted via fetch instead of a real navigation
+         (explicit request, 2026-08-14 — this used to be a full page reload).
+         Kept as a real <form> (not converted to plain buttons) so it still
+         works with JS disabled — app.js intercepts the 'submit' event and
+         calls preventDefault(), the plain POST/redirect only runs if that
+         listener never attaches. --}}
+    <form method="POST" action="{{ route('sync-health.reconcile-statuses') }}" id="reconcileForm" class="flex items-end gap-3 flex-wrap">
         @csrf
         <div>
             <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Date range</label>
@@ -176,13 +182,30 @@
                 'rangeMonths' => 1,
             ])
         </div>
-        <button type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            Fix Now
-        </button>
+        <div class="flex items-center gap-2">
+            <button type="submit" id="reconcileSubmitBtn"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap disabled:opacity-70 disabled:cursor-wait">
+                <svg id="reconcileIconIdle" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {{-- Same spin animation + circle-arc glyph as layouts/app.blade.php's
+                     own #loadingOverlay, so this reads as the same "working" state
+                     as everywhere else in the app instead of a one-off spinner. --}}
+                <svg id="reconcileIconBusy" class="hidden animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span id="reconcileBtnLabel">Fix Now</span>
+            </button>
+            {{-- Soft cancel only: stops this page from waiting on/showing the
+                 result, the fix keeps running to completion on the server
+                 regardless (Artisan::call() has no cancellation hook of its
+                 own — see SyncHealthController::reconcileStatuses()'s comment). --}}
+            <button type="button" id="reconcileCancelBtn"
+                    class="hidden text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline cursor-pointer">
+                Cancel
+            </button>
+        </div>
         @error('date_from')
         <p class="text-xs font-mono text-red-600 dark:text-red-400 w-full">{{ $message }}</p>
         @enderror

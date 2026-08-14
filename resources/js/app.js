@@ -794,6 +794,73 @@ window.showToast = function (message, variant = 'success') {
     toast.querySelector('button').addEventListener('click', dismiss);
 };
 
+// ─── Sync Health: "Fix Now" reconcile, in-page + cancelable ──────────────────
+// sync-health.blade.php's form used to be a plain POST — a full page reload
+// for an action that can run long on a wide date range (explicit request,
+// 2026-08-14). Submitted via fetch instead, showing an in-page loading state
+// with a Cancel button. Guarded on the form's existence, same as every other
+// page-specific block in this file — a no-op everywhere but Sync Health.
+//
+// Cancel is soft, not hard: aborting the fetch only stops THIS PAGE from
+// waiting on/showing the result. Artisan::call() inside reconcileStatuses()
+// runs synchronously with no cancellation hook of its own, so the fix keeps
+// running to completion on the server regardless of whether anyone's still
+// watching — see that method's own comment for why a real mid-run cancel
+// would need background-job infrastructure this app doesn't have running.
+(function () {
+    const form = document.getElementById('reconcileForm');
+    if (!form) return;
+
+    const submitBtn = document.getElementById('reconcileSubmitBtn');
+    const cancelBtn = document.getElementById('reconcileCancelBtn');
+    const iconIdle  = document.getElementById('reconcileIconIdle');
+    const iconBusy  = document.getElementById('reconcileIconBusy');
+    const label     = document.getElementById('reconcileBtnLabel');
+
+    let controller = null;
+
+    const setBusy = (busy) => {
+        submitBtn.disabled = busy;
+        iconIdle.classList.toggle('hidden', busy);
+        iconBusy.classList.toggle('hidden', !busy);
+        cancelBtn.classList.toggle('hidden', !busy);
+        label.textContent = busy ? 'Fixing…' : 'Fix Now';
+    };
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        controller = new AbortController();
+        setBusy(true);
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: new FormData(form),
+            signal: controller.signal,
+        })
+            .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                window.showToast(data.message || 'Done.', (ok && data.success) ? 'success' : 'error');
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') {
+                    window.showToast('Cancelled — the fix may still finish running on the server.', 'info');
+                    return;
+                }
+                window.showToast('Something went wrong — check your connection and try again.', 'error');
+            })
+            .finally(() => {
+                setBusy(false);
+                controller = null;
+            });
+    });
+
+    cancelBtn.addEventListener('click', () => controller?.abort());
+})();
+
 // ─── Confirm modal ────────────────────────────────────────────────────────────
 // window.showConfirm(message, opts) replaces every destructive-action
 // confirm() across the app (delete, bulk delete, move team, etc.) — the
