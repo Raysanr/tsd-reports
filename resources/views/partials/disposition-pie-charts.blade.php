@@ -44,7 +44,20 @@
         // attributes, so the pie genuinely fills whatever room this
         // specific panel got (a short table's panel vs. a 24-hour
         // breakdown's).
-        const rect = canvas.getBoundingClientRect();
+        //
+        // Root cause of "resize never actually redraws bigger/smaller"
+        // (2026-08-14, confirmed via an instrumented repro — ResizeObserver
+        // WAS firing with the correct new wrapper width every time, but the
+        // canvas visibly never changed): this used to read
+        // canvas.getBoundingClientRect() instead of the WRAPPER's. The
+        // lines just below set the canvas's own style.width/height to a
+        // fixed PIXEL value on every call — so after the very first draw,
+        // the canvas is permanently decoupled from its flexible wrapper,
+        // and every later call just re-measures that same frozen box
+        // instead of the wrapper's real current size. Measuring the
+        // wrapper (which never gets an inline size of its own) is what
+        // actually lets it track a growing/shrinking box on every redraw.
+        const rect = canvas.parentElement.getBoundingClientRect();
         const w = Math.max(1, Math.round(rect.width));
         const h = Math.max(1, Math.round(rect.height));
         canvas.style.width = w + 'px';
@@ -178,8 +191,21 @@
         // "smaller everywhere".
         const bendReach = rx + Math.max(10, rx * 0.16);
         const nubReach = Math.max(8, rx * 0.12);
-        const LABEL_MAX_PX = 10;
-        const LABEL_MIN_PX = 6.5;
+        // SCALE above is clamped to a ceiling of 1 (deliberately — see its
+        // own comment, tuned for a 668px canvas and never meant to grow
+        // past that baseline). The manual zoom slider (pie-chart-panel.
+        // blade.php) can now make the canvas well past 668px, but the label
+        // font was still capped at a flat 10px in that case, so the pie
+        // and its in-slice numbers visibly grew while the external labels
+        // stayed pinned to the same small size — reads as "zoom isn't
+        // adjusting the text" (explicit request, 2026-08-14). LABEL_SCALE
+        // is deliberately uncapped upward (only the max() floor guards the
+        // shrink direction) so external labels grow right along with the
+        // pie; 1.6 ceiling keeps them from getting cartoonishly large at
+        // the slider's 150% end.
+        const LABEL_SCALE = Math.min(1.6, w / 668);
+        const LABEL_MAX_PX = Math.max(6, 10 * LABEL_SCALE);
+        const LABEL_MIN_PX = Math.max(5, 6.5 * LABEL_SCALE);
         const LINE_HEIGHT = 1.15;
 
         const fitText = (text, maxWidth) => {
@@ -292,10 +318,130 @@
         });
     }
 
+    // Exposed so app.js's PNG-snapshot export can force one clean redraw
+    // right when its width-transition animation settles, after pausing
+    // the ResizeObserver-driven redraws below for the animation's duration.
+    window.__redrawAllPieCharts = () => {
+        charts.forEach(({ id, chart }) => {
+            const el = document.getElementById(id);
+            if (el && chart.data.length > 0) renderPie3D(el, chart.labels, chart.data, chart.colors);
+        });
+    };
+
     charts.forEach(({ id, chart }) => {
         const el = document.getElementById(id);
         if (!el || chart.data.length === 0) return;
         renderPie3D(el, chart.labels, chart.data, chart.colors);
+
+        // renderPie3D() above locks the canvas to a fixed pixel size (the
+        // w/h it measured just now), but nothing re-ran it after that if
+        // the box later changed size — browser zoom shrinks the effective
+        // CSS viewport width and reflows the sidebar/table/panel around it,
+        // so the canvas stayed at its stale size while its container
+        // shrank, and the leader-line labels drawn for the old size ended
+        // up overlapping neighboring content (confirmed via screenshot:
+        // zooming in left labels overlapping the sidebar). Observing the
+        // WRAPPER (not the canvas, which we set inline px on inside
+        // renderPie3D — observing that would just re-trigger itself) redraws
+        // at the correct size for any cause: zoom, window resize, or a
+        // sibling panel changing width. rect-diffing skips the redundant
+        // redraw ResizeObserver fires immediately on .observe().
+        const wrapper = el.parentElement;
+        const initialRect = wrapper.getBoundingClientRect();
+        let lastW = Math.round(initialRect.width);
+        let lastH = Math.round(initialRect.height);
+        let raf = null;
+        const scheduleRedraw = () => {
+            if (raf) cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(() => renderPie3D(el, chart.labels, chart.data, chart.colors));
+        };
+        new ResizeObserver((entries) => {
+            const { width, height } = entries[0].contentRect;
+            const w = Math.round(width);
+            const h = Math.round(height);
+            if (w === lastW && h === lastH) return;
+            lastW = w;
+            lastH = h;
+            // Skipped while app.js's export animation is mid-transition
+            // (window.__pieRedrawPaused) — a CSS width transition fires
+            // this on every intermediate layout tick, and redrawing the
+            // full pie (arcs, text measurement for every label, etc.) on
+            // each one is expensive enough to visibly stutter the
+            // animation instead of gliding smoothly (explicit report,
+            // 2026-08-14: "not like glitching"). The canvas just stretches
+            // as a cheap, GPU-composited bitmap scale while paused — app.js
+            // calls window.__redrawAllPieCharts() once the transition
+            // settles, for a single crisp redraw at the final size.
+            if (window.__pieRedrawPaused) return;
+            scheduleRedraw();
+        }).observe(wrapper);
+
+        // ResizeObserver alone still misses one real case: zoom changes
+        // window.devicePixelRatio on every step, but if the wrapper's own
+        // CSS-pixel box happens not to change size at that exact moment (no
+        // ResizeObserver firing), renderPie3D() never re-reads the new dpr —
+        // the canvas keeps its now-stale backing-store resolution while the
+        // browser displays it at the new pixel density, so it stretches an
+        // under-resolved raster to fit, blurring every label into its
+        // neighbors (confirmed via a devicePixelRatio-only CDP override in
+        // a standalone repro: canvas.width stayed put even though dpr
+        // changed and the CSS box didn't). devicePixelRatio doesn't fire
+        // events itself; matchMedia's resolution query does, and has to be
+        // re-subscribed after every firing since a matched query stops
+        // matching once dpr moves past it.
+        const watchDpr = () => {
+            const mql = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+            mql.addEventListener('change', () => { scheduleRedraw(); watchDpr(); }, { once: true });
+        };
+        watchDpr();
+
+        // Manual resize handle (pie-chart-panel.blade.php) — sits in the
+        // gap between the table and this panel, as the panel's immediately
+        // preceding sibling. Dragging sets the panel's width in real px,
+        // which is a real DOM layout change the wrapper's own
+        // ResizeObserver above already reacts to, so it doesn't need to
+        // call renderPie3D() itself. The panel's LEFT edge tracks the
+        // cursor directly (drag left = handle moves into the table's
+        // space = panel grows; drag right = panel shrinks), matching how
+        // every split-pane resizer behaves. Clamped between a legibility
+        // floor and 65% of the row so dragging to an extreme can never
+        // fully swallow the table beside it or shrink the chart to
+        // nothing.
+        const panel = el.closest('[data-pie-panel]');
+        const resizer = panel && panel.previousElementSibling;
+        if (resizer && resizer.matches('[data-pie-resizer]')) {
+            const row = panel.parentElement;
+            const clampWidth = (px) => {
+                const rowWidth = row.getBoundingClientRect().width;
+                return Math.max(280, Math.min(rowWidth * 0.65, px));
+            };
+            let startX = 0;
+            let startWidth = 0;
+            const onMove = (e) => {
+                panel.style.width = clampWidth(startWidth - (e.clientX - startX)) + 'px';
+            };
+            const onUp = () => {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+            };
+            resizer.addEventListener('pointerdown', (e) => {
+                startX = e.clientX;
+                startWidth = panel.getBoundingClientRect().width;
+                document.addEventListener('pointermove', onMove);
+                document.addEventListener('pointerup', onUp, { once: true });
+                e.preventDefault();
+            });
+            resizer.addEventListener('keydown', (e) => {
+                const current = panel.getBoundingClientRect().width;
+                if (e.key === 'ArrowLeft') {
+                    panel.style.width = clampWidth(current + 20) + 'px';
+                    e.preventDefault();
+                } else if (e.key === 'ArrowRight') {
+                    panel.style.width = clampWidth(current - 20) + 'px';
+                    e.preventDefault();
+                }
+            });
+        }
     });
 })();
 </script>

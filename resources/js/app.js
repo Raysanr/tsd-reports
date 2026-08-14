@@ -382,6 +382,56 @@ document.addEventListener('click', async (e) => {
     // a capture error never leaves the page stuck in light mode.
     const wasDark = document.documentElement.classList.contains('dark');
     if (wasDark) document.documentElement.classList.remove('dark');
+
+    // The chart panel next to this table can be resized live by the user
+    // (the drag handle in pie-chart-panel.blade.php) purely for on-screen
+    // viewing, but a snapshot should always come out at the same normal
+    // size regardless of that (explicit request, 2026-08-14) — squeezing
+    // the table wrapper down that far also forces it to scroll
+    // horizontally, and html2canvas is well known to mis-render
+    // `position: sticky` columns (this table's product/time column, see
+    // .sticky-col in layouts/app.blade.php) once a scroll offset is
+    // involved, so resetting to default fixes both the tiny-chart and the
+    // scrambled-table cases together. Snapping the panel to that default
+    // width instantly read as a jarring flash — animating the resize
+    // instead (explicit request: "make it has animation... expand and go
+    // back again") turns the same mechanism into an intentional transition.
+    // The `transition` is only added for this one resize, not left on
+    // permanently — permanently on would make the drag handle feel laggy,
+    // easing into place after every mouse-move instead of tracking the
+    // cursor directly.
+    const chartCanvas  = btn.dataset.exportChart ? document.getElementById(btn.dataset.exportChart) : null;
+    const chartFrame   = chartCanvas?.parentElement;
+    const chartPanel   = chartFrame?.parentElement;
+    const restoreWidth = chartPanel?.style.width || '';
+    const ANIMATE_MS   = 350;
+
+    const animatePanelWidth = (targetWidth) => new Promise((resolve) => {
+        if (!chartPanel) return resolve();
+        chartPanel.style.transition = `width ${ANIMATE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+        // Redrawing the full pie (arcs + per-label text measurement) on
+        // every intermediate layout tick a width transition fires is
+        // expensive enough to visibly stutter the animation instead of
+        // gliding smoothly (explicit report, 2026-08-14: "not like
+        // glitching") — paused for the animation's duration so the canvas
+        // just stretches as a cheap bitmap scale, then window.__redrawAll
+        // PieCharts() does one crisp redraw once it's actually settled.
+        window.__pieRedrawPaused = true;
+        // Two rAF ticks so the transition property itself is committed
+        // before the width changes — setting both in the same tick can get
+        // coalesced into an instant jump instead of an animated one.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            chartPanel.style.width = targetWidth;
+            setTimeout(() => {
+                window.__pieRedrawPaused = false;
+                window.__redrawAllPieCharts?.();
+                resolve();
+            }, ANIMATE_MS + 50);
+        }));
+    });
+
+    if (chartPanel && restoreWidth) await animatePanelWidth('');
+
     try {
         await loadHtml2Canvas();
         const tableCanvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
@@ -394,11 +444,10 @@ document.addEventListener('click', async (e) => {
         // background in either theme (both --chart-label values are mid-gray,
         // confirmed in app.css), so no re-render-in-light-mode dance is needed
         // here the way the table gets above.
-        const chartCanvas = btn.dataset.exportChart ? document.getElementById(btn.dataset.exportChart) : null;
         // The canvas's own bordered wrapper (see leads-report.blade.php) — read
         // for its padding/border so the export frames the chart the same way
-        // the page does, not just the bare canvas.
-        const chartFrame  = chartCanvas?.parentElement;
+        // the page does, not just the bare canvas. Read fresh here (post-reset
+        // above), so this always reflects the default, undragged proportions.
         const chartBox    = chartCanvas?.getBoundingClientRect();
         const frameBox    = chartFrame?.getBoundingClientRect();
         let finalCanvas   = tableCanvas;
@@ -478,6 +527,8 @@ document.addEventListener('click', async (e) => {
     } catch (err) {
         console.error('Table snapshot failed:', err);
     } finally {
+        if (chartPanel && restoreWidth) await animatePanelWidth(restoreWidth);
+        if (chartPanel) chartPanel.style.transition = ''; // don't leave the drag handle feeling laggy afterward
         if (wasDark) document.documentElement.classList.add('dark');
         btn.disabled = false;
         btn.classList.remove('opacity-40');

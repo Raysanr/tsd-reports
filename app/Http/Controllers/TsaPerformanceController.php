@@ -329,6 +329,33 @@ class TsaPerformanceController extends Controller
             ];
         }
 
+        // Per-day breakdown across the whole selected range (explicit request,
+        // 2026-08-14: a table shaped like the source sheet's own daily tally,
+        // reacting to this page's existing date-range picker) — same disposition
+        // tally as $summary/$hourlyRows (buildRow()), just bucketed by calendar
+        // day instead of by hour-of-day or collapsed into one range total.
+        // Grouped by effective_created_at (the PHP-side accessor for the same
+        // COALESCE(pancake_inserted_at, pancake_created_at) expression $orders
+        // was already scoped by above) rather than pancake_created_at alone, so
+        // every order in $orders lands in exactly one day bucket inside
+        // [from, to] — grouping by pancake_created_at instead risks an order
+        // whose worked-at date falls outside the range that scoped it in,
+        // landing in no bucket (or the wrong one) and silently mismatching the
+        // day rows against the range-total $summary row above. Every calendar
+        // day in range gets a row, including all-zero rest days — unlike the
+        // hourly loop below, which skips blank hours, a multi-day range table
+        // reads as a TSA's activity log over time, where a rest day showing as
+        // zero IS the useful signal, not noise to hide.
+        $ordersByDate = $orders->groupBy(fn($o) => $o->effective_created_at->toDateString());
+        $dailyRows    = [];
+        for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
+            $dayOrders = $ordersByDate->get($cursor->toDateString(), collect());
+            $dailyRows[] = [
+                'label' => $cursor->format('F j'),
+                'row'   => $this->buildRow($shift, $tsaKey, $dayOrders),
+            ];
+        }
+
         // Whole-shift Productivity Time (the "440" header figure on the source sheet) —
         // a fixed policy constant, not derived from each TSA's own shift length: every
         // full shift is assumed to yield 440 productive minutes after a 1-hour break
@@ -514,6 +541,7 @@ class TsaPerformanceController extends Controller
             'isRestDay'         => $isRestDay,
             'summary'           => $summary,
             'hourlyRows'        => $hourlyRows,
+            'dailyRows'         => $dailyRows,
             'metricCols'        => self::METRIC_COLUMNS,
         ]);
     }
