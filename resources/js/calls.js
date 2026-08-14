@@ -676,6 +676,24 @@ document.querySelectorAll('aside nav a').forEach((link) => {
     link.addEventListener('click', () => setLeadsNavOpen(false));
 });
 
+// Clicking the "Leads" label itself is a real link (not just the arrow), so
+// it used to jump straight to the Leads page with the submenu snapping open
+// on the new page — no animation, since there's nothing to animate across a
+// full reload. Explicit request (2026-08-14): play the open animation first,
+// then navigate, so the label feels the same as the arrow instead of an
+// abrupt page swap. Skipped for modified clicks (new tab/window, middle
+// click) so that standard browser behavior still works, and skipped
+// entirely if the submenu is already open — nothing to animate, navigate
+// immediately like a normal link.
+document.getElementById('leadsNavLink')?.addEventListener('click', function (e) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const submenu = document.getElementById('leadsNavSubmenu');
+    if (!submenu || !submenu.classList.contains('grid-rows-[0fr]')) return;
+    e.preventDefault();
+    setLeadsNavOpen(true);
+    setTimeout(() => { window.location.href = this.href; }, 220);
+});
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeCallingModal();
 });
