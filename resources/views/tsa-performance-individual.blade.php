@@ -85,7 +85,16 @@
     <p class="text-sm font-mono text-slate-400">No called leads for {{ $rangeLabel }}</p>
 </div>
 @else
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)" data-scroll-shadow>
+{{-- data-dd-*: same drilldown popover as the team-wide TSA Performance table
+     (tsa-performance.blade.php) — that page already wires every cell to
+     "click to see the orders behind this total"; this page's own Hourly
+     Breakdown never was, despite using the identical shared endpoint
+     (TsaPerformanceController::drilldown()) and JS handler (app.js), which
+     only needed data-dd-team/-date-from/-date-to on the wrapper plus
+     data-drilldown/-tsa/-hour/-column per cell to already work here too
+     (explicit request, 2026-08-14). --}}
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm" style="max-height:calc(100vh - 380px)" data-scroll-shadow
+     data-dd-team="{{ $team }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1280px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
@@ -143,11 +152,13 @@
                 <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">
                     {{ $hour['label'] }}
                 </td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $hour['row']['total_called'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hour['row']['total_called']) data-drilldown data-dd-tsa="{{ $tsaKey }}" data-dd-hour="{{ $hour['hour'] }}" data-dd-column="total_called" title="Click to see the orders behind this total" @endif>
                     {{ $hour['row']['total_called'] ?: '' }}
                 </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $hour['row'][$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hour['row'][$col['key']]) data-drilldown data-dd-tsa="{{ $tsaKey }}" data-dd-hour="{{ $hour['hour'] }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $hour['row'][$col['key']] ?: '' }}
                 </td>
                 @endforeach
@@ -166,9 +177,13 @@
             {{-- GRAND TOTAL row --}}
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Day Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $summary['total_called'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $summary['total_called'] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                    @if($summary['total_called']) data-drilldown data-dd-tsa="{{ $tsaKey }}" data-dd-column="total_called" title="Click to see the orders behind this total" @endif>
+                    {{ $summary['total_called'] ?: '' }}
+                </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $summary[$col['key']] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                    @if($summary[$col['key']]) data-drilldown data-dd-tsa="{{ $tsaKey }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $summary[$col['key']] ?: '' }}
                 </td>
                 @endforeach

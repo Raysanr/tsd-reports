@@ -325,6 +325,7 @@ class TsaPerformanceController extends Controller
 
             $hourlyRows[] = [
                 'label' => HourFormatter::rangeLabel($hour),
+                'hour'  => $hour,
                 'row'   => $row,
             ];
         }
