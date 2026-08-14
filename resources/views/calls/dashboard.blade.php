@@ -54,7 +54,7 @@ $statusBadge = fn($status) => match(true) {
 <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 mb-6">
     @include('calls.partials.stat-tile', ['label' => $isToday ? 'Assigned Today' : 'Assigned', 'value' => $funnel['assigned'], 'icon' => 'inbox', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'caption' => null])
     @include('calls.partials.stat-tile', ['label' => $isToday ? 'Called Today' : 'Called', 'value' => $funnel['called'], 'icon' => 'phone', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'caption' => null])
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Overdue Today' : 'Overdue', 'value' => $funnel['overdue'], 'icon' => 'clock', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'caption' => null])
+    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Overdue Today' : 'Overdue', 'value' => $funnel['overdue'], 'icon' => 'clock', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'caption' => null, 'accent' => $funnel['overdue'] > 0])
     @include('calls.partials.stat-tile', ['label' => $isToday ? 'Callbacks Today' : 'Callbacks', 'value' => $funnel['callbacks'], 'icon' => 'calendar', 'color' => 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/40', 'caption' => null])
 
     @if(auth()->user()->isAtLeastAdmin())
@@ -91,7 +91,7 @@ $statusBadge = fn($status) => match(true) {
         @else
         <div class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($tsas as $tsa)
-            <div class="flex items-center justify-between gap-3 px-5 py-3">
+            <div class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="relative shrink-0">
                         <div class="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[11px] font-bold font-mono">

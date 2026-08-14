@@ -7,9 +7,17 @@
 
     Required: $label, $value, $icon (a key below), $color (Tailwind bg+text
     classes for the icon circle, e.g. 'text-blue-600 bg-blue-50 dark:bg-blue-950/40').
-    Optional: $caption (a second, smaller line under the value).
+    Optional: $caption (a second, smaller line under the value), $accent (true
+    draws a warning-colored border instead of the neutral one — same border-
+    only treatment tsd-reports' own Dashboard already uses on its "Total
+    Restocking" card to flag a number that needs attention, not a full color
+    swap of the card. dark:border-red-800, not -900 — red isn't the
+    yellow/amber exception the app.css dark-mode convention comment calls
+    out, so it follows the plain tinted-border rule; matches this same
+    page's own at-risk-products banner, border-red-200 dark:border-red-800).
 --}}
-<div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
+@php $accent = $accent ?? false; @endphp
+<div class="stat-card bg-white dark:bg-slate-900 rounded-xl border {{ $accent ? 'border-red-200 dark:border-red-800' : 'border-slate-200 dark:border-slate-700' }} shadow-sm p-3 sm:p-5 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
     <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shrink-0 {{ $color }}">
         @switch($icon)
             @case('inbox')
