@@ -8,6 +8,39 @@
 
 @section('content')
 
+@if(!$view)
+<script>
+// The date range only ever lives in this page's own URL (?date_from=&date_to=) —
+// nothing persists it, and the sidebar's Overdue/Callbacks/Leads links are all
+// plain hrefs with no query string. So leaving Leads and coming back always
+// lands on the bare URL, which falls back to "today". Explicit request
+// (2026-08-14): remember the last-applied range across that round trip. Synced
+// to localStorage below whenever a range IS in the URL; if the URL has none
+// (this bare-link case) but a saved range exists, redirect once to include it
+// — before the table below ever renders with the wrong ("today") data.
+(function () {
+    const STORAGE_KEY = 'callsLeadsDateRange';
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get('date_from');
+    const to   = params.get('date_to');
+
+    if (from && to) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ from, to }));
+        return;
+    }
+
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        if (saved?.from && saved?.to) {
+            params.set('date_from', saved.from);
+            params.set('date_to', saved.to);
+            window.location.replace(window.location.pathname + '?' + params.toString());
+        }
+    } catch (e) { /* corrupt/old value — ignore, falls back to today */ }
+})();
+</script>
+@endif
+
 <div class="mb-6 flex items-center gap-3 flex-wrap">
     <form method="GET" class="flex items-center gap-3 flex-wrap">
         @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
