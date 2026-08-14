@@ -11,6 +11,16 @@ class RtsReportController extends Controller
     /** Pancake status counted as Delivered: 3 = Received by the customer. */
     private const DELIVERED_STATUS = 3;
 
+    /**
+     * Percentage helper for the rate columns below — null (rendered as "—")
+     * rather than 0 when there's nothing to divide by, so an idle TSA/team
+     * reads as "no data" instead of a misleading 0%.
+     */
+    private function rate(float $numerator, float $denominator): ?float
+    {
+        return $denominator > 0 ? round($numerator / $denominator * 100, 1) : null;
+    }
+
     public function index()
     {
         $dateFrom = request('date_from', session('filters.rts_report.date_from', now()->format('Y-m-d')));
@@ -50,26 +60,64 @@ class RtsReportController extends Controller
                     ->where('status_code', self::DELIVERED_STATUS)
                     ->sum('amount');
 
+                // Total Sales — every upsell this TSA has EVER placed in range,
+                // not just the ones that have reached a final Delivered/RTS
+                // outcome (so it's always >= rts_amount + delivered_amount;
+                // the gap is whatever's still pending/in transit). Same
+                // is_upsell/is_returned_upsell split as the two sums above —
+                // 'amount' only holds the correct isolated add-on value while
+                // is_upsell is true; once Pancake marks an order Returning/
+                // Returned, VOID_STATUSES flips is_upsell to false and the
+                // add-on value lives in returned_upsell_amount instead (see
+                // the RTS comment above) — summing both scoped queries covers
+                // every upsell regardless of which side of that flip it's on.
+                // Cancelled upsells are excluded from both (is_upsell and
+                // is_returned_upsell are both false for those), same as
+                // every other "real upsell" total elsewhere in the app.
+                $totalSales = $rtsAmount + (float) $scoped()->where('is_upsell', true)->sum('amount');
+
                 return [
                     'display_name'     => $shift->display_name,
                     'rts_amount'       => $rtsAmount,
                     'delivered_amount' => $deliveredAmount,
+                    'total_sales'      => $totalSales,
+                    'act_del_rate'     => $this->rate($deliveredAmount, $totalSales),
+                    'act_rts_rate'     => $this->rate($rtsAmount, $totalSales),
+                    'run_del_rate'     => $this->rate($deliveredAmount, $deliveredAmount + $rtsAmount),
                 ];
             })->values();
+
+            $totalRts       = $rows->sum('rts_amount');
+            $totalDelivered = $rows->sum('delivered_amount');
+            $totalSales     = $rows->sum('total_sales');
 
             return [
                 'name'            => $teamConfig['name'],
                 'rows'            => $rows,
-                'total_rts'       => $rows->sum('rts_amount'),
-                'total_delivered' => $rows->sum('delivered_amount'),
+                'total_rts'       => $totalRts,
+                'total_delivered' => $totalDelivered,
+                'total_sales'     => $totalSales,
+                // Team-level rates from the SUMMED amounts, not an average of
+                // each TSA's own rate — averaging per-TSA percentages would
+                // let a low-volume TSA's outlier rate skew the team figure
+                // out of proportion to how much of the team's actual sales
+                // they represent.
+                'act_del_rate'    => $this->rate($totalDelivered, $totalSales),
+                'act_rts_rate'    => $this->rate($totalRts, $totalSales),
+                'run_del_rate'    => $this->rate($totalDelivered, $totalDelivered + $totalRts),
             ];
         })->values();
 
         $grandTotalRts       = $teamTables->sum('total_rts');
         $grandTotalDelivered = $teamTables->sum('total_delivered');
+        $grandTotalSales     = $teamTables->sum('total_sales');
+        $grandActDelRate     = $this->rate($grandTotalDelivered, $grandTotalSales);
+        $grandActRtsRate     = $this->rate($grandTotalRts, $grandTotalSales);
+        $grandRunDelRate     = $this->rate($grandTotalDelivered, $grandTotalDelivered + $grandTotalRts);
 
         return view('rts-report', compact(
-            'dateFrom', 'dateTo', 'teamTables', 'grandTotalRts', 'grandTotalDelivered'
+            'dateFrom', 'dateTo', 'teamTables', 'grandTotalRts', 'grandTotalDelivered',
+            'grandTotalSales', 'grandActDelRate', 'grandActRtsRate', 'grandRunDelRate'
         ));
     }
 }

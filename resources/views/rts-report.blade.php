@@ -41,32 +41,59 @@
         <thead>
             <tr>
                 <th class="bg-yellow-100 dark:bg-yellow-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide" data-sort-key="name">{{ $table['name'] }}</th>
+                <th class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide" style="min-width:130px" data-sort-key="totalSales">Total<br>Sales</th>
                 <th class="bg-rose-100 dark:bg-rose-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide" style="min-width:130px" data-sort-key="rts">RTS</th>
                 <th class="bg-green-100 dark:bg-green-900/50 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide" style="min-width:130px" data-sort-key="delivered">Delivered</th>
+                <th class="bg-green-50 dark:bg-green-950/40 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-green-800 dark:text-green-400 uppercase tracking-wide" style="min-width:100px" data-sort-key="actualDelivery">Actual<br>Delivery</th>
+                <th class="bg-blue-50 dark:bg-blue-950/40 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-blue-800 dark:text-blue-400 uppercase tracking-wide" style="min-width:100px" data-sort-key="runningDelivery">Running<br>Delivery</th>
+                <th class="bg-rose-50 dark:bg-rose-950/40 border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-[11px] font-bold text-rose-800 dark:text-rose-400 uppercase tracking-wide" style="min-width:100px" data-sort-key="actualRts">Actual<br>RTS</th>
             </tr>
         </thead>
         <tbody>
             @foreach($table['rows'] as $row)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                 <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-slate-700 dark:text-slate-200" data-sort-key="name" data-sort-value="{{ $row['display_name'] }}">{{ $row['display_name'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-slate-700 dark:text-slate-200" data-sort-key="totalSales" data-sort-value="{{ $row['total_sales'] }}">₱{{ number_format($row['total_sales'], 2) }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-rose-700 dark:text-rose-400" data-sort-key="rts" data-sort-value="{{ $row['rts_amount'] }}">₱{{ number_format($row['rts_amount'], 2) }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right text-green-700 dark:text-green-400" data-sort-key="delivered" data-sort-value="{{ $row['delivered_amount'] }}">₱{{ number_format($row['delivered_amount'], 2) }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right font-semibold {{ $row['act_del_rate'] !== null ? 'text-green-700 dark:text-green-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="actualDelivery" data-sort-value="{{ $row['act_del_rate'] ?? '' }}">
+                    {{ $row['act_del_rate'] !== null ? $row['act_del_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right font-semibold {{ $row['run_del_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="runningDelivery" data-sort-value="{{ $row['run_del_rate'] ?? '' }}">
+                    {{ $row['run_del_rate'] !== null ? $row['run_del_rate'].'%' : '—' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-4 py-2.5 text-right font-semibold {{ $row['act_rts_rate'] !== null ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="actualRts" data-sort-value="{{ $row['act_rts_rate'] ?? '' }}">
+                    {{ $row['act_rts_rate'] !== null ? $row['act_rts_rate'].'%' : '—' }}
+                </td>
             </tr>
             @endforeach
         </tbody>
         {{-- Total rows live in tfoot, not tbody, so a client-side column sort
              (which only re-orders <tbody> rows — see app.js) never shuffles them
-             into the middle of the sorted TSA list. --}}
+             into the middle of the sorted TSA list. Total Sales and the three
+             rate columns are spread across these same two rows (rather than a
+             third "totals" row) — Actual Delivery/Running Delivery sit
+             naturally with the Delivered row, Actual RTS with the RTS row,
+             and Total Sales isn't tied to either specifically so it's shown
+             once, on the first. --}}
         <tfoot>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Total RTS</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-slate-300">₱{{ number_format($table['total_sales'], 2) }}</td>
                 <td class="border border-slate-700 px-4 py-3 text-right text-rose-300">₱{{ number_format($table['total_rts'], 2) }}</td>
                 <td class="border border-slate-700 px-4 py-3"></td>
+                <td class="border border-slate-700 px-4 py-3"></td>
+                <td class="border border-slate-700 px-4 py-3"></td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-rose-300">{{ $table['act_rts_rate'] !== null ? $table['act_rts_rate'].'%' : '—' }}</td>
             </tr>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Total Delivered</td>
                 <td class="border border-slate-700 px-4 py-3"></td>
+                <td class="border border-slate-700 px-4 py-3"></td>
                 <td class="border border-slate-700 px-4 py-3 text-right text-green-300">₱{{ number_format($table['total_delivered'], 2) }}</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-green-300">{{ $table['act_del_rate'] !== null ? $table['act_del_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-blue-300">{{ $table['run_del_rate'] !== null ? $table['run_del_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-700 px-4 py-3"></td>
             </tr>
         </tfoot>
     </table>
@@ -89,12 +116,20 @@
     <table class="w-full border-collapse text-xs font-mono">
         <tbody>
             <tr class="bg-slate-900 text-white font-bold">
+                <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Total Sales — Both Teams</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-slate-300" style="min-width:130px">₱{{ number_format($grandTotalSales, 2) }}</td>
+            </tr>
+            <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Total RTS — Both Teams</td>
-                <td class="border border-slate-700 px-4 py-3 text-right text-rose-300" style="min-width:130px">₱{{ number_format($grandTotalRts, 2) }}</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-rose-300" style="min-width:130px">₱{{ number_format($grandTotalRts, 2) }} ({{ $grandActRtsRate !== null ? $grandActRtsRate.'%' : '—' }})</td>
             </tr>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Total Delivered — Both Teams</td>
-                <td class="border border-slate-700 px-4 py-3 text-right text-green-300" style="min-width:130px">₱{{ number_format($grandTotalDelivered, 2) }}</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-green-300" style="min-width:130px">₱{{ number_format($grandTotalDelivered, 2) }} ({{ $grandActDelRate !== null ? $grandActDelRate.'%' : '—' }})</td>
+            </tr>
+            <tr class="bg-slate-900 text-white font-bold">
+                <td class="border border-slate-700 px-4 py-3 uppercase tracking-wider text-[11px]">Running Delivery Rate — Both Teams</td>
+                <td class="border border-slate-700 px-4 py-3 text-right text-blue-300" style="min-width:130px">{{ $grandRunDelRate !== null ? $grandRunDelRate.'%' : '—' }}</td>
             </tr>
         </tbody>
     </table>
