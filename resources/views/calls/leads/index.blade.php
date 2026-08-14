@@ -40,11 +40,13 @@
         </div>
         <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">Search</button>
 
+        @if(!$view)
         @include('partials.date-picker', [
             'mode' => 'range', 'id' => 'callsLeadsDrp',
             'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom ?: now()),
             'dateTo'   => \Illuminate\Support\Carbon::parse($dateTo ?: now()),
         ])
+        @endif
         @endif
     </form>
 </div>
