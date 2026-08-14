@@ -382,9 +382,24 @@ toggleApiKeyBtn.addEventListener('click', () => {
     eyeSlashIcon.classList.toggle('hidden', !isHidden);
 });
 
+// The input's own value after Save (or on a fresh page load with an
+// already-connected key) is this masked placeholder (see
+// SettingsController::mask()), never the real secret — comparing against it
+// lets "Detect Shop" recognize an untouched field and say so directly,
+// instead of sending literal bullet characters to Pancake as an "api_key"
+// and having it fail with the same generic message a truly wrong key would
+// (confirmed report, 2026-08-14: "detect shop... then save... then detect
+// shop again... invalid api key" — the field was never cleared/retyped in
+// between, so this masked string is exactly what got sent).
+const maskedPlaceholder = @json($apiKeyMasked);
+
 detectBtn.addEventListener('click', async () => {
     const key = apiInput.value.trim();
     if (!key) { showStatus('error', 'Please paste your API key first.'); return; }
+    if (maskedPlaceholder && key === maskedPlaceholder) {
+        showStatus('info', 'That\'s your saved key\'s masked display, not a real key — clear the field and paste the actual key to test a different one.');
+        return;
+    }
 
     detectBtn.disabled = true;
     detectBtn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Detecting...`;
