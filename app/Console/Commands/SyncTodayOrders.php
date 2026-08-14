@@ -311,7 +311,22 @@ class SyncTodayOrders extends Command
             $tagNames = array_map(fn($t) => \is_array($t) ? ($t['name'] ?? '') : (string)$t, $tags);
 
             $disposition  = $this->extractDisposition($tagNames);
-            $hasUpsellTag = Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw);
+            // hasSeparateParcelTag() folded in directly (explicit request,
+            // 2026-08-14, confirmed live on order #1348619/Joana): a real
+            // TSA sale can ship as its own standalone Pancake order with
+            // ONLY the SEPARATE PARCEL tag on it — no separate "UPSELL TSD"
+            // tag at all, and (unlike the scenario the 2026-08-12 fix below
+            // handles) no sibling order to inherit one from either. Same
+            // trust-the-tag precedent that fix already established for a
+            // SEPARATE PARCEL order that looks structurally like a
+            // cancelled upsell — this just extends it to also cover one
+            // that never had an upsell tag to begin with. extractTsaInfo()
+            // already resolves this order's real TSA independently (account
+            // signal, falling back to a name tag), so this only ever
+            // affects whether an order correctly-attributed to a TSA counts
+            // as her upsell, never who it's attributed to.
+            $hasUpsellTag = Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
+                || Order::hasSeparateParcelTag($tagNames);
 
             // Cancelled upsell: the order still carries an upsell tag, but the add-on
             // item(s) have been removed from it while the primary order kept going
