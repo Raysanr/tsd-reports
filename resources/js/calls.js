@@ -640,19 +640,41 @@ document.addEventListener('click', (e) => {
     // whatever's registered for tel: on whoever's viewing this page.
 });
 
-// Sidebar Leads group (a future nav addition, see Phase 7 of the merge
-// plan) — a sibling button next to the Leads link, not nested inside it (a
-// <button> can't legally nest inside an <a>), so this only toggles the
-// Overdue/Callbacks submenu without navigating. No-op today since
-// #leadsNavSubmenu doesn't exist in tsd-reports' shared nav yet.
+// Sidebar Leads group — a sibling button next to the Leads link, not nested
+// inside it (a <button> can't legally nest inside an <a>), so this only
+// toggles the Overdue/Callbacks submenu without navigating. Animated via a
+// grid-template-rows 0fr/1fr swap (see leadsNavSubmenu in calls.blade.php)
+// instead of the `hidden` class, so open/close transitions smoothly rather
+// than snapping — plus an opacity fade on the inner content so text doesn't
+// pop in/out mid-collapse.
+function setLeadsNavOpen(open) {
+    const submenu = document.getElementById('leadsNavSubmenu');
+    const inner = document.getElementById('leadsNavSubmenuInner');
+    const chevron = document.getElementById('leadsNavChevron');
+    if (!submenu) return;
+    submenu.classList.toggle('grid-rows-[1fr]', open);
+    submenu.classList.toggle('grid-rows-[0fr]', !open);
+    inner?.classList.toggle('opacity-100', open);
+    inner?.classList.toggle('opacity-0', !open);
+    chevron?.classList.toggle('rotate-180', open);
+}
+
 window.toggleLeadsNav = function (e) {
     e.stopPropagation();
     const submenu = document.getElementById('leadsNavSubmenu');
-    const chevron = document.getElementById('leadsNavChevron');
     if (!submenu) return;
-    submenu.classList.toggle('hidden');
-    chevron?.classList.toggle('rotate-180');
+    setLeadsNavOpen(submenu.classList.contains('grid-rows-[0fr]'));
 };
+
+// Clicking any other sidebar nav link while the Leads submenu is open
+// collapses it with the same animation first, instead of it just vanishing
+// under the new page. Excludes the Leads link itself (#leadsNavLink) — going
+// to the Leads index is still part of this group, so it should stay open —
+// and anything inside the submenu (navigating within it shouldn't self-close).
+document.querySelectorAll('aside nav a').forEach((link) => {
+    if (link.id === 'leadsNavLink' || link.closest('#leadsNavSubmenu')) return;
+    link.addEventListener('click', () => setLeadsNavOpen(false));
+});
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeCallingModal();

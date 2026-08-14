@@ -174,7 +174,7 @@
             $leadsBaseActive  = $leadsGroupActive && !request('view');
         @endphp
         <div class="nav-item flex items-center rounded-lg {{ $leadsBaseActive ? 'nav-active' : '' }}">
-            <a href="{{ route('calls.leads.index') }}"
+            <a id="leadsNavLink" href="{{ route('calls.leads.index') }}"
                class="flex-1 min-w-0 flex items-center justify-between gap-3 pl-3 pr-2 py-2.5 text-yellow-200 text-sm font-medium cursor-pointer">
                 <span class="flex items-center gap-3 min-w-0">
                     <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -192,28 +192,32 @@
             </button>
         </div>
 
-        <div id="leadsNavSubmenu" class="{{ $leadsGroupActive ? '' : 'hidden' }} ml-4 pl-3 border-l border-white/10 space-y-1 mt-1 mb-1">
-            <a href="{{ route('calls.leads.index', ['view' => 'overdue']) }}"
-               class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'overdue' ? 'nav-active' : '' }}">
-                <span class="flex items-center gap-3">
-                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
-                    </svg>
-                    Overdue
-                </span>
-                <span id="badge-overdue" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
-            </a>
+        <div id="leadsNavSubmenu" class="grid transition-[grid-template-rows] duration-200 ease-out {{ $leadsGroupActive ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]' }}">
+            <div class="overflow-hidden">
+                <div id="leadsNavSubmenuInner" class="ml-4 pl-3 border-l border-white/10 space-y-1 mt-1 mb-1 transition-opacity duration-150 {{ $leadsGroupActive ? 'opacity-100' : 'opacity-0' }}">
+                    <a href="{{ route('calls.leads.index', ['view' => 'overdue']) }}"
+                       class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'overdue' ? 'nav-active' : '' }}">
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                            </svg>
+                            Overdue
+                        </span>
+                        <span id="badge-overdue" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
+                    </a>
 
-            <a href="{{ route('calls.leads.index', ['view' => 'callbacks']) }}"
-               class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'callbacks' ? 'nav-active' : '' }}">
-                <span class="flex items-center gap-3">
-                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    Callbacks
-                </span>
-                <span id="badge-callbacks" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
-            </a>
+                    <a href="{{ route('calls.leads.index', ['view' => 'callbacks']) }}"
+                       class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'callbacks' ? 'nav-active' : '' }}">
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                            Callbacks
+                        </span>
+                        <span id="badge-callbacks" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
+                    </a>
+                </div>
+            </div>
         </div>
 
         {{-- isAtLeastAdmin() (super_admin OR admin), not the original bare
