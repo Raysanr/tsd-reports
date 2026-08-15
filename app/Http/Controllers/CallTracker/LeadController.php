@@ -101,10 +101,20 @@ class LeadController extends Controller
         // just conflict with. An empty date_from/date_to (the normal,
         // un-filtered state) shows every lead exactly as before — nothing
         // here narrows the result set unless a range was picked.
+        //
+        // Filters on COALESCE(assigned_at, pancake_created_at) rather than
+        // plain pancake_created_at (root-caused 2026-08-15: the sidebar
+        // badge and Round Robin Setup both count "assigned today" via
+        // assigned_at, but this list was filtering by creation date — a
+        // lead created yesterday and picked up by round-robin TODAY showed
+        // in the badge's "17" but not in this filtered list's "7", since its
+        // pancake_created_at wasn't today even though its assigned_at was).
+        // Falls back to pancake_created_at for a still-unassigned lead,
+        // which has no assigned_at yet.
         $dateFrom = $request->string('date_from')->toString();
         $dateTo   = $request->string('date_to')->toString();
         if (!$view && $dateFrom && $dateTo) {
-            $query->whereBetween('pancake_created_at', [
+            $query->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [
                 Carbon::parse($dateFrom)->startOfDay(),
                 Carbon::parse($dateTo)->endOfDay(),
             ]);
