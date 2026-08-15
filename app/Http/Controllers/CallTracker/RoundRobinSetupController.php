@@ -14,15 +14,26 @@ use Illuminate\Http\Request;
  */
 class RoundRobinSetupController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get()
+        $team = $request->string('team')->toString();
+
+        $query = TsaShift::where('active', true)->orderBy('sort_order');
+        if ($team) {
+            $query->where('team', $team);
+        }
+
+        $tsas = $query->get()
             ->map(fn (TsaShift $tsa) => [
                 'tsa'            => $tsa,
                 'assigned_today' => $tsa->leadsAssignedToday(),
             ]);
 
-        return view('calls.round-robin-setup', ['tsas' => $tsas]);
+        return view('calls.round-robin-setup', [
+            'tsas'         => $tsas,
+            'teams'        => collect(config('teams'))->pluck('order_team')->all(),
+            'selectedTeam' => $team,
+        ]);
     }
 
     public function update(Request $request, TsaShift $tsaShift)
