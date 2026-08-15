@@ -29,11 +29,21 @@ class RoundRobinSetupController extends Controller
                 'assigned_today' => $tsa->leadsAssignedToday(),
             ]);
 
-        return view('calls.round-robin-setup', [
+        $data = [
             'tsas'         => $tsas,
             'teams'        => collect(config('teams'))->pluck('order_team')->all(),
             'selectedTeam' => $team,
-        ]);
+        ];
+
+        // The team filter fetches this same URL in the background (see the
+        // page's own script) and swaps in just the table with a fade instead
+        // of a full page reload — same X-Table-Refresh convention the Leads
+        // page already uses for its own polling.
+        if ($request->header('X-Table-Refresh')) {
+            return view('calls.round-robin-setup._table', $data);
+        }
+
+        return view('calls.round-robin-setup', $data);
     }
 
     public function update(Request $request, TsaShift $tsaShift)
