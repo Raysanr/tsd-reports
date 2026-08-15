@@ -176,9 +176,17 @@
         @php
             $leadsGroupActive = request()->routeIs('calls.leads.index');
             $leadsBaseActive  = $leadsGroupActive && !request('view');
+            // Carries the TSA filter across Leads/Overdue/Callbacks (explicit
+            // request, 2026-08-15): these three links used to be fixed hrefs,
+            // so picking a TSA on Leads and clicking Overdue/Callbacks (or
+            // back) silently dropped it — only date_from/date_to had a
+            // persistence mechanism (localStorage, see leads/index.blade.php),
+            // tsa had none at all. Scoped to when already on a Leads-group
+            // page so it can't leak an unrelated ?tsa= from some other page.
+            $leadsTsaParam = $leadsGroupActive ? request()->only('tsa') : [];
         @endphp
         <div class="nav-item flex items-center rounded-lg {{ $leadsBaseActive ? 'nav-active' : '' }}">
-            <a id="leadsNavLink" href="{{ route('calls.leads.index') }}"
+            <a id="leadsNavLink" href="{{ route('calls.leads.index', $leadsTsaParam) }}"
                class="flex-1 min-w-0 flex items-center justify-between gap-3 pl-3 pr-2 py-2.5 text-yellow-200 text-sm font-medium cursor-pointer">
                 <span class="flex items-center gap-3 min-w-0">
                     <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -199,7 +207,7 @@
         <div id="leadsNavSubmenu" class="grid transition-[grid-template-rows] duration-200 ease-out {{ $leadsGroupActive ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]' }}">
             <div class="overflow-hidden">
                 <div id="leadsNavSubmenuInner" class="ml-4 pl-3 border-l border-white/10 space-y-1 mt-1 mb-1 transition-opacity duration-150 {{ $leadsGroupActive ? 'opacity-100' : 'opacity-0' }}">
-                    <a href="{{ route('calls.leads.index', ['view' => 'overdue']) }}"
+                    <a href="{{ route('calls.leads.index', ['view' => 'overdue'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'overdue' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
                             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -210,7 +218,7 @@
                         <span id="badge-overdue" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
 
-                    <a href="{{ route('calls.leads.index', ['view' => 'callbacks']) }}"
+                    <a href="{{ route('calls.leads.index', ['view' => 'callbacks'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'callbacks' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
                             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">

@@ -74,8 +74,12 @@ class LeadController extends Controller
                 ->orderBy('assigned_at');
         } elseif ($view === 'callbacks') {
             // A TSA promised to call back by a specific time — due now or
-            // already past due, not "someday in the future".
+            // already past due, not "someday in the future". Bounded to
+            // today (same reasoning/request as Overdue above): a callback
+            // promised yesterday that never happened shouldn't linger here
+            // forever once the day it was due has passed.
             $query->whereNotNull('callback_at')
+                ->where('callback_at', '>=', today())
                 ->where('callback_at', '<=', now())
                 ->orderBy('callback_at');
         } elseif ($request->filled('status')) {
