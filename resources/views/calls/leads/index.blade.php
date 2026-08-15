@@ -8,16 +8,18 @@
 
 @section('content')
 
-@if(!$view)
 <script>
 // The date range only ever lives in this page's own URL (?date_from=&date_to=) —
-// nothing persists it, and the sidebar's Overdue/Callbacks/Leads links are all
-// plain hrefs with no query string. So leaving Leads and coming back always
-// lands on the bare URL, which falls back to "today". Explicit request
-// (2026-08-14): remember the last-applied range across that round trip. Synced
-// to localStorage below whenever a range IS in the URL; if the URL has none
-// (this bare-link case) but a saved range exists, redirect once to include it
-// — before the table below ever renders with the wrong ("today") data.
+// nothing persists it on its own. Explicit request (2026-08-14, extended
+// 2026-08-15 to Overdue/Callbacks now that they share the same date window —
+// see LeadController::index()): remember the last-applied range across a
+// round trip through the sidebar's Leads/Overdue/Callbacks links, all of
+// which now carry it forward directly, but ALSO across leaving Call Tracker
+// entirely and coming back later (e.g. a fresh session), which no amount of
+// link-forwarding alone can cover. Synced to localStorage below whenever a
+// range IS in the URL; if the URL has none but a saved range exists, redirect
+// once to include it — before the table below ever renders with the wrong
+// ("today") data.
 (function () {
     const STORAGE_KEY = 'callsLeadsDateRange';
     const params = new URLSearchParams(window.location.search);
@@ -39,7 +41,6 @@
     } catch (e) { /* corrupt/old value — ignore, falls back to today */ }
 })();
 </script>
-@endif
 
 <div class="mb-6 flex items-center gap-3 flex-wrap">
     <form method="GET" class="flex items-center gap-3 flex-wrap">
@@ -73,13 +74,11 @@
         </div>
         <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">Search</button>
 
-        @if(!$view)
         @include('partials.date-picker', [
             'mode' => 'range', 'id' => 'callsLeadsDrp',
             'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom ?: now()),
             'dateTo'   => \Illuminate\Support\Carbon::parse($dateTo ?: now()),
         ])
-        @endif
         @endif
     </form>
 </div>

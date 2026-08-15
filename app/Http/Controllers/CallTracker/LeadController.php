@@ -60,26 +60,36 @@ class LeadController extends Controller
             $query->where('tsa_id', $request->integer('tsa'));
         }
 
+        // One shared date window for every view (explicit request,
+        // 2026-08-15) — whatever's picked via date_from/date_to, defaulting
+        // to today when nothing's picked. Mirrors TSD Reports' own "Excess"
+        // metric, which always reads against whichever period is selected
+        // rather than a fixed "today": picking yesterday on Leads and
+        // clicking Overdue now shows yesterday's overdue, not always today's,
+        // and it resets at midnight the same way the sidebar badge does when
+        // nothing's explicitly picked.
+        $dateFromInput = $request->string('date_from')->toString();
+        $dateToInput   = $request->string('date_to')->toString();
+        $rangeFrom = $dateFromInput ? Carbon::parse($dateFromInput)->startOfDay() : today();
+        $rangeTo   = $dateToInput ? Carbon::parse($dateToInput)->endOfDay() : today()->copy()->endOfDay();
+        if ($rangeTo->lt($rangeFrom)) {
+            $rangeTo = $rangeFrom->copy()->endOfDay();
+        }
+
         if ($view === 'overdue') {
             // Assigned but nobody's called it yet, and it's been sitting
             // long enough that this is no longer "hasn't gotten to it yet" —
             // exactly the gap that let a lead sit uncalled for hours before
-            // anyone noticed. Bounded to today's assignments only (explicit
-            // request, 2026-08-15): resets at midnight rather than
-            // accumulating leads assigned on prior days forever — a lead
-            // still sitting uncalled from yesterday no longer counts here.
+            // anyone noticed.
             $query->where('status', 'assigned')
-                ->where('assigned_at', '>=', today())
+                ->whereBetween('assigned_at', [$rangeFrom, $rangeTo])
                 ->where('assigned_at', '<=', now()->subHours(self::overdueThresholdHours()))
                 ->orderBy('assigned_at');
         } elseif ($view === 'callbacks') {
             // A TSA promised to call back by a specific time — due now or
-            // already past due, not "someday in the future". Bounded to
-            // today (same reasoning/request as Overdue above): a callback
-            // promised yesterday that never happened shouldn't linger here
-            // forever once the day it was due has passed.
+            // already past due, not "someday in the future".
             $query->whereNotNull('callback_at')
-                ->where('callback_at', '>=', today())
+                ->whereBetween('callback_at', [$rangeFrom, $rangeTo])
                 ->where('callback_at', '<=', now())
                 ->orderBy('callback_at');
         } elseif ($request->filled('status')) {
@@ -95,29 +105,20 @@ class LeadController extends Controller
             });
         }
 
-        // Date range only applies to the default view — Overdue/Callbacks
-        // already have their own date-based ordering (assigned_at/callback_at
-        // thresholds), which a second, independent creation-date filter would
-        // just conflict with. An empty date_from/date_to (the normal,
-        // un-filtered state) shows every lead exactly as before — nothing
-        // here narrows the result set unless a range was picked.
-        //
-        // Filters on COALESCE(assigned_at, pancake_created_at) rather than
-        // plain pancake_created_at (root-caused 2026-08-15: the sidebar
-        // badge and Round Robin Setup both count "assigned today" via
-        // assigned_at, but this list was filtering by creation date — a
+        // The default view only applies the window when a range was
+        // actually picked — an empty date_from/date_to (the normal,
+        // un-filtered state) shows every lead exactly as before, unlike
+        // Overdue/Callbacks above which always have a window (defaulting to
+        // today). Filters on COALESCE(assigned_at, pancake_created_at)
+        // rather than plain pancake_created_at (root-caused 2026-08-15: the
+        // sidebar badge and Round Robin Setup both count "assigned today"
+        // via assigned_at, but this list was filtering by creation date — a
         // lead created yesterday and picked up by round-robin TODAY showed
-        // in the badge's "17" but not in this filtered list's "7", since its
-        // pancake_created_at wasn't today even though its assigned_at was).
-        // Falls back to pancake_created_at for a still-unassigned lead,
-        // which has no assigned_at yet.
-        $dateFrom = $request->string('date_from')->toString();
-        $dateTo   = $request->string('date_to')->toString();
-        if (!$view && $dateFrom && $dateTo) {
-            $query->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [
-                Carbon::parse($dateFrom)->startOfDay(),
-                Carbon::parse($dateTo)->endOfDay(),
-            ]);
+        // in the badge's "17" but not in this filtered list's "7"). Falls
+        // back to pancake_created_at for a still-unassigned lead, which has
+        // no assigned_at yet.
+        if (!$view && $dateFromInput && $dateToInput) {
+            $query->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [$rangeFrom, $rangeTo]);
         }
 
         $leads = $query->paginate(30)->withQueryString();
@@ -129,8 +130,8 @@ class LeadController extends Controller
             'selectedStatus'        => $request->string('status')->toString(),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
-            'dateFrom'              => $dateFrom,
-            'dateTo'                => $dateTo,
+            'dateFrom'              => $dateFromInput ?: $rangeFrom->toDateString(),
+            'dateTo'                => $dateToInput ?: $rangeTo->toDateString(),
             'overdueThresholdHours' => self::overdueThresholdHours(),
         ];
 

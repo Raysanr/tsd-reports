@@ -176,14 +176,17 @@
         @php
             $leadsGroupActive = request()->routeIs('calls.leads.index');
             $leadsBaseActive  = $leadsGroupActive && !request('view');
-            // Carries the TSA filter across Leads/Overdue/Callbacks (explicit
-            // request, 2026-08-15): these three links used to be fixed hrefs,
-            // so picking a TSA on Leads and clicking Overdue/Callbacks (or
-            // back) silently dropped it — only date_from/date_to had a
-            // persistence mechanism (localStorage, see leads/index.blade.php),
-            // tsa had none at all. Scoped to when already on a Leads-group
-            // page so it can't leak an unrelated ?tsa= from some other page.
-            $leadsTsaParam = $leadsGroupActive ? request()->only('tsa') : [];
+            // Carries the TSA + date filters across Leads/Overdue/Callbacks
+            // (explicit request, 2026-08-15): these three links used to be
+            // fixed hrefs, so picking a TSA (or, now that Overdue/Callbacks
+            // share the same date window — see LeadController::index() — a
+            // date range) on one and clicking another silently dropped it.
+            // date_from/date_to also has a separate localStorage-based
+            // fallback (leads/index.blade.php) for restoring across a whole
+            // new session; this covers the immediate in-session round trip.
+            // Scoped to when already on a Leads-group page so it can't leak
+            // unrelated query params in from some other page.
+            $leadsTsaParam = $leadsGroupActive ? request()->only(['tsa', 'date_from', 'date_to']) : [];
         @endphp
         <div class="nav-item flex items-center rounded-lg {{ $leadsBaseActive ? 'nav-active' : '' }}">
             <a id="leadsNavLink" href="{{ route('calls.leads.index', $leadsTsaParam) }}"
