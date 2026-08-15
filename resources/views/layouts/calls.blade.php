@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Call Tracker — @yield('title', 'Dashboard')</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/call-tracker-favicon.svg') }}">
     {{-- Ported from call-tracker (merged into one app 2026-08-12), unmodified
          except route names/model renames below — a DEDICATED layout, not a
          reuse of TSD Reports' own layouts/app.blade.php. Explicit request
@@ -134,8 +135,13 @@
 
     <div class="relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-linear-to-br from-secondary to-accent flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(234,179,8,0.35)]">
-                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            {{-- Thin outline mark instead of a filled gradient badge (explicit
+                 request, 2026-08-15, referencing Laravel's line-art logo style)
+                 — same phone glyph, same gold brand color, just a lighter-weight
+                 treatment: a subtle bordered square with a thin-stroke icon
+                 instead of a bold solid-fill block. --}}
+            <div class="w-9 h-9 rounded-lg border border-secondary/40 bg-secondary/5 flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-secondary" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
                 </svg>
             </div>
