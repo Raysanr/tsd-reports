@@ -9,36 +9,55 @@
 @section('content')
 
 <script>
-// The date range only ever lives in this page's own URL (?date_from=&date_to=) —
-// nothing persists it on its own. Explicit request (2026-08-14, extended
-// 2026-08-15 to Overdue/Callbacks now that they share the same date window —
-// see LeadController::index()): remember the last-applied range across a
-// round trip through the sidebar's Leads/Overdue/Callbacks links, all of
-// which now carry it forward directly, but ALSO across leaving Call Tracker
-// entirely and coming back later (e.g. a fresh session), which no amount of
-// link-forwarding alone can cover. Synced to localStorage below whenever a
-// range IS in the URL; if the URL has none but a saved range exists, redirect
-// once to include it — before the table below ever renders with the wrong
-// ("today") data.
+// Filters only ever live in this page's own URL (?date_from=&date_to=&tsa=) —
+// nothing persists them on its own. The sidebar's Leads/Overdue/Callbacks
+// links carry them forward directly (layouts/calls.blade.php), but that only
+// covers moving between THOSE three — clicking away to Dashboard/Analytics/
+// etc. and back to Leads lands on a bare URL with nothing to forward from,
+// same problem a whole new session has. Explicit request (2026-08-14 for
+// dates, extended 2026-08-15 to tsa too): remember the last-applied filters
+// across either kind of round trip via localStorage.
+//
+// date_from/date_to: synced whenever BOTH are in the URL; restored together
+// when neither is (there's no "clear the date" affordance, so any URL
+// missing them is presumed a fresh/bare link, not a deliberate clear).
+//
+// tsa: synced whenever present in the URL, INCLUDING empty ("All TSAs" is a
+// real, explicitly selectable option, not just "no signal yet") — but only
+// restored when the tsa key is missing from the URL entirely, so picking
+// "All TSAs" (which submits tsa= with an empty value) is never silently
+// overridden by an old saved value.
 (function () {
-    const STORAGE_KEY = 'callsLeadsDateRange';
     const params = new URLSearchParams(window.location.search);
     const from = params.get('date_from');
     const to   = params.get('date_to');
+    const hasTsa = params.has('tsa');
 
-    if (from && to) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ from, to }));
-        return;
+    if (from && to) localStorage.setItem('callsLeadsDateRange', JSON.stringify({ from, to }));
+    if (hasTsa) localStorage.setItem('callsLeadsTsa', params.get('tsa') || '');
+
+    let needsRedirect = false;
+
+    if (!(from && to)) {
+        try {
+            const saved = JSON.parse(localStorage.getItem('callsLeadsDateRange') || 'null');
+            if (saved?.from && saved?.to) {
+                params.set('date_from', saved.from);
+                params.set('date_to', saved.to);
+                needsRedirect = true;
+            }
+        } catch (e) { /* corrupt/old value — ignore, falls back to today */ }
     }
 
-    try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-        if (saved?.from && saved?.to) {
-            params.set('date_from', saved.from);
-            params.set('date_to', saved.to);
-            window.location.replace(window.location.pathname + '?' + params.toString());
+    if (!hasTsa) {
+        const savedTsa = localStorage.getItem('callsLeadsTsa');
+        if (savedTsa) {
+            params.set('tsa', savedTsa);
+            needsRedirect = true;
         }
-    } catch (e) { /* corrupt/old value — ignore, falls back to today */ }
+    }
+
+    if (needsRedirect) window.location.replace(window.location.pathname + '?' + params.toString());
 })();
 </script>
 
