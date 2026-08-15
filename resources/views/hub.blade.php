@@ -88,6 +88,16 @@
         width: 100%;
         padding: 48px clamp(24px, 4vw, 72px);
     }
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+    }
+    .brand-logo {
+        width: clamp(64px, 8vw, 112px);
+        height: auto;
+        flex-shrink: 0;
+    }
     h1 {
         font-size: clamp(48px, 6.5vw, 88px);
         font-weight: 800;
@@ -97,6 +107,10 @@
         letter-spacing: -0.015em;
     }
     h1 .gold { color: var(--primary); }
+    @media (max-width: 760px) {
+        .brand { gap: 18px; }
+        .brand-logo { width: 56px; }
+    }
     .subtitle {
         font-size: 20px;
         color: #64748b;
@@ -230,7 +244,10 @@
     </div>
 </header>
 <main>
-    <h1>Seller's Hub<br><span class="gold">TSD</span></h1>
+    <div class="brand">
+        <img src="{{ asset('images/sellershub-logo.png') }}" alt="Seller's Hub" class="brand-logo">
+        <h1>Seller's Hub<br><span class="gold">TSD</span></h1>
+    </div>
     <p class="subtitle">Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
 
     <p class="section-label">Select a system</p>
