@@ -32,8 +32,20 @@ function updateBadge(id, count) {
     }
 }
 
+// Carries whatever date_from/date_to/tsa the CURRENT page's own URL has
+// (e.g. Leads' persisted range and TSA dropdown — see leads/index.blade.php)
+// through to the count query, so the badge always matches what clicking into
+// it would actually show instead of counting every matching lead ever.
+// Falls back to "today" server-side when this page has none of those params.
 function pollNotificationCounts() {
-    fetch('/calls/api/notification-counts', { headers: { Accept: 'application/json' } })
+    const params = new URLSearchParams();
+    const current = new URLSearchParams(window.location.search);
+    ['date_from', 'date_to', 'tsa'].forEach((key) => {
+        if (current.has(key)) params.set(key, current.get(key));
+    });
+    const url = '/calls/api/notification-counts' + (params.toString() ? '?' + params.toString() : '');
+
+    fetch(url, { headers: { Accept: 'application/json' } })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
             if (!data) return;
