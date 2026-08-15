@@ -32,17 +32,40 @@ function updateBadge(id, count) {
     }
 }
 
-// Carries whatever date_from/date_to/tsa the CURRENT page's own URL has
-// (e.g. Leads' persisted range and TSA dropdown — see leads/index.blade.php)
-// through to the count query, so the badge always matches what clicking into
-// it would actually show instead of counting every matching lead ever.
-// Falls back to "today" server-side when this page has none of those params.
+// Carries the active date range/TSA filter through to the count query, so
+// the badge always matches what clicking into Leads would actually show
+// instead of counting every matching lead ever. Prefers the CURRENT page's
+// own URL when it has them (e.g. actually on Leads/Overdue/Callbacks), but
+// falls back to the same localStorage the Leads page itself persists to
+// (see leads/index.blade.php) when it doesn't — otherwise the badge flickered
+// back to the unfiltered "all TSAs" count on every OTHER page (Dashboard,
+// Analytics, etc.) even with a filter actively applied, only "coming back"
+// once you clicked into Leads again. Falls back to "today" server-side when
+// neither the URL nor localStorage has a date range.
 function pollNotificationCounts() {
     const params = new URLSearchParams();
     const current = new URLSearchParams(window.location.search);
-    ['date_from', 'date_to', 'tsa'].forEach((key) => {
-        if (current.has(key)) params.set(key, current.get(key));
-    });
+
+    if (current.has('date_from') && current.has('date_to')) {
+        params.set('date_from', current.get('date_from'));
+        params.set('date_to', current.get('date_to'));
+    } else {
+        try {
+            const saved = JSON.parse(localStorage.getItem('callsLeadsDateRange') || 'null');
+            if (saved?.from && saved?.to) {
+                params.set('date_from', saved.from);
+                params.set('date_to', saved.to);
+            }
+        } catch (e) { /* corrupt/old value — ignore */ }
+    }
+
+    if (current.has('tsa')) {
+        if (current.get('tsa')) params.set('tsa', current.get('tsa'));
+    } else {
+        const savedTsa = localStorage.getItem('callsLeadsTsa');
+        if (savedTsa) params.set('tsa', savedTsa);
+    }
+
     const url = '/calls/api/notification-counts' + (params.toString() ? '?' + params.toString() : '');
 
     fetch(url, { headers: { Accept: 'application/json' } })
