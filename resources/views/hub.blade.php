@@ -163,9 +163,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 26px;
+        color: var(--card-accent, #94a3b8);
         margin-bottom: 24px;
     }
+    .card-icon svg { width: 26px; height: 26px; }
     .card-tag {
         font-family: 'Fira Code', ui-monospace, monospace;
         font-size: 11.5px;
@@ -255,7 +256,11 @@
     <div class="grid">
 
         <a class="card" style="--card-accent:#CA8A04; --card-accent-soft:rgba(202,138,4,0.12)" href="{{ route('dashboard') }}">
-            <div class="card-icon">📊</div>
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+                </svg>
+            </div>
             <span class="card-tag">Reporting</span>
             <h3>TSD Reports</h3>
             <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
@@ -270,7 +275,11 @@
              question is resolved). --}}
         @if(config('services.call_tracker.enabled'))
         <a class="card" style="--card-accent:#0d9488; --card-accent-soft:rgba(13,148,136,0.12)" href="{{ route('calls.dashboard') }}">
-            <div class="card-icon">📞</div>
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                </svg>
+            </div>
             <span class="card-tag">Operations</span>
             <h3>Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
@@ -278,7 +287,11 @@
         </a>
         @else
         <div class="card coming-soon" style="--card-accent:#0d9488; --card-accent-soft:rgba(13,148,136,0.12)">
-            <div class="card-icon">📞</div>
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                </svg>
+            </div>
             <span class="card-tag">Operations</span>
             <h3>Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
