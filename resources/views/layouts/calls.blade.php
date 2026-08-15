@@ -135,14 +135,11 @@
 
     <div class="relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center gap-3">
-            {{-- Thin outline icon on a solid gold fill (revised 2026-08-15 —
-                 the first pass used a dark badge like Laravel's line-art mark,
-                 but the SellersHub logo it should read next to is a solid
-                 vibrant gold cube, not dark, so the badge went gold too. Icon
-                 stays thin-stroke/white for contrast against the fill, same
-                 phone glyph as before. --}}
-            <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0 shadow-[0_2px_8px_rgba(234,179,8,0.35)]">
-                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+            {{-- Solid gold fill, black icon (revised 2026-08-15 — matches the
+                 SellersHub cube's high-contrast gold/black treatment, not a
+                 white icon). Full-bleed fill, no border/glow. --}}
+            <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
                 </svg>
             </div>
