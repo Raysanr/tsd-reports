@@ -64,8 +64,12 @@ class LeadController extends Controller
             // Assigned but nobody's called it yet, and it's been sitting
             // long enough that this is no longer "hasn't gotten to it yet" —
             // exactly the gap that let a lead sit uncalled for hours before
-            // anyone noticed.
+            // anyone noticed. Bounded to today's assignments only (explicit
+            // request, 2026-08-15): resets at midnight rather than
+            // accumulating leads assigned on prior days forever — a lead
+            // still sitting uncalled from yesterday no longer counts here.
             $query->where('status', 'assigned')
+                ->where('assigned_at', '>=', today())
                 ->where('assigned_at', '<=', now()->subHours(self::overdueThresholdHours()))
                 ->orderBy('assigned_at');
         } elseif ($view === 'callbacks') {
