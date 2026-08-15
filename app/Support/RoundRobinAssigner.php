@@ -29,7 +29,13 @@ class RoundRobinAssigner
      *  isn't actually available for a live call right now. */
     public static function next(Product $product): ?TsaShift
     {
-        $roster = $product->tsas()->where('active', true)->where('status', TsaShift::STATUS_LOGIN)->get();
+        $roster = $product->tsas()->where('active', true)->where('status', TsaShift::STATUS_LOGIN)->get()
+            // A TSA who's hit their daily_lead_cap (Round Robin Setup page)
+            // is logged in and otherwise eligible, but shouldn't receive any
+            // more today — same "leave it unassigned rather than guess"
+            // fallback as an empty roster if everyone left is capped.
+            ->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap())
+            ->values();
         if ($roster->isEmpty()) return null;
 
         $state = RoundRobinState::firstOrCreate(['product_id' => $product->id]);

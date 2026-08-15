@@ -19,7 +19,7 @@ class TsaShift extends Model
         // 2026-08-12) — see the add_call_tracker_columns_to_tsa_shifts_table
         // migration.
         'phone_number', 'dialer_host', 'api_token', 'active',
-        'status', 'status_changed_at', 'status_locked_by',
+        'status', 'status_changed_at', 'status_locked_by', 'daily_lead_cap',
     ];
 
     protected $casts = [
@@ -76,6 +76,21 @@ class TsaShift extends Model
     public function leads(): HasMany
     {
         return $this->hasMany(Lead::class, 'tsa_id');
+    }
+
+    /** How many leads round-robin has assigned this TSA today — computed
+     *  live off leads.assigned_at rather than a stored counter, so the cap
+     *  resets itself at midnight with no scheduled job needed. */
+    public function leadsAssignedToday(): int
+    {
+        return $this->leads()->whereDate('assigned_at', today())->count();
+    }
+
+    /** Whether round-robin should skip this TSA for the rest of today —
+     *  null daily_lead_cap means unlimited, see RoundRobinAssigner::next(). */
+    public function hasReachedDailyCap(): bool
+    {
+        return $this->daily_lead_cap !== null && $this->leadsAssignedToday() >= $this->daily_lead_cap;
     }
 
     public function statusLogs(): HasMany

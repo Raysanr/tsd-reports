@@ -148,6 +148,9 @@ Route::middleware(['auth', 'active'])->group(function () {
             Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
 
+            Route::get('/round-robin-setup', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'index'])->name('round-robin-setup');
+            Route::post('/round-robin-setup/{tsaShift}', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'update'])->name('round-robin-setup.update');
+
             Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
             Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
             Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
