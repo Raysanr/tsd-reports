@@ -1,5 +1,5 @@
 @extends('layouts.calls')
-@section('title', 'Round Robin Setup')
+@section('title', 'Leads Setup')
 @section('subtitle', "Per-TSA daily lead cap — round-robin skips a TSA once they've hit it today")
 
 @section('content')

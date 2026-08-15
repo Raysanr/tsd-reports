@@ -111,7 +111,7 @@ class LeadController extends Controller
         // Overdue/Callbacks above which always have a window (defaulting to
         // today). Filters on COALESCE(assigned_at, pancake_created_at)
         // rather than plain pancake_created_at (root-caused 2026-08-15: the
-        // sidebar badge and Round Robin Setup both count "assigned today"
+        // sidebar badge and Leads Setup both count "assigned today"
         // via assigned_at, but this list was filtering by creation date — a
         // lead created yesterday and picked up by round-robin TODAY showed
         // in the badge's "17" but not in this filtered list's "7"). Falls

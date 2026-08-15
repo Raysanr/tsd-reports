@@ -285,7 +285,7 @@
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m9 12h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0H12M3.75 12H12m0 0a1.5 1.5 0 103 0m-3 0a1.5 1.5 0 013 0m3.75 0H21"/>
             </svg>
-            Round Robin Setup
+            Leads Setup
         </a>
         <a href="{{ route('calls.tsa-logs') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.tsa-logs') ? 'nav-active' : '' }}">
