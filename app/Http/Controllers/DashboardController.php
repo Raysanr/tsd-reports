@@ -95,7 +95,17 @@ class DashboardController extends Controller
             // later returned/cancelled in Pancake. Confirmed live against real Pancake
             // POS + the logistics system, both of which still count a later-returned
             // upsell toward the day's total.
-            $upsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+            //
+            // COALESCE(pancake_inserted_at, pancake_created_at), not plain
+            // pancake_created_at (root-caused 2026-08-16: Total Cross-Sell Sales
+            // disagreed with the TSA Leaderboard below by exactly one order's amount
+            // on a real production day — the 2026-08-11 change documented on
+            // $dayOrders below switched the Leaderboard/Total Leads/Hourly Activity
+            // to this POS-matching expression but missed this separate query, so an
+            // order whose pancake_inserted_at fell on a different calendar day than
+            // its pancake_created_at counted toward one card's total but not the
+            // other's for the same picked date).
+            $upsells = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->realUpsell();
 
             $totalOrders = (clone $upsells)->count();
@@ -133,7 +143,11 @@ class DashboardController extends Controller
             // restocking_upsell_amount already holds just the isolated add-on price
             // for these rows (see SyncTodayOrders' extractUpsellAmount()), not the
             // order's full total.
-            $restocking = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+            // Same COALESCE date basis as $upsells above, for the same reason —
+            // Restocking's contribution to Total Cross-Sell Sales (via the Include
+            // Restocking toggle below) must agree with which day the Leaderboard
+            // credits it to.
+            $restocking = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->where('is_restocking_upsell', true);
 
@@ -160,7 +174,9 @@ class DashboardController extends Controller
             // own histories log never retains an items/price snapshot, so that value is
             // genuinely unrecoverable, not just missing — SUM() below ignores those NULLs
             // rather than silently treating them as a confirmed ₱0.
-            $cancelledUpsells = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+            // Same COALESCE date basis as $upsells above, for consistency with the
+            // rest of this card's numbers.
+            $cancelledUpsells = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->where('is_cancelled_upsell', true);
 
