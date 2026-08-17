@@ -62,36 +62,42 @@ class Product extends Model
         return array_values(array_filter(array_map('trim', explode(',', $this->match_exclude_keyword ?? ''))));
     }
 
+    /** True if $text (a cart/base product name — NOT a tag, see
+     *  isExcludedByItemName()'s own doc comment for why that distinction
+     *  matters) contains one of exclude_keywords_array. Checked separately
+     *  from matchesText() (not folded into it) because it must only ever be
+     *  evaluated against an order's OWN identifying item fields — evaluating
+     *  it per-tag as part of matchesText() left a real gap: a stale
+     *  "PTERYGIUM" tag left over on an order whose actual item is the
+     *  genuinely separate "Pterylief Eye Drops" would pass this check fine
+     *  (the bare tag text "PTERYGIUM" doesn't itself contain "PTERYLIEF"),
+     *  so the order still matched via the tag loop in matchingOrders()
+     *  regardless — confirmed live, order #1351171. */
+    public function isExcludedByItemName(?string $text): bool
+    {
+        if ($text === null || $text === '') return false;
+
+        $normalizedText = self::normalizeForMatch($text);
+        foreach ($this->exclude_keywords_array as $exclude) {
+            $normalizedExclude = self::normalizeForMatch($exclude);
+            if ($normalizedExclude !== '' && str_contains($normalizedText, $normalizedExclude)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** True if $text (an order tag or a cart product name) matches ANY of this
      *  product's keywords. Comparison is case-, space- and punctuation-insensitive
      *  ("Clear Sight 3.0" matches keyword "CLEARSIGHT"): both sides are reduced to
      *  bare alphanumerics before the containment check — cart names and tags write
      *  the same product with inconsistent spacing/casing, which is exactly how 114
-     *  "Clear Sight 3.0" leads went team-NULL and vanished from every report.
-     *
-     *  A keyword hit is discarded if $text ALSO contains one of
-     *  exclude_keywords_array — this is the text-matching FALLBACK's only
-     *  defense against sweeping in a real, separate sibling catalog product
-     *  whose name happens to contain this product's own keyword as a prefix
-     *  (e.g. SINUXYL's bare "SINUXYL" keyword substring-matching "Sinuxyl
-     *  Steam Pack", a genuinely different real Pancake product). Real
-     *  pancake_product_ids matching (ProductPerformance::matchingOrders())
-     *  already handles this correctly whenever an order's ID was captured;
-     *  this only guards the fallback path for orders that can never have one
-     *  (an ad-hoc, not-in-catalog line item with no product_id to capture). */
+     *  "Clear Sight 3.0" leads went team-NULL and vanished from every report. */
     public function matchesText(?string $text): bool
     {
         if ($text === null || $text === '') return false;
 
         $normalizedText = self::normalizeForMatch($text);
-
-        foreach ($this->exclude_keywords_array as $exclude) {
-            $normalizedExclude = self::normalizeForMatch($exclude);
-            if ($normalizedExclude !== '' && str_contains($normalizedText, $normalizedExclude)) {
-                return false;
-            }
-        }
-
         foreach ($this->keywords_array as $keyword) {
             $normalizedKeyword = self::normalizeForMatch($keyword);
             if ($normalizedKeyword !== '' && str_contains($normalizedText, $normalizedKeyword)) {

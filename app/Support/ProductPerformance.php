@@ -99,6 +99,20 @@ class ProductPerformance
                 return $productIds->intersect($o->pancake_product_ids)->isNotEmpty();
             }
 
+            // Exclusion checked against the order's OWN item fields only — never
+            // a tag. A stale/leftover tag naming $product can still sit on an
+            // order whose real item is the excluded sibling (confirmed live,
+            // order #1351171: tags included a bare "PTERYGIUM" tag, but its
+            // actual item — product AND base_product both — was "Pterylief Eye
+            // Drops", a genuinely separate real product). Checking this here,
+            // before the tag loop below ever runs, closes that gap; checking it
+            // per-tag inside matchesText() itself would not have, since the tag
+            // text alone ("PTERYGIUM") never contains the exclude keyword
+            // ("PTERYLIEF") — only the order's own item name does.
+            if ($product->isExcludedByItemName($o->product) || $product->isExcludedByItemName($o->base_product) || $product->isExcludedByItemName($o->bundle_description)) {
+                return false;
+            }
+
             // bundle_description is the item's full combo text (e.g. "1 Ginseng
             // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
             // entry's generic name, which silently hid every other product bundled
