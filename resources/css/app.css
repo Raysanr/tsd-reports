@@ -96,6 +96,16 @@
 }
 
 body { font-family: var(--font-sans); background: #F8FAFC; }
+/* Root-caused 2026-08-17 (same bug just found/fixed in Call Tracker's own
+   calls.css): this plain, unlayered rule was beating <body>'s own
+   dark:bg-slate-950 utility class — unlayered CSS always wins over
+   Tailwind's @layer utilities regardless of specificity, so .dark was
+   correctly applied to <html> but body's actual rendered background never
+   moved off #F8FAFC (confirmed via computed-style inspection: showed
+   rgb(248,250,252) even with .dark present). #020617 is slate-950's real
+   hex, same value the chart-color .dark block below already uses this
+   exact pattern for. */
+.dark body { background: #020617; }
 
 /* Chart colors consumed as inline SVG fill/stroke="var(--chart-*)" (Dashboard's
    hourly-activity radial chart, resources/views/dashboard.blade.php) — Tailwind's
