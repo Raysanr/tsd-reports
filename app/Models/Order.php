@@ -20,6 +20,7 @@ class Order extends Model
         'product',
         'base_product',
         'bundle_description',
+        'pancake_product_ids',
         'amount',
         'raw_tags',
         'is_upsell',
@@ -38,6 +39,7 @@ class Order extends Model
 
     protected $casts = [
         'raw_tags'                => 'array',
+        'pancake_product_ids'     => 'array',
         'is_upsell'               => 'boolean',
         'is_cancelled_upsell'     => 'boolean',
         'is_returned_upsell'      => 'boolean',

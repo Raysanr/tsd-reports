@@ -460,6 +460,16 @@ class SyncTodayOrders extends Command
                 'product'                 => $productName,
                 'base_product'            => $baseProductName,
                 'bundle_description'      => $bundleDescription,
+                // Every real line item's own product_id (a stable Pancake UUID,
+                // NOT the small POS-panel display badge like "643" — that lives
+                // on the product catalog entry, not the order item) — see the
+                // pancake_product_ids migration's doc comment for why this
+                // exists: it's what lets ProductPerformance match a product by
+                // real catalog ID instead of guessing from text. Deduped since
+                // a combo can repeat the same product across 2+ line items.
+                'pancake_product_ids'     => json_encode(array_values(array_unique(array_filter(
+                    array_column($raw['items'] ?? [], 'product_id')
+                )))),
                 'amount'                  => $amount,
                 'raw_tags'                => $tagNames,
                 'is_upsell'               => $isUpsell,
@@ -541,7 +551,7 @@ class SyncTodayOrders extends Command
                 ['pancake_order_id'],
                 [
                     'customer_phone',
-                    'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'amount', 'raw_tags',
+                    'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'pancake_product_ids', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'is_restocking_upsell', 'restocking_upsell_amount',

@@ -12,11 +12,12 @@ class Product extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'display_name', 'match_keyword', 'team', 'sort_order',
+        'display_name', 'match_keyword', 'pancake_product_ids', 'team', 'sort_order',
     ];
 
     protected $casts = [
-        'is_hidden' => 'boolean',
+        'is_hidden'            => 'boolean',
+        'pancake_product_ids'  => 'array',
     ];
 
     /** Ported from call-tracker (merged into one app 2026-08-12) — this

@@ -68,6 +68,24 @@ class ProductPerformance
      *  never drift from what buildRow() actually counted. */
     public static function matchingOrders(Product $product, Collection $orders, ?Collection $teamProducts = null): Collection
     {
+        // Root-caused 2026-08-17 (production: 111 here vs 103 in Pancake POS's
+        // own exact-product-ID filter, same day/team/products): bare keyword
+        // matching below conflates genuinely separate Pancake products that
+        // happen to share a word, e.g. "SINUXYL" sweeping in the real, distinct
+        // products "Sinuxyl Steam Pack" and "Sinuxyl Nasal Spray" alongside the
+        // real "Sinuxyl" — confirmed via GET /shops/{shopId}/products/variations
+        // that each has its own real, stable UUID product_id (the same ID POS's
+        // own Products filter panel picks by; its numeric badges like "643" are
+        // that product's display_id). ID matching is authoritative and skips
+        // every text heuristic below (team gate, stale-tag conflict guard)
+        // entirely whenever BOTH sides have real IDs captured — there's no
+        // "wrong team" or "stale tag" ambiguity left to guard against once
+        // you're comparing the real catalog ID directly. Falls through to the
+        // text-matching path per-order whenever either side lacks ID data yet
+        // (product not mapped, or order synced/backfilled before this existed),
+        // so older date ranges don't go blank pending a full backfill.
+        $productIds = collect($product->pancake_product_ids ?? [])->filter()->values();
+
         // Team-scoped, then matched primarily via raw_tags — confirmed against real
         // POS data that this is the reliable signal: every "Clear Sight 3.0" order
         // carries a plain "CLEARSIGHT" tag, and every upsell add-on order (e.g.
@@ -76,7 +94,11 @@ class ProductPerformance
         // at all — matching on it alone undercounts every upsold product and misses
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
-        return $orders->filter(function ($o) use ($product, $teamProducts) {
+        return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
+            if ($productIds->isNotEmpty() && !empty($o->pancake_product_ids)) {
+                return $productIds->intersect($o->pancake_product_ids)->isNotEmpty();
+            }
+
             // bundle_description is the item's full combo text (e.g. "1 Ginseng
             // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
             // entry's generic name, which silently hid every other product bundled
