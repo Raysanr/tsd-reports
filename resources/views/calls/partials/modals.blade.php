@@ -14,8 +14,8 @@
      Pancake's own CSP (frame-ancestors) blocks embedding its page on any
      other domain, so this renders the message data ourselves instead.
      Opened via openConversationModal(leadId) (see calls.js). --}}
-<div id="conversationModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden">
+<div id="conversationModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg h-[80vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
         <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
             <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono flex items-center gap-2">
                 <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -43,8 +43,8 @@
      can tag a lead with several real POS tags at once — matches Pancake's
      own "Add tag" popup. Opened via openOutcomeTagModal(picker) (see
      calls.js), which remembers which row's .disposition-picker it's editing. --}}
-<div id="outcomeTagModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm h-[70vh] flex flex-col overflow-hidden">
+<div id="outcomeTagModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm h-[70vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
         <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
             <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Add outcome tags</h3>
             <button type="button" onclick="closeOutcomeTagModal()" aria-label="Close"
@@ -79,8 +79,8 @@
      PancakeProductApi) instead of tags. Picking a result reveals a quantity
      field + Add button rather than adding instantly. Opened via
      openUpsellModal(leadId) (see calls.js). --}}
-<div id="upsellModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm h-[70vh] flex flex-col overflow-hidden">
+<div id="upsellModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm h-[70vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
         <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
             <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Add upsell product</h3>
             <button type="button" onclick="closeUpsellModal()" aria-label="Close"
@@ -121,8 +121,8 @@
      address configured, dialing falls back to a plain tel: handoff and End
      Call has nothing to hit, so it's hidden. Opened via
      openCallingModal(name, number, dialerHost) in calls.js. --}}
-<div id="callingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6" data-dial-host="">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xs p-6 text-center">
+<div id="callingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200" data-dial-host="">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xs p-6 text-center opacity-0 scale-95 transition-all duration-200">
         <div class="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-950/40 flex items-center justify-center mb-4 animate-pulse">
             <svg class="w-7 h-7 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>

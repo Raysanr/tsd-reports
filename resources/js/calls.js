@@ -13,6 +13,37 @@ import {
 } from 'chart.js';
 Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Title);
 
+// Shared scale+fade open/close for every modal here (conversation, outcome
+// tag, upsell, calling) — explicit request, 2026-08-17. Each modal's own
+// backdrop starts opacity-0 and its inner panel opacity-0 scale-95 (see
+// modals.blade.php); this just flips them to the "open" state one frame
+// later so the browser actually has something to transition FROM, and
+// reverses on close, waiting out the transition before re-hiding so the
+// close animation is visible instead of the element just vanishing.
+const MODAL_TRANSITION_MS = 200;
+
+function showModal(modal) {
+    if (!modal) return;
+    const panel = modal.querySelector(':scope > div');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    requestAnimationFrame(() => {
+        modal.classList.remove('opacity-0');
+        panel?.classList.remove('opacity-0', 'scale-95');
+    });
+}
+
+function hideModal(modal) {
+    if (!modal) return;
+    const panel = modal.querySelector(':scope > div');
+    modal.classList.add('opacity-0');
+    panel?.classList.add('opacity-0', 'scale-95');
+    setTimeout(() => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }, MODAL_TRANSITION_MS);
+}
+
 // Sidebar badge counts — no websocket/queue infra in this stack, so a cheap
 // periodic poll is the "free" version of a live notification badge.
 // NOTE: tsd-reports' shared layout (layouts/app.blade.php) doesn't carry a
@@ -175,7 +206,14 @@ function pollLeadsTable() {
         return;
     }
 
-    fetch(container.dataset.pollUrl, { headers: { 'X-Table-Refresh': '1' } })
+    // cache: 'no-store' — root-caused 2026-08-17: the server's own
+    // Cache-Control (no-cache, not no-store) still let the browser serve a
+    // stale cached response for this exact URL+headers combo without
+    // re-hitting the server, so a pin toggle's immediate re-poll (same URL
+    // as the last regular poll) could show the OLD order. Confirmed live: a
+    // manual no-store fetch returned the freshly pinned lead first while the
+    // page's own (cached) poll still showed the previous one.
+    fetch(container.dataset.pollUrl, { headers: { 'X-Table-Refresh': '1' }, cache: 'no-store' })
         .then((res) => (res.ok ? res.text() : null))
         .then((html) => {
             if (html === null) return;
@@ -184,7 +222,15 @@ function pollLeadsTable() {
             if (container.contains(document.activeElement) && document.activeElement !== document.body) {
                 return;
             }
-            container.innerHTML = html;
+            // Cross-fade the swap (explicit request, 2026-08-17) rather than
+            // the rows just popping to their new content/order — matters
+            // most right after a pin toggle, where the reorder is the whole
+            // point of the click.
+            container.style.opacity = '0';
+            setTimeout(() => {
+                container.innerHTML = html;
+                container.style.opacity = '1';
+            }, 150);
         })
         .catch(() => {});
 }
@@ -192,6 +238,22 @@ function pollLeadsTable() {
 if (document.getElementById('leads-table-container')) {
     setInterval(pollLeadsTable, 15000);
 }
+
+// Pin/unpin (explicit request, 2026-08-17) — submits in the background and
+// re-polls immediately instead of waiting out the normal 15s cycle, so the
+// reorder to the top (or back out) is visible right away.
+document.addEventListener('submit', (e) => {
+    if (!e.target.matches('.pin-form')) return;
+    e.preventDefault();
+    const form = e.target;
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: new FormData(form),
+    })
+        .then(() => pollLeadsTable())
+        .catch(() => {});
+});
 
 // Conversation modal — fetches real Pancake messages via our own backend
 // (/calls/leads/{id}/conversation) and renders chat bubbles ourselves.
@@ -236,8 +298,7 @@ window.openConversationModal = function (leadId) {
     const body = document.getElementById('conversationModalBody');
     if (!modal || !body) return;
 
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    showModal(modal);
     body.innerHTML = '<p class="text-slate-400 text-center py-10">Loading conversation…</p>';
 
     fetch(`/calls/leads/${leadId}/conversation`, { headers: { Accept: 'application/json' } })
@@ -261,10 +322,7 @@ window.openConversationModal = function (leadId) {
 };
 
 window.closeConversationModal = function () {
-    const modal = document.getElementById('conversationModal');
-    if (!modal) return;
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    hideModal(document.getElementById('conversationModal'));
 };
 
 document.addEventListener('keydown', (e) => {
@@ -340,8 +398,7 @@ window.openOutcomeTagModal = function (picker) {
     activeDispositionPicker = picker;
     const modal = document.getElementById('outcomeTagModal');
     const search = document.getElementById('outcomeTagModalSearch');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    showModal(modal);
     search.value = '';
     renderChipsInto(document.getElementById('outcomeTagModalChips'), getSelectedTags(picker));
     searchOutcomeTagModal('');
@@ -349,9 +406,7 @@ window.openOutcomeTagModal = function (picker) {
 };
 
 window.closeOutcomeTagModal = function () {
-    const modal = document.getElementById('outcomeTagModal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    hideModal(document.getElementById('outcomeTagModal'));
     activeDispositionPicker = null;
 };
 
@@ -449,8 +504,7 @@ window.openUpsellModal = function (leadId) {
     selectedUpsellProduct = null;
     const modal = document.getElementById('upsellModal');
     const search = document.getElementById('upsellModalSearch');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    showModal(modal);
     document.getElementById('upsellModalConfirm').classList.add('hidden');
     document.getElementById('upsellModalError').classList.add('hidden');
     search.value = '';
@@ -460,9 +514,7 @@ window.openUpsellModal = function (leadId) {
 };
 
 window.closeUpsellModal = function () {
-    const modal = document.getElementById('upsellModal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    hideModal(document.getElementById('upsellModal'));
     activeUpsellLeadId = null;
     selectedUpsellProduct = null;
 };
@@ -610,15 +662,11 @@ window.openCallingModal = function (name, number, dialHost) {
         ? 'Dialing from your phone via Wi-Fi — check your phone if nothing happens.'
         : 'Sent to your phone — check your phone if nothing happens.';
 
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
+    showModal(modal);
 };
 
 window.closeCallingModal = function () {
-    const modal = document.getElementById('callingModal');
-    if (!modal) return;
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    hideModal(document.getElementById('callingModal'));
 };
 
 // End Call — same Wi-Fi-direct-to-phone approach as auto-dial (see the click

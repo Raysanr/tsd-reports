@@ -50,7 +50,13 @@ class LeadController extends Controller
         $user = Auth::user();
         $view = $request->string('view')->toString(); // '', 'overdue', 'callbacks'
 
-        $query = Lead::with(['product', 'tsa'])->latest('pancake_created_at');
+        // Pinned leads float to the top regardless of view/sort — explicit
+        // request, 2026-08-17 — added as the FIRST orderBy so every other
+        // ordering below (latest/assigned_at/callback_at) stays intact as
+        // the secondary sort within pinned vs unpinned.
+        $query = Lead::with(['product', 'tsa'])
+            ->orderByRaw('pinned_at IS NULL')
+            ->latest('pancake_created_at');
 
         // A TSA only ever sees their own queue; an admin can optionally
         // narrow to one TSA via ?tsa=, defaulting to everyone's.
@@ -157,6 +163,22 @@ class LeadController extends Controller
         $lead->load(['product', 'tsa', 'calledBy', 'activities.user']);
 
         return view('calls.leads.show', ['lead' => $lead]);
+    }
+
+    /** Pin/unpin — same ownership guard as show() (a TSA only manages their
+     *  own leads, an admin can manage any). Sorts to the top of the Leads
+     *  table via index()'s own orderByRaw('pinned_at IS NULL') above. */
+    public function togglePin(Lead $lead)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $lead->update(['pinned_at' => $lead->pinned_at ? null : now()]);
+
+        return back();
     }
 
     /**

@@ -14,7 +14,7 @@ class Lead extends Model
         'pancake_page_id', 'pancake_conversation_id',
         'product_id', 'tsa_id', 'assigned_at',
         'status', 'disposition', 'callback_at', 'notes', 'called_at', 'called_by_user_id',
-        'pancake_created_at', 'synced_at',
+        'pancake_created_at', 'synced_at', 'pinned_at',
     ];
 
     protected $casts = [
@@ -23,6 +23,7 @@ class Lead extends Model
         'callback_at'        => 'datetime',
         'pancake_created_at' => 'datetime',
         'synced_at'          => 'datetime',
+        'pinned_at'          => 'datetime',
     ];
 
     public function product(): BelongsTo

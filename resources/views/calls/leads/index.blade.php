@@ -102,7 +102,7 @@
     </form>
 </div>
 
-<div id="leads-table-container" data-poll-url="{{ url()->full() }}">
+<div id="leads-table-container" data-poll-url="{{ url()->full() }}" class="transition-opacity duration-150">
     @include('calls.leads._table')
 </div>
 
