@@ -130,6 +130,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     // classes for TSD Reports' own unrelated pages.
     Route::prefix('calls')->name('calls.')->group(function () {
         Route::get('/', [\App\Http\Controllers\CallTracker\DashboardController::class, 'index'])->name('dashboard');
+        Route::post('/sync', [\App\Http\Controllers\CallTracker\DashboardController::class, 'sync'])->name('dashboard.sync');
+        Route::get('/sync/status', [\App\Http\Controllers\CallTracker\DashboardController::class, 'syncStatus'])->name('dashboard.sync.status');
 
         Route::get('/leads', [\App\Http\Controllers\CallTracker\LeadController::class, 'index'])->name('leads.index');
         Route::get('/leads/{lead}', [\App\Http\Controllers\CallTracker\LeadController::class, 'show'])->name('leads.show');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
@@ -59,6 +60,22 @@ class DashboardController extends Controller
         }
         $isToday = $dateFrom->isToday() && $dateTo->isToday();
 
+        // Same ALL/SH Naturals/Eyecare filter as TSD Reports' own Dashboard
+        // (explicit request, 2026-08-17) — 'all' isn't a real config('teams')
+        // key, handled as its own branch below, same convention as that page.
+        $teamsConfig  = config('teams', []);
+        $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
+        $selectedTeam = $request->input('team', 'all');
+        if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
+            $selectedTeam = 'all';
+        }
+        // Leads don't carry team directly — resolved via their TSA's team.
+        // Unassigned leads (no tsa_id yet) can never match a specific team
+        // filter, same as TSD Reports' own Unmatched Orders exclusion.
+        $teamTsaIds = $selectedTeam !== 'all'
+            ? TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')
+            : null;
+
         $assignedQuery = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo]);
         $calledQuery   = Lead::where('status', 'called')->whereBetween('called_at', [$dateFrom, $dateTo]);
         $callbackQuery = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo]);
@@ -68,6 +85,11 @@ class DashboardController extends Controller
             $assignedQuery->where('tsa_id', $user->tsa_id);
             $calledQuery->where('tsa_id', $user->tsa_id);
             $callbackQuery->where('tsa_id', $user->tsa_id);
+        } elseif ($teamTsaIds !== null) {
+            $assignedQuery->whereIn('tsa_id', $teamTsaIds);
+            $calledQuery->whereIn('tsa_id', $teamTsaIds);
+            $callbackQuery->whereIn('tsa_id', $teamTsaIds);
+            $unassignedQuery->whereRaw('1 = 0'); // no team could ever own an unassigned lead
         }
 
         $overdueQuery = (clone $assignedQuery)
@@ -83,15 +105,26 @@ class DashboardController extends Controller
 
         // TSA status board — every TSA regardless of who's viewing (not
         // sensitive, and a TSA benefits from seeing who else is actually
-        // logged in just as much as an admin does).
-        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get();
+        // logged in just as much as an admin does). Team filter narrows this
+        // too, unlike TSD Reports' own live-status-equivalent widgets which
+        // have none — this one genuinely can, since every TSA has exactly
+        // one team.
+        $tsasQuery = TsaShift::where('active', true)->orderBy('sort_order');
+        if ($selectedTeam !== 'all') {
+            $tsasQuery->where('team', $teamsConfig[$selectedTeam]['order_team']);
+        }
+        $tsas = $tsasQuery->get();
 
         // Round-robin risk — a product whose entire roster is active but
         // nobody on it is currently logged in will silently stop receiving
         // new leads (RoundRobinAssigner::next() returns null), with nothing
         // else in the app surfacing that until leads visibly start piling
         // up unassigned. Checked here so it's caught before that happens.
-        $atRiskProducts = Product::with('tsas')->get()->filter(function ($product) {
+        $atRiskProductsQuery = Product::with('tsas');
+        if ($selectedTeam !== 'all') {
+            $atRiskProductsQuery->where('team', $teamsConfig[$selectedTeam]['order_team']);
+        }
+        $atRiskProducts = $atRiskProductsQuery->get()->filter(function ($product) {
             return $product->tsas->isNotEmpty()
                 && $product->tsas->every(fn ($tsa) => !$tsa->active || $tsa->status !== TsaShift::STATUS_LOGIN);
         })->values();
@@ -99,6 +132,9 @@ class DashboardController extends Controller
         $rangeUpsells = LeadActivity::where('type', 'upsell_added')
             ->whereNotNull('amount')
             ->whereBetween('created_at', [$dateFrom, $dateTo]);
+        if ($teamTsaIds !== null) {
+            $rangeUpsells->whereHas('lead', fn ($q) => $q->whereIn('tsa_id', $teamTsaIds));
+        }
 
         $upsellStats = [
             'count'  => (clone $rangeUpsells)->count(),
@@ -111,13 +147,21 @@ class DashboardController extends Controller
         // making an admin check two separate log pages to see "what just
         // happened." Scoped to the picked range so a past date shows that
         // day's activity instead of always the newest 15 ever.
-        $recentLeadActivity = LeadActivity::with(['lead', 'user'])
-            ->whereBetween('created_at', [$dateFrom, $dateTo])
+        $recentLeadActivityQuery = LeadActivity::with(['lead', 'user'])
+            ->whereBetween('created_at', [$dateFrom, $dateTo]);
+        if ($teamTsaIds !== null) {
+            $recentLeadActivityQuery->whereHas('lead', fn ($q) => $q->whereIn('tsa_id', $teamTsaIds));
+        }
+        $recentLeadActivity = $recentLeadActivityQuery
             ->latest('created_at')->limit(15)->get()
             ->map(fn ($a) => ['at' => $a->created_at, 'description' => $a->description, 'kind' => 'lead']);
 
-        $recentStatusChanges = TsaStatusLog::with('tsa')
-            ->whereBetween('created_at', [$dateFrom, $dateTo])
+        $recentStatusChangesQuery = TsaStatusLog::with('tsa')
+            ->whereBetween('created_at', [$dateFrom, $dateTo]);
+        if ($teamTsaIds !== null) {
+            $recentStatusChangesQuery->whereIn('tsa_id', $teamTsaIds);
+        }
+        $recentStatusChanges = $recentStatusChangesQuery
             ->latest('created_at')->limit(15)->get()
             ->map(fn ($s) => [
                 'at'          => $s->created_at,
@@ -138,6 +182,51 @@ class DashboardController extends Controller
             'dateFrom'        => $dateFrom,
             'dateTo'          => $dateTo,
             'isToday'         => $isToday,
+            'teams'           => $teams,
+            'selectedTeam'    => $selectedTeam,
+        ]);
+    }
+
+    /**
+     * Sync — kicks off pancake:sync-leads (Call Tracker's own lead sync,
+     * distinct from TSD Reports' pancake:sync-today order sync) as a
+     * detached background process and returns instantly, same pattern as
+     * TSD Reports' own DashboardController::sync()/syncStatus() — this
+     * container has only one web worker, so running it synchronously would
+     * block the request long enough for the platform's own health check to
+     * kill the instance mid-sync on a big run.
+     */
+    public function sync(Request $request)
+    {
+        $lastRunIdBeforeSync = LeadSyncRun::max('id') ?? 0;
+
+        $php     = escapeshellarg(PHP_BINARY);
+        $artisan = escapeshellarg(base_path('artisan'));
+        $logFile = escapeshellarg(storage_path('logs/manual-lead-sync.log'));
+        exec("{$php} {$artisan} pancake:sync-leads >> {$logFile} 2>&1 &");
+
+        return response()->json(['since' => $lastRunIdBeforeSync]);
+    }
+
+    /** Polled by the Sync button (calls.dashboard) after sync() above kicks
+     *  the actual work off in the background — see that method's doc
+     *  comment. 'done' stays false until a new LeadSyncRun row (the command's
+     *  own recordRun()) has landed. */
+    public function syncStatus(Request $request)
+    {
+        $since = (int) $request->input('since', 0);
+
+        $run = LeadSyncRun::where('id', '>', $since)->orderBy('id')->first();
+        if (!$run) {
+            return response()->json(['done' => false]);
+        }
+
+        return response()->json([
+            'done'          => true,
+            'success'       => $run->success,
+            'new_leads'     => $run->new_leads,
+            'total_fetched' => $run->total_fetched,
+            'error_message' => $run->error_message,
         ]);
     }
 }

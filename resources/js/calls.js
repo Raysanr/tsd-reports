@@ -13,6 +13,131 @@ import {
 } from 'chart.js';
 Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Title);
 
+// ─── Dark mode toggle ────────────────────────────────────────────────────────
+// Same mechanism as TSD Reports' own app.js (shared 'theme' localStorage key,
+// same .dark class strategy in both CSS bundles) — the actual class is
+// applied by an inline <head> script in layouts/calls.blade.php before paint;
+// this just wires the button to flip it after load and persist the choice.
+(function () {
+    const toggle   = document.getElementById('themeToggle');
+    const sunIcon  = document.getElementById('themeIconSun');
+    const moonIcon = document.getElementById('themeIconMoon');
+    if (!toggle) return;
+
+    function syncIcon() {
+        const isDark = document.documentElement.classList.contains('dark');
+        sunIcon?.classList.toggle('hidden', !isDark);
+        moonIcon?.classList.toggle('hidden', isDark);
+    }
+    syncIcon();
+
+    toggle.addEventListener('click', () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+        syncIcon();
+    });
+})();
+
+// ─── Reload button ───────────────────────────────────────────────────────────
+// Plain full reload with spin feedback — Call Tracker has no softRefresh-
+// equivalent AJAX view-swap yet (unlike TSD Reports' own app.js), so this is
+// the simple version rather than replicating that whole mechanism.
+(function () {
+    const btn = document.getElementById('reloadBtn');
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+        const icon = document.getElementById('reloadIcon');
+        btn.disabled = true;
+        icon?.classList.add('animate-spin');
+        window.location.reload();
+    });
+})();
+
+// ─── Toast notifications ─────────────────────────────────────────────────────
+// Ported from TSD Reports' own app.js (same #toastContainer markup in
+// layouts/calls.blade.php now) — explicit request, 2026-08-17, needed for the
+// Dashboard's new Sync button to give any feedback at all. window.showToast
+// is the one entry point for transient feedback across Call Tracker, same as
+// the TSD Reports side.
+const CALLS_TOAST_VARIANTS = {
+    success: {
+        classes: 'bg-green-50 border-green-200', iconClasses: 'text-green-500',
+        textClasses: 'text-green-700', closeClasses: 'text-green-400 hover:text-green-600',
+        iconPath: 'M5 13l4 4L19 7',
+    },
+    error: {
+        classes: 'bg-red-50 border-red-200', iconClasses: 'text-red-500',
+        textClasses: 'text-red-700', closeClasses: 'text-red-400 hover:text-red-600',
+        iconPath: 'M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+    },
+    info: {
+        classes: 'bg-blue-50 border-blue-200', iconClasses: 'text-blue-500',
+        textClasses: 'text-blue-700', closeClasses: 'text-blue-400 hover:text-blue-600',
+        iconPath: 'M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z',
+    },
+};
+
+window.showToast = function (message, variant = 'success') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    let v = CALLS_TOAST_VARIANTS[variant];
+    if (!v) console.warn(`showToast: unknown variant "${variant}", falling back to "success"`);
+    v = v || CALLS_TOAST_VARIANTS.success;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const toast = document.createElement('div');
+    toast.setAttribute('role', variant === 'error' ? 'alert' : 'status');
+    toast.className = 'pointer-events-auto flex items-center gap-3 border rounded-xl px-4 py-3 shadow-lg '
+        + v.classes + ' opacity-0 transition-all duration-200 ease-out'
+        + (reduceMotion ? '' : ' translate-x-4');
+
+    toast.innerHTML = `
+        <svg class="w-4 h-4 ${v.iconClasses} shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="${v.iconPath}"/>
+        </svg>
+        <p class="text-sm font-mono ${v.textClasses} flex-1"></p>
+        <button type="button" class="${v.closeClasses} shrink-0 cursor-pointer" aria-label="Dismiss">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+    `;
+    toast.querySelector('p').textContent = message;
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0');
+        toast.classList.add('opacity-100');
+        if (!reduceMotion) {
+            toast.classList.remove('translate-x-4');
+            toast.classList.add('translate-x-0');
+        }
+    });
+
+    let dismissTimer = null;
+    const dismiss = () => {
+        clearTimeout(dismissTimer);
+        toast.classList.remove('opacity-100', 'translate-x-0');
+        toast.classList.add('opacity-0');
+        if (!reduceMotion) toast.classList.add('translate-x-4');
+        toast.classList.replace('duration-200', 'duration-150');
+        toast.classList.replace('ease-out', 'ease-in');
+        setTimeout(() => toast.remove(), reduceMotion ? 0 : 150);
+    };
+
+    const startTimer = () => { dismissTimer = setTimeout(dismiss, 4000); };
+    startTimer();
+
+    toast.addEventListener('mouseenter', () => clearTimeout(dismissTimer));
+    toast.addEventListener('mouseleave', startTimer);
+    toast.addEventListener('focusin', () => clearTimeout(dismissTimer));
+    toast.addEventListener('focusout', startTimer);
+    toast.querySelector('button').addEventListener('click', dismiss);
+};
+
 // Shared scale+fade open/close for every modal here (conversation, outcome
 // tag, upsell, calling) — explicit request, 2026-08-17. Each modal's own
 // backdrop starts opacity-0 and its inner panel opacity-0 scale-95 (see

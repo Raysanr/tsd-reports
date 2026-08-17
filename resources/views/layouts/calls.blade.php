@@ -2,6 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <script>
+    (function () {
+        // Same convention/reasoning as TSD Reports' own layouts/app.blade.php —
+        // shared localStorage key ('theme'), so a choice made in either app
+        // carries over to the other (same .dark class strategy in both
+        // resources/css/app.css and calls.css). Default is light for anyone
+        // who hasn't explicitly chosen a theme yet, ignoring the OS/browser's
+        // own prefers-color-scheme.
+        if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+    })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>Call Tracker — @yield('title', 'Dashboard')</title>
@@ -355,6 +366,31 @@
                 'readonly' => $ownStatus === \App\Models\TsaShift::STATUS_LOCKED,
             ])
             @endif
+
+            {{-- Reload + Dark mode — fixed, always-present controls (explicit
+                 request, 2026-08-17), same convention/markup/behavior as TSD
+                 Reports' own layouts/app.blade.php: not per-page like the
+                 stack above, so they're in the same spot on every Call
+                 Tracker page. Reload here is a plain full reload (Call
+                 Tracker has no softRefresh-equivalent AJAX view-swap yet,
+                 unlike TSD Reports), just with the same spin-while-loading
+                 feedback. --}}
+            <button id="reloadBtn" type="button" aria-label="Reload this page" title="Reload"
+                    class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer">
+                <svg id="reloadIcon" class="w-4 h-4 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+            </button>
+
+            <button id="themeToggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"
+                    class="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-50 dark:bg-yellow-950/40 border border-yellow-200 dark:border-yellow-900 hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors cursor-pointer">
+                <svg id="themeIconSun" class="w-4.5 h-4.5 hidden text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg id="themeIconMoon" class="w-4.5 h-4.5 hidden text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+                </svg>
+            </button>
         </div>
     </header>
 
@@ -373,6 +409,13 @@
         @yield('content')
     </main>
 </div>
+
+{{-- Toast container (explicit request, 2026-08-17) — same markup/positioning
+     as TSD Reports' own layouts/app.blade.php, so window.showToast() (calls.js)
+     works identically here. Two separate role="alert"/"status" toasts, not one
+     shared live region — see that page's own comment on why. --}}
+<div id="toastContainer"
+     class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-full max-w-sm pointer-events-none"></div>
 
 @stack('scripts')
 </body>

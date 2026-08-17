@@ -5,6 +5,24 @@
     : "Overview \u{00b7} " . $dateFrom->format('M j') . ' – ' . $dateTo->format('M j, Y'))
 
 @push('topbar-right')
+{{-- Same ALL/SH Naturals/Eyecare filter as TSD Reports' own Dashboard
+     (explicit request, 2026-08-17) — a plain GET form carrying the current
+     date range along as hidden fields, so switching teams never resets it
+     back to today (same reasoning as that page's own team filter). --}}
+<form method="GET" action="{{ route('calls.dashboard') }}" class="contents">
+    <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
+    <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
+    <div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+        @foreach($teams as $key => $label)
+        <button type="submit" name="team" value="{{ $key }}"
+                class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200
+                       {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+            {{ $label }}
+        </button>
+        @endforeach
+    </div>
+</form>
+
 {{-- Every KPI card + Recent Activity move with this; TSA Status/At-Risk
      Products don't (see DashboardController::index()'s own comment on why).
      Reuses tsd-reports' own shared date-picker partial (submit='navigate' —
@@ -14,6 +32,75 @@
     'dateFrom' => $dateFrom, 'dateTo' => $dateTo,
     'submit' => 'navigate', 'navigateBase' => route('calls.dashboard'),
 ])
+
+{{-- Sync — kicks off pancake:sync-leads in the background and polls for the
+     result (DashboardController::sync()/syncStatus()), same icon-only
+     lightning-bolt convention as TSD Reports' own Dashboard sync button. --}}
+<button id="callsSyncBtn" type="button" title="Sync — fetch the latest leads from Pancake now"
+        aria-label="Sync leads from Pancake"
+        class="inline-flex items-center justify-center w-8 h-8 bg-yellow-600 hover:bg-yellow-700 text-white rounded-full transition-colors cursor-pointer shrink-0">
+    <svg id="callsSyncIcon" class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+        <path fill-rule="evenodd" d="M14.615 1.595a.75.75 0 01.359.852L12.982 9.75h7.268a.75.75 0 01.548 1.262l-10.5 11.25a.75.75 0 01-1.272-.71l1.992-7.302H3.75a.75.75 0 01-.548-1.262l10.5-11.25a.75.75 0 01.913-.143z" clip-rule="evenodd"/>
+    </svg>
+</button>
+@endpush
+
+@push('scripts')
+<script>
+(function () {
+    const syncBtn = document.getElementById('callsSyncBtn');
+    if (!syncBtn) return;
+    const syncIcon = document.getElementById('callsSyncIcon');
+
+    const MAX_POLL_ATTEMPTS = 60; // ~2 minutes at 2s apart — pancake:sync-leads is a lighter fetch than the Order sync
+
+    function pollStatus(since, attempt = 0) {
+        if (attempt >= MAX_POLL_ATTEMPTS) {
+            window.showToast?.('Sync is taking longer than expected — check back shortly.', 'error');
+            finish();
+            return;
+        }
+        fetch(`{{ route('calls.dashboard.sync.status') }}?since=${encodeURIComponent(since)}`)
+            .then((r) => (r.ok ? r.json() : Promise.reject()))
+            .then((data) => {
+                if (!data.done) {
+                    setTimeout(() => pollStatus(since, attempt + 1), 2000);
+                    return;
+                }
+                if (data.success) {
+                    window.showToast?.(`Synced — ${data.new_leads} new lead${data.new_leads === 1 ? '' : 's'}.`, 'success');
+                } else {
+                    window.showToast?.(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+                }
+                finish();
+            })
+            .catch(() => {
+                window.showToast?.('Sync failed: request error.', 'error');
+                finish();
+            });
+    }
+
+    function finish() {
+        syncBtn.disabled = false;
+        syncIcon.classList.remove('animate-pulse');
+    }
+
+    syncBtn.addEventListener('click', () => {
+        syncBtn.disabled = true;
+        syncIcon.classList.add('animate-pulse');
+        fetch('{{ route('calls.dashboard.sync') }}', {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+        })
+            .then((r) => (r.ok ? r.json() : Promise.reject()))
+            .then((data) => pollStatus(data.since))
+            .catch(() => {
+                window.showToast?.('Could not start sync.', 'error');
+                finish();
+            });
+    });
+})();
+</script>
 @endpush
 
 @section('content')
