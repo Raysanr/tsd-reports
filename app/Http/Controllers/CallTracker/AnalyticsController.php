@@ -12,6 +12,12 @@ use Illuminate\Support\Carbon;
 /** Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift. */
 class AnalyticsController extends Controller
 {
+    // Fixed shift length (minutes/working day) used as "Total Logged-in Hours"
+    // in the Unproductive Time formula — a flat per-TSA constant, not derived
+    // from TsaShift::shift_start/shift_end (those currently run ~540min/9hr
+    // for most TSAs, a different number than the 440 actually used here).
+    private const SHIFT_MINUTES_PER_DAY = 440;
+
     public function index(Request $request)
     {
         $dateFrom = $request->string('date_from', now('Asia/Manila')->format('Y-m-d'))->toString();
@@ -41,7 +47,7 @@ class AnalyticsController extends Controller
             ->whereBetween('occurred_at', [$from, $to])
             ->get();
 
-        $rows = TsaShift::orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $callEvents) {
+        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $callEvents, $from, $to) {
             $mine   = $leads->where('tsa_id', $tsa->id);
             $called = $mine->where('status', 'called');
 
@@ -57,18 +63,38 @@ class AnalyticsController extends Controller
 
             $myCallEvents = $callEvents->where('tsa_id', $tsa->id);
             $ahtSeconds   = $myCallEvents->isNotEmpty() ? (int) round($myCallEvents->avg('duration_seconds')) : null;
+            $thtSeconds   = (int) $myCallEvents->sum('duration_seconds');
+
+            // Working days in range = calendar days minus this TSA's own rest
+            // days (TsaShift::isOffOn(), same rule round-robin assignment
+            // already respects) — a TSA out for 1 of 5 days in range should
+            // only be charged 4 days' worth of logged-in time, not 5.
+            $workingDays = 0;
+            for ($day = $from->copy()->startOfDay(); $day->lte($to); $day->addDay()) {
+                if (!$tsa->isOffOn($day)) {
+                    $workingDays++;
+                }
+            }
+
+            $loggedInMinutes  = $workingDays * self::SHIFT_MINUTES_PER_DAY;
+            $unproductiveMins = max(0, $loggedInMinutes - ($thtSeconds / 60));
 
             return [
-                'tsa'               => $tsa,
-                'total'             => $mine->count(),
-                'called'            => $called->count(),
-                'confirmed'         => $confirmed,
-                'no_answer'         => $noAnswer,
-                'confirm_rate'      => $called->count() ? round($confirmed / $called->count() * 100, 1) : null,
-                'no_answer_rate'    => $called->count() ? round($noAnswer / $called->count() * 100, 1) : null,
-                'avg_response_mins' => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
-                'aht_seconds'       => $ahtSeconds,
-                'aht_call_count'    => $myCallEvents->count(),
+                'tsa'                 => $tsa,
+                'total'               => $mine->count(),
+                'called'              => $called->count(),
+                'confirmed'           => $confirmed,
+                'no_answer'           => $noAnswer,
+                'confirm_rate'        => $called->count() ? round($confirmed / $called->count() * 100, 1) : null,
+                'no_answer_rate'      => $called->count() ? round($noAnswer / $called->count() * 100, 1) : null,
+                'avg_response_mins'   => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
+                'aht_seconds'         => $ahtSeconds,
+                'aht_call_count'      => $myCallEvents->count(),
+                'tht_seconds'         => $thtSeconds,
+                'working_days'        => $workingDays,
+                'logged_in_minutes'   => $loggedInMinutes,
+                'unproductive_minutes'=> $unproductiveMins,
+                'unproductive_ratio'  => $loggedInMinutes > 0 ? round($unproductiveMins / $loggedInMinutes * 100, 1) : null,
             ];
         });
 

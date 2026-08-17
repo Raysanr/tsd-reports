@@ -134,7 +134,10 @@
                 <tr>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
                     <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Calls (with duration)</th>
-                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Avg Handle Time</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">AHT</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total Handled Time</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Logged-in Time</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Unproductive Time</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -147,6 +150,19 @@
                             {{ intdiv($row['aht_seconds'], 60) }}m {{ $row['aht_seconds'] % 60 }}s
                         @else
                             —
+                        @endif
+                    </td>
+                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">
+                        {{ intdiv($row['tht_seconds'], 60) }}m {{ $row['tht_seconds'] % 60 }}s
+                    </td>
+                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">
+                        {{ intdiv($row['logged_in_minutes'], 60) }}h {{ $row['logged_in_minutes'] % 60 }}m
+                        <span class="text-slate-400 dark:text-slate-500">({{ $row['working_days'] }}d)</span>
+                    </td>
+                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">
+                        {{ intdiv((int) round($row['unproductive_minutes']), 60) }}h {{ (int) round($row['unproductive_minutes']) % 60 }}m
+                        @if($row['unproductive_ratio'] !== null)
+                            <span class="text-slate-400 dark:text-slate-500">({{ $row['unproductive_ratio'] }}%)</span>
                         @endif
                     </td>
                 </tr>
