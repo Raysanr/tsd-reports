@@ -40,8 +40,10 @@ Route::post('/logout', [AuthController::class, 'logout'])
 Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 
 // Every report/config page requires a signed-in, active user — 'active' force-logs-out
-// anyone deactivated mid-session (see EnsureUserIsActive).
-Route::middleware(['auth', 'active'])->group(function () {
+// anyone deactivated mid-session (see EnsureUserIsActive). 'last-seen' stamps
+// last_seen_at here too, so User Management's online indicator (User::isOnline())
+// covers Call Tracker's pages as well, not just TSD Reports' own.
+Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     Route::get('/hub', fn () => view('hub'))->name('hub');
 
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');

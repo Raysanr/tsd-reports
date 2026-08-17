@@ -21,8 +21,9 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
 
         $middleware->alias([
-            'active' => \App\Http\Middleware\EnsureUserIsActive::class,
-            'role'   => \App\Http\Middleware\EnsureUserHasRole::class,
+            'active'    => \App\Http\Middleware\EnsureUserIsActive::class,
+            'role'      => \App\Http\Middleware\EnsureUserHasRole::class,
+            'last-seen' => \App\Http\Middleware\TrackLastSeen::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

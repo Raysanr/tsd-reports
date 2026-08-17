@@ -23,9 +23,15 @@
     </div>
 
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
-        <div class="divide-y divide-slate-100 dark:divide-slate-700">
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-[calc(100vh-260px)] overflow-y-auto">
             @foreach($users as $user)
             <div class="px-6 py-3 flex items-center gap-4 {{ $user->is_active ? '' : 'opacity-50' }}">
+                {{-- Online = a recent last_seen_at (User::isOnline(), stamped by
+                     TrackLastSeen on every authenticated request), not a manually
+                     toggled flag — explicit request, 2026-08-17. Same green/gray
+                     dot convention as Call Tracker's TSA status list. --}}
+                <span class="w-2 h-2 rounded-full shrink-0 {{ $user->isOnline() ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600' }}"
+                      title="{{ $user->isOnline() ? 'Online' : ($user->last_seen_at ? 'Last seen ' . $user->last_seen_at->diffForHumans() : 'Never signed in') }}"></span>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                         <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 truncate">{{ $user->name }}</p>

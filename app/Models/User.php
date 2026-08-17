@@ -63,7 +63,18 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'last_seen_at' => 'datetime',
         ];
+    }
+
+    /** "Online" is derived from a recent last_seen_at (see TrackLastSeen
+     *  middleware) rather than a manually toggled flag — 5 minutes matches
+     *  the sidebar's own 30s notification poll comfortably while still
+     *  reading as "actually here right now", not "logged in at some point
+     *  today". */
+    public function isOnline(): bool
+    {
+        return $this->last_seen_at !== null && $this->last_seen_at->gt(now()->subMinutes(5));
     }
 
     /** Ported from call-tracker (merged into one app 2026-08-12). */
