@@ -55,12 +55,13 @@
                 <p class="text-[11px] text-slate-400 mt-1">The number on their phone's own SIM — used to label their calls, not required for call logging itself.</p>
             </div>
 
-            {{-- Auto-dial + End Call: neither Windows Phone Link nor macOS
-                 Continuity Calls can bridge a Mac/Windows browser to an Android
-                 phone, so click-to-call in Leads instead hits this address
-                 directly over Wi-Fi — two MacroDroid macros on the phone listen
-                 here: one places the call, the other ends it. See the setup
-                 steps below for wiring both up. --}}
+            {{-- Auto-dial + Mute + End Call: neither Windows Phone Link nor
+                 macOS Continuity Calls can bridge a Mac/Windows browser to an
+                 Android phone, so click-to-call in Leads instead hits this
+                 address directly over Wi-Fi — three MacroDroid macros on the
+                 phone listen here: one places the call, one toggles mic mute,
+                 the third ends it. See the setup steps below for wiring all
+                 three up. --}}
             <div class="mb-4">
                 <label class="block text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Dialer address (auto-dial over Wi-Fi)</label>
                 <input type="text" name="dialer_host" value="{{ $tsa->dialer_host }}" placeholder="192.168.1.42:8080"
@@ -68,8 +69,8 @@
                 <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from the MacroDroid macros below. Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
 
                 <details class="text-xs font-mono text-slate-500 dark:text-slate-400 mt-2">
-                    <summary class="cursor-pointer text-primary-dark hover:underline">Auto-dial + End Call setup steps ↓</summary>
-                    <p class="mt-2 font-bold text-slate-700 dark:text-slate-200">Macro 1 of 2 — dialing</p>
+                    <summary class="cursor-pointer text-primary-dark hover:underline">Auto-dial + Mute + End Call setup steps ↓</summary>
+                    <p class="mt-2 font-bold text-slate-700 dark:text-slate-200">Macro 1 of 3 — dialing</p>
                     <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
                         <li>
                             On {{ $tsa->display_name }}'s phone, open <strong>MacroDroid</strong> (already installed for call logging) and start a <strong>second, separate macro</strong> — tap <strong>+</strong>.
@@ -95,7 +96,24 @@
                         </li>
                     </ol>
 
-                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 2 of 2 — ending the call</p>
+                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 2 of 3 — muting</p>
+                    <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
+                        <li>
+                            Start another new macro (tap <strong>+</strong> on MacroDroid's main list again).
+                        </li>
+                        <li>
+                            <strong>Trigger:</strong> same as before — search <strong>HTTP Server Request</strong> → select it → <strong>Path</strong> → type <code>mute</code> this time. No variable needed here. Tap <strong>✓</strong>.
+                        </li>
+                        <li>
+                            <strong>Action:</strong> Actions tab → <strong>+</strong> → search <strong>Mute</strong> and pick whichever mic-mute action your MacroDroid version offers (e.g. <strong>Toggle Microphone Mute</strong>) → tap <strong>✓</strong>.
+                            <p class="mt-1">The exact action name varies by MacroDroid/Android version and can require Accessibility permission to reach the in-call mute control — if you don't see a mic-specific option, this macro isn't available on this phone and the popup's Mute button just won't do anything, same as leaving the Dialer address blank.</p>
+                        </li>
+                        <li>
+                            Save/name the macro (e.g. <em>"Remote Mute"</em>) and make sure it's <strong>on</strong>.
+                        </li>
+                    </ol>
+
+                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 3 of 3 — ending the call</p>
                     <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
                         <li>
                             Start another new macro (tap <strong>+</strong> on MacroDroid's main list again).
@@ -115,13 +133,13 @@
                     <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Finishing up</p>
                     <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
                         <li>
-                            <strong>Find the address to put above:</strong> open either HTTP Server Request trigger you just made — it shows the full URL, something like <code>http://192.168.1.42:8080/dial</code>. Copy just the <code>IP:port</code> part (before <code>/dial</code> or <code>/hangup</code>) into the <strong>Dialer address</strong> field above — both macros share the same phone, so the same address covers both. (Port defaults to 8080 — MacroDroid Settings → HTTP Server Settings if you need to check or change it.)
+                            <strong>Find the address to put above:</strong> open any of the three HTTP Server Request triggers you just made — it shows the full URL, something like <code>http://192.168.1.42:8080/dial</code>. Copy just the <code>IP:port</code> part (before <code>/dial</code>, <code>/mute</code>, or <code>/hangup</code>) into the <strong>Dialer address</strong> field above — all three macros share the same phone, so the same address covers all of them. (Port defaults to 8080 — MacroDroid Settings → HTTP Server Settings if you need to check or change it.)
                         </li>
                         <li>
                             <strong>Both devices must stay on the same Wi-Fi network</strong> — this only works over the local network, not the internet. If the phone reconnects to Wi-Fi later, its IP can change and this field will need updating (a static IP reservation on your router avoids that).
                         </li>
                         <li>
-                            Save this form, then test: click one of {{ $tsa->display_name }}'s leads' phone numbers in Leads — the phone should start dialing within a second or two, no tap needed on the phone itself, and the popup's <strong>End Call</strong> button should hang it up again.
+                            Save this form, then test: click one of {{ $tsa->display_name }}'s leads' phone numbers in Leads — the phone should start dialing within a second or two, no tap needed on the phone itself, and the popup's <strong>Mute</strong> and <strong>End Call</strong> buttons should control it from there.
                         </li>
                     </ol>
                 </details>

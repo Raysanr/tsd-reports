@@ -116,10 +116,10 @@
 
 {{-- Calling modal — click-to-call (My Leads table + lead detail page). When
      the lead's TSA has a Dialer address configured (Call Rotation), the
-     number is dialed AND ended straight from here: both hit a MacroDroid
-     macro listening on the TSA's own phone over Wi-Fi. With no Dialer
-     address configured, dialing falls back to a plain tel: handoff and End
-     Call has nothing to hit, so it's hidden. Opened via
+     number is dialed, muted/unmuted, AND ended straight from here: all three
+     hit a MacroDroid macro listening on the TSA's own phone over Wi-Fi. With
+     no Dialer address configured, dialing falls back to a plain tel: handoff
+     and Mute/End Call have nothing to hit, so both are hidden. Opened via
      openCallingModal(name, number, dialerHost) in calls.js. --}}
 <div id="callingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200" data-dial-host="">
     <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xs p-6 text-center opacity-0 scale-95 transition-all duration-200">
@@ -133,6 +133,18 @@
         <p id="callingModalNumber" class="text-sm text-slate-400 font-mono mb-5">—</p>
         <p id="callingModalHint" class="text-[11px] text-slate-400 mb-4">Sent to your phone — check your phone if nothing happens.</p>
         <div class="flex items-center gap-2">
+            {{-- Same Wi-Fi-direct-to-phone approach as End Call (data-muted
+                 tracks toggle state, reset on each new call in
+                 openCallingModal()) — only shown when a dial-host is
+                 configured, same gate as End Call, since both hit a
+                 MacroDroid macro on the TSA's own phone. --}}
+            <button type="button" id="muteCallBtn" onclick="toggleMute()" data-muted="0"
+                    class="hidden flex-1 items-center justify-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-semibold font-mono px-4 py-2.5 rounded-lg cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v3m-3 0h6M12 15a3 3 0 003-3V6a3 3 0 10-6 0v6a3 3 0 003 3z"/>
+                </svg>
+                <span id="muteCallBtnLabel">Mute</span>
+            </button>
             <button type="button" id="endCallBtn" onclick="endCall()"
                     class="hidden flex-1 items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold font-mono px-4 py-2.5 rounded-lg cursor-pointer">
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 010-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.27 11.27 0 00-2.67-1.85.99.99 0 01-.56-.9v-3.1A17.6 17.6 0 0012 9z" transform="rotate(135 12 12)"/></svg>

@@ -789,16 +789,25 @@ window.openCallingModal = function (name, number, dialHost) {
     document.getElementById('callingModalNumber').textContent = number || '';
     modal.dataset.dialHost = dialHost || '';
 
-    // End Call only has anything to hit when this lead's TSA has a dial-host
-    // configured — same MacroDroid macro family the auto-dial itself uses,
-    // just a second Wi-Fi-triggered action (Call Reject) instead of Make Call.
+    // End Call/Mute only have anything to hit when this lead's TSA has a
+    // dial-host configured — same MacroDroid macro family the auto-dial
+    // itself uses, just extra Wi-Fi-triggered actions (Call Reject / mic
+    // mute toggle) instead of Make Call.
     const endBtn = document.getElementById('endCallBtn');
+    const muteBtn = document.getElementById('muteCallBtn');
     const hint = document.getElementById('callingModalHint');
     endBtn.classList.toggle('hidden', !dialHost);
     endBtn.classList.toggle('flex', !!dialHost);
+    muteBtn.classList.toggle('hidden', !dialHost);
+    muteBtn.classList.toggle('flex', !!dialHost);
     hint.textContent = dialHost
         ? 'Dialing from your phone via Wi-Fi — check your phone if nothing happens.'
         : 'Sent to your phone — check your phone if nothing happens.';
+
+    // A new call always starts unmuted — reset the toggle rather than
+    // carrying over whatever state the previous call in this modal left it in.
+    muteBtn.dataset.muted = '0';
+    document.getElementById('muteCallBtnLabel').textContent = 'Mute';
 
     showModal(modal);
 };
@@ -819,6 +828,27 @@ window.endCall = function () {
 
     fetch(`http://${dialHost}/hangup`, { mode: 'no-cors' }).catch(() => {});
     window.closeCallingModal();
+};
+
+// Mute/unmute — same Wi-Fi-direct-to-phone approach as End Call, hitting a
+// third MacroDroid macro on the TSA's own phone (Trigger: HTTP Server
+// Request path "mute" → Action: a mic-mute toggle — see the "Mute" setup
+// steps on TSA Management for wiring this one up). Toggles locally rather
+// than polling the phone for real mute state, since the HTTP trigger has no
+// response payload to read state back from — this button's label reflects
+// what WAS sent, not a confirmed device state.
+window.toggleMute = function () {
+    const modal = document.getElementById('callingModal');
+    const dialHost = modal?.dataset.dialHost;
+    if (!dialHost) return;
+
+    const btn = document.getElementById('muteCallBtn');
+    const nowMuted = btn.dataset.muted !== '1';
+
+    fetch(`http://${dialHost}/mute`, { mode: 'no-cors' }).catch(() => {});
+
+    btn.dataset.muted = nowMuted ? '1' : '0';
+    document.getElementById('muteCallBtnLabel').textContent = nowMuted ? 'Unmute' : 'Mute';
 };
 
 document.addEventListener('click', (e) => {
