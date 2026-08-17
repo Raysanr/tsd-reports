@@ -26,6 +26,7 @@
                 @endif
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Outcome</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Upsell</th>
+                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Save</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -103,7 +104,16 @@
                         <p class="text-slate-400 text-xs mt-0.5">{{ $lead->notes }}</p>
                         @endif
                     @elseif($lead->tsa_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
-                        <form method="POST" action="{{ route('calls.leads.disposition', $lead) }}" class="flex items-center gap-2 disposition-form">
+                        {{-- Save button lives in its own last column now (explicit
+                             request, 2026-08-17) — the <form> itself still only
+                             wraps the tag picker + callback input, and the button
+                             references it by id via the form="" attribute, which
+                             is valid HTML5 and fires the exact same 'submit' event
+                             the .disposition-form listener in calls.js already
+                             expects (e.target is still the <form>, regardless of
+                             which associated button triggered it). --}}
+                        <form method="POST" action="{{ route('calls.leads.disposition', $lead) }}"
+                              id="disposition-form-{{ $lead->id }}" class="flex items-center gap-2 disposition-form">
                             @csrf
                             <div class="disposition-picker w-36" data-lead-id="{{ $lead->id }}">
                                 <div class="disposition-selected-chips flex flex-wrap gap-1 empty:hidden mb-1"></div>
@@ -118,10 +128,6 @@
                             </div>
                             <input type="datetime-local" name="callback_at"
                                    class="callback-at-input hidden text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                            <button type="submit"
-                                    class="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-3 py-1.5 cursor-pointer">
-                                Save
-                            </button>
                         </form>
                     @else
                         <span class="text-slate-300 dark:text-slate-600">—</span>
@@ -135,6 +141,16 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
                         </svg>
                         Add Upsell
+                    </button>
+                    @else
+                        <span class="text-slate-300 dark:text-slate-600">—</span>
+                    @endif
+                </td>
+                <td class="px-4 py-3">
+                    @if($lead->status !== 'called' && $lead->tsa_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
+                    <button type="submit" form="disposition-form-{{ $lead->id }}"
+                            class="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-3 py-1.5 cursor-pointer">
+                        Save
                     </button>
                     @else
                         <span class="text-slate-300 dark:text-slate-600">—</span>
