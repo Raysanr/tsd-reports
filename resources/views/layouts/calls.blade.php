@@ -139,7 +139,7 @@
     }
     </style>
 </head>
-<body class="flex h-screen overflow-hidden bg-canvas" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
+<body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
 
 <aside class="relative w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl">
     <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, rgba(234,179,8,0.16), transparent 70%);"></div>
@@ -347,10 +347,15 @@
 
 <div class="flex-1 flex flex-col min-h-0 min-w-0">
     <div class="header-accent-rule shrink-0"></div>
-    <header class="bg-white border-b border-line px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-panel">
+    {{-- dark:bg-slate-900/dark:border-slate-700/dark:text-slate-100(-400) —
+         same values TSD Reports' own header uses (explicit request,
+         2026-08-17: "make the topbar dark too, like in TSD Reports"). The
+         light-mode values (border-line/text-ink/text-ink-muted, Call
+         Tracker's own bespoke tokens) stay untouched. --}}
+    <header class="bg-white dark:bg-slate-900 border-b border-line dark:border-slate-700 px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-panel">
         <div class="shrink-0">
-            <h1 class="text-xl font-bold text-ink tracking-tight">@yield('title', 'Dashboard')</h1>
-            <p class="text-xs text-ink-muted font-mono mt-0.5">@yield('subtitle', 'Pancake POS Integration')</p>
+            <h1 class="text-xl font-bold text-ink dark:text-slate-100 tracking-tight">@yield('title', 'Dashboard')</h1>
+            <p class="text-xs text-ink-muted dark:text-slate-400 font-mono mt-0.5">@yield('subtitle', 'Pancake POS Integration')</p>
         </div>
 
         <div class="flex items-center gap-3 flex-wrap justify-end">

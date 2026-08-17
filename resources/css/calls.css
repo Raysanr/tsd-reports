@@ -53,6 +53,15 @@
 }
 
 body { font-family: var(--font-sans); background: var(--color-canvas); }
+/* Root-caused 2026-08-17: this plain, unlayered rule was beating the
+   dark:bg-slate-950 utility class on <body> in layouts/calls.blade.php —
+   unlayered CSS always wins over Tailwind's own @layer utilities
+   regardless of specificity, so the header/h1/p dark: overrides added the
+   same day worked fine (nothing else targets those elements directly) but
+   body's own background never actually switched. Same #020617 TSD Reports'
+   own dark:bg-slate-950 resolves to, so the two apps' dark backgrounds
+   actually match instead of just coincidentally looking close. */
+.dark body { background: #020617; }
 
 .nav-active {
     background: rgba(202,138,4,0.18);
