@@ -595,9 +595,22 @@ document.addEventListener('click', async (e) => {
             product:   cell.dataset.ddCellProduct || wrapper.dataset.ddProduct,
             date_from: wrapper.dataset.ddDateFrom,
             date_to:   wrapper.dataset.ddDateTo,
-            tsa:       cell.dataset.ddTsa,
-            column:    cell.dataset.ddColumn,
         });
+        // tsa/column/hour: omitted entirely (not just empty) when a cell doesn't
+        // set the attribute — e.g. Leads Report's plain Total Leads cell sets
+        // neither tsa nor column. Root-caused 2026-08-17: URLSearchParams
+        // silently stringifies a JS `undefined` to the literal text "undefined"
+        // rather than dropping the key, and the backend's `if ($column)` treated
+        // that non-empty string as a real (but unrecognized) column filter,
+        // falling through to an empty result — "No orders found" on every Total
+        // Leads cell regardless of its actual count. Same reasoning already
+        // applied to 'hour' below; tsa/column just hadn't gotten it.
+        if (cell.dataset.ddTsa !== undefined && cell.dataset.ddTsa !== '') {
+            params.set('tsa', cell.dataset.ddTsa);
+        }
+        if (cell.dataset.ddColumn !== undefined && cell.dataset.ddColumn !== '') {
+            params.set('column', cell.dataset.ddColumn);
+        }
         // Omitted entirely (not just empty) for a Grand Total cell — the
         // endpoint reads a missing 'hour' as "every hour", not hour 0.
         if (cell.dataset.ddHour !== undefined && cell.dataset.ddHour !== '') {
