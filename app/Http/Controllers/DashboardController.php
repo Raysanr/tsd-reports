@@ -58,7 +58,7 @@ class DashboardController extends Controller
         $hasSyncedData         = false;
         $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
 
-        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
+        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
         $syncRuns       = collect();
         $tsaLeaderboard   = collect();
@@ -241,6 +241,11 @@ class DashboardController extends Controller
             $leadsGrandTotal = ProductPerformance::sumRows($productRows);
 
             $stats['total_leads']    = $leadsGrandTotal['total'];
+            // Same row-summed basis as total_leads above (explicit request,
+            // 2026-08-17) — a mini "X catered" line under the Total Leads
+            // card, matching Leads Report's own Catered Leads column so the
+            // two numbers agree the same way Total Leads already does.
+            $stats['catered_leads']  = $leadsGrandTotal['catered'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
             $stats['upselling_rate'] = $leadTally['upselling_rate'];
             $stats['aov']            = $totalOrders > 0 ? $grossSales / $totalOrders : 0;

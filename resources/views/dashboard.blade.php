@@ -192,7 +192,10 @@
             <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
                 {{ number_format($stats['total_leads']) }}
             </p>
-            <p class="mt-1.5 text-xs text-slate-400 font-mono">New leads in range</p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">
+                New leads in range ·
+                <span class="text-emerald-600 dark:text-emerald-400 font-semibold">{{ number_format($stats['catered_leads']) }} catered</span>
+            </p>
         </div>
     </div>
 
