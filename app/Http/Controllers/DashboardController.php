@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -226,7 +227,20 @@ class DashboardController extends Controller
 
             $leadTally = ProductPerformance::tally($dayOrders);
 
-            $stats['total_leads']    = $leadTally['total'];
+            // Total Leads specifically (explicit request, 2026-08-17) uses the same
+            // "sum of the per-product rows" definition as Leads Report's own Grand
+            // Total — see ProductPerformance::sumRows()'s doc comment — rather than
+            // $leadTally['total'] above, a distinct-order count. The two definitions
+            // necessarily diverge whenever an order legitimately counts toward more
+            // than one product's row (a cross-team combo SKU): tally() counts it
+            // once, summing the per-product rows counts it once per product matched.
+            // Pick-up/Upselling rate stay off the distinct-order tally() — only
+            // Total Leads itself was asked to match Leads Report, not these too.
+            $allProducts    = Product::orderBy('sort_order')->get();
+            $productRows    = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $dayOrders, $allProducts));
+            $leadsGrandTotal = ProductPerformance::sumRows($productRows);
+
+            $stats['total_leads']    = $leadsGrandTotal['total'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
             $stats['upselling_rate'] = $leadTally['upselling_rate'];
             $stats['aov']            = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
