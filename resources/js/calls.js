@@ -251,7 +251,20 @@ document.addEventListener('submit', (e) => {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
         body: new FormData(form),
     })
-        .then(() => pollLeadsTable())
+        .then(() => {
+            // Root-caused 2026-08-17: pollLeadsTable()'s own focus-guard (meant
+            // to protect an unrelated in-progress edit elsewhere in the table
+            // from being wiped by a periodic poll) was ALSO silently blocking
+            // this deliberate, user-initiated refresh — the just-clicked pin
+            // button is itself still focused and sits inside that same
+            // container, so the guard's condition was true for its own click.
+            // Confirmed by monkey-patching window.fetch: the pin POST fired,
+            // pollLeadsTable()'s own fetch never did. Blurring first clears
+            // that guard so the reorder actually shows up without a manual
+            // reload.
+            form.querySelector('button')?.blur();
+            pollLeadsTable();
+        })
         .catch(() => {});
 });
 
