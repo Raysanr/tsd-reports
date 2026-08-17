@@ -12,7 +12,7 @@
     <table class="w-full text-sm font-mono">
         <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
             <tr>
-                <th class="w-8 px-2 py-3"></th>
+                <th class="w-11 px-1 py-3"></th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Order ID</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Customer</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Phone</th>
@@ -31,17 +31,21 @@
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($leads as $lead)
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }}">
-                <td class="px-2 py-3">
+                <td class="px-1 py-3">
                     {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
                          to the top (see LeadController::index()'s orderByRaw). Submits
                          via fetch (see calls.js) and re-polls the table immediately so
                          the reorder is visible right away instead of waiting out the
-                         normal 15s poll. --}}
+                         normal 15s poll. Button sized/colored for an easy hit target
+                         (revised: the first pass was 24x24 and very faint when
+                         unpinned — hard to see or click precisely) — w-9 h-9 with a
+                         visible hover background, same convention as the sidebar's
+                         own icon buttons elsewhere in this app. --}}
                     <form method="POST" action="{{ route('calls.leads.pin', $lead) }}" class="pin-form">
                         @csrf
                         <button type="submit" title="{{ $lead->pinned_at ? 'Unpin' : 'Pin to top' }}"
-                                class="p-1 rounded-md cursor-pointer transition-colors {{ $lead->pinned_at ? 'text-yellow-600 hover:text-yellow-700' : 'text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400' }}">
-                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
+                                class="w-9 h-9 flex items-center justify-center rounded-lg cursor-pointer transition-colors {{ $lead->pinned_at ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' }}">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5h14l-4.091-4.091a2.25 2.25 0 01-.659-1.591V3.104M12 14.5V21"/>
                             </svg>
                         </button>
