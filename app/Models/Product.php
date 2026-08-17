@@ -12,7 +12,7 @@ class Product extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'display_name', 'match_keyword', 'pancake_product_ids', 'team', 'sort_order',
+        'display_name', 'match_keyword', 'match_exclude_keyword', 'pancake_product_ids', 'team', 'sort_order',
     ];
 
     protected $casts = [
@@ -52,17 +52,46 @@ class Product extends Model
         return $keywords ?: [$this->display_name];
     }
 
+    /** match_exclude_keyword split on commas (trimmed, empties dropped) — same
+     *  comma-separated convention as match_keyword/tag_keywords, but with no
+     *  display_name fallback (an empty exclude list is the normal case for
+     *  every product except SINUXYL — see the match_exclude_keyword
+     *  migration's own doc comment for why that one needs it). */
+    public function getExcludeKeywordsArrayAttribute(): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', $this->match_exclude_keyword ?? ''))));
+    }
+
     /** True if $text (an order tag or a cart product name) matches ANY of this
      *  product's keywords. Comparison is case-, space- and punctuation-insensitive
      *  ("Clear Sight 3.0" matches keyword "CLEARSIGHT"): both sides are reduced to
      *  bare alphanumerics before the containment check — cart names and tags write
      *  the same product with inconsistent spacing/casing, which is exactly how 114
-     *  "Clear Sight 3.0" leads went team-NULL and vanished from every report. */
+     *  "Clear Sight 3.0" leads went team-NULL and vanished from every report.
+     *
+     *  A keyword hit is discarded if $text ALSO contains one of
+     *  exclude_keywords_array — this is the text-matching FALLBACK's only
+     *  defense against sweeping in a real, separate sibling catalog product
+     *  whose name happens to contain this product's own keyword as a prefix
+     *  (e.g. SINUXYL's bare "SINUXYL" keyword substring-matching "Sinuxyl
+     *  Steam Pack", a genuinely different real Pancake product). Real
+     *  pancake_product_ids matching (ProductPerformance::matchingOrders())
+     *  already handles this correctly whenever an order's ID was captured;
+     *  this only guards the fallback path for orders that can never have one
+     *  (an ad-hoc, not-in-catalog line item with no product_id to capture). */
     public function matchesText(?string $text): bool
     {
         if ($text === null || $text === '') return false;
 
         $normalizedText = self::normalizeForMatch($text);
+
+        foreach ($this->exclude_keywords_array as $exclude) {
+            $normalizedExclude = self::normalizeForMatch($exclude);
+            if ($normalizedExclude !== '' && str_contains($normalizedText, $normalizedExclude)) {
+                return false;
+            }
+        }
+
         foreach ($this->keywords_array as $keyword) {
             $normalizedKeyword = self::normalizeForMatch($keyword);
             if ($normalizedKeyword !== '' && str_contains($normalizedText, $normalizedKeyword)) {
