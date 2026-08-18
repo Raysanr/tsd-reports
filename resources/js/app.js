@@ -561,7 +561,7 @@ document.addEventListener('click', async (e) => {
         // Fixed positioning (not absolute) so it isn't clipped by the table's
         // own overflow-auto scroll container — computed from the cell's
         // viewport coordinates instead.
-        const maxLeft = window.innerWidth - 240;
+        const maxLeft = window.innerWidth - 320;
         el.style.top  = `${rect.bottom + 4}px`;
         el.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
     }
@@ -620,7 +620,8 @@ document.addEventListener('click', async (e) => {
         popover = document.createElement('div');
         popover.dataset.forCell = cellKey;
         popover.className = 'fixed z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1 overflow-y-auto text-xs font-mono';
-        popover.style.minWidth  = '220px';
+        popover.style.minWidth  = '300px';
+        popover.style.maxWidth  = '360px';
         popover.style.maxHeight = '280px';
         popover.innerHTML = '<p class="px-3 py-3 text-slate-400">Loading…</p>';
         document.body.appendChild(popover);
@@ -641,7 +642,12 @@ document.addEventListener('click', async (e) => {
                 // 'status' is only present from Leads Report's drilldown (a local
                 // order status, e.g. to spot one Pancake has since cancelled/deleted
                 // that hasn't re-synced) — TSA Performance's response has no such
-                // field, so that middle span just doesn't render there.
+                // field, so that middle span just doesn't render there. 'product' is
+                // the matched item/cart text ProductPerformance actually matched
+                // against (see LeadsReportController::drilldown()) — shown on its own
+                // line underneath so a false-positive match (text that doesn't really
+                // belong to this product) is visible directly in the popover instead
+                // of only in the raw JSON.
                 //
                 // Order ID is click-to-copy (data-copy-order-id, handled below) —
                 // status/time get style="user-select:none" so a drag-select across
@@ -651,10 +657,13 @@ document.addEventListener('click', async (e) => {
                 // a drag-select (single row or many) copies bare digits only —
                 // matches what the click-to-copy handler below already copied.
                 popover.innerHTML = orders.map(o => `
-                    <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                        <span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">${escapeHtml(o.id)}</span>
-                        ${o.status ? `<span class="text-slate-400 dark:text-slate-500" style="user-select:none">${escapeHtml(o.status)}</span>` : ''}
-                        <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
+                    <div class="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">${escapeHtml(o.id)}</span>
+                            ${o.status ? `<span class="text-slate-400 dark:text-slate-500" style="user-select:none">${escapeHtml(o.status)}</span>` : ''}
+                            <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
+                        </div>
+                        ${o.product ? `<div class="text-slate-500 dark:text-slate-400 truncate" style="user-select:none" title="${escapeHtml(o.product)}">${escapeHtml(o.product)}</div>` : ''}
                     </div>
                 `).join('');
                 positionPopover(cell, popover);
