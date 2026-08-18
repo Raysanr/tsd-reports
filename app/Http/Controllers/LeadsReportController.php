@@ -370,18 +370,17 @@ class LeadsReportController extends Controller
     /**
      * Drill-down: given a product's Total Leads cell, returns the exact orders
      * ProductPerformance::buildRow() counted toward it — id, current LOCAL status,
-     * cart item, and creation time. Built to actually investigate a real
-     * discrepancy (production showing more leads than Pancake's own order search)
-     * rather than guess at it: a known, previously-confirmed failure mode is an
-     * order deleted/cancelled in Pancake after being synced, whose local copy
-     * keeps its last-known-live status forever if no later sync window ever
-     * touches it again (see Order::DELETED_STATUSES) — this list is exactly what
-     * lets that be checked order-by-order against Pancake's live data.
+     * cart item, and creation time.
      *
-     * Deliberately does NOT exclude DELETED_STATUSES — showing every order
-     * ProductPerformance::tally() would currently count (including any whose
-     * local status secretly disagrees with Pancake's real one) is the whole
-     * point; excluding them here would hide the exact rows worth checking.
+     * Excludes DELETED_STATUSES orders outright (explicit request, 2026-08-18)
+     * — this used to deliberately still list them as a diagnostic aid (spot an
+     * order Pancake deleted/cancelled whose local copy never got a later sync
+     * to update it), with the popover marking those rows as excluded rather
+     * than hiding them. Reversed: showing rows that visibly aren't part of the
+     * Total Leads count, even clearly marked, still read as a counting bug
+     * rather than a diagnostic view. Same exclusion a specific column
+     * (ordersForColumn()) already applied — the plain Total cell now matches
+     * that instead of being the one path that didn't.
      */
     public function drilldown(Request $request)
     {
@@ -413,13 +412,14 @@ class LeadsReportController extends Controller
         // A disposition/count column (Called Leads, Confirmed via Call, Excess,
         // etc.) — same categorization ProductPerformance::tally() itself uses,
         // so "which orders" can never drift from what the cell's own number
-        // counted. Omitted entirely = the plain product Total cell, which keeps
-        // showing EVERY matching order including any DELETED_STATUSES ones per
-        // this method's own docblock above (a deliberate diagnostic view) —
-        // ordersForColumn()'s own DELETED_STATUSES exclusion only applies once
-        // a specific column is actually requested.
+        // counted. Omitted entirely = the plain product Total cell.
         if ($column) {
             $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
+        } else {
+            // Same DELETED_STATUSES exclusion ordersForColumn() already applies
+            // for every other column — see this method's own docblock for why
+            // the Total cell now matches instead of being the one exception.
+            $matching = $matching->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
         }
 
         $result = $matching
@@ -435,15 +435,6 @@ class LeadsReportController extends Controller
                 // matched this order to $product, so a false positive is visible
                 // right in the popover instead of needing a manual Pancake lookup.
                 'matched_via' => ProductPerformance::matchReason($product, $o),
-                // True for the exact DELETED_STATUSES this method's own docblock
-                // says it deliberately still lists (Canceled/Deleted recently) —
-                // lets the popover mark these rows as excluded instead of
-                // rendering them identically to every counted row, which is what
-                // made an admin reasonably (but incorrectly) suspect they were
-                // still part of the Total Leads number above (root-caused
-                // 2026-08-18: the count itself was already right, only this
-                // popover's presentation wasn't distinguishing the two).
-                'excluded'   => in_array($o->status_code, Order::DELETED_STATUSES, true),
             ]);
 
         return response()->json($result);
