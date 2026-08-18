@@ -209,7 +209,19 @@
 // innerHTML swap without needing to re-bind per row. One row open at a time
 // isn't enforced (an admin may want to compare two TSAs' setups side by
 // side), unlike the single-popover status panel above.
+//
+// The status trigger/dropdown (calls/partials/tsa-status-panel) lives inside
+// the same <tr> so its own click can reach this listener too — bailing out
+// here (instead of an onclick="event.stopPropagation()" on its <td>, tried
+// first and reverted) is what's needed: stopPropagation there also silently
+// blocked calls.js's own document-level handler for the "Select status"
+// options and the click-outside-closes-it logic, since both listen on
+// document too and stopPropagation cuts the event off before it gets that
+// far — the dropdown opened (a direct onclick on the trigger) but picking an
+// option did nothing.
 document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-status-panel-wrap]')) return;
+
     const trigger = e.target.closest('[data-tsa-row-toggle]');
     if (!trigger) return;
 

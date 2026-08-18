@@ -58,7 +58,7 @@
                             {{ $tsa->team }}
                         </span>
                     </td>
-                    <td class="px-5 py-4" onclick="event.stopPropagation()">
+                    <td class="px-5 py-4">
                         @include('calls.partials.tsa-status-panel', [
                             'id'      => 'tsa-' . $tsa->id,
                             'options' => array_keys(\App\Models\TsaShift::STATUSES),
