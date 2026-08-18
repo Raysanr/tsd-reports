@@ -139,7 +139,19 @@ class TsaManagementController extends Controller
         $productNames = Product::whereIn('id', $selected)->pluck('display_name')->implode(', ') ?: 'none';
         ActivityLogger::log('tsa.updated', $tsaShift, "Updated {$tsaShift->display_name} — active: " . ($tsaShift->active ? 'yes' : 'no') . ", handles: {$productNames}.");
 
-        return redirect()->route('calls.tsa-management')->with('success', "Updated {$tsaShift->display_name}.");
+        $message = "Updated {$tsaShift->display_name}.";
+
+        // AJAX save (explicit request, 2026-08-18) — the Save form
+        // (calls/tsa-management/_table.blade.php) submits via fetch with
+        // Accept: application/json so the row's expanded panel and scroll
+        // position stay exactly as the admin left them, confirmed with a
+        // toast instead of the old full-page redirect. wantsJson() keeps a
+        // plain (no-JS) form POST working the same as before, unaffected.
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
     }
 
     /**

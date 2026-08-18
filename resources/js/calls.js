@@ -9,9 +9,12 @@
 import './bootstrap';
 import {
     Chart, BarController, BarElement, LineController, LineElement, PointElement,
-    CategoryScale, LinearScale, Tooltip, Legend, Title,
+    DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend, Title, Filler,
 } from 'chart.js';
-Chart.register(BarController, BarElement, LineController, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Title);
+Chart.register(
+    BarController, BarElement, LineController, LineElement, PointElement,
+    DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend, Title, Filler,
+);
 
 // ─── Dark mode toggle ────────────────────────────────────────────────────────
 // Same mechanism as TSD Reports' own app.js (shared 'theme' localStorage key,
@@ -391,6 +394,62 @@ document.addEventListener('submit', (e) => {
             pollLeadsTable();
         })
         .catch(() => {});
+});
+
+// TSA Management Save (explicit request, 2026-08-18) — submits via fetch
+// instead of a normal POST so the row's already-expanded edit panel and the
+// admin's scroll position stay exactly as they were: the old plain-POST form
+// redirected back to a fresh full-page render, which re-collapsed every row
+// (calls/tsa-management/_table.blade.php always server-renders each panel
+// closed) and lost scroll position on every single Save. Same delegated
+// document-level submit + FormData pattern as the pin-form above (FormData
+// carries the @csrf token along automatically), confirmed with a toast
+// (same convention as the dashboard's own Sync button) instead of the old
+// redirect+flash-message round trip. Accept: application/json is what makes
+// TsaManagementController::update() take its wantsJson() branch and return
+// JSON instead of redirecting.
+document.addEventListener('submit', (e) => {
+    if (!e.target.matches('.tsa-update-form')) return;
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    const originalLabel = btn?.textContent;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+    }
+
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+        body: new FormData(form),
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data) => {
+            window.showToast?.(data.message || 'Saved.', 'success');
+            if (btn) btn.textContent = '✓ Saved';
+        })
+        .catch(async (res) => {
+            // A 422 here is a real validation failure (phone_number/dialer_host
+            // too long, an invalid product id) — surface Laravel's own first
+            // error message rather than a generic one, same as everywhere else
+            // in this app that reads response.errors.
+            let message = 'Could not save — try again.';
+            if (res?.json) {
+                try {
+                    const data = await res.json();
+                    message = Object.values(data.errors || {})[0]?.[0] || data.message || message;
+                } catch (e) { /* not JSON — keep the generic message */ }
+            }
+            window.showToast?.(message, 'error');
+        })
+        .finally(() => {
+            if (!btn) return;
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = originalLabel;
+            }, 900);
+        });
 });
 
 // Conversation modal — fetches real Pancake messages via our own backend
@@ -1183,6 +1242,170 @@ window.switchAnalyticsTab = function (tab) {
                 scales: {
                     x: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => `${v}m` } },
                     y: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
+                },
+            },
+        });
+    }
+})();
+
+// Dashboard overview charts (calls/dashboard.blade.php) — same JSON-script-
+// tag + isDark()-aware palette convention as initAnalyticsCharts() above,
+// but scoped to the KPI numbers already shown in the 5 cards above them
+// (Total Leads/Total Catered Leads/AHT/Unproductive Time) rather than
+// duplicating Analytics' own per-TSA breakdown, which stays the one place
+// for that. Two independent empty states: the bar/donut pair reflects the
+// picked date range and can legitimately be all-zero (a quiet day), while
+// the AHT/Unproductive trend line is its own always-on 7-day window.
+(function initDashboardCharts() {
+    const dataEl = document.getElementById('dashboardChartData');
+    if (!dataEl) return;
+
+    const data = JSON.parse(dataEl.textContent);
+    const isDark = () => document.documentElement.classList.contains('dark');
+
+    const tooltipBase = {
+        backgroundColor: '#201C12',
+        titleColor: '#FFFFFF',
+        bodyColor: '#FEF9E7',
+        padding: 10,
+        cornerRadius: 8,
+        titleFont: { family: 'Fira Sans', weight: '600' },
+        bodyFont: { family: 'Fira Code' },
+    };
+    const gridBase = { color: isDark() ? '#334155' : '#E7DFC9', drawTicks: false };
+    const tickColor = isDark() ? '#94A3B8' : '#756B52';
+    const tickFont = { family: 'Fira Code', size: 11 };
+
+    // "6m 42s" for AHT tooltips/ticks — matches the Analytics AHT table's
+    // own format (see calls/analytics.blade.php) so this chart and that
+    // table never disagree about how a duration reads.
+    const formatSeconds = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
+    const formatMinutes = (m) => `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
+
+    const overviewEmpty = document.getElementById('dashboardOverviewEmpty');
+    const overviewWrap = document.getElementById('dashboardOverviewWrap');
+    if (!data.hasOverviewData) {
+        overviewEmpty?.classList.remove('hidden');
+        overviewWrap?.classList.add('hidden');
+    } else {
+        const barCanvas = document.getElementById('chartLeadsOverview');
+        if (barCanvas) {
+            new Chart(barCanvas, {
+                type: 'bar',
+                data: {
+                    labels: data.leadsOverview.labels,
+                    datasets: [{
+                        data: [data.leadsOverview.total, data.leadsOverview.catered],
+                        backgroundColor: ['#EAB308', '#16A34A'],
+                        borderRadius: 6,
+                        maxBarThickness: 56,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: tooltipBase },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
+                        y: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, precision: 0 } },
+                    },
+                },
+            });
+        }
+
+        // Catered Leads Rate — catered vs. missed (total - catered), with
+        // the %age itself rendered server-side as an absolutely-positioned
+        // overlay in the middle of the donut (calls/dashboard.blade.php),
+        // not a Chart.js plugin — Chart.js has no built-in center-text
+        // support, and a plain positioned <span> is simpler than a custom
+        // plugin for one static number that doesn't need to redraw.
+        const donutCanvas = document.getElementById('chartLeadsSplit');
+        if (donutCanvas) {
+            const missed = Math.max(0, data.leadsOverview.total - data.leadsOverview.catered);
+            new Chart(donutCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Catered Leads', 'Missed Leads'],
+                    datasets: [{
+                        data: [data.leadsOverview.catered, missed],
+                        backgroundColor: ['#16A34A', '#EAB308'],
+                        borderWidth: 0,
+                        hoverOffset: 4,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '72%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { family: 'Fira Sans', size: 11 }, color: tickColor, boxWidth: 10, boxHeight: 10, padding: 12 } },
+                        tooltip: tooltipBase,
+                    },
+                },
+            });
+        }
+    }
+
+    const trendEmpty = document.getElementById('dashboardTrendEmpty');
+    const trendWrap = document.getElementById('dashboardTrendWrap');
+    if (!data.hasTrendData) {
+        trendEmpty?.classList.remove('hidden');
+        trendWrap?.classList.add('hidden');
+        return;
+    }
+
+    // AHT & Unproductive Time trend — dual y-axes, not a shared one: AHT
+    // runs in seconds (a single call, usually single-digit minutes) while
+    // Unproductive Time runs in minutes across a whole shift (can be
+    // hours) — sharing one axis would flatten the AHT line to near-zero
+    // next to it. spanGaps bridges a day with no scoped TSAs working (see
+    // DashboardController::index()'s own comment) rather than breaking the
+    // line at that point.
+    const trendCanvas = document.getElementById('chartTrend');
+    if (trendCanvas) {
+        new Chart(trendCanvas, {
+            type: 'line',
+            data: {
+                labels: data.trend.labels,
+                datasets: [
+                    {
+                        label: 'AHT', data: data.trend.ahtSeconds, borderColor: '#CA8A04', backgroundColor: 'rgba(202,138,4,0.12)',
+                        fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#CA8A04', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+                        yAxisID: 'yAht', spanGaps: true,
+                    },
+                    {
+                        label: 'Unproductive Time', data: data.trend.unproductive, borderColor: '#DC2626', backgroundColor: 'rgba(220,38,38,0.10)',
+                        fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#DC2626', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+                        yAxisID: 'yUnproductive', spanGaps: true,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', align: 'end', labels: { font: { family: 'Fira Sans', size: 12 }, color: tickColor, boxWidth: 12, boxHeight: 12 } },
+                    tooltip: {
+                        ...tooltipBase,
+                        callbacks: {
+                            label: (ctx) => ctx.dataset.yAxisID === 'yAht'
+                                ? `AHT: ${formatSeconds(ctx.raw)}`
+                                : `Unproductive: ${formatMinutes(ctx.raw)}`,
+                        },
+                    },
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
+                    yAht: {
+                        beginAtZero: true, position: 'left', grid: gridBase,
+                        ticks: { ...tickFont, color: tickColor, callback: (v) => formatSeconds(v) },
+                        title: { display: true, text: 'AHT', font: { family: 'Fira Sans', size: 10 }, color: tickColor },
+                    },
+                    yUnproductive: {
+                        beginAtZero: true, position: 'right', grid: { display: false },
+                        ticks: { ...tickFont, color: tickColor, callback: (v) => formatMinutes(v) },
+                        title: { display: true, text: 'Unproductive Time', font: { family: 'Fira Sans', size: 10 }, color: tickColor },
+                    },
                 },
             },
         });

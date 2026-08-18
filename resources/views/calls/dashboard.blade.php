@@ -136,103 +136,163 @@ $statusBadge = fn($status) => match(true) {
 </div>
 @endif
 
-{{-- Today's lead funnel + upsells — calls/partials/stat-tile.blade.php,
-     same icon-badge KPI card as TSD Reports' own Dashboard. --}}
-<div class="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 mb-6">
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Assigned Today' : 'Assigned', 'value' => $funnel['assigned'], 'icon' => 'inbox', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'caption' => null])
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Called Today' : 'Called', 'value' => $funnel['called'], 'icon' => 'phone', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'caption' => null])
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Overdue Today' : 'Overdue', 'value' => $funnel['overdue'], 'icon' => 'clock', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'caption' => null, 'accent' => $funnel['overdue'] > 0])
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Callbacks Today' : 'Callbacks', 'value' => $funnel['callbacks'], 'icon' => 'calendar', 'color' => 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/40', 'caption' => null])
-
-    @if(auth()->user()->isAtLeastAdmin())
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Unassigned Today' : 'Unassigned', 'value' => $funnel['unassigned'], 'icon' => 'warning', 'color' => 'text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800', 'caption' => null])
-    @endif
-
-    @include('calls.partials.stat-tile', [
-        'label' => $isToday ? 'Upsells Today' : 'Upsells', 'value' => $upsellStats['count'], 'icon' => 'plus',
-        'color' => 'text-primary-dark bg-yellow-50 dark:bg-yellow-950/40', 'caption' => '₱' . number_format($upsellStats['amount'], 2),
-    ])
+{{-- KPI row — explicit request (2026-08-18): matches a KPI-dashboard
+     reference image's 5 cards exactly (TSA Log In, Total Leads, Total
+     Catered Leads, AHT, Unproductive Time), replacing the previous funnel
+     row. TSA Log In stays unlabeled "Today" (it's live, not range-scoped —
+     see DashboardController::index()'s own comment); the other 4 pick up
+     the isToday-aware suffix the old cards used. --}}
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-6">
+    @include('calls.partials.stat-tile', ['label' => 'TSA Log In', 'value' => $tsaLoginCount, 'icon' => 'user', 'color' => 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40', 'underline' => 'bg-yellow-500', 'caption' => 'Total TSA logged in'])
+    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Leads Today' : 'Total Leads', 'value' => $totalLeads, 'icon' => 'inbox', 'color' => 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40', 'underline' => 'bg-amber-500', 'caption' => 'Total leads available'])
+    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Catered Today' : 'Total Catered Leads', 'value' => $totalCateredLeads, 'icon' => 'headset', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'underline' => 'bg-emerald-500', 'caption' => 'Total leads catered'])
+    @include('calls.partials.stat-tile', ['label' => 'AHT', 'value' => $ahtDisplay, 'icon' => 'stopwatch', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'underline' => 'bg-blue-500', 'caption' => 'Average handle time (mm:ss)'])
+    @include('calls.partials.stat-tile', ['label' => 'Unproductive Time', 'value' => $unproductiveDisplay, 'icon' => 'hourglass', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'underline' => 'bg-red-500', 'caption' => 'Average unproductive time (mm:ss)'])
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-    {{-- TSA status board — every active TSA, real-time. Same status colors
-         as the topbar/Call Rotation panel (calls/partials/tsa-status-panel),
-         color + text label together, never color alone. Avatar-initial
-         chips give each row a scannable anchor instead of a bare dot. --}}
-    <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-            <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">TSA Status</h2>
-            <span class="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-full">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                {{ $tsas->where('status', \App\Models\TsaShift::STATUS_LOGIN)->count() }} ONLINE
-            </span>
-        </div>
-        @if($tsas->isEmpty())
-        <div class="py-16 flex flex-col items-center justify-center gap-3">
-            <svg class="w-9 h-9 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-8.13a4 4 0 110 8 4 4 0 010-8zm6 8a4 4 0 00-3-3.87M5 12a4 4 0 013.87-3"/>
-            </svg>
-            <p class="text-sm font-mono text-slate-400">No active TSAs configured.</p>
-            <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Add TSAs from the Call Rotation page.</p>
+{{-- Overview charts — bar/donut reshape the same Total Leads/Catered Leads
+     numbers already in the KPI cards above (never a separate source of
+     truth); the trend line is AHT & Unproductive Time over the trailing 7
+     days, its own always-on window (see DashboardController::index()'s own
+     comment on why) — same source data as Team Analytics' own AHT tab,
+     aggregated for the team in scope instead of broken out per TSA. --}}
+<script type="application/json" id="dashboardChartData">{!! json_encode($chartData) !!}</script>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
+    <div class="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Leads Overview</h2>
+        <p class="text-xs font-mono text-slate-400 mb-4">Total leads vs. catered{{ $isToday ? ' today' : ' this range' }}</p>
+        @if(!$chartData['hasOverviewData'])
+        <div id="dashboardOverviewEmpty" class="h-48 flex items-center justify-center text-center px-2">
+            <p class="text-xs font-mono text-slate-400">No leads in this range yet.</p>
         </div>
         @else
-        <div class="divide-y divide-slate-100 dark:divide-slate-700">
-            @foreach($tsas as $tsa)
-            <div class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="relative shrink-0">
-                        <div class="w-8 h-8 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[11px] font-bold font-mono">
-                            {{ strtoupper(substr($tsa->display_name, 0, 2)) }}
-                        </div>
-                        <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-900 {{ $statusDot($tsa->status) }}"></span>
-                    </div>
-                    <div class="min-w-0">
-                        <p class="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $tsa->display_name }}</p>
-                        <p class="text-[11px] text-slate-400 font-mono truncate">{{ $tsa->team }}</p>
-                    </div>
-                </div>
-                <div class="text-right shrink-0">
-                    <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $statusBadge($tsa->status) }}">
-                        {{ $statuses[$tsa->status]['label'] ?? $tsa->status }}
-                    </span>
-                    @if($tsa->status_changed_at)
-                    <p class="text-[10px] text-slate-400 font-mono mt-1 tabular-nums">since {{ $tsa->status_changed_at->format('g:i A') }}</p>
-                    @endif
-                </div>
-            </div>
-            @endforeach
+        <div id="dashboardOverviewWrap" class="h-48">
+            <canvas id="chartLeadsOverview" role="img" aria-label="Bar chart comparing total leads against total catered leads — see the KPI cards above for exact figures"></canvas>
         </div>
         @endif
     </div>
 
-    {{-- Recent activity — lead activity + TSA status changes merged into
-         one real-recency timeline (DashboardController::index()'s own
-         comment on why). Rendered as a connected timeline (dot + line) so
-         the eye reads it as a sequence of events, not a flat log dump. --}}
-    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700">
-            <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">Recent Activity</h2>
-        </div>
-        @if($recentActivity->isEmpty())
-        <div class="py-16 flex flex-col items-center justify-center gap-3">
-            <svg class="w-9 h-9 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-            <p class="text-sm font-mono text-slate-400">Nothing yet today.</p>
+    <div class="lg:col-span-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Catered Leads Rate</h2>
+        <p class="text-xs font-mono text-slate-400 mb-4">Share of {{ $isToday ? "today's" : "this range's" }} leads catered to</p>
+        @if(!$chartData['hasOverviewData'])
+        <div class="h-48 flex items-center justify-center text-center px-2">
+            <p class="text-xs font-mono text-slate-400">No leads in this range yet.</p>
         </div>
         @else
-        <ul class="max-h-105 overflow-y-auto py-1">
-            @foreach($recentActivity as $item)
-            <li class="relative pl-9 pr-5 py-2.5">
-                <span class="absolute left-5.25 top-0 bottom-0 w-0.5 bg-slate-200 dark:bg-slate-700 {{ $loop->last ? 'hidden' : '' }}"></span>
-                <span class="absolute left-4.25 top-3.25 w-2.5 h-2.5 rounded-full ring-4 ring-white dark:ring-slate-900 {{ $item['kind'] === 'status' ? 'bg-amber-500' : 'bg-blue-500' }}"></span>
-                <p class="text-xs text-slate-800 dark:text-slate-100 font-mono leading-snug">{{ $item['description'] }}</p>
-                <p class="text-[10px] text-slate-400 font-mono mt-1">{{ $item['at']->diffForHumans() }}</p>
-            </li>
-            @endforeach
-        </ul>
+        <div class="relative h-48">
+            <canvas id="chartLeadsSplit" role="img" aria-label="Donut chart showing the catered leads rate — see the KPI cards above for exact figures"></canvas>
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <span class="text-2xl font-bold text-slate-900 dark:text-slate-100 font-mono">{{ $chartData['cateredRate'] !== null ? $chartData['cateredRate'].'%' : '—' }}</span>
+            </div>
+        </div>
         @endif
     </div>
+
+    <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">AHT &amp; Unproductive Time Trend</h2>
+        <p class="text-xs font-mono text-slate-400 mb-4">Team averages per day, last 7 days</p>
+        @if(!$chartData['hasTrendData'])
+        <div id="dashboardTrendEmpty" class="h-48 flex items-center justify-center text-center px-2">
+            <p class="text-xs font-mono text-slate-400">No logged calls in the last 7 days yet.</p>
+        </div>
+        @else
+        <div id="dashboardTrendWrap" class="h-48">
+            <canvas id="chartTrend" role="img" aria-label="Line chart tracking average handle time and average unproductive time per day over the last 7 days"></canvas>
+        </div>
+        @endif
+    </div>
+</div>
+
+{{-- TSA Performance Overview — explicit request (2026-08-18), replaces the
+     TSA Status + Recent Activity two-panel row with one full-roster table
+     matching the KPI-dashboard reference image's own bottom table: live
+     login status (same $statusDot/$statusBadge as the panel this replaces,
+     color + text together, never color alone) plus this same date range's
+     Total Leads/Catered/AHT/Unproductive/Catered Rate per TSA
+     (DashboardController::index()'s own comment on scope/why), a solid
+     yellow header and a black TOTAL row matching the reference exactly. --}}
+<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">TSA Performance Overview</h2>
+        <span class="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-full">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            {{ $tsaLoginCount }} ONLINE
+        </span>
+    </div>
+    @if($tsas->isEmpty())
+    <div class="py-16 flex flex-col items-center justify-center gap-3">
+        <svg class="w-9 h-9 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-8.13a4 4 0 110 8 4 4 0 010-8zm6 8a4 4 0 00-3-3.87M5 12a4 4 0 013.87-3"/>
+        </svg>
+        <p class="text-sm font-mono text-slate-400">No active TSAs configured.</p>
+        <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Add TSAs from the Call Rotation page.</p>
+    </div>
+    @else
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm font-mono border-separate border-spacing-0">
+        <thead class="sticky top-0 z-10">
+            <tr>
+                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA</th>
+                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA Log In</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Leads</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Catered Leads</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">AHT (mm:ss)</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Unproductive Time (mm:ss)</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Catered Leads Rate</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($tsaPerformance as $row)
+            <tr class="even:bg-slate-50/60 dark:even:bg-slate-800/40 hover:bg-yellow-50 dark:hover:bg-slate-700/50 transition-colors">
+                <td class="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-7 h-7 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[10px] font-bold shrink-0 ring-2 ring-white dark:ring-slate-900 shadow-sm">
+                            {{ strtoupper(substr($row['tsa']->display_name, 0, 2)) }}
+                        </div>
+                        <span class="font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $row['tsa']->display_name }}</span>
+                    </div>
+                </td>
+                <td class="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $statusBadge($row['tsa']->status) }}">
+                        <span class="w-1.5 h-1.5 rounded-full {{ $statusDot($row['tsa']->status) }}"></span>
+                        {{ $statuses[$row['tsa']->status]['label'] ?? $row['tsa']->status }}
+                    </span>
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300 tabular-nums border-b border-slate-100 dark:border-slate-700">{{ $row['totalLeads'] }}</td>
+                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300 tabular-nums border-b border-slate-100 dark:border-slate-700">{{ $row['catered'] }}</td>
+                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300 tabular-nums border-b border-slate-100 dark:border-slate-700">{{ $row['ahtDisplay'] }}</td>
+                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300 tabular-nums border-b border-slate-100 dark:border-slate-700">{{ $row['unproductiveDisplay'] }}</td>
+                <td class="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+                    <div class="flex items-center justify-end gap-2">
+                        <div class="w-14 h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0">
+                            <div class="h-full rounded-full {{ ($row['cateredRate'] ?? 0) >= 95 ? 'bg-emerald-500' : (($row['cateredRate'] ?? 0) >= 70 ? 'bg-amber-500' : 'bg-red-500') }}"
+                                 style="width: {{ $row['cateredRate'] !== null ? min(100, $row['cateredRate']) : 0 }}%"></div>
+                        </div>
+                        <span class="text-right font-semibold tabular-nums w-12 shrink-0 {{ $row['cateredRate'] !== null && $row['cateredRate'] >= 95 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300' }}">
+                            {{ $row['cateredRate'] !== null ? $row['cateredRate'].'%' : '—' }}
+                        </span>
+                    </div>
+                </td>
+            </tr>
+            @endforeach
+        </tbody>
+        <tfoot>
+            <tr class="bg-slate-900 dark:bg-black text-white">
+                <td class="px-4 py-3.5 font-bold uppercase tracking-wide border-t-2 border-yellow-500" colspan="2">Total</td>
+                <td class="px-4 py-3.5 text-right font-bold tabular-nums border-t-2 border-yellow-500">{{ $tsaPerformanceTotal['totalLeads'] }}</td>
+                <td class="px-4 py-3.5 text-right font-bold tabular-nums border-t-2 border-yellow-500">{{ $tsaPerformanceTotal['catered'] }}</td>
+                <td class="px-4 py-3.5 text-right font-bold tabular-nums border-t-2 border-yellow-500">{{ $tsaPerformanceTotal['ahtDisplay'] }}</td>
+                <td class="px-4 py-3.5 text-right font-bold tabular-nums border-t-2 border-yellow-500">{{ $tsaPerformanceTotal['unproductiveDisplay'] }}</td>
+                <td class="px-4 py-3.5 text-right font-bold tabular-nums text-emerald-400 border-t-2 border-yellow-500">
+                    {{ $tsaPerformanceTotal['cateredRate'] !== null ? $tsaPerformanceTotal['cateredRate'].'%' : '—' }}
+                </td>
+            </tr>
+        </tfoot>
+    </table>
+    </div>
+    @endif
 </div>
 
 @endsection

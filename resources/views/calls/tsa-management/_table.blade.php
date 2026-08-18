@@ -113,7 +113,7 @@
                         <div class="overflow-hidden">
                         <div class="space-y-4 pt-4 pb-6">
                             <form method="POST" action="{{ route('calls.tsa-management.update', $tsa) }}"
-                                  class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
+                                  class="tsa-update-form bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
                                 @csrf
 
                                 <div class="flex items-center justify-end mb-4">

@@ -3,14 +3,13 @@
 namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Controller;
+use App\Models\CallEvent;
 use App\Models\Lead;
-use App\Models\LeadActivity;
 use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\TsaShift;
-use App\Models\TsaStatusLog;
-use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -26,24 +25,19 @@ class DashboardController extends Controller
     /**
      * Explicit request (2026-08-08): a real overview page, now Call
      * Tracker's actual home (see routes/web.php's 'dashboard' rename).
-     * Deliberately does NOT duplicate TSD Reports' own call-volume/pick-up-
-     * rate analytics — that's already the source of truth for those
-     * numbers. What's shown here is what only Call Tracker itself can
-     * know: each TSA's live status and whether round-robin is actually
-     * able to route anything right now, PLUS a date-scoped lead funnel
-     * (2026-08-10: topbar date-range picker, same partial/pattern as every
-     * other page here).
      *
-     * Every KPI card moves with the picked range (2026-08-10: explicit
-     * request — all six, not just Called/Upsells), each scoped by whichever
-     * timestamp makes it a real funnel-stage-entered-during-this-period
-     * metric rather than a live count: Assigned/Overdue by assigned_at,
-     * Called by called_at, Unassigned by pancake_created_at (when it
-     * entered the system), Callbacks by callback_at, Upsells by
-     * created_at. The TSA Status board and At-Risk Products stay live
-     * regardless of the picker — they're "who's logged in / can route
-     * right now," not KPI cards, and there's no historical snapshot of
-     * either to show for a past date.
+     * KPI row rebuilt 2026-08-18 (explicit request, matching a KPI-dashboard
+     * reference image) to 5 cards — TSA Log In, Total Leads, Total Catered
+     * Leads, AHT, Unproductive Time — replacing the previous Assigned/
+     * Called/Overdue/Callbacks/Unassigned/Upsells funnel row (that data
+     * isn't gone from the app: Overdue/Callbacks still have their own Leads
+     * views, Upsells its own activity type). All 5 move with the picked
+     * date range except TSA Log In, which — like the TSA Status board and
+     * At-Risk Products below it — stays live regardless of the picker:
+     * "who's logged in right now" has no historical snapshot to show for a
+     * past date. AHT/Unproductive Time reuse the same CallEvent-based
+     * formula as Team Analytics (AnalyticsController), aggregated across the
+     * team in scope instead of that page's own per-TSA breakdown.
      */
     public function index(Request $request)
     {
@@ -76,32 +70,84 @@ class DashboardController extends Controller
             ? TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')
             : null;
 
-        $assignedQuery = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo]);
-        $calledQuery   = Lead::where('status', 'called')->whereBetween('called_at', [$dateFrom, $dateTo]);
-        $callbackQuery = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo]);
-        $unassignedQuery = Lead::where('status', 'unassigned')->whereBetween('pancake_created_at', [$dateFrom, $dateTo]);
-
+        // Total Leads / Total Catered Leads — explicit request (2026-08-18):
+        // replaces the previous Assigned/Called/Overdue/Callbacks/Unassigned/
+        // Upsells funnel row with the 5-card set from the KPI-dashboard
+        // reference image (TSA Log In, Total Leads, Total Catered Leads,
+        // AHT, Unproductive Time). "Total Leads" = every lead that entered
+        // the system in the picked range (pancake_created_at, same anchor
+        // the old Unassigned card used), regardless of current status —
+        // unlike Assigned/Called before it, this one's meant to count
+        // everything. "Catered" = actually called (called_at in range,
+        // status now 'called') — same definition the old Called card used,
+        // just relabeled to match the reference's own term for it.
+        $totalLeadsQuery   = Lead::whereBetween('pancake_created_at', [$dateFrom, $dateTo]);
+        $totalCateredQuery = Lead::where('status', 'called')->whereBetween('called_at', [$dateFrom, $dateTo]);
         if (!$user->isAtLeastAdmin()) {
-            $assignedQuery->where('tsa_id', $user->tsa_id);
-            $calledQuery->where('tsa_id', $user->tsa_id);
-            $callbackQuery->where('tsa_id', $user->tsa_id);
+            $totalLeadsQuery->where('tsa_id', $user->tsa_id);
+            $totalCateredQuery->where('tsa_id', $user->tsa_id);
         } elseif ($teamTsaIds !== null) {
-            $assignedQuery->whereIn('tsa_id', $teamTsaIds);
-            $calledQuery->whereIn('tsa_id', $teamTsaIds);
-            $callbackQuery->whereIn('tsa_id', $teamTsaIds);
-            $unassignedQuery->whereRaw('1 = 0'); // no team could ever own an unassigned lead
+            $totalLeadsQuery->whereIn('tsa_id', $teamTsaIds);
+            $totalCateredQuery->whereIn('tsa_id', $teamTsaIds);
+        }
+        $totalLeads        = $totalLeadsQuery->count();
+        $totalCateredLeads = $totalCateredQuery->count();
+        $cateredRate        = $totalLeads > 0 ? round($totalCateredLeads / $totalLeads * 100, 1) : null;
+
+        // AHT & Unproductive Time — same CallEvent.duration_seconds source
+        // and working-days formula as Team Analytics (AnalyticsController),
+        // but aggregated across the whole team in scope for one headline
+        // number instead of that page's own per-TSA breakdown, which stays
+        // the place for "who's fastest." Scoped the same self/team/all way
+        // as the two counts above, using TsaShift rows (not Lead rows) since
+        // a TSA can be "in scope" here with zero leads and still have logged
+        // calls (or vice versa).
+        $scopeTsasQuery = TsaShift::query();
+        if (!$user->isAtLeastAdmin()) {
+            $scopeTsasQuery->where('id', $user->tsa_id);
+        } elseif ($teamTsaIds !== null) {
+            $scopeTsasQuery->whereIn('id', $teamTsaIds);
+        }
+        $scopeTsas   = $scopeTsasQuery->with('restDays')->get();
+        $scopeTsaIds = $scopeTsas->pluck('id');
+
+        $rangeCallEvents = CallEvent::whereIn('tsa_id', $scopeTsaIds)
+            ->where('direction', '!=', 'missed')
+            ->whereNotNull('duration_seconds')
+            ->whereBetween('occurred_at', [$dateFrom, $dateTo])
+            ->get();
+
+        $ahtSeconds = $rangeCallEvents->isNotEmpty() ? (int) round($rangeCallEvents->avg('duration_seconds')) : null;
+
+        // Per TSA: working days in range (TsaShift::isOffOn(), same rest-day
+        // rule round-robin assignment already respects) x the same flat
+        // 440min/day shift constant AnalyticsController uses, minus that
+        // TSA's own total handle time in the range — then averaged across
+        // the roster in scope for one team-wide number.
+        $avgUnproductiveMinutes = null;
+        if ($scopeTsas->isNotEmpty()) {
+            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($rangeCallEvents, $dateFrom, $dateTo) {
+                $workingDays = 0;
+                for ($day = $dateFrom->copy()->startOfDay(); $day->lte($dateTo); $day->addDay()) {
+                    if (!$tsa->isOffOn($day)) {
+                        $workingDays++;
+                    }
+                }
+                $thtSeconds = $rangeCallEvents->where('tsa_id', $tsa->id)->sum('duration_seconds');
+                return max(0, $workingDays * 440 - $thtSeconds / 60);
+            });
+            $avgUnproductiveMinutes = $perTsaUnproductive->avg();
         }
 
-        $overdueQuery = (clone $assignedQuery)
-            ->where('assigned_at', '<=', now()->subHours(LeadController::overdueThresholdHours()));
-
-        $funnel = [
-            'assigned'    => $assignedQuery->count(),
-            'called'      => $calledQuery->count(),
-            'overdue'     => $overdueQuery->count(),
-            'callbacks'   => $callbackQuery->count(),
-            'unassigned'  => $user->isAtLeastAdmin() ? $unassignedQuery->count() : 0,
-        ];
+        $formatMmSs = function (?float $totalSeconds): string {
+            if ($totalSeconds === null) {
+                return '—';
+            }
+            $totalSeconds = (int) round($totalSeconds);
+            return sprintf('%02d:%02d', intdiv($totalSeconds, 60), $totalSeconds % 60);
+        };
+        $ahtDisplay          = $formatMmSs($ahtSeconds);
+        $unproductiveDisplay = $formatMmSs($avgUnproductiveMinutes !== null ? $avgUnproductiveMinutes * 60 : null);
 
         // TSA status board — every TSA regardless of who's viewing (not
         // sensitive, and a TSA benefits from seeing who else is actually
@@ -114,6 +160,11 @@ class DashboardController extends Controller
             $tsasQuery->where('team', $teamsConfig[$selectedTeam]['order_team']);
         }
         $tsas = $tsasQuery->get();
+
+        // TSA Log In — how many of the (already team-filtered) roster above
+        // are actually available for round-robin right now. Live, not
+        // date-range-scoped, same reasoning as the TSA Status board itself.
+        $tsaLoginCount = $tsas->where('status', TsaShift::STATUS_LOGIN)->count();
 
         // Round-robin risk — a product whose entire roster is active but
         // nobody on it is currently logged in will silently stop receiving
@@ -129,61 +180,153 @@ class DashboardController extends Controller
                 && $product->tsas->every(fn ($tsa) => !$tsa->active || $tsa->status !== TsaShift::STATUS_LOGIN);
         })->values();
 
-        $rangeUpsells = LeadActivity::where('type', 'upsell_added')
-            ->whereNotNull('amount')
-            ->whereBetween('created_at', [$dateFrom, $dateTo]);
-        if ($teamTsaIds !== null) {
-            $rangeUpsells->whereHas('lead', fn ($q) => $q->whereIn('tsa_id', $teamTsaIds));
-        }
+        // TSA Performance Overview — explicit request (2026-08-18), replaces
+        // the TSA Status + Recent Activity two-panel row with a single
+        // full-roster table matching the KPI-dashboard reference image's own
+        // bottom table: same per-TSA metrics as the 5 cards above (Total
+        // Leads/Catered/AHT/Unproductive), broken out per TSA instead of
+        // aggregated. Shown to every viewer regardless of role, same as the
+        // TSA Status board it replaces (login status was already
+        // roster-wide before this) — this follows the picked date range,
+        // not scoped down to "just me" the way the KPI cards are for a
+        // non-admin viewer, since a performance table with only one row
+        // wouldn't be a team overview at all. Fetched once each and grouped
+        // in-memory per TSA below (same pattern AnalyticsController's own
+        // $rows uses) rather than N+1 queries per roster row.
+        //
+        // Anchored on assigned_at, NOT pancake_created_at (fixed 2026-08-18
+        // — an admin spotted this table's Total Leads disagreeing with Leads
+        // Setup's own "Assigned Today" for the same TSA/day): a per-TSA
+        // breakdown is inherently "what did round-robin actually hand this
+        // TSA," the same question TsaShift::leadsAssignedToday() (Leads
+        // Setup's daily-cap column) and AnalyticsController's own $rows
+        // already answer with assigned_at — pancake_created_at answers a
+        // different question ("when did the underlying Pancake order get
+        // created"), which is what the aggregate Total Leads Today KPI card
+        // above deliberately uses instead (it wants to count everything,
+        // including still-unassigned leads with no assigned_at at all — see
+        // that card's own comment). Catered is derived from this SAME
+        // assigned_at-scoped set (status now 'called'), matching Analytics'
+        // own 'called' definition exactly, rather than an independently
+        // called_at-scoped query that could disagree with Analytics too.
+        $tsaIds = $tsas->pluck('id');
 
-        $upsellStats = [
-            'count'  => (clone $rangeUpsells)->count(),
-            'amount' => (clone $rangeUpsells)->sum('amount'),
+        $perfLeads = Lead::whereIn('tsa_id', $tsaIds)
+            ->whereBetween('assigned_at', [$dateFrom, $dateTo])->get();
+        $perfCallEvents = CallEvent::whereIn('tsa_id', $tsaIds)
+            ->where('direction', '!=', 'missed')->whereNotNull('duration_seconds')
+            ->whereBetween('occurred_at', [$dateFrom, $dateTo])->get();
+
+        $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfCallEvents, $dateFrom, $dateTo, $formatMmSs) {
+            $tsaLeads      = $perfLeads->where('tsa_id', $tsa->id);
+            $tsaTotalLeads = $tsaLeads->count();
+            $tsaCatered    = $tsaLeads->where('status', 'called')->count();
+            $tsaEvents     = $perfCallEvents->where('tsa_id', $tsa->id);
+            $tsaAhtSeconds = $tsaEvents->isNotEmpty() ? (int) round($tsaEvents->avg('duration_seconds')) : null;
+
+            $workingDays = 0;
+            for ($day = $dateFrom->copy()->startOfDay(); $day->lte($dateTo); $day->addDay()) {
+                if (!$tsa->isOffOn($day)) {
+                    $workingDays++;
+                }
+            }
+            $tsaUnproductiveMinutes = max(0, $workingDays * 440 - $tsaEvents->sum('duration_seconds') / 60);
+
+            return [
+                'tsa'                 => $tsa,
+                'totalLeads'          => $tsaTotalLeads,
+                'catered'             => $tsaCatered,
+                'ahtDisplay'          => $formatMmSs($tsaAhtSeconds),
+                'unproductiveMinutes' => $tsaUnproductiveMinutes,
+                'unproductiveDisplay' => $formatMmSs($tsaUnproductiveMinutes * 60),
+                'cateredRate'         => $tsaTotalLeads > 0 ? round($tsaCatered / $tsaTotalLeads * 100, 1) : null,
+            ];
+        });
+
+        // TOTAL row — sums for counts (a real roster-wide total), the true
+        // pooled average (not an average-of-averages) for AHT so a
+        // high-volume TSA isn't weighted the same as one with a single
+        // call, a per-TSA average for Unproductive Time (it's inherently a
+        // per-shift figure, summing it across people wouldn't mean
+        // anything), and an overall rate (sum/sum) for Catered Leads Rate.
+        $tsaPerformanceTotal = [
+            'totalLeads'          => $tsaPerformance->sum('totalLeads'),
+            'catered'             => $tsaPerformance->sum('catered'),
+            'ahtDisplay'          => $formatMmSs($perfCallEvents->isNotEmpty() ? $perfCallEvents->avg('duration_seconds') : null),
+            'unproductiveDisplay' => $formatMmSs($tsaPerformance->isNotEmpty() ? $tsaPerformance->avg('unproductiveMinutes') * 60 : null),
+            'cateredRate'         => $tsaPerformance->sum('totalLeads') > 0
+                ? round($tsaPerformance->sum('catered') / $tsaPerformance->sum('totalLeads') * 100, 1)
+                : null,
         ];
 
-        // Combined recent-activity feed — lead activity and TSA status
-        // changes are two separate tables (different subjects entirely),
-        // merged here into one timeline sorted by real recency rather than
-        // making an admin check two separate log pages to see "what just
-        // happened." Scoped to the picked range so a past date shows that
-        // day's activity instead of always the newest 15 ever.
-        $recentLeadActivityQuery = LeadActivity::with(['lead', 'user'])
-            ->whereBetween('created_at', [$dateFrom, $dateTo]);
-        if ($teamTsaIds !== null) {
-            $recentLeadActivityQuery->whereHas('lead', fn ($q) => $q->whereIn('tsa_id', $teamTsaIds));
-        }
-        $recentLeadActivity = $recentLeadActivityQuery
-            ->latest('created_at')->limit(15)->get()
-            ->map(fn ($a) => ['at' => $a->created_at, 'description' => $a->description, 'kind' => 'lead']);
+        // Chart payload — bar/donut reshape the same Total Leads/Catered
+        // Leads numbers already in the KPI cards above (never a separate
+        // source of truth). The AHT & Unproductive Time trend is its own
+        // trailing-7-day window, deliberately NOT scoped to the picked date
+        // range (same "always live, not a historical snapshot" reasoning as
+        // the TSA Status board above) — same CallEvent source and per-day
+        // version of the working-days formula used for the cards, just run
+        // once per day instead of once for the whole range. A TSA off that
+        // day is excluded from that day's average entirely (there's no
+        // "unproductive" shift to measure), not counted as 0.
+        $trendDays = collect(range(6, 0))->map(fn ($i) => today()->subDays($i));
+        $trendFrom = $trendDays->first()->copy()->startOfDay();
+        $trendTo   = $trendDays->last()->copy()->endOfDay();
 
-        $recentStatusChangesQuery = TsaStatusLog::with('tsa')
-            ->whereBetween('created_at', [$dateFrom, $dateTo]);
-        if ($teamTsaIds !== null) {
-            $recentStatusChangesQuery->whereIn('tsa_id', $teamTsaIds);
-        }
-        $recentStatusChanges = $recentStatusChangesQuery
-            ->latest('created_at')->limit(15)->get()
-            ->map(fn ($s) => [
-                'at'          => $s->created_at,
-                'description' => ($s->tsa->display_name ?? 'A TSA') . ' switched to ' . (TsaShift::STATUSES[$s->status]['label'] ?? $s->status),
-                'kind'        => 'status',
-            ]);
+        $trendCallEvents = CallEvent::whereIn('tsa_id', $scopeTsaIds)
+            ->where('direction', '!=', 'missed')
+            ->whereNotNull('duration_seconds')
+            ->whereBetween('occurred_at', [$trendFrom, $trendTo])
+            ->get();
 
-        $recentActivity = $recentLeadActivity->concat($recentStatusChanges)
-            ->sortByDesc('at')->take(15)->values();
+        $trendAht = $trendDays->map(function ($day) use ($trendCallEvents) {
+            $dayEvents = $trendCallEvents->filter(fn ($e) => $e->occurred_at->isSameDay($day));
+            return $dayEvents->isNotEmpty() ? (int) round($dayEvents->avg('duration_seconds')) : null;
+        })->values();
+
+        $trendUnproductive = $trendDays->map(function ($day) use ($trendCallEvents, $scopeTsas) {
+            $dayEvents = $trendCallEvents->filter(fn ($e) => $e->occurred_at->isSameDay($day));
+            $working   = $scopeTsas->reject(fn (TsaShift $tsa) => $tsa->isOffOn($day));
+            if ($working->isEmpty()) {
+                return null;
+            }
+            $perTsa = $working->map(fn (TsaShift $tsa) => max(0, 440 - $dayEvents->where('tsa_id', $tsa->id)->sum('duration_seconds') / 60));
+            return round($perTsa->avg(), 1);
+        })->values();
+
+        $chartData = [
+            'leadsOverview' => [
+                'labels'  => ['Total Leads', 'Total Catered Leads'],
+                'total'   => $totalLeads,
+                'catered' => $totalCateredLeads,
+            ],
+            'hasOverviewData' => $totalLeads > 0,
+            'cateredRate'     => $cateredRate,
+            'trend' => [
+                'labels'       => $trendDays->map(fn ($d) => $d->format('M j'))->values(),
+                'ahtSeconds'   => $trendAht,
+                'unproductive' => $trendUnproductive,
+            ],
+            'hasTrendData' => $trendCallEvents->isNotEmpty(),
+        ];
 
         return view('calls.dashboard', [
-            'funnel'          => $funnel,
-            'tsas'            => $tsas,
-            'atRiskProducts'  => $atRiskProducts,
-            'upsellStats'     => $upsellStats,
-            'recentActivity'  => $recentActivity,
-            'statuses'        => TsaShift::STATUSES,
-            'dateFrom'        => $dateFrom,
-            'dateTo'          => $dateTo,
-            'isToday'         => $isToday,
-            'teams'           => $teams,
-            'selectedTeam'    => $selectedTeam,
+            'tsaLoginCount'          => $tsaLoginCount,
+            'totalLeads'             => $totalLeads,
+            'totalCateredLeads'      => $totalCateredLeads,
+            'ahtDisplay'             => $ahtDisplay,
+            'unproductiveDisplay'    => $unproductiveDisplay,
+            'tsas'                   => $tsas,
+            'atRiskProducts'         => $atRiskProducts,
+            'tsaPerformance'         => $tsaPerformance,
+            'tsaPerformanceTotal'    => $tsaPerformanceTotal,
+            'statuses'               => TsaShift::STATUSES,
+            'dateFrom'               => $dateFrom,
+            'dateTo'                 => $dateTo,
+            'isToday'                => $isToday,
+            'teams'                  => $teams,
+            'selectedTeam'           => $selectedTeam,
+            'chartData'              => $chartData,
         ]);
     }
 
