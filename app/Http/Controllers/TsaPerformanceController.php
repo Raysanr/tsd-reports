@@ -711,6 +711,16 @@ class TsaPerformanceController extends Controller
 
     private function buildRow(?TsaShift $shift, ?string $key, Collection $orders, ?string $displayNameOverride = null): array
     {
+        // Drop orders Pancake itself no longer has (Order::DELETED_STATUSES:
+        // Canceled or Deleted recently) before counting anything — same
+        // exclusion ProductPerformance::tally() applies (fixed 2026-08-18:
+        // this hourly per-TSA breakdown has its own separate accumulator,
+        // kept in sync by hand, and never got this one when it was added to
+        // the shared tally() — Leads Report's own hourly table was already
+        // correct the whole time since it flows through tally() directly;
+        // only this hand-rolled path was missing it).
+        $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+
         // Same "real upsell" definition and non-upsell exclusivity guard as
         // ProductPerformance::tally() — kept in sync by hand since this per-TSA
         // breakdown has its own separate accumulator. Without the $nonUpsell filter
