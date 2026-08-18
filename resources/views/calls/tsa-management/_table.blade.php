@@ -136,89 +136,16 @@
                                      Android phone, so click-to-call in Leads instead hits this
                                      address directly over Wi-Fi — three MacroDroid macros on the
                                      phone listen here: one places the call, one toggles mic mute,
-                                     the third ends it. See the setup steps below for wiring all
-                                     three up. --}}
+                                     the third ends it. Setup steps for all three (Macros 2–4) now
+                                     live in the unified guide under "Phone call automation" below,
+                                     alongside call logging's own Macro 1 — merged into one ordered
+                                     tutorial (explicit request) instead of two separate accordions
+                                     that used to split dial/mute/hangup from call logging. --}}
                                 <div class="mb-4">
                                     <label class="block text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Dialer address (auto-dial over Wi-Fi)</label>
                                     <input type="text" name="dialer_host" value="{{ $tsa->dialer_host }}" placeholder="192.168.1.42:8080"
                                            class="w-full sm:w-64 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                                    <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from the MacroDroid macros below. Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
-
-                                    <details class="text-xs font-mono text-slate-500 dark:text-slate-400 mt-2">
-                                        <summary class="cursor-pointer text-primary-dark hover:underline">Auto-dial + Mute + End Call setup steps ↓</summary>
-                                        <p class="mt-2 font-bold text-slate-700 dark:text-slate-200">Macro 1 of 3 — dialing</p>
-                                        <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
-                                            <li>
-                                                On {{ $tsa->display_name }}'s phone, open <strong>MacroDroid</strong> (already installed for call logging) and start a <strong>second, separate macro</strong> — tap <strong>+</strong>.
-                                            </li>
-                                            <li>
-                                                <strong>Trigger:</strong> tap <strong>+</strong> → search <strong>HTTP Server Request</strong> → select it.
-                                                <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                                                    <li><strong>Path</strong> → type <code>dial</code>.</li>
-                                                    <li>Scroll to <strong>Variable Whitelist</strong> → add a variable named exactly <code>number</code>. This lets a request like <code>?number=0917...</code> automatically fill a <code>{v=number}</code> variable you'll use in the next step.</li>
-                                                    <li>Tap <strong>✓</strong> to confirm.</li>
-                                                </ul>
-                                            </li>
-                                            <li>
-                                                <strong>Action:</strong> Actions tab → <strong>+</strong> → search <strong>Make Call</strong> → select it.
-                                                <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                                                    <li>Choose <strong>[Select Number]</strong>, tap the magic-text <strong>{v}</strong> button, and insert the <code>number</code> variable — the field should show <code>{v=number}</code>.</li>
-                                                    <li>If the phone has dual SIMs, pick the correct one under <strong>Sim card</strong>.</li>
-                                                    <li>Tap <strong>✓</strong> to confirm, then save/name the macro (e.g. <em>"Remote Dial"</em>) and make sure it's <strong>on</strong>.</li>
-                                                </ul>
-                                            </li>
-                                            <li>
-                                                <strong>Grant the phone-call permission</strong> if MacroDroid prompts for it — without it, "Make Call" silently does nothing.
-                                            </li>
-                                        </ol>
-
-                                        <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 2 of 3 — muting</p>
-                                        <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
-                                            <li>
-                                                Start another new macro (tap <strong>+</strong> on MacroDroid's main list again).
-                                            </li>
-                                            <li>
-                                                <strong>Trigger:</strong> same as before — search <strong>HTTP Server Request</strong> → select it → <strong>Path</strong> → type <code>mute</code> this time. No variable needed here. Tap <strong>✓</strong>.
-                                            </li>
-                                            <li>
-                                                <strong>Action:</strong> Actions tab → <strong>+</strong> → search <strong>Mute</strong> and pick whichever mic-mute action your MacroDroid version offers (e.g. <strong>Toggle Microphone Mute</strong>) → tap <strong>✓</strong>.
-                                                <p class="mt-1">The exact action name varies by MacroDroid/Android version and can require Accessibility permission to reach the in-call mute control — if you don't see a mic-specific option, this macro isn't available on this phone and the popup's Mute button just won't do anything, same as leaving the Dialer address blank.</p>
-                                            </li>
-                                            <li>
-                                                Save/name the macro (e.g. <em>"Remote Mute"</em>) and make sure it's <strong>on</strong>.
-                                            </li>
-                                        </ol>
-
-                                        <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 3 of 3 — ending the call</p>
-                                        <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
-                                            <li>
-                                                Start another new macro (tap <strong>+</strong> on MacroDroid's main list again).
-                                            </li>
-                                            <li>
-                                                <strong>Trigger:</strong> same as before — search <strong>HTTP Server Request</strong> → select it → <strong>Path</strong> → type <code>hangup</code> this time. No variable needed here. Tap <strong>✓</strong>.
-                                            </li>
-                                            <li>
-                                                <strong>Action:</strong> Actions tab → <strong>+</strong> → search <strong>Call Reject</strong> → select it (no options to configure) → tap <strong>✓</strong>.
-                                                <p class="mt-1">MacroDroid's own documentation confirms this specific action ends an already-in-progress call, not just a still-ringing one — that's why it's the right action here, not "Answer Call" or anything dial-related.</p>
-                                            </li>
-                                            <li>
-                                                Save/name the macro (e.g. <em>"Remote Hang Up"</em>) and make sure it's <strong>on</strong>.
-                                            </li>
-                                        </ol>
-
-                                        <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Finishing up</p>
-                                        <ol class="list-decimal list-inside mt-2 space-y-2.5 text-slate-600 dark:text-slate-300">
-                                            <li>
-                                                <strong>Find the address to put above:</strong> open any of the three HTTP Server Request triggers you just made — it shows the full URL, something like <code>http://192.168.1.42:8080/dial</code>. Copy just the <code>IP:port</code> part (before <code>/dial</code>, <code>/mute</code>, or <code>/hangup</code>) into the <strong>Dialer address</strong> field above — all three macros share the same phone, so the same address covers all of them. (Port defaults to 8080 — MacroDroid Settings → HTTP Server Settings if you need to check or change it.)
-                                            </li>
-                                            <li>
-                                                <strong>Both devices must stay on the same Wi-Fi network</strong> — this only works over the local network, not the internet. If the phone reconnects to Wi-Fi later, its IP can change and this field will need updating (a static IP reservation on your router avoids that).
-                                            </li>
-                                            <li>
-                                                Save this form, then test: click one of {{ $tsa->display_name }}'s leads' phone numbers in Leads — the phone should start dialing within a second or two, no tap needed on the phone itself, and the popup's <strong>Mute</strong> and <strong>End Call</strong> buttons should control it from there.
-                                            </li>
-                                        </ol>
-                                    </details>
+                                    <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from Macros 2–4 in the setup guide below (Phone call automation card). Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
                                 </div>
 
                                 <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles ({{ $tsa->team }} only)</p>
@@ -272,70 +199,87 @@
                                     </div>
                                 </div>
 
+                                {{-- Unified setup guide — all 4 macros this TSA's phone needs
+                                     (call logging, dial, mute, hang up), merged into one ordered
+                                     tutorial instead of two separate accordions (one used to live
+                                     under Dialer address above, covering only dial/mute/hangup;
+                                     call logging had its own, separate "Macro 1 of 1"). Explicit
+                                     request: real per-TSA values (macro name, webhook URL,
+                                     api_token, dialer_host) inlined and select-all/copy-pastable
+                                     directly in the steps, concrete "tap this" phrasing over
+                                     prose, and the mute macro restored (it was accidentally
+                                     dropped from an earlier draft of this same merge). --}}
                                 <details class="text-xs font-mono text-slate-500 dark:text-slate-400">
-                                    <summary class="cursor-pointer text-primary-dark hover:underline">MacroDroid setup steps ↓</summary>
-                                    <ol class="list-decimal list-inside mt-2 space-y-3 text-slate-600 dark:text-slate-300">
-                                        <li>
-                                            <strong>Install the app.</strong> On {{ $tsa->display_name }}'s phone, open the Play Store, search <strong>MacroDroid</strong> (by "Arlosoft"), tap Install, then Open.
+                                    <summary class="cursor-pointer text-primary-dark hover:underline">MacroDroid setup guide — 4 macros ↓</summary>
+
+                                    <p class="mt-2 font-bold text-slate-700 dark:text-slate-200">Before you start</p>
+                                    <ul class="list-disc list-inside mt-1 space-y-1 text-slate-600 dark:text-slate-300">
+                                        <li>Install <strong>MacroDroid</strong> (by "Arlosoft") from the Play Store on {{ $tsa->display_name }}'s phone and open it.</li>
+                                        <li>Grant every permission it asks for on first launch (Phone/Call Log, Notifications, "Display over other apps", battery-optimization exemption) — deny Phone/Call Log and Macros 1 and 2 below can't work at all.</li>
+                                        <li>Confirm the <strong>Webhook URL</strong> below is actually reachable from {{ $tsa->display_name }}'s phone, not just this computer — if it shows <code>localhost</code> or <code>127.0.0.1</code>, replace that part with this machine's real LAN IP (or your production domain) before pasting it into Macro 1.</li>
+                                    </ul>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 1 of 4 — "{{ $tsa->tsa_key }}" (call logging)</p>
+                                    <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+                                        <li>Tap <strong>+</strong> to start a new macro.</li>
+                                        <li><strong>Trigger:</strong> search <strong>Call/SMS</strong> → <strong>Call Ended</strong> → leave <strong>Any number</strong> selected → <strong>✓</strong>. (Not "HTTP Server Request" — that's a different trigger, used in Macros 2–4 below.)</li>
+                                        <li><strong>Actions</strong> tab → <strong>+</strong> → search <strong>HTTP Request</strong> → select it.</li>
+                                        <li><strong>Request method</strong> → <strong>POST</strong>.</li>
+                                        <li><strong>URL</strong> → paste:
+                                            <div class="mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 select-all">{{ url('/api/call-events') }}</div>
                                         </li>
-                                        <li>
-                                            <strong>Grant every permission it asks for on first launch</strong> — it'll step through several one-by-one prompts (Phone/Call Log access, Notifications, "Display over other apps", and a battery-optimization exemption). Allow all of them. If Phone/Call Log access is denied, the trigger in step 4 can never fire or read the number/duration — this is the #1 reason a setup silently does nothing.
+                                        <li><strong>Body</strong> → paste this exactly (tap the gray box below, it auto-selects the whole string):
+                                            <div class="mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 select-all">api_token={{ $tsa->api_token }}&amp;phone_number=[call_number]&amp;direction=[call_type]&amp;duration_seconds=[call_duration]</div>
+                                            If the bracketed parts don't substitute correctly when typed by hand, delete them and use the <strong>{v}</strong> variable-picker button next to the Body field instead → insert <strong>Call Number</strong> / <strong>Call Type</strong> / <strong>Call Duration</strong> from MacroDroid's own list. (<code>[call_type]</code> comes through as <code>Outgoing</code>/<code>Incoming</code>/<code>Missed</code> — accepted as-is, no extra step needed.)
                                         </li>
-                                        <li>
-                                            <strong>Start a new macro.</strong> On MacroDroid's main screen (it lists your macros — empty on a fresh install), tap the <strong>+</strong> floating button in the bottom-right corner. This opens "Add Trigger" — every macro must start with a trigger.
-                                        </li>
-                                        <li>
-                                            <strong>Add the trigger.</strong> Tap <strong>+</strong> → scroll the category list to <strong>Call/SMS</strong> → tap it to expand → tap <strong>Call Ended</strong>.
-                                            <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                                                <li>A config screen may appear asking which number(s) to match — leave <strong>Any number</strong> selected.</li>
-                                                <li>Tap the <strong>✓</strong> (checkmark) top-right to confirm and return to the macro editor.</li>
-                                                <li>Do NOT pick "HTTP Server Request" anywhere in this process — that's an unrelated trigger that turns the phone itself into a web server, not what we want.</li>
-                                            </ul>
-                                        </li>
-                                        <li>
-                                            <strong>Switch to the Actions tab.</strong> You're now on the macro editor, which has 3 tabs across the top: <strong>Triggers | Constraints | Actions</strong>. Tap <strong>Actions</strong>, then tap <strong>+</strong> to add one.
-                                        </li>
-                                        <li>
-                                            <strong>Find the HTTP Request action by searching, not browsing.</strong> On the "Add Action" screen, tap the <strong>magnifying-glass icon</strong> at the top (don't scroll through categories — which category it's filed under changes between MacroDroid versions and isn't worth hunting for). Type <strong>HTTP Request</strong> and tap the single matching result.
-                                        </li>
-                                        <li>
-                                            <strong>Configure the request:</strong>
-                                            <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                                                <li><strong>Request method</strong> → tap the dropdown, choose <strong>POST</strong>.</li>
-                                                <li><strong>URL</strong> → tap the field, paste the Webhook URL from the box above.</li>
-                                                <li>Scroll down to the <strong>Body</strong>/content section. Tap into it and paste the line below exactly (tap the gray box, it auto-selects the whole string, then copy it):
-                                                    <div class="mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 select-all">api_token={{ $tsa->api_token }}&amp;phone_number=[call_number]&amp;direction=[call_type]&amp;duration_seconds=[call_duration]</div>
-                                                </li>
-                                                <li>The bracketed parts (<code>[call_number]</code>, <code>[call_type]</code>, <code>[call_duration]</code>) are MacroDroid's own placeholders for the real call data. If typing them out by hand doesn't work, delete them and instead tap the <strong>{v}</strong> variable-picker button next to the Body field and insert "Call Number" / "Call Type" / "Call Duration" from MacroDroid's own list — same result, just guaranteed to substitute correctly.</li>
-                                                <li>Leave the remaining options (Timeout, Follow redirects, etc.) on their defaults.</li>
-                                                <li>Tap the <strong>✓</strong> checkmark top-right to save this action.</li>
-                                            </ul>
-                                        </li>
-                                        <li>
-                                            <strong>About [call_type]:</strong> MacroDroid reports it as <code>Outgoing</code>/<code>Incoming</code>/<code>Missed</code> (capitalized) — this system already accepts that as-is, no extra step needed. Only add a "Search & Replace" action before the HTTP Request if you ever see it come through as something else entirely.
-                                        </li>
-                                        <li>
-                                            <strong>Save and name the macro.</strong> Tap the <strong>save/disk icon</strong> (or the back arrow, which prompts the same thing) in the top corner. Give it a clear name, e.g. <em>"{{ $tsa->display_name }} – Call Log Upload"</em>, then confirm.
-                                        </li>
-                                        <li>
-                                            <strong>Confirm it's enabled.</strong> Back on MacroDroid's main macro list, find the one you just made and make sure its toggle switch is <strong>on</strong> (usually shown at the right edge of the row).
-                                        </li>
-                                        <li>
-                                            <strong>Test it for real.</strong> Make or receive one actual phone call, then hang up. Within a few seconds it should appear on the <a href="{{ route('calls.call-log') }}" class="text-primary hover:underline">Call Log</a> page here.
-                                        </li>
-                                        <li>
-                                            <strong>If nothing shows up:</strong> open MacroDroid, tap the macro, then its <strong>⋮</strong> (three-dot) menu → <strong>View history</strong> (or long-press the macro on the main list) to see whether it ran at all and what HTTP response code came back:
-                                            <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                                                <li><strong>Didn't run at all</strong> → the Call Ended trigger isn't firing; re-check the Phone/Call Log permission from step 2.</li>
-                                                <li><strong>401</strong> → the api_token in the Body doesn't match the one shown above (was it regenerated since?).</li>
-                                                <li><strong>422</strong> → one of the bracketed variables didn't get filled in — redo step 7 using the {v} picker instead of typed brackets.</li>
-                                                <li><strong>Connection error / timeout</strong> → the phone had no internet at that moment, or the Webhook URL was mistyped.</li>
-                                            </ul>
-                                        </li>
+                                        <li>Tap <strong>✓</strong> to save the action, then save/name the macro <strong>"{{ $tsa->tsa_key }}"</strong> and confirm its toggle is <strong>on</strong>.</li>
+                                        <li>Test: make or receive one real call, hang up — it should appear on <a href="{{ route('calls.call-log') }}" class="text-primary hover:underline">Call Log</a> within a few seconds.</li>
                                     </ol>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 2 of 4 — "Remote dial"</p>
+                                    <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+                                        <li>New macro, tap <strong>+</strong>.</li>
+                                        <li><strong>Trigger:</strong> search <strong>HTTP Server Request</strong> → select it → <strong>Path</strong> → <code>dial</code> → scroll to <strong>Variable Whitelist</strong> → add a variable named exactly <code>number</code> → <strong>✓</strong>.</li>
+                                        <li><strong>Actions</strong> tab → <strong>+</strong> → search <strong>Make Call</strong> → select it.</li>
+                                        <li><strong>[Select Number]</strong> → tap <strong>{v}</strong> → insert the <code>number</code> variable — the field shows <code>{lv=number}</code> (that's correct: <code>lv</code> is a <em>local</em> variable, scoped to this trigger — not <code>{v=number}</code>).</li>
+                                        <li>Dual-SIM phone? Pick the right one under <strong>Sim card</strong>.</li>
+                                        <li>Tap <strong>✓</strong>, save/name the macro <strong>"Remote dial"</strong>, confirm it's <strong>on</strong>. Grant the phone-call permission if prompted — without it, "Make Call" silently does nothing.</li>
+                                    </ol>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 3 of 4 — "Remote mute"</p>
+                                    <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+                                        <li>New macro, tap <strong>+</strong>.</li>
+                                        <li><strong>Trigger:</strong> <strong>HTTP Server Request</strong> → <strong>Path</strong> → <code>mute</code> — no variable needed → <strong>✓</strong>.</li>
+                                        <li><strong>Actions</strong> tab → <strong>+</strong> → search <strong>Mute</strong> and pick whichever mic-mute action your MacroDroid version offers (e.g. <strong>Toggle Microphone Mute</strong>) → <strong>✓</strong>. This can require Accessibility permission — if there's no mic-specific option on this phone, the popup's Mute button just won't do anything, same as leaving Dialer address blank.</li>
+                                        <li>Save/name the macro <strong>"Remote mute"</strong>, confirm it's <strong>on</strong>.</li>
+                                    </ol>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 4 of 4 — "Remote hang up"</p>
+                                    <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+                                        <li>New macro, tap <strong>+</strong>.</li>
+                                        <li><strong>Trigger:</strong> <strong>HTTP Server Request</strong> → <strong>Path</strong> → <code>hangup</code> — no variable needed → <strong>✓</strong>.</li>
+                                        <li><strong>Actions</strong> tab → <strong>+</strong> → search <strong>Call Reject</strong> → select it (nothing to configure) → <strong>✓</strong>. This specific action ends an already-in-progress call, not just a still-ringing one — that's why it's the right one here, not "Answer Call".</li>
+                                        <li>Save/name the macro <strong>"Remote hang up"</strong>, confirm it's <strong>on</strong>.</li>
+                                    </ol>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Finishing up</p>
+                                    <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
+                                        <li>Open either HTTP Server Request trigger (<code>dial</code> or <code>hangup</code>) from Macros 2–4 — it shows the full URL, e.g. <code>http://192.168.1.42:8080/dial</code>. Copy just the <code>IP:port</code> part into the <strong>Dialer address</strong> field above{{ $tsa->dialer_host ? " (already filled in as {$tsa->dialer_host})" : '' }} — all 3 macros share the same phone, so one address covers all of them.</li>
+                                        <li>{{ $tsa->display_name }}'s phone and whoever's using Leads must stay on the <strong>same Wi-Fi network</strong> — this only works over the local network, not the internet. If the phone reconnects to Wi-Fi later its IP can change and this field will need updating (a static IP reservation on your router avoids that).</li>
+                                        <li>Save this form, then test: click one of {{ $tsa->display_name }}'s leads' phone numbers in Leads — the phone should dial within a second or two, no tap needed on the phone itself, and the popup's <strong>Mute</strong>/<strong>End Call</strong> buttons should control it.</li>
+                                    </ol>
+
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">If Macro 1 doesn't show up on Call Log</p>
+                                    <p class="mt-1">Open MacroDroid → tap the macro → <strong>⋮</strong> (three-dot menu) → <strong>View history</strong> (or long-press the macro on the main list) to see whether it ran and what response code came back:</p>
+                                    <ul class="list-disc list-inside ml-4 mt-1 space-y-1 text-slate-600 dark:text-slate-300">
+                                        <li><strong>Didn't run at all</strong> → the Call Ended trigger isn't firing; re-check the Phone/Call Log permission.</li>
+                                        <li><strong>401</strong> → the api_token in the Body doesn't match the one shown above (was it regenerated since?).</li>
+                                        <li><strong>422</strong> → one of the bracketed variables didn't get filled in — redo Macro 1's Body step using the {v} picker instead of typed brackets.</li>
+                                        <li><strong>Connection error / timeout</strong> → the phone had no internet at that moment, or the Webhook URL is mistyped or unreachable from the phone (see "Before you start" above).</li>
+                                    </ul>
                                 </details>
                                 @else
-                                <p class="text-xs font-mono text-slate-400">No token yet — click "Generate token" above, then follow the MacroDroid setup steps that appear.</p>
+                                <p class="text-xs font-mono text-slate-400">No token yet — click "Generate token" above, then follow the 4-macro setup guide that appears.</p>
                                 @endif
                             </div>
 
