@@ -664,6 +664,7 @@ document.addEventListener('click', async (e) => {
                             <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
                         </div>
                         ${o.product ? `<div class="text-slate-500 dark:text-slate-400 truncate" style="user-select:none" title="${escapeHtml(o.product)}">${escapeHtml(o.product)}</div>` : ''}
+                        ${o.matched_via ? `<div class="text-amber-600 dark:text-amber-500 truncate" style="user-select:none" title="${escapeHtml(o.matched_via)}">via ${escapeHtml(o.matched_via)}</div>` : ''}
                     </div>
                 `).join('');
                 positionPopover(cell, popover);

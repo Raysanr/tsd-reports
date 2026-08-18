@@ -426,10 +426,15 @@ class LeadsReportController extends Controller
             ->sortByDesc(fn($o) => $o->effective_created_at)
             ->values()
             ->map(fn($o) => [
-                'id'      => $o->pancake_order_id,
-                'status'  => $o->status_label ?? "Unknown ({$o->status_code})",
-                'product' => $o->product,
-                'time'    => optional($o->effective_created_at)->format('M j, g:i A'),
+                'id'         => $o->pancake_order_id,
+                'status'     => $o->status_label ?? "Unknown ({$o->status_code})",
+                'product'    => $o->product,
+                'time'       => optional($o->effective_created_at)->format('M j, g:i A'),
+                // Diagnostic only, same reasoning as this method's own docblock:
+                // shows WHICH signal (ID/cart item/base item/bundle/tag) actually
+                // matched this order to $product, so a false positive is visible
+                // right in the popover instead of needing a manual Pancake lookup.
+                'matched_via' => ProductPerformance::matchReason($product, $o),
             ]);
 
         return response()->json($result);

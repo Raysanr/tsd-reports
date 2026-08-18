@@ -353,6 +353,34 @@ class ProductPerformance
         return array_merge($summed, self::rates($summed));
     }
 
+    /** Diagnostic only: given a product and one order matchingOrders() already
+     *  matched, explains WHICH signal caused it — a real Pancake product-ID
+     *  match, the order's own cart/base item text, a combo's bundle
+     *  description, or a leftover tag. Powers the drill-down popover's "why
+     *  did this count?" line, so a false positive (e.g. a short/generic
+     *  keyword catching an unrelated order) is visible directly instead of
+     *  requiring a manual look-up in Pancake for every suspicious row. Checks
+     *  in the exact same priority order as matchingOrders() itself, so the
+     *  reason shown is always the one that actually decided it there. */
+    public static function matchReason(Product $product, Order $order): string
+    {
+        $productIds = collect($product->pancake_product_ids ?? [])->filter()->values();
+        if ($productIds->isNotEmpty() && !empty($order->pancake_product_ids)) {
+            $shared = $productIds->intersect($order->pancake_product_ids);
+            if ($shared->isNotEmpty()) return 'Pancake product ID match';
+        }
+
+        if ($product->matchesText($order->product)) return "cart item: \"{$order->product}\"";
+        if ($product->matchesText($order->base_product)) return "base item: \"{$order->base_product}\"";
+        if ($product->matchesText($order->bundle_description)) return "combo/bundle: \"{$order->bundle_description}\"";
+
+        foreach ($order->raw_tags ?? [] as $tag) {
+            if ($product->matchesText($tag)) return "tag: \"{$tag}\"";
+        }
+
+        return 'unknown';
+    }
+
     /** Same categorization rules as tally() above, but returning the actual
      *  matching Order models for one column instead of just a count — powers
      *  every drill-down popover (TsaPerformanceController::drilldown(),
