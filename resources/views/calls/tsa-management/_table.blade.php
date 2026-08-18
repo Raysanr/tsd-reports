@@ -98,9 +98,20 @@
                         </button>
                     </td>
                 </tr>
-                <tr id="tsaDetail-{{ $tsa->id }}" class="hidden">
-                    <td colspan="6" class="px-5 pb-6 pt-0 bg-slate-50 dark:bg-slate-950/40">
-                        <div class="space-y-4 pt-1">
+                {{-- Always in the DOM (no `hidden`) — collapse/expand is a
+                     grid-template-rows 0fr/1fr transition on the wrapper div
+                     below instead, which is what makes it animate smoothly.
+                     A plain height/max-height transition can't do this
+                     cleanly for content whose real height isn't known ahead
+                     of time (this panel's height varies a lot — collapsed
+                     "Handles" details vs. expanded MacroDroid steps). The
+                     inner overflow-hidden div is what actually clips the
+                     content while grid-template-rows is mid-transition. --}}
+                <tr id="tsaDetail-{{ $tsa->id }}">
+                    <td colspan="6" class="px-5 bg-slate-50 dark:bg-slate-950/40">
+                        <div data-tsa-detail-grid="{{ $tsa->id }}" class="grid transition-[grid-template-rows] duration-300 ease-in-out" style="grid-template-rows: 0fr;">
+                        <div class="overflow-hidden">
+                        <div class="space-y-4 pt-4 pb-6">
                             <form method="POST" action="{{ route('calls.tsa-management.update', $tsa) }}"
                                   class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
                                 @csrf
@@ -366,6 +377,8 @@
                                 </details>
                             </div>
                             @endif
+                        </div>
+                        </div>
                         </div>
                     </td>
                 </tr>

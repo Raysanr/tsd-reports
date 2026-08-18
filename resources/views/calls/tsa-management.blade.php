@@ -225,13 +225,18 @@ document.addEventListener('click', (e) => {
     const trigger = e.target.closest('[data-tsa-row-toggle]');
     if (!trigger) return;
 
-    const id     = trigger.dataset.tsaRowToggle;
-    const detail = document.getElementById(`tsaDetail-${id}`);
+    const id      = trigger.dataset.tsaRowToggle;
+    const grid    = document.querySelector(`[data-tsa-detail-grid="${id}"]`);
     const chevron = document.getElementById(`tsaChevron-${id}`);
-    if (!detail) return;
+    if (!grid) return;
 
-    detail.classList.toggle('hidden');
-    if (chevron) chevron.classList.toggle('rotate-180');
+    // grid-template-rows 0fr <-> 1fr, not a plain height transition — see
+    // the row's own doc comment in _table.blade.php for why (content height
+    // varies per TSA/per open <details>, which max-height can't handle
+    // without either clipping it or guessing an oversized fixed value).
+    const isOpen = grid.style.gridTemplateRows === '1fr';
+    grid.style.gridTemplateRows = isOpen ? '0fr' : '1fr';
+    if (chevron) chevron.classList.toggle('rotate-180', !isOpen);
 });
 </script>
 
