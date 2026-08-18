@@ -28,7 +28,20 @@ $interval = max(1, min(60, (int) Setting::get('sync_interval', 2)));
 
 // Delta run: only orders updated since the last successful run (5-min overlap) —
 // a fraction of the data the old full-day run pulled every interval.
-Schedule::command(SyncTodayOrders::class, ['--delta'])->cron("*/{$interval} * * * *")->withoutOverlapping();
+//
+// withoutOverlapping(10): root-caused 2026-08-18 — a redeploy of the
+// scheduler service (upbeat-light) killed a run mid-flight, and because this
+// call had no explicit timeout, the mutex defaulted to 1440 minutes (24h).
+// Every tick after that silently found the job "already running elsewhere"
+// and skipped it — confirmed live via `railway logs --filter`: zero
+// sync-today runs for over an hour, while the hourly jobs below (much less
+// likely to get caught mid-run, and each one only misses ~1 run per stuck
+// hour instead of ~1440) kept firing normally the whole time. 10 minutes
+// matches SyncTodayOrders::RUNNING_STALE_MINUTES's own precedent — generous
+// headroom over a real run's actual duration (seconds, up to ~80s for a
+// catch-up sync per Sync Health data) so a future interrupted run self-heals
+// in minutes instead of potentially a full day.
+Schedule::command(SyncTodayOrders::class, ['--delta'])->cron("*/{$interval} * * * *")->withoutOverlapping(10);
 
 // Full-day safety sweep: catches anything a delta window could ever miss (clock
 // skew, API hiccups). This is the same complete sync that used to run EVERY
@@ -86,4 +99,9 @@ Schedule::command(SyncCallRecordings::class)->cron('0 */2 * * *')->withoutOverla
 // unclaimed Pancake orders and round-robin assigns each to a TSA. Rides the
 // same persistent `schedule:work` service as everything else above, no
 // second scheduler/service needed.
-Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping();
+//
+// withoutOverlapping(10): same 2026-08-18 incident as the delta sync above —
+// this is also an every-minute job, so it's just as exposed to a redeploy
+// interrupting a run and leaving a 24h-default mutex stuck. Same fix, same
+// reasoning.
+Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping(10);
