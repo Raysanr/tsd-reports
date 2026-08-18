@@ -28,9 +28,16 @@ use Illuminate\Support\Facades\Http;
  */
 class TsaManagementController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $tsas     = TsaShift::orderBy('sort_order')->get();
+        $team = $request->string('team')->toString();
+
+        $query = TsaShift::orderBy('sort_order');
+        if ($team) {
+            $query->where('team', $team);
+        }
+        $tsas = $query->get();
+
         $products = Product::orderBy('sort_order')->get();
 
         // tsa_id => [product_id, ...] currently assigned — one query instead
@@ -39,12 +46,23 @@ class TsaManagementController extends Controller
             ->groupBy('tsa_id')
             ->map(fn ($rows) => $rows->pluck('product_id')->all());
 
-        return view('calls.tsa-management', [
-            'tsas'        => $tsas,
-            'products'    => $products,
-            'assignments' => $assignments,
-            'teams'       => collect(config('teams'))->pluck('order_team')->all(),
-        ]);
+        $data = [
+            'tsas'         => $tsas,
+            'products'     => $products,
+            'assignments'  => $assignments,
+            'teams'        => collect(config('teams'))->pluck('order_team')->all(),
+            'selectedTeam' => $team,
+        ];
+
+        // Same X-Table-Refresh convention as Leads Setup's own team-filter
+        // pills (RoundRobinSetupController::index()) — the filter fetches
+        // this same URL in the background and swaps in just the table with a
+        // fade instead of a full page reload.
+        if ($request->header('X-Table-Refresh')) {
+            return view('calls.tsa-management._table', $data);
+        }
+
+        return view('calls.tsa-management', $data);
     }
 
     /**
