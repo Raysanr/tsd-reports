@@ -641,7 +641,17 @@ document.addEventListener('click', async (e) => {
                 // 'status' is only present from Leads Report's drilldown (a local
                 // order status, e.g. to spot one Pancake has since cancelled/deleted
                 // that hasn't re-synced) — TSA Performance's response has no such
-                // field, so that middle span just doesn't render there.
+                // field, so that middle span just doesn't render there. 'excluded'
+                // is the same idea one step further (root-caused 2026-08-18): this
+                // popover deliberately still lists Canceled/Deleted-recently orders
+                // (LeadsReportController::drilldown()'s own docblock) so they can be
+                // spotted, but rendering them identically to every counted row below
+                // is what made that look like a counting bug instead of the
+                // diagnostic view it actually is — opacity + strikethrough + an
+                // explicit badge here, same red/void treatment this page's own
+                // Orders list already uses for the identical statuses, makes which
+                // rows are and aren't in the Total Leads number unmistakable at a
+                // glance instead of requiring the docblock's explanation.
                 //
                 // Order ID is click-to-copy (data-copy-order-id, handled below) —
                 // status/time get style="user-select:none" so a drag-select across
@@ -650,10 +660,13 @@ document.addEventListener('click', async (e) => {
                 // .order-id-copy's own ::before rule (app.css), not real text, so
                 // a drag-select (single row or many) copies bare digits only —
                 // matches what the click-to-copy handler below already copied.
-                popover.innerHTML = orders.map(o => `
-                    <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0">
-                        <span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">${escapeHtml(o.id)}</span>
-                        ${o.status ? `<span class="text-slate-400 dark:text-slate-500" style="user-select:none">${escapeHtml(o.status)}</span>` : ''}
+                const hasExcluded = orders.some(o => o.excluded);
+                popover.innerHTML = (hasExcluded
+                    ? '<p class="px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 text-[10px] text-rose-500 font-semibold">Excluded rows aren\'t in the Total Leads count above</p>'
+                    : '') + orders.map(o => `
+                    <div class="flex items-center justify-between gap-4 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-b-0 ${o.excluded ? 'opacity-60' : ''}">
+                        <span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy ${o.excluded ? 'line-through' : ''}" data-copy-order-id="${escapeHtml(o.id)}" title="Click to copy">${escapeHtml(o.id)}</span>
+                        ${o.status ? `<span class="${o.excluded ? 'text-rose-500 font-semibold' : 'text-slate-400 dark:text-slate-500'}" style="user-select:none">${escapeHtml(o.status)}${o.excluded ? ' · excluded' : ''}</span>` : ''}
                         <span class="text-slate-400 dark:text-slate-500 whitespace-nowrap" style="user-select:none">${escapeHtml(o.time || '—')}</span>
                     </div>
                 `).join('');

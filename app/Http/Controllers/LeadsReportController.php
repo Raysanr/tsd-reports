@@ -435,6 +435,15 @@ class LeadsReportController extends Controller
                 // matched this order to $product, so a false positive is visible
                 // right in the popover instead of needing a manual Pancake lookup.
                 'matched_via' => ProductPerformance::matchReason($product, $o),
+                // True for the exact DELETED_STATUSES this method's own docblock
+                // says it deliberately still lists (Canceled/Deleted recently) —
+                // lets the popover mark these rows as excluded instead of
+                // rendering them identically to every counted row, which is what
+                // made an admin reasonably (but incorrectly) suspect they were
+                // still part of the Total Leads number above (root-caused
+                // 2026-08-18: the count itself was already right, only this
+                // popover's presentation wasn't distinguishing the two).
+                'excluded'   => in_array($o->status_code, Order::DELETED_STATUSES, true),
             ]);
 
         return response()->json($result);
