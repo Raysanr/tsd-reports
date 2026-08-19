@@ -31,7 +31,7 @@
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($leads as $lead)
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }}">
+            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }}">
                 <td class="px-1 py-3">
                     {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
                          to the top (see LeadController::index()'s orderByRaw). Submits
@@ -46,8 +46,12 @@
                         @csrf
                         <button type="submit" title="{{ $lead->pinned_at ? 'Unpin' : 'Pin to top' }}"
                                 class="w-9 h-9 flex items-center justify-center rounded-lg cursor-pointer transition-colors {{ $lead->pinned_at ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' }}">
-                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5h14l-4.091-4.091a2.25 2.25 0 01-.659-1.591V3.104M12 14.5V21"/>
+                            {{-- Bookmark-ribbon glyph (explicit request, 2026-08-19) —
+                                 replaces the earlier thumbtack shape. Same fill/stroke
+                                 toggle as before: filled amber when pinned, outline
+                                 gray otherwise (the button's own classes above). --}}
+                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.32 2.577a49.255 49.255 0 0111.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 01-1.085.67L12 18.089l-7.165 3.583A.75.75 0 013.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93z"/>
                             </svg>
                         </button>
                     </form>

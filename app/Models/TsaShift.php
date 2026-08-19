@@ -37,25 +37,33 @@ class TsaShift extends Model
     public const STATUS_LOGIN       = 'login';
     public const STATUS_BREAK       = 'break';
     public const STATUS_DNA_HUDDLE  = 'dna_huddle';
+    public const STATUS_HUDDLE      = 'huddle';
     public const STATUS_COACHING    = 'coaching';
     public const STATUS_LOGOUT      = 'logout';
     public const STATUS_LOCKED      = 'locked';
 
     /** Every real status, in display order — icon key used by the status
-     *  panel partial to render Pancake's own icon-per-row look. */
+     *  panel partial to render Pancake's own icon-per-row look. Huddle is a
+     *  distinct status from DNA Huddle, not a rename of it (explicit
+     *  request, 2026-08-19) — a plain/generic team huddle, sitting right
+     *  before Logout. Logout also gets its own 'logout' icon now instead of
+     *  sharing 'away' with Break/Coaching/DNA Huddle/Huddle, matching the
+     *  slate (not amber) dot color this same partial already gives it
+     *  below. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'away'],
-        self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'away'],
         self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'away'],
-        self::STATUS_LOGOUT     => ['label' => 'Logout',     'description' => "Shift ended, can't receive leads",              'icon' => 'away'],
+        self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'away'],
+        self::STATUS_HUDDLE     => ['label' => 'Huddle',     'description' => "In a huddle, can't receive leads",              'icon' => 'away'],
+        self::STATUS_LOGOUT     => ['label' => 'Logout',     'description' => "Shift ended, can't receive leads",              'icon' => 'logout'],
         self::STATUS_LOCKED     => ['label' => 'Lock',       'description' => 'Admin feature — lock a TSA out of receiving leads and changing this status', 'icon' => 'lock'],
     ];
 
     /** Options a TSA can pick for THEMSELVES on the topbar dropdown — every
      *  real status except Lock, which only an admin can set. */
     public const SELF_SERVICE_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_DNA_HUDDLE, self::STATUS_COACHING, self::STATUS_LOGOUT,
+        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
     ];
 
     public function restDays()

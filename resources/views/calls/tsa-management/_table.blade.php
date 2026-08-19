@@ -61,7 +61,14 @@
                     <td class="px-5 py-4">
                         @include('calls.partials.tsa-status-panel', [
                             'id'      => 'tsa-' . $tsa->id,
-                            'options' => array_keys(\App\Models\TsaShift::STATUSES),
+                            // Explicit request (2026-08-19): Lock removed from
+                            // this dropdown entirely — reuses SELF_SERVICE_STATUSES
+                            // rather than duplicating its own 5-item list, since
+                            // that's already the single source of truth for "every
+                            // status except Locked, in this exact order" (the name
+                            // just reflects where it was first needed, not that
+                            // this admin-only dropdown is somehow self-service too).
+                            'options' => \App\Models\TsaShift::SELF_SERVICE_STATUSES,
                             'current' => $tsa->status,
                             'target'  => (string) $tsa->id,
                         ])
@@ -283,44 +290,42 @@
                                 @endif
                             </div>
 
-                            {{-- Call recording auto-upload — a separate setup from the
-                                 MacroDroid one above: that one logs WHICH number was called and
-                                 for how long, this one uploads the actual audio. Uses the same
-                                 api_token, kept as its own card since it needs extra software
-                                 (Phone Link + a recorder) the call-log setup doesn't. --}}
-                            @if($tsa->api_token)
+                            {{-- Call recording auto-upload — replaced 2026-08-19 (explicit
+                                 request) with a phone-side Drive sync, no PC/OBS/api_token
+                                 involved at all: {{ $tsa->display_name }}'s own phone already
+                                 records calls locally (built-in recorder), this just mirrors
+                                 that folder into the exact Drive location
+                                 SyncCallRecordings already reads from (see that command's own
+                                 doc comment) to feed real AHT/OPT data on their TSA
+                                 Performance page. Shown regardless of api_token — this no
+                                 longer depends on it. --}}
                             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
-                                <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Call recording auto-upload</h3>
+                                <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Call recording auto-upload (Google Drive)</h3>
                                 <details class="text-xs font-mono text-slate-500 dark:text-slate-400">
                                     <summary class="cursor-pointer text-primary-dark hover:underline">Setup steps ↓</summary>
                                     <ol class="list-decimal list-inside mt-2 space-y-3 text-slate-600 dark:text-slate-300">
                                         <li>
-                                            <strong>Set up Phone Link</strong> on {{ $tsa->display_name }}'s PC and pair it with their phone (search "Phone Link" in the Windows Start menu, or Settings → Bluetooth & devices). Confirm calls show up on the PC when the phone rings — Phone Link only mirrors the audio, it doesn't save a file on its own.
+                                            <strong>Find the phone's own recordings folder.</strong> Most Android phones auto-record calls locally with no setup — check Settings → Call app, or look for a "Call recordings" folder in the Files app. The exact path depends on the phone's brand (e.g. Samsung: <code>Call/</code>, Xiaomi/MIUI: <code>MIUI/sound_recorder/call_rec/</code>). If nothing's there, the phone's built-in dialer likely needs call recording turned on first.
                                         </li>
                                         <li>
-                                            <strong>Install a free recorder</strong> — <a href="https://obsproject.com" target="_blank" rel="noopener" class="text-primary hover:underline">OBS Studio</a> is recommended. Add an Audio Output source, set it to record only that source (not the screen), and set the output format to mp3 or wav in Settings → Output. Pick a recording folder you'll remember, e.g. <code>C:\Users\{{ Str::slug($tsa->display_name, '') }}\Videos\Call Recordings</code>.
+                                            <strong>Create {{ $tsa->display_name }}'s Drive folder</strong> (once, if it doesn't already exist): in the shared <code>TSD CALLS</code> folder → <code>{{ $tsa->team }}</code> → a new folder named exactly <code>{{ $tsa->tsa_key }}</code>.
                                         </li>
                                         <li>
-                                            <strong>Get the auto-upload script.</strong> In the app's code repository, under <code>tools/recording-uploader/</code>, there's <code>upload-recordings.ps1</code> and a full <code>README.md</code> with these same steps. Copy that folder onto {{ $tsa->display_name }}'s PC.
+                                            <strong>Install "Autosync for Google Drive"</strong> (by MetaCtrl) from the Play Store on {{ $tsa->display_name }}'s phone — free, no PC needed.
                                         </li>
                                         <li>
-                                            <strong>Edit the script</strong> (right-click → Edit in Notepad) and fill in the top 3 lines:
-                                            <div class="mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 select-all">$ApiToken = "{{ $tsa->api_token }}"</div>
-                                            plus <code>$WatchFolder</code> (the exact folder from step 2 — must match exactly).
+                                            <strong>Sign in</strong> with whichever Google account has access to the shared <code>TSD CALLS</code> folder, then create one sync pair:
+                                            <span class="block mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5">Local: (the recordings folder from step 1) &nbsp;→&nbsp; Drive: TSD CALLS / {{ $tsa->team }} / {{ $tsa->tsa_key }}</span>
                                         </li>
                                         <li>
-                                            <strong>Run it</strong>: right-click the script → "Run with PowerShell", and leave the window open — it watches the folder and uploads each new recording automatically, moving it into an "Uploaded" subfolder afterward so nothing uploads twice.
+                                            <strong>Set the sync direction to upload-only</strong> (phone → Drive, not the reverse) and pick a frequency — every 15–30 minutes is plenty; this doesn't need to be instant.
                                         </li>
                                         <li>
-                                            <strong>Test it for real.</strong> Make one actual call, hang up, let the recorder finish saving. It should upload within a few seconds and appear on the <a href="{{ route('calls.call-recordings') }}" class="text-primary hover:underline">Call Recordings</a> page.
-                                        </li>
-                                        <li>
-                                            <strong>Start it automatically every day:</strong> press <kbd>Win+R</kbd>, type <code>shell:startup</code>, press Enter, then paste a shortcut to the script into that folder — it'll launch on its own every time this PC starts.
+                                            <strong>Test it for real.</strong> Make one actual call, hang up, and either wait for the next scheduled sync or trigger one manually from the app. Check the <code>{{ $tsa->tsa_key }}</code> folder in Drive for the new file.
                                         </li>
                                     </ol>
                                 </details>
                             </div>
-                            @endif
                         </div>
                         </div>
                         </div>

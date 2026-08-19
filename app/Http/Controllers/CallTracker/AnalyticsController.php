@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CallEvent;
 use App\Models\Lead;
 use App\Models\TsaShift;
+use App\Models\TsaStatusLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -98,6 +99,74 @@ class AnalyticsController extends Controller
             ];
         });
 
+        // Status Time — team-wide total time spent in each status during the
+        // range (explicit request, 2026-08-19), walked from TsaStatusLog: for
+        // each TSA, find whatever status was active AT $from (the most recent
+        // log at or before it, or their current status if they have no
+        // history yet), then walk every log within the range attributing the
+        // time BETWEEN consecutive changes to whichever status was active
+        // during that stretch, clipped to [$from, $to]. 'Others' folds in
+        // Break/Logout/Lock — only Login/Coaching/DNA Huddle/Huddle get their
+        // own bucket, matching what the KPI cards and this section actually
+        // surface.
+        $statusSeconds  = array_fill_keys(array_keys(TsaShift::STATUSES), 0);
+        $statusRangeEnd = $to->isFuture() ? now() : $to;
+
+        foreach ($rows->pluck('tsa') as $statusTsa) {
+            $priorLog     = TsaStatusLog::where('tsa_id', $statusTsa->id)
+                ->where('created_at', '<=', $from)
+                ->orderByDesc('created_at')
+                ->first();
+            $cursorStatus = $priorLog->status ?? $statusTsa->status;
+            $cursor       = $from->copy();
+
+            $logsInRange = TsaStatusLog::where('tsa_id', $statusTsa->id)
+                ->whereBetween('created_at', [$from, $to])
+                ->orderBy('created_at')
+                ->get();
+
+            foreach ($logsInRange as $log) {
+                $statusSeconds[$cursorStatus] = ($statusSeconds[$cursorStatus] ?? 0) + $cursor->diffInSeconds($log->created_at);
+                $cursorStatus = $log->status;
+                $cursor       = $log->created_at;
+            }
+            if ($cursor->lt($statusRangeEnd)) {
+                $statusSeconds[$cursorStatus] = ($statusSeconds[$cursorStatus] ?? 0) + $cursor->diffInSeconds($statusRangeEnd);
+            }
+        }
+
+        $othersSeconds = ($statusSeconds[TsaShift::STATUS_BREAK] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_LOGOUT] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_LOCKED] ?? 0);
+
+        $formatHm = fn (int $totalSeconds): string => intdiv(intdiv($totalSeconds, 60), 60) . 'h ' . (intdiv($totalSeconds, 60) % 60) . 'm';
+
+        $statusTime = [
+            'coaching'  => $formatHm($statusSeconds[TsaShift::STATUS_COACHING] ?? 0),
+            'dnaHuddle' => $formatHm($statusSeconds[TsaShift::STATUS_DNA_HUDDLE] ?? 0),
+            'huddle'    => $formatHm($statusSeconds[TsaShift::STATUS_HUDDLE] ?? 0),
+            'others'    => $formatHm($othersSeconds),
+        ];
+        $loginTimeDisplay = $formatHm($statusSeconds[TsaShift::STATUS_LOGIN] ?? 0);
+
+        // Aggregate KPI cards (explicit request, 2026-08-19) — Total Leads/
+        // Catered sum the same $rows every table row already shows (never a
+        // separate source of truth); AHT is the true pooled average across
+        // every logged call in range (not an average-of-per-TSA-averages,
+        // same reasoning Dashboard's own team-wide AHT card uses); Unproductive
+        // is the average of each TSA's own unproductive_minutes above.
+        $totalLeadsSum   = $rows->sum('total');
+        $totalCateredSum = $rows->sum('called');
+
+        $overallAhtSeconds = $callEvents->isNotEmpty() ? (int) round($callEvents->avg('duration_seconds')) : null;
+        $overallAhtDisplay = $overallAhtSeconds !== null
+            ? sprintf('%dm %ds', intdiv($overallAhtSeconds, 60), $overallAhtSeconds % 60)
+            : '—';
+
+        $overallUnproductiveDisplay = $rows->isNotEmpty()
+            ? $formatHm((int) round($rows->avg('unproductive_minutes') * 60))
+            : '0h 0m';
+
         // Team-wide AHT trend, one point per calendar day in range (Asia/Manila,
         // matching every other date boundary in this controller) — a per-TSA
         // trend would be unreadable with more than 2-3 TSAs on one line chart,
@@ -128,10 +197,18 @@ class AnalyticsController extends Controller
         ];
 
         return view('calls.analytics', [
-            'rows'      => $rows,
-            'dateFrom'  => $dateFrom,
-            'dateTo'    => $dateTo,
-            'chartData' => $chartData,
+            'rows'                       => $rows,
+            'dateFrom'                   => $dateFrom,
+            'dateTo'                     => $dateTo,
+            'from'                       => $from,
+            'to'                         => $to,
+            'chartData'                  => $chartData,
+            'statusTime'                 => $statusTime,
+            'loginTimeDisplay'           => $loginTimeDisplay,
+            'totalLeadsSum'              => $totalLeadsSum,
+            'totalCateredSum'            => $totalCateredSum,
+            'overallAhtDisplay'          => $overallAhtDisplay,
+            'overallUnproductiveDisplay' => $overallUnproductiveDisplay,
         ]);
     }
 }

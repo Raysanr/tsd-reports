@@ -1,44 +1,48 @@
 @extends('layouts.calls')
 @section('title', 'Call Analytics')
-@section('subtitle', 'Call volume, response time, and outcomes per TSA')
+@section('subtitle', $from->isSameDay($to)
+    ? $from->format('M j, Y')
+    : $from->format('M j') . ' – ' . $to->format('M j, Y'))
+
+@push('topbar-right')
+{{-- Icon-only topbar picker (explicit request, 2026-08-19) — same shared
+     partial/convention as the Dashboard's own (submit='navigate', this page
+     has no wrapping <form> either), replacing the old plain date inputs +
+     Apply button that used to sit in the page body. --}}
+@include('partials.date-picker', [
+    'mode' => 'range', 'id' => 'analyticsDrp',
+    'dateFrom' => $from, 'dateTo' => $to,
+    'submit' => 'navigate', 'navigateBase' => route('calls.analytics'),
+])
+@endpush
 
 @section('content')
-
-<div class="mb-6">
-    <form method="GET" class="flex items-center gap-3 flex-wrap">
-        <input type="date" name="date_from" value="{{ $dateFrom }}"
-               class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-        <span class="text-slate-400 text-sm font-mono">to</span>
-        <input type="date" name="date_to" value="{{ $dateTo }}"
-               class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-        <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">
-            Apply
-        </button>
-    </form>
-</div>
 
 {{-- Chart data — a JSON script tag, not inline JS, so a TSA's display_name
      (free-text, admin-editable) never needs escaping into a JS string
      literal; JSON.parse handles that safely regardless of its contents. --}}
 <script type="application/json" id="analyticsChartData">{!! json_encode($chartData) !!}</script>
 
-{{-- Two tabs, plain show/hide (no page reload) — Overview keeps everything
-     that was already here; AHT is real per-call duration data from
-     CallEvent.duration_seconds (MacroDroid's own call-log report), separate
-     from Overview's lead-based numbers since it answers a different
-     question ("how long are calls taking", not "how many/how fast"). --}}
-<div class="mb-6 border-b border-slate-200 dark:border-slate-700 flex items-center gap-1">
-    <button type="button" id="analyticsTabOverviewBtn" onclick="switchAnalyticsTab('overview')"
-            class="analytics-tab-btn px-4 py-2.5 text-sm font-mono font-semibold border-b-2 border-primary text-primary-dark cursor-pointer">
-        Overview
-    </button>
-    <button type="button" id="analyticsTabAhtBtn" onclick="switchAnalyticsTab('aht')"
-            class="analytics-tab-btn px-4 py-2.5 text-sm font-mono font-semibold border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer">
-        AHT
-    </button>
-</div>
+{{-- Explicit request (2026-08-19): no more Overview/AHT tab switcher — both
+     sections render together on one continuous page. Charts that used to be
+     built lazily on the AHT tab's first reveal (a canvas inside a
+     display:none container measures 0x0) now just build immediately, since
+     nothing here is ever hidden any more (see calls.js's own comment on
+     buildAhtCharts()). --}}
 
-<div id="analyticsTabOverview">
+{{-- KPI row — moved to the very top of the page (explicit request,
+     2026-08-19; used to sit between the Overview and AHT sections). Same
+     icon-badge stat-tile as Call Tracker's own Dashboard. Login Time/
+     Unproductive/Total Leads/Total Catered don't depend on CallEvent data
+     existing, so they render even when the charts below are still in their
+     empty state — only the AHT card itself falls back to "—" then. --}}
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-6">
+    @include('calls.partials.stat-tile', ['label' => 'Login Time', 'value' => $loginTimeDisplay, 'icon' => 'user', 'color' => 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40', 'underline' => 'bg-yellow-500', 'caption' => 'Total time logged in'])
+    @include('calls.partials.stat-tile', ['label' => 'AHT', 'value' => $overallAhtDisplay, 'icon' => 'stopwatch', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'underline' => 'bg-blue-500', 'caption' => 'Average handle time'])
+    @include('calls.partials.stat-tile', ['label' => 'Unproductive', 'value' => $overallUnproductiveDisplay, 'icon' => 'hourglass', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'underline' => 'bg-red-500', 'caption' => 'Average per TSA'])
+    @include('calls.partials.stat-tile', ['label' => 'Total Leads', 'value' => $totalLeadsSum, 'icon' => 'inbox', 'color' => 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40', 'underline' => 'bg-amber-500', 'caption' => 'This range'])
+    @include('calls.partials.stat-tile', ['label' => 'Total Catered Leads', 'value' => $totalCateredSum, 'icon' => 'headset', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'underline' => 'bg-emerald-500', 'caption' => 'This range'])
+</div>
 
 @if(!$chartData['hasAnyCalls'])
 <div id="analyticsChartsEmpty" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm px-6 py-16 text-center mb-6">
@@ -71,7 +75,7 @@
     </div>
 </div>
 
-<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
     <div class="overflow-x-auto">
     <table class="w-full text-sm font-mono">
         <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
@@ -100,9 +104,45 @@
     </div>
 </div>
 
-</div>{{-- /#analyticsTabOverview --}}
-
-<div id="analyticsTabAht" class="hidden">
+{{-- Status Time — team-wide totals only (explicit request, 2026-08-19),
+         not broken out per TSA. Computed from TsaStatusLog in the controller
+         (see its own comment for the walk-the-log-history reasoning);
+         Others folds in Break/Logout/Lock. --}}
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5 mb-6">
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Status Time</h2>
+        <p class="text-xs font-mono text-slate-400 mb-4">Team-wide time spent in each status this range</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
+                <div class="min-w-0">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide">Coaching</p>
+                    <p class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{{ $statusTime['coaching'] }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-purple-500 shrink-0"></span>
+                <div class="min-w-0">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide">DNA Huddle</p>
+                    <p class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{{ $statusTime['dnaHuddle'] }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-orange-500 shrink-0"></span>
+                <div class="min-w-0">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide">Huddle</p>
+                    <p class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{{ $statusTime['huddle'] }}</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-400 shrink-0"></span>
+                <div class="min-w-0">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide">Others</p>
+                    <p class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono tabular-nums">{{ $statusTime['others'] }}</p>
+                    <p class="text-[10px] text-slate-400 font-mono">Break + Logout</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
     @if(!$chartData['hasAnyAht'])
     <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm px-6 py-16 text-center mb-6">
@@ -172,7 +212,5 @@
         </div>
     </div>
     @endif
-
-</div>{{-- /#analyticsTabAht --}}
 
 @endsection

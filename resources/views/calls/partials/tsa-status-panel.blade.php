@@ -7,9 +7,11 @@
     shared layout yet, since that requires touching layouts/app.blade.php +
     User::tsa(), both out of scope for this phase) and Call Rotation (an
     admin setting any TSA's, $target=that TSA's id) — same partial, same JS
-    handlers (toggleStatusPanel/submitStatusChange in calls.js), just a
-    different $options list (Call Rotation includes STATUS_LOCKED,
-    admin-only, a TSA can't pick on themselves).
+    handlers (toggleStatusPanel/submitStatusChange in calls.js). Both now pass
+    SELF_SERVICE_STATUSES as $options (explicit request, 2026-08-19: Lock
+    removed from Call Rotation's own dropdown too — no UI path sets it
+    anymore, though STATUS_LOCKED/the readonly handling below stay in place
+    for any TSA a prior Lock already left in that state).
 
     Required: $id (unique per instance), $options (TsaShift::STATUSES keys
     to show), $current (current status value), $target ('self' or a tsa id).
@@ -24,6 +26,11 @@
     $icons = [
         'available' => '<svg class="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2h-6l-4 3v-3H4a2 2 0 01-2-2V5z"/></svg>',
         'away'      => '<svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" clip-rule="evenodd"/></svg>',
+        // Distinct from 'away' (explicit request, 2026-08-19) — a door-with-
+        // arrow "exit" glyph, slate not amber, matching $dotColor's own
+        // already-separate treatment of Logout below (Logout ends the shift
+        // entirely; Break/Coaching/DNA Huddle are all still-mid-shift pauses).
+        'logout'    => '<svg class="w-4 h-4 text-slate-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z" clip-rule="evenodd"/><path fill-rule="evenodd" d="M19 10a.75.75 0 00-.75-.75H8.704l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943h9.546A.75.75 0 0019 10z" clip-rule="evenodd"/></svg>',
         'lock'      => '<svg class="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 1a4 4 0 00-4 4v2H5a2 2 0 00-2 2v7a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-1V5a4 4 0 00-4-4zm2 6V5a2 2 0 10-4 0v2h4z" clip-rule="evenodd"/></svg>',
     ];
     $dotColor = match(true) {

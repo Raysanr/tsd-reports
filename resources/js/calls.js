@@ -326,6 +326,14 @@ document.addEventListener('keydown', (e) => {
 // just synced shows up here without anyone hitting reload. Skipped while the
 // user has a control inside the table focused (e.g. mid-way through picking
 // a disposition), so a poll landing mid-edit can't wipe out unsaved input.
+//
+// FLIP-animates reordered rows (First/Last/Invert/Play) instead of the
+// previous whole-table opacity cross-fade (explicit request, 2026-08-19: the
+// old fade-everything-out-and-back-in approach read as the entire table
+// blinking just to move the one row a pin toggle actually reordered).
+// Matched old->new by data-lead-id (_table.blade.php) — a row not present in
+// both (a freshly synced lead, or one that scrolled off this page) just
+// renders in its new spot with no animation, same as before.
 function pollLeadsTable() {
     const container = document.getElementById('leads-table-container');
     if (!container) return;
@@ -333,6 +341,11 @@ function pollLeadsTable() {
     if (container.contains(document.activeElement) && document.activeElement !== document.body) {
         return;
     }
+
+    const firstRects = new Map(
+        Array.from(container.querySelectorAll('tr[data-lead-id]'))
+            .map((tr) => [tr.dataset.leadId, tr.getBoundingClientRect()]),
+    );
 
     // cache: 'no-store' — root-caused 2026-08-17: the server's own
     // Cache-Control (no-cache, not no-store) still let the browser serve a
@@ -350,15 +363,28 @@ function pollLeadsTable() {
             if (container.contains(document.activeElement) && document.activeElement !== document.body) {
                 return;
             }
-            // Cross-fade the swap (explicit request, 2026-08-17) rather than
-            // the rows just popping to their new content/order — matters
-            // most right after a pin toggle, where the reorder is the whole
-            // point of the click.
-            container.style.opacity = '0';
-            setTimeout(() => {
-                container.innerHTML = html;
-                container.style.opacity = '1';
-            }, 150);
+
+            container.innerHTML = html;
+
+            // Last -> Invert -> Play: for every row present before AND after,
+            // jump it back to its old (First) position with no transition,
+            // then release that transform with one on the next frame so it
+            // visibly slides from old to new. translateY only — a reorder
+            // never changes column widths, so X never needs correcting.
+            container.querySelectorAll('tr[data-lead-id]').forEach((tr) => {
+                const before = firstRects.get(tr.dataset.leadId);
+                if (!before) return;
+                const delta = before.top - tr.getBoundingClientRect().top;
+                if (Math.abs(delta) < 1) return;
+
+                tr.style.transition = 'none';
+                tr.style.transform = `translateY(${delta}px)`;
+                tr.getBoundingClientRect(); // force layout so the jump above commits before Play
+                requestAnimationFrame(() => {
+                    tr.style.transition = 'transform 220ms ease';
+                    tr.style.transform = '';
+                });
+            });
         })
         .catch(() => {});
 }
@@ -1016,40 +1042,6 @@ document.addEventListener('keydown', (e) => {
 // the brand accent and shouldn't share it. Guarded the same way every other
 // page-specific block in this file is — canvases only exist on the Call
 // Analytics page, so this is a no-op everywhere else.
-// Overview/AHT tab switcher (Call Analytics page) — plain show/hide, no
-// page reload. The AHT charts are built lazily, the first time that tab is
-// actually switched to (see below): Chart.js measures its canvas at
-// creation time, and a canvas inside a display:none container measures as
-// 0x0, which draws a blank/broken chart that a later show never fixes.
-// Building it on first reveal instead avoids that entirely.
-let ahtChartsBuilt = false;
-window.switchAnalyticsTab = function (tab) {
-    const overviewPanel = document.getElementById('analyticsTabOverview');
-    const ahtPanel       = document.getElementById('analyticsTabAht');
-    const overviewBtn    = document.getElementById('analyticsTabOverviewBtn');
-    const ahtBtn         = document.getElementById('analyticsTabAhtBtn');
-    if (!overviewPanel || !ahtPanel) return;
-
-    const showingAht = tab === 'aht';
-    overviewPanel.classList.toggle('hidden', showingAht);
-    ahtPanel.classList.toggle('hidden', !showingAht);
-
-    const activeClasses   = ['border-primary', 'text-primary-dark'];
-    const inactiveClasses = ['border-transparent', 'text-slate-500', 'dark:text-slate-400'];
-    [[overviewBtn, !showingAht], [ahtBtn, showingAht]].forEach(([btn, isActive]) => {
-        if (!btn) return;
-        btn.classList.toggle('border-primary', isActive);
-        btn.classList.toggle('text-primary-dark', isActive);
-        btn.classList.toggle('border-transparent', !isActive);
-        btn.classList.toggle('text-slate-500', !isActive);
-    });
-
-    if (showingAht && !ahtChartsBuilt) {
-        ahtChartsBuilt = true;
-        window.buildAhtCharts?.();
-    }
-};
-
 (function initAnalyticsCharts() {
     const dataEl = document.getElementById('analyticsChartData');
     if (!dataEl) return;
@@ -1077,12 +1069,14 @@ window.switchAnalyticsTab = function (tab) {
     // disagree about how a duration reads.
     const formatSeconds = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
 
-    // Exposed separately from the 3 Overview charts below (and NOT gated on
-    // data.hasAnyCalls, a completely different data source — Lead status vs
-    // real CallEvent durations) — called lazily by switchAnalyticsTab() the
-    // first time the AHT tab is actually shown, since a canvas built while
-    // its container is display:none measures 0x0 and draws blank.
-    window.buildAhtCharts = function () {
+    // Separate from the 3 charts below (and NOT gated on data.hasAnyCalls, a
+    // completely different data source — Lead status vs real CallEvent
+    // durations). Used to be exposed as window.buildAhtCharts and called
+    // lazily on the AHT tab's first reveal, since a canvas built while its
+    // container is display:none measures 0x0 and draws blank — now that both
+    // sections render together with nothing ever hidden (explicit request,
+    // 2026-08-19: no more tab switcher), it just runs immediately below.
+    const buildAhtCharts = function () {
         if (!data.hasAnyAht) return;
 
         const byTsaCanvas = document.getElementById('chartAhtByTsa');
@@ -1143,6 +1137,7 @@ window.switchAnalyticsTab = function (tab) {
             });
         }
     };
+    buildAhtCharts();
 
     // No TSA has a single logged call in this range — an empty/all-zero bar
     // chart reads as broken, not as "no data yet" (empty-data-state

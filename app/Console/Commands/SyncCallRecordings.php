@@ -13,21 +13,23 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Sums real per-hour call-duration totals from the Google Drive folders each
- * TSA's device auto-uploads recordings into, replacing the "3 minutes per
- * answered call" flat OPT assumption on the individual TSA page with real
- * data wherever it's available (see TsaPerformanceController::showTsa()).
+ * TSA's phone auto-uploads recordings into (explicit request, 2026-08-19 —
+ * an Android auto-sync app, e.g. "Autosync for Google Drive", mirrors each
+ * phone's local call-recording folder straight into Drive; nothing in this
+ * app does the uploading), replacing the "3 minutes per answered call" flat
+ * OPT assumption on the individual TSA page with real data wherever it's
+ * available (see TsaPerformanceController::showTsa()).
  *
- * The real folder tree (TSD 2026 RECORDING > TEAM <X> > <MONTH> CALL
- * RECORDINGS > <TSA NAME> > <MONTH> <YEAR> > <MONTH> <DAY> > ...) nests
- * inconsistently below the TSA-name level — sometimes a "(FOLLOW UP)"
- * variant, sometimes files sitting directly in the TSA folder with no date
- * subfolder at all. Rather than trust any of that folder naming for WHICH
- * files belong to the target date, every recording's own filename
- * ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is the single source of truth for
- * that. Folder naming IS trusted, though, for narrowing down WHICH files to
- * even look at in the first place — see collectFilesForDate()'s fast path,
- * which navigates straight to the target date's own folder instead of
- * listing a TSA's entire multi-month upload history on every run.
+ * Folder tree: TSD CALLS > SH NATURALS|EYECARE > <TSA tsa_key or
+ * display_name, either matches — see namesMatch()> > every recording flat,
+ * no date subfolders (simplified 2026-08-19 from an earlier, deeper "<MONTH>
+ * CALL RECORDINGS> ... > <MONTH> <DAY>" tree — that nesting no longer
+ * exists, the settings below just need to point at the new root). Every
+ * recording's own filename ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is still
+ * the single source of truth for which date/hour it counts toward
+ * (parseFilename()) — folder location was never trusted for that, only for
+ * narrowing which files to look at, which now means "everything in this
+ * TSA's one folder" rather than a specific day's own subfolder.
  */
 class SyncCallRecordings extends Command
 {
@@ -116,7 +118,6 @@ class SyncCallRecordings extends Command
             ? Carbon::parse($this->option('date'), 'Asia/Manila')
             : Carbon::now('Asia/Manila');
         $dateString = $date->toDateString();
-        $monthLabel = strtoupper($date->format('F')); // e.g. "JULY"
 
         $token = $this->getAccessToken($clientId, $clientSecret, $refreshToken);
         if (!$token) {
@@ -138,26 +139,23 @@ class SyncCallRecordings extends Command
             $shifts = TsaShift::where('team', $orderTeam)->get();
             if ($shifts->isEmpty()) continue;
 
-            $monthFolders = $this->listChildren($token, $rootId);
-            $monthFolder  = collect($monthFolders)->first(
-                fn($f) => str_contains(strtoupper($f['name']), $monthLabel)
-                    && str_contains(strtoupper($f['name']), 'CALL RECORDING')
-            );
-            if (!$monthFolder) {
-                $this->warn("No \"{$monthLabel} CALL RECORDINGS\" folder found for {$orderTeam} — skipped.");
-                continue;
-            }
-
-            $tsaFolders = $this->listChildren($token, $monthFolder['id']);
+            // TSA folders sit directly under the team root now (TSD CALLS >
+            // SH NATURALS|EYECARE > <tsa_key or display_name>) — no
+            // month-level folder to find first any more.
+            $tsaFolders = $this->listChildren($token, $rootId);
 
             foreach ($shifts as $shift) {
                 $tsaFolder = collect($tsaFolders)->first(
                     fn($f) => $this->namesMatch($f['name'], $shift->display_name)
                         || $this->namesMatch($f['name'], $shift->tsa_key)
                 );
-                if (!$tsaFolder) continue; // no recordings folder for this TSA this month
+                if (!$tsaFolder) continue; // no recordings folder for this TSA
 
-                $files = $this->collectFilesForDate($token, $tsaFolder['id'], $date, $monthLabel);
+                // Flat — every recording sits directly in the TSA's own
+                // folder (no date subfolders to navigate), so this just
+                // lists everything there; parseFilename() below is still
+                // what actually decides which of those match $dateString.
+                $files = $this->collectFilesRecursively($token, $tsaFolder['id'], 0);
 
                 foreach ($files as $file) {
                     if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
@@ -230,50 +228,6 @@ class SyncCallRecordings extends Command
         return strtoupper(trim($folderName)) === strtoupper(trim($tsaName));
     }
 
-    /** Fast path: confirmed live across every TSA checked that the real folder
-     *  tree nests a "<MONTH> <YEAR>" folder (e.g. "JULY 2026") directly under
-     *  each TSA, and a "<MONTH> <DAY>" folder (e.g. "JULY 29", no leading zero)
-     *  under THAT, holding that day's files directly. Navigating straight there
-     *  avoids listing the TSA's entire multi-month file history on every single
-     *  run — confirmed live this was 2,257 files for one TSA alone (~30s just
-     *  to list, before a single file is even downloaded), when only the ~50
-     *  files for one actual target day are ever relevant. This is the direct
-     *  cause of AHT/OPT showing real data for only a couple of a day's hours
-     *  despite Drive having recordings for many more: the full walk was too
-     *  slow to reliably finish (every TSA, every 2-hourly run) before running
-     *  out of time/being interrupted, so which hours got downloaded before
-     *  that happened was effectively random.
-     *
-     *  Falls back to the original full recursive walk (slow, but handles the
-     *  messier variants the class doc already knows about — "(FOLLOW UP)"
-     *  folders, files with no date subfolder at all) if the fast path doesn't
-     *  find a matching day folder, so no previously-working case regresses. */
-    private function collectFilesForDate(string $token, string $tsaFolderId, Carbon $date, string $monthLabel): array
-    {
-        $yearMonthLabel = $monthLabel . ' ' . $date->format('Y');
-        $dayLabel       = $monthLabel . ' ' . (int) $date->format('j');
-
-        $level1 = $this->listChildren($token, $tsaFolderId);
-        $yearMonthFolder = collect($level1)->first(
-            fn($f) => $f['mimeType'] === 'application/vnd.google-apps.folder'
-                && str_contains(strtoupper(trim($f['name'])), $yearMonthLabel)
-        );
-
-        if ($yearMonthFolder) {
-            $level2 = $this->listChildren($token, $yearMonthFolder['id']);
-            $dayFolder = collect($level2)->first(
-                fn($f) => $f['mimeType'] === 'application/vnd.google-apps.folder'
-                    && strtoupper(trim($f['name'])) === $dayLabel
-            );
-
-            if ($dayFolder) {
-                return $this->collectFilesRecursively($token, $dayFolder['id'], 0);
-            }
-        }
-
-        return $this->collectFilesRecursively($token, $tsaFolderId, 0);
-    }
-
     /** "<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a" — the phone number's own format
      *  varies (with/without +63, spacing), so this only anchors on the
      *  date+time portion, which is consistently formatted across every
@@ -312,14 +266,33 @@ class SyncCallRecordings extends Command
         return $res->successful() ? $res->json('access_token') : null;
     }
 
+    /** Paginated (explicit fix, 2026-08-19) — a TSA's folder is now a single
+     *  flat list of every recording they've ever had (no date subfolders to
+     *  keep any one folder small any more), so it WILL eventually pass 200
+     *  files. A single unpaginated page silently dropped everything past the
+     *  200th with no error — this loops nextPageToken until Drive stops
+     *  returning one, same "MAX_DOWNLOADS_PER_RUN caps actual downloads, not
+     *  listings" reasoning already in place for why this is safe to leave
+     *  otherwise unbounded. */
     private function listChildren(string $token, string $folderId): array
     {
-        $res = Http::withToken($token)->timeout(20)->get('https://www.googleapis.com/drive/v3/files', [
-            'q'        => "'{$folderId}' in parents and trashed = false",
-            'fields'   => 'files(id,name,mimeType)',
-            'pageSize' => 200,
-        ]);
-        return $res->successful() ? $res->json('files', []) : [];
+        $files = [];
+        $pageToken = null;
+
+        do {
+            $res = Http::withToken($token)->timeout(20)->get('https://www.googleapis.com/drive/v3/files', array_filter([
+                'q'         => "'{$folderId}' in parents and trashed = false",
+                'fields'    => 'nextPageToken, files(id,name,mimeType)',
+                'pageSize'  => 200,
+                'pageToken' => $pageToken,
+            ]));
+            if (!$res->successful()) break;
+
+            $files = array_merge($files, $res->json('files', []));
+            $pageToken = $res->json('nextPageToken');
+        } while ($pageToken);
+
+        return $files;
     }
 
     private function downloadFile(string $token, string $fileId): ?string

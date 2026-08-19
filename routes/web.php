@@ -161,9 +161,6 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
             Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');
 
-            Route::get('/call-recordings', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'index'])->name('call-recordings');
-            Route::get('/call-recordings/{recording}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
-
             // Same shared SettingsController@index as TSD Reports' own
             // /settings — reuses the one form/data, just rendered inside
             // Call Tracker's own layout (see SettingsController::index()'s

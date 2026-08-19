@@ -282,16 +282,26 @@
                         placeholder="{{ $driveRefreshTokenMasked ? 'Saved: ' . $driveRefreshTokenMasked . ' — leave blank to keep it' : 'Paste your Refresh Token' }}"
                         class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                 </div>
+                {{-- Folder tree simplified 2026-08-19 (explicit request) — each ID
+                     below is the TEAM-level folder id, i.e. whatever's at
+                     TSD CALLS > SH NATURALS (or > EYECARE) — copy it from that
+                     folder's URL in Drive, the long id after /folders/. Inside
+                     each, SyncCallRecordings expects one subfolder per TSA
+                     (named either their tsa_key or full display name — see
+                     TSA Management for which), holding every one of that
+                     TSA's recordings flat, no further date subfolders. --}}
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">SH Naturals Folder ID</label>
                         <input type="text" name="drive_folder_sh_naturals" value="{{ old('drive_folder_sh_naturals', $driveFolderShNaturals) }}"
-                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                            placeholder="TSD CALLS &gt; SH NATURALS folder id"
+                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Eyecare Folder ID</label>
                         <input type="text" name="drive_folder_eyecare" value="{{ old('drive_folder_eyecare', $driveFolderEyecare) }}"
-                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                            placeholder="TSD CALLS &gt; EYECARE folder id"
+                            class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                     </div>
                 </div>
             </div>
