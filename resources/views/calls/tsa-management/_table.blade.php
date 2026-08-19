@@ -226,6 +226,15 @@
                                         <li>Confirm the <strong>Webhook URL</strong> below is actually reachable from {{ $tsa->display_name }}'s phone, not just this computer — if it shows <code>localhost</code> or <code>127.0.0.1</code>, replace that part with this machine's real LAN IP (or your production domain) before pasting it into Macro 1.</li>
                                     </ul>
 
+                                    <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Keep it running when the phone isn't actively being used</p>
+                                    <p class="mt-1">Macros 2–4 below use an <strong>HTTP Server Request</strong> trigger — MacroDroid keeps a tiny local web server alive on the phone waiting for that click, and Android's battery management will happily kill that the moment it decides the app is "inactive." If Remote dial/mute/hang up only work while MacroDroid is open on screen, one of these is why:</p>
+                                    <ul class="list-disc list-inside mt-1 space-y-1 text-slate-600 dark:text-slate-300">
+                                        <li>Don't swipe MacroDroid away in the Recent Apps switcher — pressing Home is fine, swiping the card away force-kills it (and its local server) on most phones.</li>
+                                        <li>Battery → find MacroDroid → set to <strong>Unrestricted</strong> (not "Optimized"), not just the one-time popup on first launch.</li>
+                                        <li>Keep MacroDroid's own persistent notification turned on — it deliberately shows one so Android treats it as a foreground service and leaves it alone. Don't disable notifications for the app.</li>
+                                        <li>On Xiaomi/MIUI, Oppo/ColorOS, Vivo, and Samsung phones there's a <em>second</em>, manufacturer-specific battery manager on top of stock Android's — look for "Autostart" (MIUI) or "Allow background activity" (ColorOS/Vivo) or "Sleeping apps" (Samsung, make sure it's <strong>not</strong> in that list) and allow MacroDroid there too. This is the most common reason it still stops even after the two steps above.</li>
+                                    </ul>
+
                                     <p class="mt-4 font-bold text-slate-700 dark:text-slate-200">Macro 1 of 4 — "{{ $tsa->tsa_key }}" (call logging)</p>
                                     <ol class="list-decimal list-inside mt-2 space-y-2 text-slate-600 dark:text-slate-300">
                                         <li>Tap <strong>+</strong> to start a new macro.</li>
