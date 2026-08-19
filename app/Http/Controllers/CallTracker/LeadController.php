@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\GoogleDriveClient;
 use App\Support\PancakeConversationApi;
 use App\Support\PancakeOrderTagApi;
 use App\Support\PancakeProductApi;
@@ -222,6 +223,125 @@ class LeadController extends Controller
         LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
 
         return response()->json(['success' => true, 'message' => "Transferred to {$newTsa->display_name}."]);
+    }
+
+    /**
+     * JSON feed for the "listen to recording" popup (explicit request,
+     * 2026-08-19) — lists every Drive recording matching this lead's phone
+     * number in its assigned TSA's own Drive folder (see
+     * SyncCallRecordings' own doc comment for the folder tree/filename
+     * format this reads; matchingRecordingFiles() below is the same idea,
+     * just matched by phone instead of by date). A lead can have more than
+     * one match (e.g. a callback attempt), newest first.
+     */
+    public function recordings(Lead $lead, GoogleDriveClient $drive)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $files = $this->matchingRecordingFiles($lead, $drive);
+        if ($files === null) {
+            return response()->json(['success' => false, 'error' => "Google Drive isn't connected yet — set it up in Settings."]);
+        }
+
+        return response()->json(['success' => true, 'recordings' => collect($files)->map(fn ($f) => [
+            'id'    => $f['id'],
+            'label' => $this->recordingLabel($f['name']),
+        ])->values()]);
+    }
+
+    /**
+     * Streams one matched recording's actual audio bytes from Drive —
+     * proxied through here rather than handing the browser a Drive URL
+     * directly, since that would require exposing the shared Drive access
+     * token client-side. Re-resolves and re-checks $fileId against this
+     * lead's own TSA folder (not just trusted from the URL) so a TSA can't
+     * swap in an arbitrary Drive file id belonging to a lead/TSA they don't
+     * have access to.
+     */
+    public function streamRecording(Lead $lead, string $fileId, GoogleDriveClient $drive)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $files = $this->matchingRecordingFiles($lead, $drive);
+        $file  = collect($files)->firstWhere('id', $fileId);
+        if (!$file) {
+            abort(404);
+        }
+
+        $token = $drive->accessToken();
+        $bytes = $token ? $drive->downloadFile($token, $fileId) : null;
+        if ($bytes === null) {
+            abort(404);
+        }
+
+        return response($bytes, 200, [
+            'Content-Type'   => 'audio/mp4',
+            'Content-Length' => (string) strlen($bytes),
+        ]);
+    }
+
+    /** Matches this lead's phone number against every recording filename in
+     *  its TSA's own Drive folder — same "<phone> <date> <time>.m4a" format
+     *  SyncCallRecordings::parseFilename() reads, just matched by phone
+     *  instead of by date. Compares only the trailing 9 digits: a lead's
+     *  stored phone_number and the phone's own recorder can format the same
+     *  real number differently (with/without a leading 0 or +63), but the
+     *  last 9 digits of a PH mobile number are stable either way. Returns
+     *  null (not an empty array) when Drive isn't configured/reachable at
+     *  all — distinct from "found the TSA's folder but genuinely no matches
+     *  yet", which the caller needs to tell apart to show the right message. */
+    private function matchingRecordingFiles(Lead $lead, GoogleDriveClient $drive): ?array
+    {
+        if (!$lead->tsa_id || !$lead->phone_number) {
+            return [];
+        }
+
+        $token = $drive->accessToken();
+        if (!$token) {
+            return null;
+        }
+
+        $folder = $drive->resolveTsaFolder($token, $lead->tsa);
+        if (!$folder) {
+            return [];
+        }
+
+        $digits = preg_replace('/[^0-9]/', '', $lead->phone_number);
+        $last9  = substr($digits, -9);
+        if (strlen($last9) < 9) {
+            return [];
+        }
+
+        return collect($drive->listChildren($token, $folder['id']))
+            ->filter(fn ($f) => str_ends_with(strtolower($f['name']), '.m4a')
+                && str_contains(preg_replace('/[^0-9]/', '', $f['name']), $last9))
+            ->sortByDesc(fn ($f) => $this->parsedRecordingMoment($f['name'])?->timestamp ?? 0)
+            ->values()
+            ->all();
+    }
+
+    /** "<phone> 2026-08-19 14-30-05.m4a" -> a real Carbon instant, or null
+     *  if the filename doesn't match the expected format at all. */
+    private function parsedRecordingMoment(string $filename): ?Carbon
+    {
+        if (!preg_match('/(\d{4}-\d{2}-\d{2})\s+(\d{2})-(\d{2})-(\d{2})/', $filename, $m)) {
+            return null;
+        }
+        return Carbon::createFromFormat('Y-m-d H:i:s', "{$m[1]} {$m[2]}:{$m[3]}:{$m[4]}", 'Asia/Manila');
+    }
+
+    /** "<phone> 2026-08-19 14-30-05.m4a" -> "Aug 19, 2:30 PM" for the popup's list. */
+    private function recordingLabel(string $filename): string
+    {
+        return $this->parsedRecordingMoment($filename)?->format('M j, g:i A') ?? $filename;
     }
 
     /**

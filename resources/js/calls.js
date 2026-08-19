@@ -604,6 +604,69 @@ document.addEventListener('click', (e) => {
     if (e.target && e.target.id === 'conversationModal') window.closeConversationModal();
 });
 
+// Call recording playback (explicit request, 2026-08-19) — lists every
+// Drive recording matching this lead's phone number (fetched fresh each
+// open, not cached — the phone's auto-upload may land between page loads)
+// and streams whichever one is picked through our own backend proxy rather
+// than a raw Drive URL.
+window.openRecordingModal = function (leadId) {
+    const modal = document.getElementById('recordingModal');
+    const list = document.getElementById('recordingModalList');
+    const player = document.getElementById('recordingModalPlayer');
+    if (!modal || !list || !player) return;
+
+    showModal(modal);
+    player.pause();
+    player.removeAttribute('src');
+    list.innerHTML = '<p class="text-slate-400 text-center text-sm py-6">Looking in Drive…</p>';
+
+    fetch(`/calls/leads/${leadId}/recordings`, { headers: { Accept: 'application/json' } })
+        .then((res) => res.json())
+        .then((data) => {
+            if (!data.success) {
+                list.innerHTML = `<p class="text-red-500 text-center text-sm py-6">${escapeHtml(data.error || 'Could not check Drive for this recording.')}</p>`;
+                return;
+            }
+            if (!data.recordings.length) {
+                list.innerHTML = '<p class="text-slate-400 text-center text-sm py-6">No recording found yet — it may still be syncing from the phone.</p>';
+                return;
+            }
+            list.innerHTML = data.recordings.map((r, i) => `
+                <button type="button" data-recording-id="${escapeHtml(r.id)}"
+                        class="recording-option w-full flex items-center gap-2 text-left text-sm font-mono text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg px-3 py-2 cursor-pointer ${i === 0 ? 'bg-slate-100 dark:bg-slate-800' : ''}">
+                    <svg class="w-3.5 h-3.5 text-emerald-500 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    ${escapeHtml(r.label)}
+                </button>`).join('');
+            list.querySelectorAll('.recording-option').forEach((btn) => {
+                btn.addEventListener('click', () => {
+                    list.querySelectorAll('.recording-option').forEach((b) => b.classList.remove('bg-slate-100', 'dark:bg-slate-800'));
+                    btn.classList.add('bg-slate-100', 'dark:bg-slate-800');
+                    player.src = `/calls/leads/${leadId}/recordings/${btn.dataset.recordingId}/stream`;
+                    player.play();
+                });
+            });
+            // Auto-load the most recent one so a single-recording lead can
+            // just hit play immediately without an extra click.
+            list.querySelector('.recording-option')?.dispatchEvent(new Event('click'));
+        })
+        .catch(() => {
+            list.innerHTML = '<p class="text-red-500 text-center text-sm py-6">Something went wrong checking Drive.</p>';
+        });
+};
+
+window.closeRecordingModal = function () {
+    document.getElementById('recordingModalPlayer')?.pause();
+    hideModal(document.getElementById('recordingModal'));
+};
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') window.closeRecordingModal();
+});
+
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'recordingModal') window.closeRecordingModal();
+});
+
 // Outcome picker — a shared modal (see #outcomeTagModal in
 // calls/partials/modals.blade.php) showing a multi-select checklist of the
 // lead's own Pancake page's REAL tag catalog (LeadController::searchTags()),

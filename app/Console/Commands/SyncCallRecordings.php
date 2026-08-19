@@ -5,10 +5,10 @@ namespace App\Console\Commands;
 use App\Models\CallRecordingHour;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\GoogleDriveClient;
 use App\Support\SyncHealth;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -36,12 +36,10 @@ class SyncCallRecordings extends Command
     protected $signature = 'calls:sync-recordings {--date= : Date to sync (Y-m-d, Philippine time), defaults to today}';
     protected $description = 'Sum real call-recording durations per TSA per hour from Google Drive';
 
-    /** Setting key holding each team's root "TEAM <X>" folder id, keyed by the
-     *  literal order_team string stored on tsa_shifts.team. */
-    private const FOLDER_SETTING_KEYS = [
-        'SH Naturals'  => 'drive_folder_sh_naturals',
-        'Eyecare Team' => 'drive_folder_eyecare',
-    ];
+    public function __construct(private GoogleDriveClient $drive)
+    {
+        parent::__construct();
+    }
 
     /** Recursion guard for collectFilesRecursively() — the messiest real TSA
      *  folder seen while mapping this out was 3 levels deep (TSA > date
@@ -119,7 +117,7 @@ class SyncCallRecordings extends Command
             : Carbon::now('Asia/Manila');
         $dateString = $date->toDateString();
 
-        $token = $this->getAccessToken($clientId, $clientSecret, $refreshToken);
+        $token = $this->drive->accessToken();
         if (!$token) {
             $this->recordFailure('Failed to refresh Google Drive access token — check the stored credentials.');
             return self::FAILURE;
@@ -129,7 +127,7 @@ class SyncCallRecordings extends Command
         $totals = [];
         $downloadCount = 0;
 
-        foreach (self::FOLDER_SETTING_KEYS as $orderTeam => $settingKey) {
+        foreach (GoogleDriveClient::FOLDER_SETTING_KEYS as $orderTeam => $settingKey) {
             $rootId = Setting::get($settingKey);
             if (!$rootId) {
                 $this->warn("No Drive folder configured for {$orderTeam} ({$settingKey}) — skipped.");
@@ -142,12 +140,12 @@ class SyncCallRecordings extends Command
             // TSA folders sit directly under the team root now (TSD CALLS >
             // SH NATURALS|EYECARE > <tsa_key or display_name>) — no
             // month-level folder to find first any more.
-            $tsaFolders = $this->listChildren($token, $rootId);
+            $tsaFolders = $this->drive->listChildren($token, $rootId);
 
             foreach ($shifts as $shift) {
                 $tsaFolder = collect($tsaFolders)->first(
-                    fn($f) => $this->namesMatch($f['name'], $shift->display_name)
-                        || $this->namesMatch($f['name'], $shift->tsa_key)
+                    fn($f) => $this->drive->namesMatch($f['name'], $shift->display_name)
+                        || $this->drive->namesMatch($f['name'], $shift->tsa_key)
                 );
                 if (!$tsaFolder) continue; // no recordings folder for this TSA
 
@@ -166,7 +164,7 @@ class SyncCallRecordings extends Command
                     $parsed = $this->parseFilename($file['name']);
                     if (!$parsed || $parsed['date'] !== $dateString) continue;
 
-                    $bytes = $this->downloadFile($token, $file['id']);
+                    $bytes = $this->drive->downloadFile($token, $file['id']);
                     if ($bytes === null) continue;
                     $downloadCount++;
 
@@ -223,11 +221,6 @@ class SyncCallRecordings extends Command
         return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 20;
     }
 
-    private function namesMatch(string $folderName, string $tsaName): bool
-    {
-        return strtoupper(trim($folderName)) === strtoupper(trim($tsaName));
-    }
-
     /** "<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a" — the phone number's own format
      *  varies (with/without +63, spacing), so this only anchors on the
      *  date+time portion, which is consistently formatted across every
@@ -245,7 +238,7 @@ class SyncCallRecordings extends Command
         if ($depth > self::MAX_DEPTH) return [];
 
         $files = [];
-        foreach ($this->listChildren($token, $folderId) as $child) {
+        foreach ($this->drive->listChildren($token, $folderId) as $child) {
             if ($child['mimeType'] === 'application/vnd.google-apps.folder') {
                 $files = array_merge($files, $this->collectFilesRecursively($token, $child['id'], $depth + 1));
             } elseif (str_ends_with(strtolower($child['name']), '.m4a')) {
@@ -253,53 +246,6 @@ class SyncCallRecordings extends Command
             }
         }
         return $files;
-    }
-
-    private function getAccessToken(string $clientId, string $clientSecret, string $refreshToken): ?string
-    {
-        $res = Http::asForm()->timeout(15)->post('https://oauth2.googleapis.com/token', [
-            'client_id'     => $clientId,
-            'client_secret' => $clientSecret,
-            'refresh_token' => $refreshToken,
-            'grant_type'    => 'refresh_token',
-        ]);
-        return $res->successful() ? $res->json('access_token') : null;
-    }
-
-    /** Paginated (explicit fix, 2026-08-19) — a TSA's folder is now a single
-     *  flat list of every recording they've ever had (no date subfolders to
-     *  keep any one folder small any more), so it WILL eventually pass 200
-     *  files. A single unpaginated page silently dropped everything past the
-     *  200th with no error — this loops nextPageToken until Drive stops
-     *  returning one, same "MAX_DOWNLOADS_PER_RUN caps actual downloads, not
-     *  listings" reasoning already in place for why this is safe to leave
-     *  otherwise unbounded. */
-    private function listChildren(string $token, string $folderId): array
-    {
-        $files = [];
-        $pageToken = null;
-
-        do {
-            $res = Http::withToken($token)->timeout(20)->get('https://www.googleapis.com/drive/v3/files', array_filter([
-                'q'         => "'{$folderId}' in parents and trashed = false",
-                'fields'    => 'nextPageToken, files(id,name,mimeType)',
-                'pageSize'  => 200,
-                'pageToken' => $pageToken,
-            ]));
-            if (!$res->successful()) break;
-
-            $files = array_merge($files, $res->json('files', []));
-            $pageToken = $res->json('nextPageToken');
-        } while ($pageToken);
-
-        return $files;
-    }
-
-    private function downloadFile(string $token, string $fileId): ?string
-    {
-        $res = Http::withToken($token)->timeout(30)
-            ->get("https://www.googleapis.com/drive/v3/files/{$fileId}", ['alt' => 'media']);
-        return $res->successful() ? $res->body() : null;
     }
 
     /** Minimal MP4/M4A atom parser — walks top-level boxes to find moov > mvhd,

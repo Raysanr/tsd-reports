@@ -82,6 +82,22 @@
                             </svg>
                         </button>
                         @endif
+                        {{-- Listen to the call recording (explicit request, 2026-08-19)
+                             — only shown once the TSA has actually called this customer
+                             ($lead->called_at set by updateDisposition()); nothing to
+                             play before then. Opens a popup that lists whatever Drive
+                             recording(s) match this lead's phone number in real time
+                             (LeadController::recordings()) rather than assuming one
+                             exists — the phone's own auto-upload may not have synced
+                             yet even after a real call. --}}
+                        @if($lead->called_at)
+                        <button type="button" onclick="openRecordingModal({{ $lead->id }})" title="Listen to call recording"
+                           class="inline-flex items-center justify-center w-5 h-5 rounded text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+                            </svg>
+                        </button>
+                        @endif
                     </div>
                 </td>
                 <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $lead->product?->display_name ?? '—' }}</td>

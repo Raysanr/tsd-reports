@@ -114,6 +114,41 @@
     </div>
 </div>
 
+{{-- Call recording playback modal (explicit request, 2026-08-19) — lists
+     every Drive recording matching this lead's phone number
+     (LeadController::recordings(), matched by phone rather than a stored
+     link since nothing writes that link anywhere — the phone's own
+     auto-upload is the only thing that puts a file in Drive at all).
+     Picking one loads it into the <audio> element below, streamed through
+     our own backend (LeadController::streamRecording()) rather than a raw
+     Drive URL, since that would require exposing the shared Drive access
+     token to the browser. Opened via openRecordingModal(leadId) in
+     calls.js. --}}
+<div id="recordingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm max-h-[70vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
+            <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono flex items-center gap-2">
+                <svg class="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"/>
+                </svg>
+                Call recording
+            </h3>
+            <button type="button" onclick="closeRecordingModal()" aria-label="Close"
+                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div id="recordingModalList" class="overflow-y-auto p-2 space-y-1">
+            {{-- Populated by openRecordingModal() in calls.js --}}
+        </div>
+        <div class="px-4 py-3 border-t border-slate-100 dark:border-slate-700 shrink-0">
+            <audio id="recordingModalPlayer" controls class="w-full h-10" preload="none"></audio>
+        </div>
+    </div>
+</div>
+
 {{-- Calling modal — click-to-call (My Leads table + lead detail page). When
      the lead's TSA has a Dialer address configured (Call Rotation), the
      number is dialed, muted/unmuted, AND ended straight from here: all three
