@@ -142,6 +142,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/upsell', [\App\Http\Controllers\CallTracker\LeadController::class, 'addUpsell'])->name('leads.upsell');
         Route::post('/leads/{lead}/call-click', [\App\Http\Controllers\CallTracker\LeadController::class, 'logCallClick'])->name('leads.call-click');
         Route::post('/leads/{lead}/pin', [\App\Http\Controllers\CallTracker\LeadController::class, 'togglePin'])->name('leads.pin');
+        Route::post('/leads/{lead}/transfer', [\App\Http\Controllers\CallTracker\LeadController::class, 'transfer'])->name('leads.transfer');
 
         Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');

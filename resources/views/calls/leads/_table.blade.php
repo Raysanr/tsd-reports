@@ -86,7 +86,25 @@
                 </td>
                 <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $lead->product?->display_name ?? '—' }}</td>
                 @if(auth()->user()->isAtLeastAdmin())
-                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $lead->tsa?->display_name ?? '—' }}</td>
+                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                    {{-- Transfer to another TSA (explicit request, 2026-08-19) —
+                         admin-only, same guard as this column itself. Submits on
+                         change via fetch (see calls.js's .transfer-form listener,
+                         same pattern as the pin-form above), then re-polls the
+                         table so the select reflects whatever actually persisted
+                         even if the request failed. --}}
+                    <form method="POST" action="{{ route('calls.leads.transfer', $lead) }}" class="transfer-form">
+                        @csrf
+                        <select name="tsa_id" class="transfer-select text-xs font-mono bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 rounded-lg px-1.5 py-1 -ml-1.5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent">
+                            @if(!$lead->tsa_id)
+                            <option value="" disabled selected>Unassigned</option>
+                            @endif
+                            @foreach($tsas as $tsa)
+                            <option value="{{ $tsa->id }}" {{ $lead->tsa_id === $tsa->id ? 'selected' : '' }}>{{ $tsa->display_name }}</option>
+                            @endforeach
+                        </select>
+                    </form>
+                </td>
                 @endif
                 <td class="px-4 py-3">
                     <span @class([

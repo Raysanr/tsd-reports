@@ -182,6 +182,49 @@ class LeadController extends Controller
     }
 
     /**
+     * Reassigns a lead to a different TSA — admin-only (the TSA column
+     * itself is already admin-only, see leads/_table.blade.php). Resets
+     * assigned_at to now() so the new TSA's overdue-threshold clock starts
+     * fresh rather than inheriting however long the lead already sat with
+     * the old TSA, and so this lead attributes to the NEW tsa on today's
+     * TSA Performance/Dashboard tables (both anchored on assigned_at, same
+     * convention as round-robin assignment itself). A still-unassigned lead
+     * flips to 'assigned' like a normal round-robin pickup would; an
+     * already-called lead keeps its status/disposition as-is — transferring
+     * ownership doesn't erase what was already logged.
+     */
+    public function transfer(Request $request, Lead $lead)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin()) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'tsa_id' => ['required', 'integer', 'exists:tsa_shifts,id'],
+        ]);
+
+        $newTsa = TsaShift::findOrFail($data['tsa_id']);
+
+        if ($lead->tsa_id === $newTsa->id) {
+            return response()->json(['success' => true, 'message' => "Already assigned to {$newTsa->display_name}."]);
+        }
+
+        $fromLabel = $lead->tsa?->display_name ?? 'Unassigned';
+
+        $lead->update([
+            'tsa_id'      => $newTsa->id,
+            'assigned_at' => now(),
+            'status'      => $lead->status === 'unassigned' ? 'assigned' : $lead->status,
+        ]);
+
+        LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
+
+        return response()->json(['success' => true, 'message' => "Transferred to {$newTsa->display_name}."]);
+    }
+
+    /**
      * JSON feed for the Outcome search box — real tags from the shop's own
      * POS order-tag catalog (PancakeOrderTagApi — see its own doc comment
      * for why this, not the Messenger/conversation-scoped tags API, is the

@@ -478,6 +478,54 @@ document.addEventListener('submit', (e) => {
         });
 });
 
+// Transfer to another TSA (explicit request, 2026-08-19) — picking a new TSA
+// from the dropdown auto-submits immediately (no separate Save click), same
+// "act on change" feel as the round-robin assignment it's overriding.
+// pollLeadsTable() afterwards (success OR failure) makes the select reflect
+// whatever's actually persisted, rather than trusting the optimistic UI
+// state if the request failed.
+document.addEventListener('change', (e) => {
+    if (!e.target.matches('.transfer-select')) return;
+    e.target.closest('form')?.requestSubmit();
+});
+
+document.addEventListener('submit', (e) => {
+    if (!e.target.matches('.transfer-form')) return;
+    e.preventDefault();
+    const form = e.target;
+    const select = form.querySelector('.transfer-select');
+    // FormData must be built BEFORE disabling the select — a disabled form
+    // field is excluded from FormData entirely, which was silently sending
+    // tsa_id as missing (422 "field is required") despite the dropdown
+    // visibly showing the newly picked TSA.
+    const fd = new FormData(form);
+    select.disabled = true;
+
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+        body: fd,
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data) => {
+            window.showToast?.(data.message || 'Transferred.', 'success');
+        })
+        .catch(async (res) => {
+            let message = 'Could not transfer — try again.';
+            if (res?.json) {
+                try {
+                    const data = await res.json();
+                    message = Object.values(data.errors || {})[0]?.[0] || data.message || message;
+                } catch (e) { /* not JSON — keep the generic message */ }
+            }
+            window.showToast?.(message, 'error');
+        })
+        .finally(() => {
+            select.disabled = false;
+            pollLeadsTable();
+        });
+});
+
 // Conversation modal — fetches real Pancake messages via our own backend
 // (/calls/leads/{id}/conversation) and renders chat bubbles ourselves.
 // Pancake's own page can't be embedded here (their CSP frame-ancestors
