@@ -29,10 +29,11 @@
         'available' => '<svg class="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path d="M2 5a2 2 0 012-2h12a2 2 0 012 2v8a2 2 0 01-2 2h-6l-4 3v-3H4a2 2 0 01-2-2V5z"/></svg>',
         // Pause bars — "stepped away, on hold."
         'break'     => '<svg class="w-4 h-4 text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><rect x="5" y="3" width="3" height="14" rx="1"/><rect x="12" y="3" width="3" height="14" rx="1"/></svg>',
-        // A fork — the one non-filled icon in this set, straight lines only
-        // (three tines + a shared handle) rather than a misremembered
-        // complex food-icon path.
-        'lunch'     => '<svg class="w-4 h-4 text-amber-800 dark:text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 20 20"><path d="M6 2v5M10 2v5M14 2v5M6 7h8M10 7v11"/></svg>',
+        // A spoon (explicit request, 2026-08-20 — was a fork) — the one
+        // non-filled icon in this set: an oval bowl plus a straight handle,
+        // simple shapes only rather than a misremembered complex food-icon
+        // path.
+        'lunch'     => '<svg class="w-4 h-4 text-amber-800 dark:text-amber-600" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 20 20"><ellipse cx="10" cy="5" rx="3.5" ry="4"/><path d="M10 9v9"/></svg>',
         // Ascending bars — coaching/growth.
         'coaching'  => '<svg class="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><rect x="3" y="11" width="3" height="6" rx="0.5"/><rect x="8.5" y="7" width="3" height="10" rx="0.5"/><rect x="14" y="3" width="3" height="14" rx="0.5"/></svg>',
         // Two overlapping circles — a small huddle. Distinct from Huddle's
