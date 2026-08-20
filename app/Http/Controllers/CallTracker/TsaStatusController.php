@@ -83,6 +83,17 @@ class TsaStatusController extends Controller
             abort(422, 'Wrap Up is set automatically when a call ends — it can\'t be picked manually.');
         }
 
+        // Calling is also system-only now (explicit request, 2026-08-20) —
+        // it's set automatically the moment a lead's phone number is
+        // clicked (LeadController::logCallClick()), so a manual button for
+        // it was removed from Monitor TSA's grid the same day. Same
+        // reasoning as Wrap Up above: reject it here too so a stale client
+        // (or a direct API call) can't fake "on a call" without actually
+        // being on one.
+        if ($data['status'] === TsaShift::STATUS_CALLING) {
+            abort(422, 'Calling is set automatically when a lead\'s number is clicked — it can\'t be picked manually.');
+        }
+
         $tsa->applyStatusChange($data['status'], $data['status'] === TsaShift::STATUS_LOCKED ? $user->id : null);
 
         if ($request->wantsJson()) {

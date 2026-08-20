@@ -65,7 +65,7 @@ class TsaShift extends Model
      *  attempt to set it. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
-        self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now',                            'icon' => 'available'],
+        self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
         self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'away'],
         self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'away'],
         self::STATUS_LUNCH      => ['label' => 'Lunch',      'description' => "On lunch, can't receive leads",                 'icon' => 'away'],
@@ -86,12 +86,16 @@ class TsaShift extends Model
         self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
     ];
 
-    /** The 8 clickable buttons on Monitor TSA's per-TSA card (explicit
-     *  request, 2026-08-20) — deliberately excludes Wrap Up (system-only,
-     *  see STATUSES' own doc comment above) and Logout/Lock (Monitor is a
-     *  live ops view, not where a shift actually ends or gets locked). */
+    /** The 7 clickable buttons on Monitor TSA's per-TSA card (explicit
+     *  request, 2026-08-20; Calling removed 2026-08-20 once clicking a
+     *  lead's phone number started setting it automatically — a manual
+     *  button for it would let someone mark themselves "on a call" without
+     *  actually being on one) — deliberately excludes Calling/Wrap Up
+     *  (both system-only now, see STATUSES' own doc comments above) and
+     *  Logout/Lock (Monitor is a live ops view, not where a shift actually
+     *  ends or gets locked). */
     public const MONITOR_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_LUNCH,
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
