@@ -22,7 +22,6 @@
             <tr class="border-b border-slate-200 dark:border-slate-700">
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">TSA</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Team</th>
-                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Status</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Active</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Handles</th>
                 <th class="px-5 py-3"></th>
@@ -57,21 +56,6 @@
                             <span class="w-1.5 h-1.5 rounded-full {{ $style['dot'] }}"></span>
                             {{ $tsa->team }}
                         </span>
-                    </td>
-                    <td class="px-5 py-4">
-                        @include('calls.partials.tsa-status-panel', [
-                            'id'      => 'tsa-' . $tsa->id,
-                            // Explicit request (2026-08-19): Lock removed from
-                            // this dropdown entirely — reuses SELF_SERVICE_STATUSES
-                            // rather than duplicating its own 5-item list, since
-                            // that's already the single source of truth for "every
-                            // status except Locked, in this exact order" (the name
-                            // just reflects where it was first needed, not that
-                            // this admin-only dropdown is somehow self-service too).
-                            'options' => \App\Models\TsaShift::SELF_SERVICE_STATUSES,
-                            'current' => $tsa->status,
-                            'target'  => (string) $tsa->id,
-                        ])
                     </td>
                     <td class="px-5 py-4">
                         @if($tsa->active)

@@ -74,13 +74,21 @@
             @endforeach
         </select>
 
+        {{-- Explicit request (2026-08-20): replaces the old Assigned/Called/
+             Unassigned lead-status filter — narrows by the ASSIGNED TSA'S
+             CURRENT status instead (Login/Break/Calling/etc), now that TSA
+             Management's own per-row status column was removed the same
+             day. Admin-only, like the TSA selector above it — a self-viewing
+             TSA only ever sees their own single TSA's leads, so "which TSA
+             status" isn't a meaningful filter for them the way it is for an
+             admin looking across the whole roster. --}}
         @if(!$view)
         <select name="status" onchange="this.form.submit()"
                 class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             <option value="">All statuses</option>
-            <option value="assigned" @selected($selectedStatus === 'assigned')>Assigned (not yet called)</option>
-            <option value="called" @selected($selectedStatus === 'called')>Called</option>
-            <option value="unassigned" @selected($selectedStatus === 'unassigned')>Unassigned (needs attention)</option>
+            @foreach(\App\Models\TsaShift::STATUSES as $key => $meta)
+            <option value="{{ $key }}" @selected($selectedStatus === $key)>{{ $meta['label'] }}</option>
+            @endforeach
         </select>
         @endif
 

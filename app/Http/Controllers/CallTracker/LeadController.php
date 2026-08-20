@@ -100,7 +100,16 @@ class LeadController extends Controller
                 ->where('callback_at', '<=', now())
                 ->orderBy('callback_at');
         } elseif ($request->filled('status')) {
-            $query->where('status', $request->string('status'));
+            // Explicit request, 2026-08-20: this filter now narrows by the
+            // ASSIGNED TSA'S CURRENT status (Login/Break/Calling/etc — see
+            // TsaShift::STATUSES), not the lead's own status field, replacing
+            // the old Assigned/Called/Unassigned filter entirely — TSA
+            // Management's per-row status control was removed the same day,
+            // so this is now the one place that status is browsable/filtered
+            // from. An unassigned lead has no TSA to match, so it's
+            // correctly excluded from every value here, same as it always
+            // was implicitly.
+            $query->whereHas('tsa', fn ($q) => $q->where('status', $request->string('status')));
         }
 
         if ($user->isAtLeastAdmin() && $request->filled('q')) {
