@@ -66,13 +66,13 @@ class TsaShift extends Model
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
-        self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'away'],
-        self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'away'],
-        self::STATUS_LUNCH      => ['label' => 'Lunch',      'description' => "On lunch, can't receive leads",                 'icon' => 'away'],
-        self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'away'],
-        self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'away'],
-        self::STATUS_HUDDLE     => ['label' => 'Huddle',     'description' => "In a huddle, can't receive leads",              'icon' => 'away'],
-        self::STATUS_OTHERS     => ['label' => 'Others',     'description' => 'Away for any other reason',                     'icon' => 'away'],
+        self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'wrap_up'],
+        self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'break'],
+        self::STATUS_LUNCH      => ['label' => 'Lunch',      'description' => "On lunch, can't receive leads",                 'icon' => 'lunch'],
+        self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'coaching'],
+        self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'dna_huddle'],
+        self::STATUS_HUDDLE     => ['label' => 'Huddle',     'description' => "In a huddle, can't receive leads",              'icon' => 'huddle'],
+        self::STATUS_OTHERS     => ['label' => 'Others',     'description' => 'Away for any other reason',                     'icon' => 'others'],
         self::STATUS_LOGOUT     => ['label' => 'Logout',     'description' => "Shift ended, can't receive leads",              'icon' => 'logout'],
         self::STATUS_LOCKED     => ['label' => 'Lock',       'description' => 'Admin feature — lock a TSA out of receiving leads and changing this status', 'icon' => 'lock'],
     ];
@@ -87,9 +87,13 @@ class TsaShift extends Model
      *  leads/index.blade.php). Monitor TSA stays a pure live display — its
      *  own button grid was removed the same day once it became clear every
      *  status change already shows up there automatically, via the same
-     *  tsa_shifts.status column, within its own poll. */
+     *  tsa_shifts.status column, within its own poll.
+     *
+     *  Lunch and Others added (explicit request, 2026-08-20) — Logout stays
+     *  last, same position it's always had. */
     public const SELF_SERVICE_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
+        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_COACHING,
+        self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS, self::STATUS_LOGOUT,
     ];
 
     /** Every status Monitor TSA's legend row, summary count cards, and each
