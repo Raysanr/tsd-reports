@@ -320,6 +320,47 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Leads tab's TSA filter dropdown (explicit request, 2026-08-20) — same
+// trigger+floating-panel shape/behavior as every other custom dropdown on
+// this page: picking a row sets the hidden `tsa` input and submits the
+// surrounding GET form, instead of the browser's native <select> styling.
+document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-tsa-filter-trigger]');
+    if (trigger) {
+        const wrap  = trigger.closest('[data-tsa-filter-wrap]');
+        const panel = wrap?.querySelector('[data-tsa-filter-panel]');
+        if (!panel) return;
+
+        if (panel.classList.contains('hidden')) {
+            const rect = trigger.getBoundingClientRect();
+            panel.style.top = `${rect.bottom + 8}px`;
+            panel.style.left = `${rect.left}px`;
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+        return;
+    }
+
+    const option = e.target.closest('.tsa-filter-option');
+    if (option) {
+        const wrap = option.closest('[data-tsa-filter-wrap]');
+        wrap.querySelector('[data-tsa-filter-input]').value = option.dataset.value;
+        wrap.closest('form')?.submit();
+        return;
+    }
+
+    if (!e.target.closest('[data-tsa-filter-wrap]')) {
+        document.querySelectorAll('[data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('[data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    }
+});
+
 // Real-time-ish Leads table — re-fetches the same filtered URL every few
 // seconds and swaps in the freshly rendered table (see
 // LeadController::index()'s X-Table-Refresh branch), so a lead the scheduler

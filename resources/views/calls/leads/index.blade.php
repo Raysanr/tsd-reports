@@ -66,13 +66,51 @@
         @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
 
         @if(auth()->user()->isAtLeastAdmin())
-        <select name="tsa" onchange="this.form.submit()"
-                class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-            <option value="">All TSAs</option>
-            @foreach($tsas as $tsa)
-            <option value="{{ $tsa->id }}" @selected($selectedTsa === $tsa->id)>{{ $tsa->display_name }}</option>
-            @endforeach
-        </select>
+        {{-- Custom dropdown (explicit request, 2026-08-20 — same treatment
+             as the status control next to it) instead of a plain native
+             <select>: a real hidden input carries the actual `tsa` value
+             the surrounding GET form submits, clicking a row just sets it
+             and submits, same end result as the old <select
+             onchange="submit()">. Each row's avatar circle reuses TSA
+             Management's own initials-circle style so a TSA reads the same
+             way here as it does there. --}}
+        <div class="relative" data-tsa-filter-wrap>
+            <input type="hidden" name="tsa" value="{{ $selectedTsa ?: '' }}" data-tsa-filter-input>
+            <button type="button" data-tsa-filter-trigger
+                    class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
+                @php $selectedTsaModel = $selectedTsa ? $tsas->firstWhere('id', $selectedTsa) : null; @endphp
+                @if($selectedTsaModel)
+                <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr($selectedTsaModel->display_name, 0, 2)) }}</span>
+                @else
+                <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
+                @endif
+                <span>{{ $selectedTsaModel?->display_name ?? 'All TSAs' }}</span>
+                <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            <div class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-64 max-h-96 overflow-y-auto" data-tsa-filter-panel>
+                <div class="py-1">
+                    <div class="tsa-filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="">
+                        <svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
+                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">All TSAs</span>
+                        @if(!$selectedTsa)
+                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        @endif
+                    </div>
+                    @foreach($tsas as $tsa)
+                    <div class="tsa-filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $tsa->id }}">
+                        <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr($tsa->display_name, 0, 2)) }}</span>
+                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $tsa->display_name }}</span>
+                        @if($selectedTsa === $tsa->id)
+                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
 
         {{-- Explicit request (2026-08-20): this is what replaces TSA
              Management's old per-row status control — NOT a filter on this
@@ -85,16 +123,13 @@
              a separate page. Only makes sense once a specific TSA is
              picked — "All TSAs" has no single status to show/change, so
              this stays hidden until one is. --}}
-        @if(!$view && $selectedTsa)
-        @php $statusPanelTsa = $tsas->firstWhere('id', $selectedTsa); @endphp
-        @if($statusPanelTsa)
+        @if(!$view && $selectedTsaModel)
         @include('calls.partials.tsa-status-panel', [
             'id'      => 'leads-tsa-filter',
             'options' => \App\Models\TsaShift::SELF_SERVICE_STATUSES,
-            'current' => $statusPanelTsa->status,
-            'target'  => (string) $statusPanelTsa->id,
+            'current' => $selectedTsaModel->status,
+            'target'  => (string) $selectedTsaModel->id,
         ])
-        @endif
         @endif
 
         <div class="relative">
