@@ -35,8 +35,14 @@ class MonitorController extends Controller
         // the "Daily minute record" section is date-scoped this way —
         // current status/current-status-time are always live, a past date
         // has no "current" status of its own.
+        //
+        // carryOverPriorStatus: false (explicit request, 2026-08-20) — a
+        // fresh reset each day, not carried over from whatever status was
+        // last touched on some earlier day. See secondsByStatus()'s own
+        // doc comment for the real incident this fixed (a phantom 17+ hour
+        // "Break" total on a TSA whose only log today was a single Logout).
         $dailyRecords = $tsas->mapWithKeys(fn (TsaShift $t) => [
-            $t->id => TsaStatusLog::secondsByStatus($t, $dateFrom, $dateTo),
+            $t->id => TsaStatusLog::secondsByStatus($t, $dateFrom, $dateTo, false),
         ]);
 
         // Counts for the legend/summary cards — over every ACTIVE TSA in
@@ -124,7 +130,9 @@ class MonitorController extends Controller
             fputcsv($out, $header);
 
             foreach ($tsas as $tsa) {
-                $seconds = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
+                // Same non-carry-over reset as index()'s own $dailyRecords —
+                // the export should always match what's on screen.
+                $seconds = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo, false);
                 $minutes = array_map(fn ($s) => round($seconds[$s] / 60, 1), $statusOrder);
 
                 fputcsv($out, array_merge([

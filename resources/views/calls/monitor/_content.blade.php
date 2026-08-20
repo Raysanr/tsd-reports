@@ -175,9 +175,22 @@
                 </div>
                 @endforeach
             </div>
+            @php
+                // Sum only the statuses actually listed above (explicit
+                // request, 2026-08-20: Logout was silently included here
+                // despite never having its own line item — a TSA who'd been
+                // logged out all day showed a "Total tracked" that didn't
+                // match anything visibly added up above it). Locked is
+                // excluded the same way, for the same reason — neither
+                // appears in MONITOR_LEGEND_STATUSES.
+                $totalTrackedSeconds = 0;
+                foreach (\App\Models\TsaShift::MONITOR_LEGEND_STATUSES as $__s) {
+                    $totalTrackedSeconds += $tsaSeconds[$__s] ?? 0;
+                }
+            @endphp
             <div class="flex items-center justify-between text-xs font-mono font-bold border-t border-slate-100 dark:border-slate-700 mt-2 pt-2">
                 <span class="text-slate-700 dark:text-slate-200">Total tracked</span>
-                <span class="text-slate-800 dark:text-slate-100">{{ $formatSeconds(array_sum($tsaSeconds)) }}</span>
+                <span class="text-slate-800 dark:text-slate-100">{{ $formatSeconds($totalTrackedSeconds) }}</span>
             </div>
         </div>
     </div>
