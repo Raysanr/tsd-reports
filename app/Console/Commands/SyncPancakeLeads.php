@@ -154,7 +154,74 @@ class SyncPancakeLeads extends Command
         }
 
         $this->info("Synced {$synced} new lead(s), skipped {$skipped} (already claimed or already pulled in).");
+
+        $caughtUp = $this->catchUpUnassignedLeads();
+        if ($caughtUp > 0) {
+            $this->info("Caught up {$caughtUp} previously-unassigned lead(s) now that a TSA is available.");
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Catch-up pass (explicit request, 2026-08-21): a lead that lands as
+     * Unassigned because nobody was logged in yet at the time it arrived
+     * used to sit that way FOREVER — the loop above only ever looks at each
+     * Pancake order once, the moment it first sees it (line ~88's exists()
+     * check), so a TSA logging in later never triggered a retry for
+     * anything already pulled in. This re-attempts round-robin for every
+     * still-unassigned local lead with a matched product, oldest first,
+     * every run (same 1-minute cadence as the rest of this command) — the
+     * moment ANY TSA logs in for that product, whatever piled up overnight
+     * gets swept up and FAIRLY DIVIDED across however many TSAs are now
+     * eligible, via the exact same per-product RoundRobinAssigner::next()
+     * rotation a brand-new lead already uses: each call advances that
+     * product's own round_robin_states pointer, so e.g. 6 backlog leads
+     * with 2 TSAs now online split 3/3 via the normal rotation, not all
+     * landing on whichever TSA happened to log in first.
+     *
+     * A lead with no matched product (product_id null) is skipped — there's
+     * no rotation to retry it against; that's a separate, pre-existing gap
+     * (see the main loop's own "$product ? ... : 'unassigned'" branch),
+     * unrelated to the login-timing problem this catch-up fixes.
+     */
+    private function catchUpUnassignedLeads(): int
+    {
+        $leads = Lead::where('status', 'unassigned')
+            ->whereNotNull('product_id')
+            ->with('product')
+            ->orderBy('pancake_created_at')
+            ->get();
+
+        $caughtUp = 0;
+        foreach ($leads as $lead) {
+            if (!$lead->product) continue; // product deleted since — nothing to rotate against
+
+            $tsa = RoundRobinAssigner::next($lead->product);
+            if (!$tsa) continue; // still nobody eligible for this product — try again next run
+
+            // assigned_at = now(), not backdated to when the order actually
+            // came in — same reasoning LeadController::transfer() already
+            // uses: the TSA is only just now receiving this lead, so their
+            // own overdue-threshold clock (and today's TSA
+            // Performance/Dashboard attribution, both anchored on
+            // assigned_at) should start from THIS moment, not however many
+            // hours it sat unassigned overnight.
+            $lead->update([
+                'tsa_id'      => $tsa->id,
+                'assigned_at' => now(),
+                'status'      => 'assigned',
+            ]);
+            LeadActivity::log(
+                $lead,
+                'assigned',
+                "Round-robin assigned to {$tsa->display_name} (was unassigned since "
+                    . ($lead->pancake_created_at?->format('M j, g:i A') ?? 'an earlier sync') . ').'
+            );
+            $caughtUp++;
+        }
+
+        return $caughtUp;
     }
 
     private function recordRun(Carbon $runStart, int $totalFetched, int $newLeads, int $skipped, bool $success, ?string $errorMessage): void
