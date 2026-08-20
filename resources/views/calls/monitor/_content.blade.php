@@ -128,7 +128,12 @@
         $tsaSeconds = $dailyRecords[$tsa->id] ?? [];
         $statusSecondsElapsed = $tsa->status_changed_at ? now('Asia/Manila')->diffInSeconds($tsa->status_changed_at) : 0;
     @endphp
-    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 border-t-4 {{ $statusBorderClass($tsa->status) }} shadow-sm p-5">
+    {{-- transition-all + hover lift (explicit request, 2026-08-20) — the
+         border-t color swaps status-to-status, so animating "all" (not just
+         transform/shadow) means that swap eases smoothly too instead of
+         snapping, on top of the same hover-lift .stat-card already uses
+         elsewhere (calls.css) for a consistent feel. --}}
+    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 border-t-4 {{ $statusBorderClass($tsa->status) }} shadow-sm p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
         <div class="flex items-start justify-between gap-3 mb-4">
             <div class="min-w-0">
                 <p class="font-bold text-slate-800 dark:text-slate-100 truncate">{{ $tsa->display_name }}</p>
