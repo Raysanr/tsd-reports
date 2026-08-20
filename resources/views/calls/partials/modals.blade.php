@@ -192,3 +192,22 @@
         </div>
     </div>
 </div>
+
+{{-- Resume-call banner (explicit request, 2026-08-20) — closing the Calling
+     modal via "Close" (not "End Call") used to lose all track of the call:
+     clicking the same lead's number again just dialed a SECOND time on top
+     of the one already in progress. calls.js now remembers the in-progress
+     call in sessionStorage and shows this floating pill whenever it's
+     tracked but the modal itself isn't open, so a TSA has an obvious way
+     back into it without hunting down the right row again. Hidden by
+     default; shown/hidden entirely by JS (showResumeBanner/hideResumeBanner
+     in calls.js), never server-rendered with real data. --}}
+<div id="resumeCallBanner" onclick="resumeActiveCall()"
+     class="hidden fixed bottom-6 right-6 z-50 items-center gap-3 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 shadow-2xl rounded-2xl pl-4 pr-3 py-3 cursor-pointer hover:shadow-emerald-900/20 max-w-xs">
+    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+    <div class="min-w-0">
+        <p class="text-[10px] font-mono text-slate-400 uppercase tracking-wide">Call in progress</p>
+        <p id="resumeCallBannerName" class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono truncate">—</p>
+    </div>
+    <span class="text-xs font-bold text-primary-dark shrink-0 ml-1">Resume →</span>
+</div>

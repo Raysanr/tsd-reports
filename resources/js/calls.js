@@ -1019,6 +1019,66 @@ document.addEventListener('keydown', (e) => {
 // gives this page no way to know if/when the call is actually answered or
 // ends, so it just stays up until dismissed (or until End Call is pressed,
 // for a lead whose TSA has a dial-host configured).
+// Active-call persistence (explicit request, 2026-08-20) — closing the
+// Calling modal via "Close" (not "End Call") used to lose all track of the
+// call entirely: clicking the same lead's number again just dialed a
+// SECOND time on top of the one already in progress, since nothing
+// remembered a call was still going. sessionStorage (not a JS variable)
+// survives both an accidental modal close AND navigating away and back
+// within the same tab. Only ever set for the dial-host/auto-dial path —
+// the plain tel: fallback has no Mute/End Call to resume into anyway.
+const ACTIVE_CALL_KEY = 'activeCall';
+
+function getActiveCall() {
+    try {
+        return JSON.parse(sessionStorage.getItem(ACTIVE_CALL_KEY) || 'null');
+    } catch (e) {
+        return null;
+    }
+}
+
+function setActiveCall(call) {
+    sessionStorage.setItem(ACTIVE_CALL_KEY, JSON.stringify(call));
+}
+
+function clearActiveCall() {
+    sessionStorage.removeItem(ACTIVE_CALL_KEY);
+    hideResumeBanner();
+}
+
+function showResumeBanner(call) {
+    const banner = document.getElementById('resumeCallBanner');
+    if (!banner) return;
+    document.getElementById('resumeCallBannerName').textContent = call.name || 'this customer';
+    banner.classList.remove('hidden');
+    banner.classList.add('flex');
+}
+
+function hideResumeBanner() {
+    const banner = document.getElementById('resumeCallBanner');
+    if (!banner) return;
+    banner.classList.add('hidden');
+    banner.classList.remove('flex');
+}
+
+// Resumes into whatever's tracked, from the floating banner — same
+// reopen-without-redialing path the tel: click handler below uses when the
+// SAME lead's number is clicked again.
+window.resumeActiveCall = function () {
+    const call = getActiveCall();
+    if (!call) return;
+    window.openCallingModal(call.name, call.number, call.dialHost, call.leadId);
+};
+
+// A stale-tab reload/reopen (e.g. the TSA navigated to Dashboard and back)
+// still has a real call the phone placed — surface the banner immediately
+// rather than only after the next Close, since the modal was never open on
+// this fresh page load to begin with.
+(function () {
+    const call = getActiveCall();
+    if (call) showResumeBanner(call);
+})();
+
 window.openCallingModal = function (name, number, dialHost, leadId) {
     const modal = document.getElementById('callingModal');
     if (!modal) return;
@@ -1051,11 +1111,16 @@ window.openCallingModal = function (name, number, dialHost, leadId) {
     muteBtn.dataset.muted = '0';
     document.getElementById('muteCallBtnLabel').textContent = 'Mute';
 
+    hideResumeBanner();
     showModal(modal);
 };
 
 window.closeCallingModal = function () {
     hideModal(document.getElementById('callingModal'));
+    // "Close" (unlike "End Call") never clears the tracked call — if one's
+    // still active, the banner is how a TSA gets back into it.
+    const call = getActiveCall();
+    if (call) showResumeBanner(call);
 };
 
 // End Call — same Wi-Fi-direct-to-phone approach as auto-dial (see the click
@@ -1082,6 +1147,9 @@ window.endCall = function () {
         }).catch(() => {});
     }
 
+    // The call genuinely ended — this is the one place that clears the
+    // tracked active call (Close deliberately does not).
+    clearActiveCall();
     window.closeCallingModal();
 };
 
@@ -1112,15 +1180,30 @@ document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href^="tel:"]');
     if (!link) return;
 
-    window.openCallingModal(link.dataset.name, link.textContent.trim(), link.dataset.dialHost, link.dataset.leadId);
+    const leadId = link.dataset.leadId;
+
+    // Resuming an already-placed call (explicit request, 2026-08-20) — if
+    // THIS exact lead's call is still tracked as active (the modal got
+    // closed without pressing End Call), just reopen it instead of dialing
+    // again: MacroDroid's "dial" macro would otherwise place a SECOND call
+    // on top of the one already in progress. A different lead's number
+    // falls through to a normal new dial below, same as always.
+    const activeCall = getActiveCall();
+    if (activeCall && leadId && String(activeCall.leadId) === String(leadId)) {
+        e.preventDefault();
+        window.openCallingModal(activeCall.name, activeCall.number, activeCall.dialHost, activeCall.leadId);
+        return;
+    }
+
+    window.openCallingModal(link.dataset.name, link.textContent.trim(), link.dataset.dialHost, leadId);
 
     // A click here should show up on TSA Logs, not just real status changes
     // — see LeadController::logCallClick()'s own doc comment for why this
     // is a LeadActivity, not a TsaStatusLog row. Fire-and-forget, same
     // reasoning as the auto-dial request below: nothing in this click
     // depends on the response.
-    if (link.dataset.leadId) {
-        fetch(`/calls/leads/${link.dataset.leadId}/call-click`, {
+    if (leadId) {
+        fetch(`/calls/leads/${leadId}/call-click`, {
             method: 'POST',
             headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
         }).catch(() => {});
@@ -1137,13 +1220,18 @@ document.addEventListener('click', (e) => {
         e.preventDefault(); // this path actually dials — a tel: handoff on top would be redundant/confusing
         const url = `http://${link.dataset.dialHost}/dial?number=${encodeURIComponent(link.dataset.dialNumber || '')}`;
         fetch(url, { mode: 'no-cors' }).catch(() => {});
+        // Tracked so a later accidental Close can be resumed into instead
+        // of re-dialing — see getActiveCall()'s own doc comment above.
+        setActiveCall({ leadId, name: link.dataset.name, number: link.textContent.trim(), dialHost: link.dataset.dialHost });
         return;
     }
 
     // No dial-host configured for this TSA yet — fall back to a plain tel:
     // handoff (no preventDefault, so the real click reaches the browser
     // natively). Best-effort only: whether anything happens depends on
-    // whatever's registered for tel: on whoever's viewing this page.
+    // whatever's registered for tel: on whoever's viewing this page. Never
+    // tracked as an active call — there's no Mute/End Call to resume into
+    // without a dial-host.
 });
 
 // Sidebar Leads group — a sibling button next to the Leads link, not nested
