@@ -75,6 +75,17 @@
         }
         return intdiv($totalMinutes, 60) . 'h ' . ($totalMinutes % 60) . 'm';
     };
+
+    // "Daily minute record" reads correctly for the common case (today);
+    // once the date picker's actually used (explicit request, 2026-08-20),
+    // the label says so instead of silently showing a past/other day's
+    // numbers under a heading that still says "Daily".
+    $isSingleDay = $dateFrom->isSameDay($dateTo);
+    $dailyRecordLabel = $isSingleDay && $dateFrom->isToday()
+        ? 'Daily minute record'
+        : ($isSingleDay
+            ? 'Minute record — ' . $dateFrom->format('M j, Y')
+            : 'Minute record — ' . $dateFrom->format('M j') . ' to ' . $dateTo->format('M j, Y'));
 @endphp
 
 <div class="mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-5 py-3 text-sm font-mono text-slate-600 dark:text-slate-300">
@@ -147,7 +158,7 @@
         @endif
 
         <div class="border-t border-slate-100 dark:border-slate-700 pt-3">
-            <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Daily minute record</p>
+            <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">{{ strtoupper($dailyRecordLabel) }}</p>
             <div class="space-y-1.5">
                 @foreach(\App\Models\TsaShift::MONITOR_LEGEND_STATUSES as $recStatus)
                 <div class="flex items-center justify-between text-xs font-mono">

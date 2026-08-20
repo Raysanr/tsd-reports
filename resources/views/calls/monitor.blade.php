@@ -3,9 +3,44 @@
 @section('title', 'Monitor TSA')
 @section('subtitle', 'Live status for every active TSA')
 
+@push('topbar-right')
+{{-- Same ALL/SH Naturals/Eyecare filter as Dashboard (explicit request,
+     2026-08-20) — a plain GET form carrying q/status/the current date range
+     along as hidden fields, so switching teams never drops them. --}}
+<form method="GET" action="{{ route('calls.monitor') }}" class="contents">
+    <input type="hidden" name="q" value="{{ $q }}">
+    <input type="hidden" name="status" value="{{ $selectedStatus }}">
+    <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
+    <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
+    <div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+        @foreach($teams as $key => $label)
+        <button type="submit" name="team" value="{{ $key }}"
+                class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200
+                       {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+            {{ $label }}
+        </button>
+        @endforeach
+    </div>
+</form>
+
+{{-- Same shared date-picker partial as Dashboard/Analytics (explicit
+     request, 2026-08-20) — scopes the "Daily minute record" section below;
+     current status/current-status-time stay live regardless of what's
+     picked here, same as Analytics' own Status Time vs. AHT distinction. --}}
+@include('partials.date-picker', [
+    'mode' => 'range', 'id' => 'monitorDrp',
+    'dateFrom' => $dateFrom, 'dateTo' => $dateTo,
+    'submit' => 'navigate', 'navigateBase' => route('calls.monitor'),
+])
+@endpush
+
 @section('content')
 
 <form method="GET" action="{{ route('calls.monitor') }}" class="mb-6 flex flex-wrap items-center gap-3">
+    <input type="hidden" name="team" value="{{ $selectedTeam }}">
+    <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
+    <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
+
     <input type="text" name="q" value="{{ $q }}" placeholder="Search TSA..." autocomplete="off"
            class="w-56 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
 
@@ -21,7 +56,7 @@
         Search
     </button>
 
-    <a href="{{ route('calls.monitor.export', request()->only(['q', 'status'])) }}"
+    <a href="{{ route('calls.monitor.export', request()->only(['q', 'status', 'team', 'date_from', 'date_to'])) }}"
        class="ml-auto text-sm font-semibold font-mono text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg px-4 py-2 cursor-pointer">
         Export CSV
     </a>

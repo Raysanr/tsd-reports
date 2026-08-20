@@ -7,6 +7,8 @@ use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * Monitor TSA (explicit request, 2026-08-20) — a live, at-a-glance view of
@@ -18,43 +20,32 @@ class MonitorController extends Controller
 {
     public function index(Request $request)
     {
+        [$teams, $selectedTeam, $teamsConfig] = $this->resolveTeam($request);
+        [$dateFrom, $dateTo] = $this->resolveDateRange($request);
+
         $q      = trim((string) $request->input('q', ''));
         $status = $request->string('status')->toString();
 
-        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get();
+        $tsas = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status);
 
-        if ($q !== '') {
-            $needle = strtolower($q);
-            $tsas = $tsas->filter(fn (TsaShift $t) => str_contains(strtolower($t->display_name), $needle)
-                || str_contains(strtolower($t->tsa_key ?? ''), $needle))->values();
-        }
-        if ($status !== '') {
-            $tsas = $tsas->where('status', $status)->values();
-        }
-
-        $todayStart = now('Asia/Manila')->startOfDay();
-        $now        = now('Asia/Manila');
-
-        // Keyed by tsa id — each TSA's own today-so-far seconds-per-status,
-        // same shared algorithm Analytics uses for its own (team-wide,
-        // date-range) breakdown (TsaStatusLog::secondsByStatus()), just
-        // scoped to one TSA and always "today" here regardless of any date
-        // filter elsewhere in the app — Monitor is a live view, not a
-        // historical report.
+        // Keyed by tsa id — each TSA's own per-status seconds within the
+        // picked range (today by default), same shared algorithm Analytics
+        // uses for its own (team-wide) breakdown
+        // (TsaStatusLog::secondsByStatus()), just scoped to one TSA. Only
+        // the "Daily minute record" section is date-scoped this way —
+        // current status/current-status-time are always live, a past date
+        // has no "current" status of its own.
         $dailyRecords = $tsas->mapWithKeys(fn (TsaShift $t) => [
-            $t->id => TsaStatusLog::secondsByStatus($t, $todayStart, $now),
+            $t->id => TsaStatusLog::secondsByStatus($t, $dateFrom, $dateTo),
         ]);
 
-        // Counts for the legend/summary cards — over every ACTIVE TSA
-        // (ignoring the search box, but still respecting the status filter
-        // dropdown so the numbers stay consistent with whatever's on
-        // screen) rather than just the search-narrowed set, so "how many
-        // are on Break right now" doesn't change just because someone typed
-        // a name into the search box.
-        $countBase = TsaShift::where('active', true)->get();
-        if ($status !== '') {
-            $countBase = $countBase->where('status', $status)->values();
-        }
+        // Counts for the legend/summary cards — over every ACTIVE TSA in
+        // the selected team (ignoring the search box, but still respecting
+        // the status filter dropdown so the numbers stay consistent with
+        // whatever's on screen) rather than just the search-narrowed set,
+        // so "how many are on Break right now" doesn't change just because
+        // someone typed a name into the search box.
+        $countBase = $this->filteredTsas($request, $selectedTeam, $teamsConfig, '', $status);
         $statusCounts = collect(TsaShift::STATUSES)->keys()
             ->mapWithKeys(fn ($s) => [$s => $countBase->where('status', $s)->count()]);
 
@@ -65,6 +56,10 @@ class MonitorController extends Controller
             'q'                => $q,
             'selectedStatus'   => $status,
             'wrapUpSeconds'    => max(1, (int) Setting::get('wrap_up_duration_seconds', 60)),
+            'teams'            => $teams,
+            'selectedTeam'     => $selectedTeam,
+            'dateFrom'         => $dateFrom,
+            'dateTo'           => $dateTo,
         ];
 
         // Same "poll this same URL, swap in just the content" convention
@@ -101,34 +96,26 @@ class MonitorController extends Controller
     }
 
     /**
-     * CSV export of exactly what's on screen right now (same search/status
-     * filters) — current status + today's per-status minutes + total
-     * tracked, one row per TSA. Streamed rather than built in memory: this
-     * roster is small today, but streaming costs nothing and never needs
-     * revisiting if it grows.
+     * CSV export of exactly what's on screen right now (same team/search/
+     * status/date filters) — current status + the picked range's per-status
+     * minutes + total tracked, one row per TSA. Streamed rather than built
+     * in memory: this roster is small today, but streaming costs nothing
+     * and never needs revisiting if it grows.
      */
     public function export(Request $request)
     {
+        [, $selectedTeam, $teamsConfig] = $this->resolveTeam($request);
+        [$dateFrom, $dateTo] = $this->resolveDateRange($request);
+
         $q      = trim((string) $request->input('q', ''));
         $status = $request->string('status')->toString();
 
-        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get();
-        if ($q !== '') {
-            $needle = strtolower($q);
-            $tsas = $tsas->filter(fn (TsaShift $t) => str_contains(strtolower($t->display_name), $needle)
-                || str_contains(strtolower($t->tsa_key ?? ''), $needle))->values();
-        }
-        if ($status !== '') {
-            $tsas = $tsas->where('status', $status)->values();
-        }
-
-        $todayStart  = now('Asia/Manila')->startOfDay();
-        $now         = now('Asia/Manila');
+        $tsas        = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status);
         $statusOrder = array_keys(TsaShift::STATUSES);
 
         $filename = 'monitor-tsa-' . now('Asia/Manila')->format('Y-m-d_His') . '.csv';
 
-        return response()->streamDownload(function () use ($tsas, $statusOrder, $todayStart, $now) {
+        return response()->streamDownload(function () use ($tsas, $statusOrder, $dateFrom, $dateTo) {
             $out = fopen('php://output', 'w');
 
             $header = array_merge(['TSA', 'Team', 'Current Status', 'Current Status Since'],
@@ -137,7 +124,7 @@ class MonitorController extends Controller
             fputcsv($out, $header);
 
             foreach ($tsas as $tsa) {
-                $seconds = TsaStatusLog::secondsByStatus($tsa, $todayStart, $now);
+                $seconds = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
                 $minutes = array_map(fn ($s) => round($seconds[$s] / 60, 1), $statusOrder);
 
                 fputcsv($out, array_merge([
@@ -150,5 +137,62 @@ class MonitorController extends Controller
 
             fclose($out);
         }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /** Same ALL/SH Naturals/Eyecare filter as Dashboard (explicit request,
+     *  2026-08-20) — identical resolution logic (config('teams'), default
+     *  'all', an unknown key falls back to 'all' rather than erroring). */
+    private function resolveTeam(Request $request): array
+    {
+        $teamsConfig  = config('teams', []);
+        $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
+        $selectedTeam = $request->input('team', 'all');
+        if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
+            $selectedTeam = 'all';
+        }
+
+        return [$teams, $selectedTeam, $teamsConfig];
+    }
+
+    /** Same shared date-picker partial as Dashboard/Analytics (explicit
+     *  request, 2026-08-20) — defaults to today (Asia/Manila) when nothing's
+     *  picked, same as those pages. TsaStatusLog::secondsByStatus() already
+     *  clips a still-future $dateTo to now() on its own, so passing today's
+     *  end-of-day here for the common "today" case works the same as the
+     *  literal now() this method passed before date filtering existed. */
+    private function resolveDateRange(Request $request): array
+    {
+        $dateFromInput = $request->string('date_from')->toString();
+        $dateToInput   = $request->string('date_to')->toString();
+
+        $dateFrom = $dateFromInput
+            ? Carbon::parse($dateFromInput, 'Asia/Manila')->startOfDay()
+            : now('Asia/Manila')->startOfDay();
+        $dateTo = $dateToInput
+            ? Carbon::parse($dateToInput, 'Asia/Manila')->endOfDay()
+            : now('Asia/Manila')->endOfDay();
+
+        return [$dateFrom, $dateTo];
+    }
+
+    /** Shared by index()/export() — team + search + status, in that order
+     *  (team narrows the roster before search/status ever look at it). */
+    private function filteredTsas(Request $request, string $selectedTeam, array $teamsConfig, string $q, string $status): Collection
+    {
+        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get();
+
+        if ($selectedTeam !== 'all') {
+            $tsas = $tsas->where('team', $teamsConfig[$selectedTeam]['order_team'])->values();
+        }
+        if ($q !== '') {
+            $needle = strtolower($q);
+            $tsas = $tsas->filter(fn (TsaShift $t) => str_contains(strtolower($t->display_name), $needle)
+                || str_contains(strtolower($t->tsa_key ?? ''), $needle))->values();
+        }
+        if ($status !== '') {
+            $tsas = $tsas->where('status', $status)->values();
+        }
+
+        return $tsas;
     }
 }
