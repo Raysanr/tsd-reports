@@ -20,16 +20,34 @@ use App\Models\TsaShift;
  */
 class RoundRobinAssigner
 {
+    /** The statuses that make a TSA eligible to receive a new round-robin
+     *  lead — shared with DashboardController's "at risk" warning so the
+     *  two can never disagree about who's actually available (a product
+     *  flagged "no TSA logged in" here while next() below would still
+     *  happily assign to a Calling/Wrap Up TSA would be a confusing, wrong
+     *  warning). See next()'s own doc comment for why Calling/Wrap Up count
+     *  as available alongside Login. */
+    public const ELIGIBLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP];
+
     /** Returns the TsaShift to assign next, or null if this product has no
-     *  active, currently-logged-in TSAs configured (a real, surfaceable gap
+     *  active, currently-available TSAs configured (a real, surfaceable gap
      *  — see SyncPancakeLeads, which leaves the lead 'unassigned' rather
      *  than guessing). `active` alone isn't enough here anymore: a TSA on
      *  Break/DNA Huddle/Coaching/Logout (TsaShift::status, set via the
      *  topbar dropdown) is still `active` in the long-term admin sense but
-     *  isn't actually available for a live call right now. */
+     *  isn't actually available for a live call right now.
+     *
+     *  Calling and Wrap Up both count as available too (explicit request,
+     *  2026-08-20) — a round-robin assignment just queues the lead for
+     *  whenever the TSA gets to it, it doesn't require them to be idle this
+     *  exact second, so being on another call already (or in the brief,
+     *  system-only after-call window right after one — see
+     *  ExpireWrapUpStatuses) shouldn't leave leads piling up unassigned. */
     public static function next(Product $product): ?TsaShift
     {
-        $roster = $product->tsas()->where('active', true)->where('status', TsaShift::STATUS_LOGIN)->get()
+        $roster = $product->tsas()->where('active', true)
+            ->whereIn('status', self::ELIGIBLE_STATUSES)
+            ->get()
             // A TSA who's hit their daily_lead_cap (Leads Setup page)
             // is logged in and otherwise eligible, but shouldn't receive any
             // more today — same "leave it unassigned rather than guess"

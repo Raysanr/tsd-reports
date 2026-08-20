@@ -177,7 +177,7 @@ class DashboardController extends Controller
         }
         $atRiskProducts = $atRiskProductsQuery->get()->filter(function ($product) {
             return $product->tsas->isNotEmpty()
-                && $product->tsas->every(fn ($tsa) => !$tsa->active || $tsa->status !== TsaShift::STATUS_LOGIN);
+                && $product->tsas->every(fn ($tsa) => !$tsa->active || !in_array($tsa->status, \App\Support\RoundRobinAssigner::ELIGIBLE_STATUSES, true));
         })->values();
 
         // TSA Performance Overview — explicit request (2026-08-18), replaces
