@@ -99,18 +99,13 @@ class LeadController extends Controller
                 ->whereBetween('callback_at', [$rangeFrom, $rangeTo])
                 ->where('callback_at', '<=', now())
                 ->orderBy('callback_at');
-        } elseif ($request->filled('status')) {
-            // Explicit request, 2026-08-20: this filter now narrows by the
-            // ASSIGNED TSA'S CURRENT status (Login/Break/Calling/etc — see
-            // TsaShift::STATUSES), not the lead's own status field, replacing
-            // the old Assigned/Called/Unassigned filter entirely — TSA
-            // Management's per-row status control was removed the same day,
-            // so this is now the one place that status is browsable/filtered
-            // from. An unassigned lead has no TSA to match, so it's
-            // correctly excluded from every value here, same as it always
-            // was implicitly.
-            $query->whereHas('tsa', fn ($q) => $q->where('status', $request->string('status')));
         }
+        // The old Assigned/Called/Unassigned lead-status filter that used
+        // to live here was removed 2026-08-20 (not replaced by a filter —
+        // the "All statuses" control next to the TSA selector is now a
+        // STATUS-CHANGE action for whichever TSA is picked there, same as
+        // TSA Management's old per-row dropdown, not a way to narrow this
+        // list; see leads/index.blade.php).
 
         if ($user->isAtLeastAdmin() && $request->filled('q')) {
             $q = trim($request->string('q'));
@@ -143,7 +138,6 @@ class LeadController extends Controller
             'leads'                 => $leads,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
-            'selectedStatus'        => $request->string('status')->toString(),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
             'dateFrom'              => $dateFromInput ?: $rangeFrom->toDateString(),

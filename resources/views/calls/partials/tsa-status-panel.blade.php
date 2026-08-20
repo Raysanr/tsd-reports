@@ -3,24 +3,20 @@
     2026-08-12), restyled to tsd-reports' own dark-mode convention. Mirrors
     Pancake's own conversation-receive-mode popup: icon + bold label + gray
     description per row, checkmark on whichever is current. Used both by the
-    topbar (a TSA's own status, $target='self' — NOT wired into tsd-reports'
-    shared layout yet, since that requires touching layouts/app.blade.php +
-    User::tsa(), both out of scope for this phase) and Call Rotation (an
-    admin setting any TSA's, $target=that TSA's id) — same partial, same JS
-    handlers (toggleStatusPanel/submitStatusChange in calls.js). Both now pass
-    SELF_SERVICE_STATUSES as $options (explicit request, 2026-08-19: Lock
-    removed from Call Rotation's own dropdown too — no UI path sets it
-    anymore, though STATUS_LOCKED/the readonly handling below stay in place
-    for any TSA a prior Lock already left in that state).
+    topbar (a TSA's own status, $target='self') and, since 2026-08-20, the
+    Leads tab's admin-facing status control (an admin setting whichever
+    TSA's currently picked in the TSA selector, $target=that TSA's id — this
+    used to be Call Rotation's own per-row dropdown, moved here instead) —
+    same partial, same JS handlers (toggleStatusPanel/submitStatusChange in
+    calls.js). Both pass SELF_SERVICE_STATUSES as $options (Lock excluded —
+    no UI path sets it anymore, though STATUS_LOCKED/the readonly handling
+    below stay in place for any TSA a prior Lock already left in that state).
 
     Required: $id (unique per instance), $options (TsaShift::STATUSES keys
     to show), $current (current status value), $target ('self' or a tsa id).
     Optional: $triggerClass (override the default trigger button styling),
     $readonly (true when $current is STATUS_LOCKED and $target is 'self' —
     a TSA can't unlock themselves).
-
-    NOTE: TsaShift::STATUS_*/STATUSES don't exist on TsaShift until Phase 4
-    — this partial errors at render time until then.
 --}}
 @php
     $icons = [

@@ -320,51 +320,6 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Leads tab's "which TSA status" filter dropdown (explicit request,
-// 2026-08-20) — same trigger+floating-panel shape as the TSA status panel
-// above, but this one's a FILTER, not an action: picking an option sets the
-// hidden `status` input and submits the surrounding GET form, instead of
-// POSTing a status change. Separate data-status-filter-* attributes (not
-// data-status-panel-*) so the two never collide — this page can have both a
-// filter dropdown and, for a non-admin, the topbar's own self-service panel
-// open at once.
-document.addEventListener('click', (e) => {
-    const trigger = e.target.closest('[data-status-filter-trigger]');
-    if (trigger) {
-        const wrap  = trigger.closest('[data-status-filter-wrap]');
-        const panel = wrap?.querySelector('[data-status-filter-panel]');
-        if (!panel) return;
-
-        if (panel.classList.contains('hidden')) {
-            const rect = trigger.getBoundingClientRect();
-            panel.style.top = `${rect.bottom + 8}px`;
-            panel.style.left = `${rect.left}px`;
-            panel.classList.remove('hidden');
-        } else {
-            panel.classList.add('hidden');
-        }
-        return;
-    }
-
-    const option = e.target.closest('.status-filter-option');
-    if (option) {
-        const wrap = option.closest('[data-status-filter-wrap]');
-        wrap.querySelector('[data-status-filter-input]').value = option.dataset.value;
-        wrap.closest('form')?.submit();
-        return;
-    }
-
-    if (!e.target.closest('[data-status-filter-wrap]')) {
-        document.querySelectorAll('[data-status-filter-panel]').forEach((p) => p.classList.add('hidden'));
-    }
-});
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        document.querySelectorAll('[data-status-filter-panel]').forEach((p) => p.classList.add('hidden'));
-    }
-});
-
 // Real-time-ish Leads table — re-fetches the same filtered URL every few
 // seconds and swaps in the freshly rendered table (see
 // LeadController::index()'s X-Table-Refresh branch), so a lead the scheduler

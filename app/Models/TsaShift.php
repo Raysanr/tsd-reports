@@ -78,14 +78,16 @@ class TsaShift extends Model
     ];
 
     /** Options a TSA can pick for THEMSELVES on the topbar dropdown — every
-     *  real status except Lock, which only an admin can set. This (plus
-     *  TSA Management's own admin-facing status dropdown) is the only place
-     *  a status is ever changed by hand — Monitor TSA is a pure live
-     *  display (explicit request, 2026-08-20: its earlier button grid was
-     *  removed once it became clear every status change already shows up
-     *  there automatically, via the same tsa_shifts.status column, within
-     *  its own poll — a second, duplicate way to set status was never
-     *  actually needed). */
+     *  real status except Lock, which only an admin can set. Also reused
+     *  by the Leads tab's admin-facing status control (explicit request,
+     *  2026-08-20: this used to be TSA Management's own per-row dropdown,
+     *  moved here so an admin can change whichever TSA they've selected
+     *  right where they're already working, instead of a separate page —
+     *  same component, options, and target=<tsa id> shape either way, see
+     *  leads/index.blade.php). Monitor TSA stays a pure live display — its
+     *  own button grid was removed the same day once it became clear every
+     *  status change already shows up there automatically, via the same
+     *  tsa_shifts.status column, within its own poll. */
     public const SELF_SERVICE_STATUSES = [
         self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
     ];
@@ -100,16 +102,6 @@ class TsaShift extends Model
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
-    /** Options on the Leads tab's "which TSA status" filter (explicit
-     *  request, 2026-08-20) — every real status except Others (too vague a
-     *  catch-all to filter leads by) and Lock (already excluded from every
-     *  other status list a human actually picks from — see
-     *  SELF_SERVICE_STATUSES — this was true even back when TSA Management
-     *  had its own per-row status dropdown). */
-    public const LEAD_FILTER_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_BREAK, self::STATUS_LUNCH,
-        self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
-    ];
 
     public function restDays()
     {

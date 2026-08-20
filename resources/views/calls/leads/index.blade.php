@@ -74,69 +74,27 @@
             @endforeach
         </select>
 
-        {{-- Explicit request (2026-08-20): replaces the old Assigned/Called/
-             Unassigned lead-status filter — narrows by the ASSIGNED TSA'S
-             CURRENT status instead (Login/Break/Calling/etc), now that TSA
-             Management's own per-row status column was removed the same
-             day. Admin-only, like the TSA selector above it — a self-viewing
-             TSA only ever sees their own single TSA's leads, so "which TSA
-             status" isn't a meaningful filter for them the way it is for an
-             admin looking across the whole roster.
-
-             Custom dropdown (not a plain native <select>, explicit request
-             2026-08-20) — same colored-dot-per-status visual language as
-             Monitor TSA and the topbar's own status panel, rather than the
-             browser's generic select-list styling. A real hidden input
-             carries the actual `status` value the surrounding GET form
-             submits; clicking an option just sets that input and submits,
-             same end result as the old <select onchange="submit()">. --}}
-        @if(!$view)
-        @php
-            $statusDotClass = fn (string $s) => match ($s) {
-                \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
-                \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
-                \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
-                \App\Models\TsaShift::STATUS_BREAK      => 'bg-yellow-400',
-                \App\Models\TsaShift::STATUS_LUNCH      => 'bg-amber-800',
-                \App\Models\TsaShift::STATUS_COACHING   => 'bg-blue-500',
-                \App\Models\TsaShift::STATUS_DNA_HUDDLE => 'bg-purple-500',
-                \App\Models\TsaShift::STATUS_HUDDLE     => 'bg-sky-400',
-                \App\Models\TsaShift::STATUS_LOGOUT     => 'bg-slate-300 dark:bg-slate-600',
-                default => 'bg-slate-300 dark:bg-slate-600',
-            };
-        @endphp
-        <div class="relative" data-status-filter-wrap>
-            <input type="hidden" name="status" value="{{ $selectedStatus }}" data-status-filter-input>
-            <button type="button" data-status-filter-trigger
-                    class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
-                <span class="w-2 h-2 rounded-full shrink-0 {{ $selectedStatus ? $statusDotClass($selectedStatus) : 'bg-slate-300 dark:bg-slate-600' }}" data-status-filter-dot></span>
-                <span data-status-filter-label>{{ $selectedStatus ? (\App\Models\TsaShift::STATUSES[$selectedStatus]['label'] ?? $selectedStatus) : 'All statuses' }}</span>
-                <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-                </svg>
-            </button>
-
-            <div class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-64 max-h-96 overflow-y-auto" data-status-filter-panel>
-                <div class="py-1">
-                    <div class="status-filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="">
-                        <span class="w-2 h-2 rounded-full shrink-0 bg-slate-300 dark:bg-slate-600"></span>
-                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">All statuses</span>
-                        @if(!$selectedStatus)
-                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                        @endif
-                    </div>
-                    @foreach(\App\Models\TsaShift::LEAD_FILTER_STATUSES as $s)
-                    <div class="status-filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $s }}">
-                        <span class="w-2 h-2 rounded-full shrink-0 {{ $statusDotClass($s) }}"></span>
-                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ \App\Models\TsaShift::STATUSES[$s]['label'] }}</span>
-                        @if($selectedStatus === $s)
-                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                        @endif
-                    </div>
-                    @endforeach
-                </div>
-            </div>
-        </div>
+        {{-- Explicit request (2026-08-20): this is what replaces TSA
+             Management's old per-row status control — NOT a filter on this
+             list (that's what the first attempt at this got wrong). Picking
+             a TSA above reveals this same tsa-status-panel component TSA
+             Management used to render per-row (target = that TSA's id,
+             options = SELF_SERVICE_STATUSES — the same Login/Break/
+             Coaching/DNA Huddle/Huddle/Logout set it always offered),
+             letting an admin change THAT TSA's status right here instead of
+             a separate page. Only makes sense once a specific TSA is
+             picked — "All TSAs" has no single status to show/change, so
+             this stays hidden until one is. --}}
+        @if(!$view && $selectedTsa)
+        @php $statusPanelTsa = $tsas->firstWhere('id', $selectedTsa); @endphp
+        @if($statusPanelTsa)
+        @include('calls.partials.tsa-status-panel', [
+            'id'      => 'leads-tsa-filter',
+            'options' => \App\Models\TsaShift::SELF_SERVICE_STATUSES,
+            'current' => $statusPanelTsa->status,
+            'target'  => (string) $statusPanelTsa->id,
+        ])
+        @endif
         @endif
 
         <div class="relative">
