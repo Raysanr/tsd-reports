@@ -488,6 +488,16 @@ class LeadController extends Controller
      * should still show up under that TSA's own row. Skipped silently for
      * an unassigned lead (nothing meaningful to attribute it to).
      * TsaStatusController::index() merges these into TSA Logs by recency.
+     *
+     * Also flips that TSA to Calling (explicit request, 2026-08-20) —
+     * Monitor TSA previously only ever set Calling via its own manual
+     * button grid; this is the SAME real click-to-call moment that already
+     * fires this exact request unconditionally on every tel: link click
+     * (dial-host auto-dial or plain tel: fallback, doesn't matter), so
+     * piggybacking here means "call clicked" and "went Calling" can never
+     * disagree, with zero extra round trips added to the dial path. Applies
+     * even when the TSA was on Break/Lunch/etc — clicking to call IS them
+     * going on a call regardless of what they were doing a second ago.
      */
     public function logCallClick(Lead $lead)
     {
@@ -504,6 +514,35 @@ class LeadController extends Controller
                 ($lead->tsa->display_name ?? 'A TSA') . ' clicked to call ' . ($lead->customer_name ?: 'this customer') . ' (' . ($lead->phone_number ?: $lead->dialable_number) . ').',
                 $user
             );
+            $lead->tsa?->applyStatusChange(TsaShift::STATUS_CALLING);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * "End Call" in the Calling modal (explicit request, 2026-08-20) — flips
+     * that TSA straight to Wrap Up the instant the button's clicked, rather
+     * than only via CallEventController's webhook once the phone itself
+     * reports the call ended. Both paths call the exact same
+     * applyStatusChange(WRAP_UP) — this is just a second, faster trigger for
+     * it, not a competing implementation: whichever fires first wins, the
+     * other is a harmless no-op re-write of the same status. Only makes
+     * sense while actually Calling (the End Call button only ever renders
+     * when a dial-host is configured and a call was just placed) — silently
+     * no-ops otherwise rather than erroring, since by the time this request
+     * lands the webhook may have already moved them on.
+     */
+    public function endCall(Lead $lead)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if ($lead->tsa_id && $lead->tsa?->status === TsaShift::STATUS_CALLING) {
+            $lead->tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }
 
         return response()->json(['success' => true]);

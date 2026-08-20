@@ -978,12 +978,17 @@ document.addEventListener('keydown', (e) => {
 // gives this page no way to know if/when the call is actually answered or
 // ends, so it just stays up until dismissed (or until End Call is pressed,
 // for a lead whose TSA has a dial-host configured).
-window.openCallingModal = function (name, number, dialHost) {
+window.openCallingModal = function (name, number, dialHost, leadId) {
     const modal = document.getElementById('callingModal');
     if (!modal) return;
     document.getElementById('callingModalName').textContent = name || 'this customer';
     document.getElementById('callingModalNumber').textContent = number || '';
     modal.dataset.dialHost = dialHost || '';
+    // Stashed the same way as dialHost above — endCall() reads this back to
+    // POST /calls/leads/{leadId}/end-call (explicit request, 2026-08-20:
+    // Wrap Up should start the instant End Call is pressed, not only once
+    // the phone's own webhook reports the hang-up).
+    modal.dataset.leadId = leadId || '';
 
     // End Call/Mute only have anything to hit when this lead's TSA has a
     // dial-host configured — same MacroDroid macro family the auto-dial
@@ -1023,6 +1028,19 @@ window.endCall = function () {
     if (!dialHost) return;
 
     fetch(`http://${dialHost}/hangup`, { mode: 'no-cors' }).catch(() => {});
+
+    // Flip to Wrap Up immediately (explicit request, 2026-08-20) — same
+    // CSRF-header pattern as the call-click log fetch below, fire-and-
+    // forget for the same reason (this button's own job — hanging up the
+    // phone, the fetch above — already happened regardless of whether this
+    // one succeeds).
+    if (modal.dataset.leadId) {
+        fetch(`/calls/leads/${modal.dataset.leadId}/end-call`, {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
+        }).catch(() => {});
+    }
+
     window.closeCallingModal();
 };
 
@@ -1053,7 +1071,7 @@ document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href^="tel:"]');
     if (!link) return;
 
-    window.openCallingModal(link.dataset.name, link.textContent.trim(), link.dataset.dialHost);
+    window.openCallingModal(link.dataset.name, link.textContent.trim(), link.dataset.dialHost, link.dataset.leadId);
 
     // A click here should show up on TSA Logs, not just real status changes
     // — see LeadController::logCallClick()'s own doc comment for why this
