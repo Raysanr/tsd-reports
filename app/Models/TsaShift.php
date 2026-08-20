@@ -100,6 +100,17 @@ class TsaShift extends Model
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
+    /** Options on the Leads tab's "which TSA status" filter (explicit
+     *  request, 2026-08-20) — every real status except Others (too vague a
+     *  catch-all to filter leads by) and Lock (already excluded from every
+     *  other status list a human actually picks from — see
+     *  SELF_SERVICE_STATUSES — this was true even back when TSA Management
+     *  had its own per-row status dropdown). */
+    public const LEAD_FILTER_STATUSES = [
+        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
+    ];
+
     public function restDays()
     {
         return $this->hasMany(TsaRestDay::class);
