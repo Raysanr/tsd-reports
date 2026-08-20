@@ -35,19 +35,24 @@ return new class extends Migration
 
     public function up(): void
     {
-        // Only touches a TO-02 row that still has the specific wrong value
-        // this incident seeded — never blindly overwrites, in case
-        // pancake_product_ids was already hand-corrected in some
-        // environment before this migration runs there.
+        // Unconditional update by display_name, same pattern the original
+        // (proven-working) seed migration already used — deliberately NOT
+        // guarded by a ->where('pancake_product_ids', ...) value check
+        // (root-caused live on production 2026-08-20: Postgres's plain
+        // `json` column type has no `=` operator at all, so that guard
+        // crashed the migration outright — "operator does not exist: json =
+        // unknown" — which, combined with docker/entrypoint.sh's `set -e`,
+        // took the whole web service down instead of just failing to seed.
+        // MySQL, this app's local dev driver, is more permissive here and
+        // never surfaced it before deploy). 'TO-02' uniquely identifies one
+        // row either way, so the guard added no real safety, only risk.
         Product::where('display_name', 'TO-02')
-            ->where('pancake_product_ids', json_encode([self::WRONG_TO_02_ID]))
             ->update(['pancake_product_ids' => json_encode([self::CORRECT_TO_02_ID])]);
     }
 
     public function down(): void
     {
         Product::where('display_name', 'TO-02')
-            ->where('pancake_product_ids', json_encode([self::CORRECT_TO_02_ID]))
             ->update(['pancake_product_ids' => json_encode([self::WRONG_TO_02_ID])]);
     }
 };
