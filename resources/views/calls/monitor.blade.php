@@ -104,19 +104,29 @@
     // the new HTML (banner/legend/summary cards/TSA cards, all of it —
     // Monitor's content is too heterogeneous for a per-row FLIP the way
     // Leads' table uses), then fades back in.
+    //
+    // Root-caused 2026-08-20: an earlier version waited out the FULL 200ms
+    // fade-out via setTimeout BEFORE even starting the fetch, so the real
+    // wait was 200ms (fade) + however long the request took, all spent
+    // sitting on a blank/invisible container — that dead gap is exactly
+    // the "stops for a bit" feel that was reported. Firing the fetch
+    // immediately, in parallel with the fade-out, removes that artificial
+    // delay entirely: if the response lands before the 200ms CSS
+    // transition finishes, the browser just reverses the opacity back
+    // toward 1 mid-flight (a real crossfade, not two separate hops); if
+    // it's slower, the blank window is only ever the request's own actual
+    // latency, never fade time on top of it.
     function refreshWithFade() {
         container.classList.add('opacity-0');
-        window.setTimeout(() => {
-            fetch(window.location.href, { headers: { 'X-Table-Refresh': '1' } })
-                .then((res) => (res.ok ? res.text() : Promise.reject()))
-                .then((html) => {
-                    container.innerHTML = html;
-                    container.classList.remove('opacity-0');
-                })
-                .catch(() => {
-                    container.classList.remove('opacity-0');
-                });
-        }, 200);
+        fetch(window.location.href, { headers: { 'X-Table-Refresh': '1' } })
+            .then((res) => (res.ok ? res.text() : Promise.reject()))
+            .then((html) => {
+                container.innerHTML = html;
+                container.classList.remove('opacity-0');
+            })
+            .catch(() => {
+                container.classList.remove('opacity-0');
+            });
     }
 
     // Team tabs (explicit request, 2026-08-20) — intercepted so switching
