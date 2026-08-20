@@ -48,6 +48,19 @@ class CallEventController extends Controller
         $tsa = TsaShift::where('api_token', $data['api_token'])->first();
         abort_if(!$tsa, 401, 'Unknown or revoked api_token.');
 
+        // Monitor TSA (explicit request, 2026-08-20): this webhook is the
+        // only real signal this app ever gets that a call actually ended —
+        // there's no separate "call started" event (see this class's own
+        // doc comment above), so a TSA sets themselves to Calling manually
+        // before dialing, and THIS is what flips them out of it again. Only
+        // acts if they're still marked Calling — if they'd already manually
+        // switched to something else (e.g. Break) before this webhook
+        // landed, that's a real, more-recent choice this shouldn't stomp on.
+        // ExpireWrapUpStatuses auto-returns them to Login ~60s after this.
+        if ($tsa->status === TsaShift::STATUS_CALLING) {
+            $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
+        }
+
         $event = CallEvent::create([
             'tsa_id'           => $tsa->id,
             'lead_id'          => $this->matchLead($tsa, $data['phone_number'])?->id,

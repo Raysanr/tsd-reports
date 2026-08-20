@@ -109,35 +109,26 @@ class AnalyticsController extends Controller
         // Break/Logout/Lock — only Login/Coaching/DNA Huddle/Huddle get their
         // own bucket, matching what the KPI cards and this section actually
         // surface.
-        $statusSeconds  = array_fill_keys(array_keys(TsaShift::STATUSES), 0);
-        $statusRangeEnd = $to->isFuture() ? now() : $to;
+        $statusSeconds = array_fill_keys(array_keys(TsaShift::STATUSES), 0);
 
         foreach ($rows->pluck('tsa') as $statusTsa) {
-            $priorLog     = TsaStatusLog::where('tsa_id', $statusTsa->id)
-                ->where('created_at', '<=', $from)
-                ->orderByDesc('created_at')
-                ->first();
-            $cursorStatus = $priorLog->status ?? $statusTsa->status;
-            $cursor       = $from->copy();
-
-            $logsInRange = TsaStatusLog::where('tsa_id', $statusTsa->id)
-                ->whereBetween('created_at', [$from, $to])
-                ->orderBy('created_at')
-                ->get();
-
-            foreach ($logsInRange as $log) {
-                $statusSeconds[$cursorStatus] = ($statusSeconds[$cursorStatus] ?? 0) + $cursor->diffInSeconds($log->created_at);
-                $cursorStatus = $log->status;
-                $cursor       = $log->created_at;
-            }
-            if ($cursor->lt($statusRangeEnd)) {
-                $statusSeconds[$cursorStatus] = ($statusSeconds[$cursorStatus] ?? 0) + $cursor->diffInSeconds($statusRangeEnd);
+            foreach (TsaStatusLog::secondsByStatus($statusTsa, $from, $to) as $status => $seconds) {
+                $statusSeconds[$status] = ($statusSeconds[$status] ?? 0) + $seconds;
             }
         }
 
+        // Break/Logout/Lock plus the 4 statuses Monitor TSA introduced
+        // (2026-08-20) — Calling/Wrap Up/Lunch/Others all fold in here too,
+        // same "everything that isn't Login/Coaching/DNA Huddle/Huddle"
+        // definition this bucket already had, just extended so time TSAs
+        // now log via Monitor TSA doesn't silently vanish from this total.
         $othersSeconds = ($statusSeconds[TsaShift::STATUS_BREAK] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_LOGOUT] ?? 0)
-            + ($statusSeconds[TsaShift::STATUS_LOCKED] ?? 0);
+            + ($statusSeconds[TsaShift::STATUS_LOCKED] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_CALLING] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_WRAP_UP] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_LUNCH] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_OTHERS] ?? 0);
 
         $formatHm = fn (int $totalSeconds): string => intdiv(intdiv($totalSeconds, 60), 60) . 'h ' . (intdiv($totalSeconds, 60) % 60) . 'm';
 

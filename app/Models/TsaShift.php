@@ -35,10 +35,14 @@ class TsaShift extends Model
      *  — admin-only to set, and while set, the TSA's own topbar dropdown
      *  can't change it away (see TsaStatusController::update()'s guard). */
     public const STATUS_LOGIN       = 'login';
+    public const STATUS_CALLING     = 'calling';
+    public const STATUS_WRAP_UP     = 'wrap_up';
     public const STATUS_BREAK       = 'break';
+    public const STATUS_LUNCH       = 'lunch';
     public const STATUS_DNA_HUDDLE  = 'dna_huddle';
     public const STATUS_HUDDLE      = 'huddle';
     public const STATUS_COACHING    = 'coaching';
+    public const STATUS_OTHERS      = 'others';
     public const STATUS_LOGOUT      = 'logout';
     public const STATUS_LOCKED      = 'locked';
 
@@ -49,21 +53,55 @@ class TsaShift extends Model
      *  before Logout. Logout also gets its own 'logout' icon now instead of
      *  sharing 'away' with Break/Coaching/DNA Huddle/Huddle, matching the
      *  slate (not amber) dot color this same partial already gives it
-     *  below. */
+     *  below.
+     *
+     *  Calling/Wrap Up/Lunch/Others added for Monitor TSA (explicit request,
+     *  2026-08-20) — Wrap Up is deliberately absent from
+     *  MONITOR_STATUSES/SELF_SERVICE_STATUSES below: it's a system-only
+     *  status, never a button a TSA or admin clicks (see
+     *  applyStatusChange()'s callers — CallEventController on a real call
+     *  ending, and the ExpireWrapUpStatuses command 60s later), matching
+     *  TsaStatusController::update()'s own explicit rejection of a manual
+     *  attempt to set it. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
+        self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now',                            'icon' => 'available'],
+        self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'away'],
         self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'away'],
+        self::STATUS_LUNCH      => ['label' => 'Lunch',      'description' => "On lunch, can't receive leads",                 'icon' => 'away'],
         self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'away'],
         self::STATUS_DNA_HUDDLE => ['label' => 'DNA Huddle', 'description' => "In a team huddle, can't receive leads",         'icon' => 'away'],
         self::STATUS_HUDDLE     => ['label' => 'Huddle',     'description' => "In a huddle, can't receive leads",              'icon' => 'away'],
+        self::STATUS_OTHERS     => ['label' => 'Others',     'description' => 'Away for any other reason',                     'icon' => 'away'],
         self::STATUS_LOGOUT     => ['label' => 'Logout',     'description' => "Shift ended, can't receive leads",              'icon' => 'logout'],
         self::STATUS_LOCKED     => ['label' => 'Lock',       'description' => 'Admin feature — lock a TSA out of receiving leads and changing this status', 'icon' => 'lock'],
     ];
 
     /** Options a TSA can pick for THEMSELVES on the topbar dropdown — every
-     *  real status except Lock, which only an admin can set. */
+     *  real status except Lock, which only an admin can set. Unrelated to
+     *  MONITOR_STATUSES below — this drives the topbar/Call Rotation
+     *  dropdown, a different surface with its own established status set
+     *  that Monitor TSA doesn't change. */
     public const SELF_SERVICE_STATUSES = [
         self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
+    ];
+
+    /** The 8 clickable buttons on Monitor TSA's per-TSA card (explicit
+     *  request, 2026-08-20) — deliberately excludes Wrap Up (system-only,
+     *  see STATUSES' own doc comment above) and Logout/Lock (Monitor is a
+     *  live ops view, not where a shift actually ends or gets locked). */
+    public const MONITOR_STATUSES = [
+        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
+    ];
+
+    /** Same as MONITOR_STATUSES but WITH Wrap Up — the legend row, summary
+     *  count cards, and each card's own "Daily minute record" list all show
+     *  every real status a TSA's minutes might be tracked under, including
+     *  Wrap Up (it just isn't one of the 8 clickable buttons above). */
+    public const MONITOR_LEGEND_STATUSES = [
+        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
     public function restDays()
@@ -104,6 +142,26 @@ class TsaShift extends Model
     public function statusLogs(): HasMany
     {
         return $this->hasMany(TsaStatusLog::class, 'tsa_id')->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** The one write path for changing a TSA's current status — updates the
+     *  denormalized status/status_changed_at/status_locked_by columns AND
+     *  appends a TsaStatusLog row, together, every time. Extracted
+     *  (2026-08-20) so a manual change (TsaStatusController::update()) and
+     *  the two automatic ones Monitor TSA introduces (CallEventController
+     *  flipping Calling -> Wrap Up when a call ends, ExpireWrapUpStatuses
+     *  flipping Wrap Up -> Login 60s later) can never drift apart on how a
+     *  status change is actually recorded — Analytics' own per-status
+     *  duration math (TsaStatusLog::secondsByStatus()) depends on every
+     *  change showing up here, automatic or not. */
+    public function applyStatusChange(string $status, ?int $lockedByUserId = null): void
+    {
+        $this->update([
+            'status'            => $status,
+            'status_changed_at' => now(),
+            'status_locked_by'  => $lockedByUserId,
+        ]);
+        TsaStatusLog::log($this, $status);
     }
 
     public function callEvents(): HasMany

@@ -71,12 +71,19 @@ class TsaStatusController extends Controller
             }
         }
 
-        $tsa->update([
-            'status'            => $data['status'],
-            'status_changed_at' => now(),
-            'status_locked_by'  => $data['status'] === TsaShift::STATUS_LOCKED ? $user->id : null,
-        ]);
-        TsaStatusLog::log($tsa, $data['status']);
+        // Wrap Up is system-only (Monitor TSA, explicit request 2026-08-20)
+        // — it's set automatically when a call ends and auto-expires back to
+        // Login on its own (see CallEventController::store() and the
+        // ExpireWrapUpStatuses command), never a button anyone clicks. This
+        // is the one path every manual status change funnels through
+        // (topbar dropdown + Call Rotation + Monitor TSA's button grid all
+        // POST here), so rejecting it here closes the gap even though no UI
+        // exposes a Wrap Up button today.
+        if ($data['status'] === TsaShift::STATUS_WRAP_UP) {
+            abort(422, 'Wrap Up is set automatically when a call ends — it can\'t be picked manually.');
+        }
+
+        $tsa->applyStatusChange($data['status'], $data['status'] === TsaShift::STATUS_LOCKED ? $user->id : null);
 
         if ($request->wantsJson()) {
             return response()->json(['success' => true, 'status' => $data['status'], 'tsa_id' => $tsa->id]);

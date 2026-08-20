@@ -9,6 +9,7 @@ use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
 use App\Console\Commands\SyncPancakeLeads;
 use App\Console\Commands\LinkSeparateParcelOrders;
+use App\Console\Commands\ExpireWrapUpStatuses;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -105,3 +106,13 @@ Schedule::command(SyncCallRecordings::class)->cron('0 */2 * * *')->withoutOverla
 // interrupting a run and leaving a 24h-default mutex stuck. Same fix, same
 // reasoning.
 Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping(10);
+
+// Monitor TSA's Wrap Up auto-expiry (explicit request, 2026-08-20) — every
+// minute is the tightest this can run on the scheduler, which caps how
+// precisely the configured ~60s duration can actually be honored (see the
+// command's own doc comment). withoutOverlapping(2): a real run is a single
+// cheap query + a handful of in-memory model updates, nowhere near a full
+// minute, but every-minute jobs get this same short explicit timeout on
+// principle now (2026-08-18 incident, see the delta sync above) rather than
+// each one re-deciding it from scratch.
+Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlapping(2);
