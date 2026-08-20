@@ -38,7 +38,16 @@ return new class extends Migration
     private const MAPPINGS = [
         // display_name => real Pancake product_id (UUID)
         'TO-01' => '6fd93f83-855a-444c-81df-060cd4eed35b', // 908 TO-01
-        'TO-02' => 'dbfad3a8-5591-47c7-a62a-a21e5866675c', // 909 TO-02
+        // Corrected 2026-08-20 (see the 2026_08_20 fix-up migration below) —
+        // this was originally 'dbfad3a8-5591-47c7-a62a-a21e5866675c', which
+        // is actually a DIFFERENT product's ID ("Taguro Oil - Gold"), not
+        // TO-02's. That wrong ID made ProductPerformance::matchingOrders()'s
+        // authoritative ID-match branch silently exclude every real TO-02
+        // order (which carries this correct ID, not the wrong one) with no
+        // text-match fallback — confirmed live: TO-02's Leads Report row
+        // rendered fully blank (a real computed 0) despite 24 real orders
+        // existing locally and in Pancake POS itself for the same day.
+        'TO-02' => '07804cf8-a9b0-4900-936d-3dda15f6f324', // 909 TO-02
     ];
 
     public function up(): void
