@@ -68,12 +68,21 @@
     // the sign was wrong, making every "Current status time" read as a
     // flat 0 min regardless of how long a TSA had actually been in that
     // status).
+    // Explicit request (2026-08-20): down to the second now — "24m 13s" /
+    // "1h 4m 50s" instead of rounding everything down to a whole minute.
     $formatSeconds = function (int $totalSeconds) {
-        $totalMinutes = intdiv(abs($totalSeconds), 60);
-        if ($totalMinutes < 60) {
-            return $totalMinutes . ' min';
+        $totalSeconds = abs($totalSeconds);
+        $hours   = intdiv($totalSeconds, 3600);
+        $minutes = intdiv($totalSeconds % 3600, 60);
+        $seconds = $totalSeconds % 60;
+
+        if ($hours > 0) {
+            return "{$hours}h {$minutes}m {$seconds}s";
         }
-        return intdiv($totalMinutes, 60) . 'h ' . ($totalMinutes % 60) . 'm';
+        if ($minutes > 0) {
+            return "{$minutes}m {$seconds}s";
+        }
+        return "{$seconds}s";
     };
 
     // "Daily minute record" reads correctly for the common case (today);
