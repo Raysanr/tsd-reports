@@ -78,9 +78,11 @@
 @endphp
 
 <div class="mb-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-5 py-3 text-sm font-mono text-slate-600 dark:text-slate-300">
-    <strong class="text-slate-800 dark:text-slate-100">Automatic time tracking:</strong> every status accumulates minutes while active.
-    <strong class="text-slate-800 dark:text-slate-100">Wrap Up</strong> is not clickable and starts automatically when a Calling session is ended.
-    Default automatic wrap-up duration: <strong class="text-slate-800 dark:text-slate-100">{{ $wrapUpSeconds }} seconds</strong>.
+    <strong class="text-slate-800 dark:text-slate-100">Automatic time tracking:</strong> every status accumulates minutes while active. This is a live view only —
+    status changes happen from TSA Management or a TSA's own topbar dropdown, and show up here automatically.
+    <strong class="text-slate-800 dark:text-slate-100">Calling</strong> starts the moment a lead's number is clicked, and
+    <strong class="text-slate-800 dark:text-slate-100">Wrap Up</strong> starts automatically once that call ends —
+    neither is ever set by hand. Default automatic wrap-up duration: <strong class="text-slate-800 dark:text-slate-100">{{ $wrapUpSeconds }} seconds</strong>.
 </div>
 
 <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
@@ -130,23 +132,6 @@
         <div class="mb-4">
             <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wide">Current status time</p>
             <p class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">{{ $formatSeconds($statusSecondsElapsed) }}</p>
-        </div>
-
-        <div class="grid grid-cols-3 gap-2 mb-3">
-            @foreach(\App\Models\TsaShift::MONITOR_STATUSES as $btnStatus)
-            @php $isCurrent = $tsa->status === $btnStatus; @endphp
-            <form method="POST" action="{{ route('calls.tsa-status.update') }}" class="monitor-status-form">
-                @csrf
-                <input type="hidden" name="tsa_id" value="{{ $tsa->id }}">
-                <input type="hidden" name="status" value="{{ $btnStatus }}">
-                <button type="submit" {{ $isCurrent ? 'disabled' : '' }}
-                        class="w-full text-[10px] font-bold uppercase tracking-wide font-mono rounded-lg px-1.5 py-2.5 border transition-colors {{ $isCurrent
-                            ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-not-allowed'
-                            : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:border-primary hover:text-primary-dark cursor-pointer' }}">
-                    {{ \App\Models\TsaShift::STATUSES[$btnStatus]['label'] }}
-                </button>
-            </form>
-            @endforeach
         </div>
 
         @if($tsa->status === \App\Models\TsaShift::STATUS_CALLING)

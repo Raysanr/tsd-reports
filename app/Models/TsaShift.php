@@ -56,13 +56,13 @@ class TsaShift extends Model
      *  below.
      *
      *  Calling/Wrap Up/Lunch/Others added for Monitor TSA (explicit request,
-     *  2026-08-20) — Wrap Up is deliberately absent from
-     *  MONITOR_STATUSES/SELF_SERVICE_STATUSES below: it's a system-only
-     *  status, never a button a TSA or admin clicks (see
+     *  2026-08-20). Calling and Wrap Up are both system-only — Calling is
+     *  set the moment a lead's phone number is clicked
+     *  (LeadController::logCallClick()), Wrap Up when that call ends (see
      *  applyStatusChange()'s callers — CallEventController on a real call
-     *  ending, and the ExpireWrapUpStatuses command 60s later), matching
-     *  TsaStatusController::update()'s own explicit rejection of a manual
-     *  attempt to set it. */
+     *  ending, and the ExpireWrapUpStatuses command 60s later) — neither is
+     *  ever a button a TSA or admin clicks, and TsaStatusController::update()
+     *  explicitly rejects a manual attempt to set either one. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
@@ -78,31 +78,23 @@ class TsaShift extends Model
     ];
 
     /** Options a TSA can pick for THEMSELVES on the topbar dropdown — every
-     *  real status except Lock, which only an admin can set. Unrelated to
-     *  MONITOR_STATUSES below — this drives the topbar/Call Rotation
-     *  dropdown, a different surface with its own established status set
-     *  that Monitor TSA doesn't change. */
+     *  real status except Lock, which only an admin can set. This (plus
+     *  TSA Management's own admin-facing status dropdown) is the only place
+     *  a status is ever changed by hand — Monitor TSA is a pure live
+     *  display (explicit request, 2026-08-20: its earlier button grid was
+     *  removed once it became clear every status change already shows up
+     *  there automatically, via the same tsa_shifts.status column, within
+     *  its own poll — a second, duplicate way to set status was never
+     *  actually needed). */
     public const SELF_SERVICE_STATUSES = [
         self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_LOGOUT,
     ];
 
-    /** The 7 clickable buttons on Monitor TSA's per-TSA card (explicit
-     *  request, 2026-08-20; Calling removed 2026-08-20 once clicking a
-     *  lead's phone number started setting it automatically — a manual
-     *  button for it would let someone mark themselves "on a call" without
-     *  actually being on one) — deliberately excludes Calling/Wrap Up
-     *  (both system-only now, see STATUSES' own doc comments above) and
-     *  Logout/Lock (Monitor is a live ops view, not where a shift actually
-     *  ends or gets locked). */
-    public const MONITOR_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_LUNCH,
-        self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
-    ];
-
-    /** Same as MONITOR_STATUSES but WITH Wrap Up — the legend row, summary
-     *  count cards, and each card's own "Daily minute record" list all show
-     *  every real status a TSA's minutes might be tracked under, including
-     *  Wrap Up (it just isn't one of the 8 clickable buttons above). */
+    /** Every status Monitor TSA's legend row, summary count cards, and each
+     *  card's own "Daily minute record" list show a live count/duration
+     *  for — including Calling and Wrap Up, which a TSA can end up in even
+     *  though neither is ever set by hand (see STATUSES' own doc comment
+     *  above). */
     public const MONITOR_LEGEND_STATUSES = [
         self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_BREAK, self::STATUS_LUNCH,
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,

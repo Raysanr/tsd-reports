@@ -53,16 +53,20 @@
             .catch(() => {});
     }
 
-    // Status-grid buttons and "End Call -> Auto Wrap Up" both submit via
-    // fetch instead of a normal POST (same reasoning as TSA Management's
-    // own Save button, 2026-08-18): a plain form submit would reload the
-    // whole page and yank away whatever anyone's currently looking at on
-    // a wall-mounted monitor. Delegated on the container itself (not
-    // document), which survives every innerHTML swap from refresh() below
-    // since the container element itself is never replaced, only its
-    // children.
+    // "End Call -> Auto Wrap Up" submits via fetch instead of a normal POST
+    // (same reasoning as TSA Management's own Save button, 2026-08-18): a
+    // plain form submit would reload the whole page and yank away whatever
+    // anyone's currently looking at on a wall-mounted monitor. Delegated on
+    // the container itself (not document), which survives every innerHTML
+    // swap from refresh() below since the container element itself is
+    // never replaced, only its children. Monitor TSA's own status-change
+    // button grid was removed the same day this comment was last touched
+    // (explicit request, 2026-08-20) — status changes now only happen via
+    // TSA Management/the topbar dropdown, and Monitor TSA just displays
+    // whatever that sets (via the poll below), so this only needs to
+    // handle End Call now.
     container.addEventListener('submit', (e) => {
-        if (!e.target.matches('.monitor-status-form, .monitor-end-call-form')) return;
+        if (!e.target.matches('.monitor-end-call-form')) return;
         e.preventDefault();
         const form = e.target;
 
