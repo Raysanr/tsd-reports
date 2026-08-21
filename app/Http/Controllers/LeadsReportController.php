@@ -207,6 +207,42 @@ class LeadsReportController extends Controller
         $teamOrders       = (clone $ordersQuery)->get();
         $grandTotal       = ProductPerformance::tally($teamOrders);
 
+        // "Other / Unmatched Product" — explicit request (2026-08-21): every
+        // visible row must sum to exactly Grand Total, no exceptions. An order
+        // for a genuinely untracked product (no Product row configured for it
+        // yet, or its text/tags don't match any configured keyword/alias)
+        // counted toward Grand Total above with nowhere to appear — the same
+        // class of gap TSA Performance's "Unassigned" row already solves for
+        // an order with no TSA. See unmatchedOrders()'s own doc comment for
+        // the shared definition drilldown() below also uses, so this row and
+        // its popover can never disagree on which orders belong to it.
+        $unmatched = $this->unmatchedOrders($teamOrders, $matchPool, $visibleProducts);
+        if ($unmatched->isNotEmpty()) {
+            $unmatchedBySlot = $unmatched->groupBy($slotKeyOf);
+            $unmatchedHourlyRows = $this->buildHourlyRows(
+                $slots, $unmatchedBySlot,
+                fn (Collection $orders) => ProductPerformance::tally($orders),
+                $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+            );
+
+            $unmatchedRow = ProductPerformance::tally($unmatched);
+            $unmatchedRow['product_id']   = 'unmatched';
+            $unmatchedRow['display_name'] = 'Other / Unmatched Product';
+            $unmatchedRow['team']         = $teamsConfig[$selectedTeam]['name'];
+
+            $productTables->push([
+                // A stdClass stand-in, not a real Product model — buildRow()
+                // requires a real Product (it calls matchingOrders() against
+                // it), but this row is specifically the leftover that matched
+                // none, so there's no real product to construct one from. Only
+                // the properties the view actually reads (id/display_name/
+                // is_hidden) need to exist here.
+                'product'    => (object) ['id' => 'unmatched', 'display_name' => 'Other / Unmatched Product', 'is_hidden' => false],
+                'hourlyRows' => $unmatchedHourlyRows,
+                'total'      => $unmatchedRow,
+            ]);
+        }
+
         // Same per-hour breakdown as each product table above, but tally()-ing
         // that hour's own team-scoped orders directly (same reasoning as the
         // all-range $grandTotal just above) instead of summing per-product rows
@@ -227,6 +263,27 @@ class LeadsReportController extends Controller
             'dateFrom', 'dateTo', 'selectedTeam', 'teams', 'mode', 'rangeLabel',
             'currentOrders', 'productTables', 'metricCols', 'grandTotal', 'grandTotalHourlyRows'
         ));
+    }
+
+    /** Every order in $candidateOrders that ProductPerformance::matchingOrders()
+     *  doesn't attribute to ANY of $products — checked against $matchPool (not
+     *  $candidateOrders itself), same cross-team pool a real product row already
+     *  matches against, so a genuinely cross-team combo order is never
+     *  mistaken for "untracked" just because this method only ever sees one
+     *  team's own $candidateOrders. Shared by index()/indexAll() (building the
+     *  "Other / Unmatched Product" row) and drilldown() (its popover) so the
+     *  row and what clicking it shows can never disagree on membership. */
+    private function unmatchedOrders(Collection $candidateOrders, Collection $matchPool, Collection $products): Collection
+    {
+        $matchedIds = collect();
+        foreach ($products as $product) {
+            $matchedIds = $matchedIds->merge(
+                ProductPerformance::matchingOrders($product, $matchPool, $products)->pluck('id')
+            );
+        }
+        $matchedIds = $matchedIds->unique();
+
+        return $candidateOrders->reject(fn ($o) => $matchedIds->contains($o->id))->values();
     }
 
     /** Builds the hourly rows for one product's table (or Grand Total, via a
@@ -341,11 +398,24 @@ class LeadsReportController extends Controller
 
         // Same hidden-product rule as the per-team view above: dropped only when
         // there's genuinely nothing to show for the selected range.
-        $productRows = $products
+        $productRowsWithProduct = $products
             ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders, $products)])
-            ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
-            ->pluck('row')
-            ->values();
+            ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0);
+
+        $visibleProducts = $productRowsWithProduct->pluck('product');
+        $productRows     = $productRowsWithProduct->pluck('row')->values();
+
+        // "Other / Unmatched Product" — same reasoning as index()'s own matching
+        // addition (see that method's comment): every visible row must sum to
+        // Grand Total, no exceptions.
+        $unmatched = $this->unmatchedOrders($orders, $orders, $visibleProducts);
+        if ($unmatched->isNotEmpty()) {
+            $unmatchedRow = ProductPerformance::tally($unmatched);
+            $unmatchedRow['product_id']   = 'unmatched';
+            $unmatchedRow['display_name'] = 'Other / Unmatched Product';
+            $unmatchedRow['team']         = null;
+            $productRows->push($unmatchedRow);
+        }
 
         // Reverted (2026-08-21, explicit request): Grand Total briefly summed the
         // product rows above instead of a distinct-order tally() (a cross-team
@@ -390,8 +460,6 @@ class LeadsReportController extends Controller
         $productId   = $request->query('product');
         abort_if(!$productId, 422);
 
-        $product = Product::findOrFail($productId);
-
         $dateFrom = $request->query('date_from');
         $dateTo   = $request->query('date_to', $dateFrom);
         abort_if(!$dateFrom, 422);
@@ -408,8 +476,37 @@ class LeadsReportController extends Controller
             ->whereIn('team', $orderTeams)
             ->get();
 
-        $teamProducts = Product::where('team', $product->team)->get();
-        $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+        // "Other / Unmatched Product" row's own popover (2026-08-21) — reuses
+        // unmatchedOrders(), the exact same shared definition index()/
+        // indexAll() use to decide what belongs in that row, so the row and
+        // what clicking it shows can never disagree. Team-scoped the same way
+        // each of those two builds its own candidate set: this team's own
+        // orders only for a specific team's page, the whole cross-team pool
+        // for the ALL view (both routed through the same 'team' param the
+        // frontend already sends on every drilldown click — see app.js).
+        if ($productId === 'unmatched') {
+            $requestTeam = $request->query('team');
+            $products    = Product::all();
+
+            if ($requestTeam && $requestTeam !== 'all' && array_key_exists($requestTeam, $teamsConfig)) {
+                $orderTeam       = $teamsConfig[$requestTeam]['order_team'];
+                $candidateOrders = $matchPool->where('team', $orderTeam)->values();
+            } else {
+                $candidateOrders = $matchPool;
+            }
+
+            $matching    = $this->unmatchedOrders($candidateOrders, $matchPool, $products);
+            $matchReason = fn ($o) => 'no configured product matched';
+        } else {
+            $product      = Product::findOrFail($productId);
+            $teamProducts = Product::where('team', $product->team)->get();
+            $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+            // Diagnostic only, same reasoning as this method's own docblock:
+            // shows WHICH signal (ID/cart item/base item/bundle/tag) actually
+            // matched this order to $product, so a false positive is visible
+            // right in the popover instead of needing a manual Pancake lookup.
+            $matchReason  = fn ($o) => ProductPerformance::matchReason($product, $o);
+        }
 
         // A disposition/count column (Called Leads, Confirmed via Call, Excess,
         // etc.) — same categorization ProductPerformance::tally() itself uses,
@@ -430,15 +527,11 @@ class LeadsReportController extends Controller
             ->sortByDesc(fn($o) => $o->effective_created_at)
             ->values()
             ->map(fn($o) => [
-                'id'         => $o->pancake_order_id,
-                'status'     => $o->status_label ?? "Unknown ({$o->status_code})",
-                'product'    => $o->product,
-                'time'       => optional($o->effective_created_at)->format('M j, g:i A'),
-                // Diagnostic only, same reasoning as this method's own docblock:
-                // shows WHICH signal (ID/cart item/base item/bundle/tag) actually
-                // matched this order to $product, so a false positive is visible
-                // right in the popover instead of needing a manual Pancake lookup.
-                'matched_via' => ProductPerformance::matchReason($product, $o),
+                'id'          => $o->pancake_order_id,
+                'status'      => $o->status_label ?? "Unknown ({$o->status_code})",
+                'product'     => $o->product,
+                'time'        => optional($o->effective_created_at)->format('M j, g:i A'),
+                'matched_via' => $matchReason($o),
             ]);
 
         return response()->json($result);
