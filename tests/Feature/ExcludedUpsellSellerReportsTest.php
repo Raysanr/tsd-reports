@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\ProductPerformance;
@@ -115,6 +116,26 @@ class ExcludedUpsellSellerReportsTest extends TestCase
         $this->assertNotNull($unassigned);
         $this->assertSame(1, $unassigned['total'], 'only the ordinary unclaimed order counts');
         $this->assertSame(0, $unassigned['upsell_confirmation']);
+    }
+
+    public function test_leads_report_total_cell_drilldown_does_not_list_it_either(): void
+    {
+        // LeadsReportController::drilldown()'s "Total cell" branch (no ?column=)
+        // used to do its own separate reject() that only checked
+        // DELETED_STATUSES — bypassing ProductPerformance::ordersForColumn()
+        // (already fixed above) entirely. Without this, the Grand Total cell
+        // would show 0 while clicking it to drill down still listed the order —
+        // an inconsistency between the count and what backs it.
+        $product = Product::create(['display_name' => 'Sinuxyl', 'match_keyword' => 'Sinuxyl', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        $this->excludedSellerOrder(['product' => 'Sinuxyl']);
+
+        $today = now()->toDateString();
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $this->assertSame([], $response->json());
     }
 
     public function test_a_genuinely_tagged_restocking_order_from_a_real_tsa_still_counts_as_upsell(): void

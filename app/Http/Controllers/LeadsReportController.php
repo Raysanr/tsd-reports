@@ -416,10 +416,12 @@ class LeadsReportController extends Controller
         if ($column) {
             $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
         } else {
-            // Same DELETED_STATUSES exclusion ordersForColumn() already applies
-            // for every other column — see this method's own docblock for why
-            // the Total cell now matches instead of being the one exception.
-            $matching = $matching->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+            // Same DELETED_STATUSES/excluded_upsell_seller exclusions
+            // ordersForColumn() already applies for every other column — see
+            // this method's own docblock for why the Total cell now matches
+            // instead of being the one exception.
+            $matching = $matching->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+                || $o->excluded_upsell_seller);
         }
 
         $result = $matching
