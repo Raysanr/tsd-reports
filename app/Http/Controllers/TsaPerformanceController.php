@@ -95,13 +95,30 @@ class TsaPerformanceController extends Controller
         $shifts = TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])
             ->orderBy('sort_order')->get()->keyBy('tsa_key');
 
+        // Every currently-known tsa_key, across EVERY team — not just this one.
+        // Root-caused 2026-08-21: Order.tsa_name is a snapshot written at sync
+        // time, not a live foreign key. If the TSA it named is later renamed or
+        // removed from tsa_shifts, that order's tsa_name no longer matches any
+        // current roster key — but it's still non-null, so it didn't qualify
+        // for the "unclaimed" branch below either, and just vanished from this
+        // report entirely (not even landing in Unassigned) while Dashboard/
+        // Leads Report — which never look at tsa_name at all — kept counting
+        // it, so Grand Total here ran lower than theirs for the same range.
+        // Checked against every team's roster (not just $shifts, this team's
+        // own), not just null: a tsa_name that's a real, CURRENT TSA on a
+        // DIFFERENT team legitimately belongs on that team's own page, not
+        // mislabeled Unassigned here.
+        $allKnownKeys = TsaShift::pluck('tsa_key');
+
         // All orders for the selected date: either assigned to a TSA on this team's
         // roster, OR never claimed by any TSA at all but still attributable to this
         // team by product (Fix #15 in SyncTodayOrders — a lead can have a real product
         // in its cart with no TSA tag at all, e.g. swept by the midnight "UNCATERED
         // LEADS" bulk action before anyone touched it; `whereIn(...)` alone would
         // silently drop these since SQL IN never matches NULL, hiding them from every
-        // team's report entirely instead of counting them as that team's Excess).
+        // team's report entirely instead of counting them as that team's Excess) —
+        // OR tagged with a tsa_name that's orphaned (see $allKnownKeys above), same
+        // "attributable to this team, nobody current to credit it to" treatment.
         // Date scope: which DAY an order counts under now matches POS (explicit
         // request, 2026-08-11 — "accurate from POS", after Leads Report showed 256
         // for Eyecare/Aug 10 against Dashboard's 255) — same COALESCE(pancake_
@@ -113,10 +130,11 @@ class TsaPerformanceController extends Controller
         // happened in, not the hour the lead first arrived in Pancake; changing
         // that would make the hourly table stop meaning what its own columns say.
         $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->where(function ($q) use ($shifts, $teamsConfig, $selectedTeam) {
+            ->where(function ($q) use ($shifts, $teamsConfig, $selectedTeam, $allKnownKeys) {
                 $q->whereIn('tsa_name', $shifts->keys())
-                  ->orWhere(function ($q2) use ($teamsConfig, $selectedTeam) {
-                      $q2->whereNull('tsa_name')->where('team', $teamsConfig[$selectedTeam]['order_team']);
+                  ->orWhere(function ($q2) use ($teamsConfig, $selectedTeam, $allKnownKeys) {
+                      $q2->where('team', $teamsConfig[$selectedTeam]['order_team'])
+                         ->where(fn ($q3) => $q3->whereNull('tsa_name')->orWhereNotIn('tsa_name', $allKnownKeys));
                   });
             })
             ->get();
@@ -138,7 +156,13 @@ class TsaPerformanceController extends Controller
         // too, so it never disagrees with the hourly blocks below it) — same
         // shift/tally/team shape as indexAll()'s own $tsaRows/$grandTotal, just
         // scoped to the one selected team instead of looping every team.
-        $ordersByTsaFlat = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+        // Same orphaned-tsa_name fallback as the $orders query above — $orders
+        // is already correctly scoped to this team (a real TSA on a different
+        // team's roster was excluded there, not swept in here), so anything
+        // left with a tsa_name not matching one of THIS team's own $shifts is,
+        // by construction, either null or orphaned — safe to lump into
+        // Unassigned either way.
+        $ordersByTsaFlat = $orders->groupBy(fn($o) => ($o->tsa_name !== null && $shifts->has($o->tsa_name)) ? $o->tsa_name : '__unassigned__');
         $tsaRows = $shifts->map(function ($shift) use ($ordersByTsaFlat, $selectedTeam, $teamsConfig) {
             $row = ProductPerformance::tally($ordersByTsaFlat->get($shift->tsa_key, collect()));
             $row['display_name'] = $shift->display_name;
@@ -545,13 +569,18 @@ class TsaPerformanceController extends Controller
         // Same order-scoping AND date scope (POS-accurate, see index()'s comment)
         // as index()/indexAll() above — drilldown popovers must show the exact
         // same order set the row/cell they were opened from was built from.
-        $shifts = TsaShift::where('team', $teamsConfig[$team]['order_team'])->get()->keyBy('tsa_key');
+        // Same orphaned-tsa_name fallback as index() too (see that method's own
+        // comment) — otherwise a click on an Unassigned row that DOES correctly
+        // include an orphaned order (post-fix) would open a popover missing it.
+        $shifts       = TsaShift::where('team', $teamsConfig[$team]['order_team'])->get()->keyBy('tsa_key');
+        $allKnownKeys = TsaShift::pluck('tsa_key');
 
         $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->where(function ($q) use ($shifts, $teamsConfig, $team) {
+            ->where(function ($q) use ($shifts, $teamsConfig, $team, $allKnownKeys) {
                 $q->whereIn('tsa_name', $shifts->keys())
-                  ->orWhere(function ($q2) use ($teamsConfig, $team) {
-                      $q2->whereNull('tsa_name')->where('team', $teamsConfig[$team]['order_team']);
+                  ->orWhere(function ($q2) use ($teamsConfig, $team, $allKnownKeys) {
+                      $q2->where('team', $teamsConfig[$team]['order_team'])
+                         ->where(fn ($q3) => $q3->whereNull('tsa_name')->orWhereNotIn('tsa_name', $allKnownKeys));
                   });
             })
             ->get();
@@ -571,8 +600,12 @@ class TsaPerformanceController extends Controller
         }
 
         if ($tsaKey && $tsaKey !== '__all__') {
+            // Same orphaned-tsa_name-counts-as-Unassigned rule as index()/
+            // indexAll()'s own grouping — $orders is already correctly scoped
+            // above, so anything left with a tsa_name not in $shifts is, by
+            // construction, either null or orphaned.
             $orders = $tsaKey === 'unassigned'
-                ? $orders->filter(fn($o) => $o->tsa_name === null)->values()
+                ? $orders->filter(fn($o) => $o->tsa_name === null || !$shifts->has($o->tsa_name))->values()
                 : $orders->where('tsa_name', $tsaKey)->values();
         }
 
@@ -636,7 +669,15 @@ class TsaPerformanceController extends Controller
             ->sortBy(fn($s) => array_search($s->team, $orderTeams))
             ->values();
 
-        $ordersByTsa      = $orders->groupBy(fn($o) => $o->tsa_name ?? '__unassigned__');
+        // Same orphaned-tsa_name fallback as index() (see that method's own
+        // comment) — a tsa_name that no longer matches any current TsaShift
+        // row (renamed/removed since the order synced) falls back to
+        // Unassigned instead of grouping under a key nothing below ever reads,
+        // which used to leave it counted in Grand Total (built from the same
+        // unfiltered $orders) but invisible in every row, so the rows summed
+        // to LESS than Grand Total on this exact page.
+        $knownKeys        = $shifts->pluck('tsa_key');
+        $ordersByTsa      = $orders->groupBy(fn($o) => ($o->tsa_name !== null && $knownKeys->contains($o->tsa_name)) ? $o->tsa_name : '__unassigned__');
         $unassignedOrders = $ordersByTsa->get('__unassigned__', collect());
 
         // Built team-by-team (not a flat ->map() over $shifts) so each team's
