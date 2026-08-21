@@ -722,14 +722,11 @@ class TsaPerformanceController extends Controller
         $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
 
         // Same "real upsell" definition and non-upsell exclusivity guard as
-        // ProductPerformance::tally() — kept in sync by hand since this per-TSA
-        // breakdown has its own separate accumulator. Without the $nonUpsell filter
-        // here (missing until now), an upsell order that also carried a stale
-        // disposition tag double-counted into both its disposition column AND
-        // Upsell w/ Confirmation.
-        $isRealUpsell = fn($o) => $o->is_upsell
-            || $o->is_returned_upsell
-            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        // ProductPerformance::tally() — now the SAME shared method
+        // (Order::isBroadRealUpsell()), not a hand-copied closure, so this
+        // per-TSA breakdown can no longer drift out of sync with it (it had,
+        // twice, before this — see that method's own doc comment).
+        $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);
 
         $row = [

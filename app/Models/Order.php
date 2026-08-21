@@ -30,6 +30,7 @@ class Order extends Model
         'returned_upsell_amount',
         'is_restocking_upsell',
         'restocking_upsell_amount',
+        'excluded_upsell_seller',
         'status_code',
         'pancake_created_at',
         'pancake_inserted_at',
@@ -44,6 +45,7 @@ class Order extends Model
         'is_cancelled_upsell'     => 'boolean',
         'is_returned_upsell'      => 'boolean',
         'is_restocking_upsell'    => 'boolean',
+        'excluded_upsell_seller'  => 'boolean',
         'amount'                  => 'decimal:2',
         'cancelled_upsell_amount' => 'decimal:2',
         'returned_upsell_amount'  => 'decimal:2',
@@ -187,6 +189,30 @@ class Order extends Model
     public function scopeRealUpsell($query)
     {
         return $query->where(fn ($q) => $q->where('is_upsell', true)->orWhere('is_returned_upsell', true));
+    }
+
+    /**
+     * The "broad" real-upsell definition isRealUpsell()'s own doc comment
+     * deliberately excludes — is_upsell OR is_returned_upsell, PLUS a bare
+     * Order::hasUpsellTag($raw_tags) tag-text fallback for an order whose
+     * is_upsell was forced false purely by VOID_STATUSES (e.g. a genuinely
+     * tagged upsell sitting in Restocking status). Centralized here
+     * (2026-08-21) — this exact closure used to be hand-copied in
+     * ProductPerformance::tally(), ProductPerformance::ordersForColumn(),
+     * and TsaPerformanceController's per-TSA breakdown, each commented
+     * "kept in sync by hand"; the excluded_upsell_seller gate below
+     * (root-caused same day, order #1352836 — an "UPSELL TSD - ..." tag
+     * applied under a known non-TSA account, see
+     * config/excluded_upsell_sellers.php) needed adding to all three at
+     * once, which is exactly the drift risk those comments warned about.
+     */
+    public static function isBroadRealUpsell(self $order): bool
+    {
+        if ($order->excluded_upsell_seller) return false;
+
+        return $order->is_upsell
+            || $order->is_returned_upsell
+            || (!$order->is_cancelled_upsell && self::hasUpsellTag($order->raw_tags ?? []));
     }
 
     /** The correct isolated add-on price for a row ProductPerformance::tally()'s

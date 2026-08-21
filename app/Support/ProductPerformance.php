@@ -227,17 +227,10 @@ class ProductPerformance
         // treats these columns as mutually exclusive; this makes the counts agree.
         //
         // "Real upsell" here is deliberately broader than the stored is_upsell
-        // column: is_upsell is forced false at sync time for ANY order sitting in a
-        // Restocking/void status, even one genuinely tagged "Upsell TSD" (confirmed
-        // in production: an AudiCure order in Restocking, tagged "Upsell TSD (Ear
-        // Relief Balm)", counted as neither Catered outcome nor upsell — invisible
-        // work that clearly happened). is_returned_upsell (once real, later
-        // returned) counts too. Only a genuinely CANCELLED upsell — the add-on item
-        // itself removed from the order, is_cancelled_upsell — is excluded, since
-        // there the tag really is stale.
-        $isRealUpsell = fn($o) => $o->is_upsell
-            || $o->is_returned_upsell
-            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        // column — see Order::isBroadRealUpsell()'s own doc comment for the full
+        // reasoning (a Restocking/void-status order genuinely tagged "Upsell TSD"
+        // still counts; a known non-TSA seller account never does).
+        $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);
 
         $row = [
@@ -395,9 +388,7 @@ class ProductPerformance
     {
         $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
 
-        $isRealUpsell = fn($o) => $o->is_upsell
-            || $o->is_returned_upsell
-            || (!$o->is_cancelled_upsell && Order::hasUpsellTag($o->raw_tags ?? []));
+        $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);
 
         if ($column === 'upsell_confirmation') {

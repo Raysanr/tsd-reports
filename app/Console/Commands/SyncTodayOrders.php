@@ -325,7 +325,17 @@ class SyncTodayOrders extends Command
             // signal, falling back to a name tag), so this only ever
             // affects whether an order correctly-attributed to a TSA counts
             // as her upsell, never who it's attributed to.
-            $hasUpsellTag = !$this->isExcludedUpsellSeller($raw)
+            // Persisted (not just used to gate $hasUpsellTag below) so every OTHER
+            // "was this a real upsell" path can also respect it — see
+            // Order::isBroadRealUpsell()'s own doc comment: ProductPerformance::
+            // tally()/ordersForColumn() and TsaPerformanceController's per-TSA
+            // breakdown all fall back to a bare tag-text scan for a separate edge
+            // case (Restocking-status orders) that bypasses is_upsell entirely, so
+            // gating only $hasUpsellTag here would leave this order still counted
+            // as an upsell everywhere except the Dashboard card/Leaderboard.
+            $isExcludedUpsellSeller = $this->isExcludedUpsellSeller($raw);
+
+            $hasUpsellTag = !$isExcludedUpsellSeller
                 && (Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
                     || Order::hasSeparateParcelTag($tagNames));
 
@@ -484,6 +494,7 @@ class SyncTodayOrders extends Command
                 'returned_upsell_amount'  => $returnedUpsellAmount,
                 'is_restocking_upsell'    => $isRestockingUpsell,
                 'restocking_upsell_amount' => $restockingUpsellAmount,
+                'excluded_upsell_seller'  => $isExcludedUpsellSeller,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
                 // Pancake's raw inserted_at, untouched — see the orders migration's
@@ -555,7 +566,7 @@ class SyncTodayOrders extends Command
                     'team', 'tsa_name', 'disposition', 'product', 'base_product', 'bundle_description', 'pancake_product_ids', 'amount', 'raw_tags',
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
-                    'is_restocking_upsell', 'restocking_upsell_amount',
+                    'is_restocking_upsell', 'restocking_upsell_amount', 'excluded_upsell_seller',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
                     'pancake_updated_at', 'synced_at',
                 ]
