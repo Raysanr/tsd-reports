@@ -62,17 +62,20 @@ class TsaPerformanceUnassignedRowTest extends TestCase
 
         $response->assertOk();
 
-        $tsaRows    = $response->viewData('tsaRows');
-        $grandTotal = $response->viewData('grandTotal');
+        $tsaRows = $response->viewData('tsaRows');
 
         $unassignedRow = $tsaRows->firstWhere('tsa_key', 'unassigned');
         $this->assertNotNull($unassignedRow, 'Expected an Unassigned row when a claimed-team, no-TSA order exists.');
         $this->assertSame('Unassigned', $unassignedRow['display_name']);
         $this->assertSame(1, $unassignedRow['not_answering']);
 
-        $summedCatered = $tsaRows->sum('catered');
-        $this->assertSame($grandTotal['catered'], $summedCatered);
-        $this->assertSame(3, $summedCatered);
+        // $tsaRows counts every order regardless of product match; Grand
+        // Total (2026-08-21, explicit request) is a separate, product-
+        // matched figure so it tallies with Dashboard/Leads Report instead
+        // — see TsaPerformanceOrphanedTsaNameTest's class doc comment for
+        // the full trade-off. These three orders don't set a real product,
+        // so they no longer necessarily equal Grand Total.
+        $this->assertSame(3, $tsaRows->sum('catered'));
     }
 
     /** Proves the guard in tsa-performance.blade.php is load-bearing, not
@@ -112,12 +115,13 @@ class TsaPerformanceUnassignedRowTest extends TestCase
 
         $response->assertOk();
 
-        $tsaRows    = $response->viewData('tsaRows');
-        $grandTotal = $response->viewData('grandTotal');
+        $tsaRows = $response->viewData('tsaRows');
 
         $unassignedRow = $tsaRows->first(fn ($row) => $row['tsa_key'] === 'unassigned' && $row['team_key'] === 'sh-naturals');
         $this->assertNotNull($unassignedRow, 'Expected an SH Naturals Unassigned row in the ALL view.');
 
-        $this->assertSame($grandTotal['catered'], $tsaRows->sum('catered'));
+        // See the single-team test above for why this no longer checks
+        // against Grand Total (now a separate, product-matched figure).
+        $this->assertSame(3, $tsaRows->sum('catered'));
     }
 }

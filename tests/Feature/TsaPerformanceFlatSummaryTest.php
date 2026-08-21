@@ -30,11 +30,13 @@ class TsaPerformanceFlatSummaryTest extends TestCase
 
         Order::factory()->create([
             'pancake_order_id' => 'gemma-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
         Order::factory()->create([
             'pancake_order_id' => 'mariel-1', 'team' => 'SH Naturals', 'tsa_name' => 'Mariel',
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'NOT ANSWERING'],
             'disposition' => 'NOT ANSWERING', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 14:00:00', 'synced_at' => now(),
         ]);
@@ -55,9 +57,13 @@ class TsaPerformanceFlatSummaryTest extends TestCase
         $this->assertSame(1, $marielRow['not_answering']);
         $this->assertSame('sh-naturals', $gemmaRow['team_key']);
 
-        // Grand Total (a flat tally() of the whole day) must equal the
-        // hourly view's own accumulated totals — same orders, same
-        // per-order classification rules, just totaled a different way.
+        // $totals (the hourly view's own accumulator) counts every order
+        // regardless of product match; Grand Total (2026-08-21, explicit
+        // request) is a separate, product-matched figure so it tallies with
+        // Dashboard/Leads Report instead (see TsaPerformanceController::
+        // index()'s own comment) — both orders here match a real tracked
+        // product (SINUXYL), so the two coincide for this scenario, but
+        // they're no longer the SAME definition in general.
         $this->assertSame($totals['total_called'], $grandTotal['total_called']);
         $this->assertSame(2, $grandTotal['total_called']);
     }

@@ -37,31 +37,45 @@ class TsaPerformanceAllViewTest extends TestCase
      * request removed that, but the leads still counted) — so ALL's total ran
      * lower than SH Naturals' total + Eyecare's total for the same day. Both
      * now use the same inclusive definition, so the three filters tally.
+     *
+     * Revised 2026-08-21 (explicit follow-up: Catered Leads must also tally
+     * with Dashboard/Leads Report): Grand Total is now a sum of product-
+     * matched rows, not the hourly breakdown's own $totals accumulator (that
+     * one still counts every order regardless of product match — see
+     * TsaPerformanceController::index()'s own comment for why). Comparing
+     * $totals here would no longer equal $grandTotal, so this now compares
+     * $grandTotal to $grandTotal across all three views, with orders that
+     * actually match a tracked product.
      */
-    public function test_all_view_grand_total_equals_the_sum_of_each_teams_own_total(): void
+    public function test_all_view_grand_total_equals_the_sum_of_each_teams_own_grand_total(): void
     {
         $date = '2026-08-04';
 
         // Claimed by a real TSA on each team.
         Order::factory()->create([
             'pancake_order_id' => 'sh-claimed', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
         Order::factory()->create([
             'pancake_order_id' => 'eye-claimed', 'team' => 'Eyecare Team', 'tsa_name' => 'Joana',
+            'product' => 'Pterygium', 'raw_tags' => ['PTERYGIUM', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
         // Never claimed by any TSA — must still count toward both the team
-        // page's total AND (now) ALL's grand total.
+        // page's total AND ALL's grand total (this is about TSA attribution,
+        // orthogonal to product tracking — both still match a real product).
         Order::factory()->create([
             'pancake_order_id' => 'sh-unclaimed', 'team' => 'SH Naturals', 'tsa_name' => null,
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 11:00:00', 'synced_at' => now(),
         ]);
         Order::factory()->create([
             'pancake_order_id' => 'eye-unclaimed', 'team' => 'Eyecare Team', 'tsa_name' => null,
+            'product' => 'Pterygium', 'raw_tags' => ['PTERYGIUM', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 11:00:00', 'synced_at' => now(),
         ]);
@@ -70,8 +84,8 @@ class TsaPerformanceAllViewTest extends TestCase
         $eyecare    = $this->get(route('tsa-performance', ['team' => 'eyecare', 'date_from' => $date, 'date_to' => $date]));
         $all        = $this->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));
 
-        $shTotal  = $shNaturals->viewData('totals')['total_called'];
-        $eyeTotal = $eyecare->viewData('totals')['total_called'];
+        $shTotal  = $shNaturals->viewData('grandTotal')['total_called'];
+        $eyeTotal = $eyecare->viewData('grandTotal')['total_called'];
         $allTotal = $all->viewData('grandTotal')['total_called'];
 
         $this->assertSame(2, $shTotal);

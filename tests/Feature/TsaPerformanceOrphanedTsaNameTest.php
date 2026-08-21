@@ -39,6 +39,20 @@ use Tests\TestCase;
  * invariant Dashboard/Leads Report now guarantee. Strict team-column
  * partitioning is the only way to guarantee both "no order counted twice"
  * and "no order silently dropped" at once.
+ *
+ * Revised again same day (explicit follow-up: Catered Leads/Grand Total
+ * here must ALSO tally with Dashboard/Leads Report): Grand Total is now a
+ * sum of product-matched rows (see index()'s own comment), a genuinely
+ * DIFFERENT figure than $tsaRows->sum() — $tsaRows still counts every
+ * order regardless of product match (an earlier attempt at also
+ * restricting $tsaRows to product-matched-only was reverted: it silently
+ * dropped real, un-product-tagged orders from individual TSAs' own numbers,
+ * a worse regression than the inconsistency it fixed — see that same
+ * comment). These tests' orphaned/cross-team orders don't set a real
+ * product, so they no longer contribute to Grand Total at all; the
+ * "$grandTotal === $tsaRows->sum()" assertions those tests used to make
+ * are gone accordingly. SH+Eyecare=ALL for Grand Total is still tested,
+ * now with orders that actually match a tracked product.
  */
 class TsaPerformanceOrphanedTsaNameTest extends TestCase
 {
@@ -68,17 +82,14 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals', 'date_from' => $date, 'date_to' => $date]));
 
         $response->assertOk();
-        $tsaRows    = $response->viewData('tsaRows');
-        $grandTotal = $response->viewData('grandTotal');
+        $tsaRows = $response->viewData('tsaRows');
 
         $unassigned = $tsaRows->firstWhere('tsa_key', 'unassigned');
         $this->assertNotNull($unassigned, 'orphaned tsa_name must still surface as a visible row');
         $this->assertSame(1, $unassigned['total']);
-        $this->assertSame($grandTotal['total'], $tsaRows->sum('total'));
-        $this->assertSame(1, $grandTotal['total']);
     }
 
-    public function test_all_view_grand_total_still_equals_the_sum_of_the_rows_with_an_orphaned_order(): void
+    public function test_all_view_also_falls_back_the_orphaned_order_to_unassigned(): void
     {
         $date = '2026-08-04';
         $this->orphanedOrder($date);
@@ -86,11 +97,9 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $response = $this->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));
 
         $response->assertOk();
-        $tsaRows    = $response->viewData('tsaRows');
-        $grandTotal = $response->viewData('grandTotal');
-
-        $this->assertSame(1, $grandTotal['total']);
-        $this->assertSame($grandTotal['total'], $tsaRows->sum('total'), 'ALL view rows must sum back to Grand Total');
+        $unassigned = $response->viewData('tsaRows')->firstWhere('tsa_key', 'unassigned');
+        $this->assertNotNull($unassigned, 'orphaned tsa_name must still surface as a visible row on the ALL view too');
+        $this->assertSame(1, $unassigned['total']);
     }
 
     public function test_a_tsa_name_belonging_to_a_different_teams_roster_is_now_treated_as_unassigned_here(): void
@@ -128,23 +137,29 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $this->assertSame(0, $julieRow['total'] ?? 0);
     }
 
-    public function test_sh_naturals_plus_eyecare_totals_equal_the_all_views_grand_total(): void
+    public function test_sh_naturals_plus_eyecare_grand_totals_equal_the_all_views_grand_total(): void
     {
         $date = '2026-08-04';
 
-        // A normal same-team order on each side...
+        // Grand Total is product-matched now, so these need to actually match
+        // a tracked product to contribute to it.
         Order::create([
             'pancake_order_id' => 'sh-plain', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
         Order::create([
             'pancake_order_id' => 'eye-plain', 'team' => 'Eyecare Team', 'tsa_name' => 'Joana',
+            'product' => 'Pterygium', 'raw_tags' => ['PTERYGIUM', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
-        // ...plus the two trickier shapes this file already covers individually:
-        // an orphaned tsa_name, and a real TSA credited on the wrong team's order.
+        // Plus the two trickier shapes this file already covers individually
+        // (an orphaned tsa_name, and a real TSA credited on the wrong team's
+        // order) — neither sets a real product, so they contribute 0 to Grand
+        // Total either way; included here to prove they don't silently break
+        // the additivity of the two that DO.
         $this->orphanedOrder($date);
         Order::create([
             'pancake_order_id' => 'cross-team-2', 'team' => 'SH Naturals',
@@ -165,10 +180,7 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $eyeTotal = $eye->viewData('grandTotal')['total'];
         $allTotal = $all->viewData('grandTotal')['total'];
 
-        $this->assertSame(4, $allTotal);
+        $this->assertSame(2, $allTotal);
         $this->assertSame($allTotal, $shTotal + $eyeTotal);
-
-        // And the ALL view's own rows must still sum to its own Grand Total.
-        $this->assertSame($allTotal, $all->viewData('tsaRows')->sum('total'));
     }
 }
