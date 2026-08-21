@@ -172,10 +172,13 @@ class LeadsReportStaleTagConflictTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             return $sinuxyl['total']['total'] === 1;
         });
-        // ...and Grand Total, now defined as the sum of the rows above it (not a
-        // separately-tallied distinct-order count), reflects that too — even
-        // though the order itself belongs to Eyecare Team, not SH Naturals.
-        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+        // ...but Grand Total (2026-08-21: reverted to a distinct-order tally()
+        // over this team's OWN orders, for 3-way consistency with Dashboard/TSA
+        // Performance — see LeadsReportGrandTotalTest's own doc comment) does
+        // NOT — the order's own `team` is Eyecare, not SH Naturals, so it isn't
+        // part of SH Naturals' distinct-order count even though SINUXYL's row
+        // (via the cross-team match pool above) still finds it.
+        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
 
         // Eyecare's own report still counts it too (its actual team + primary item).
         $eyecareResponse = $this->get(route('leads-report', [

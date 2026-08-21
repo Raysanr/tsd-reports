@@ -196,35 +196,31 @@ class LeadsReportController extends Controller
             fn($table) => $table['product']->is_hidden && $table['total']['total'] === 0
         )->values();
 
-        // Grand Total — the sum of the product rows above (post hidden-product
-        // rejection, so it matches exactly what's visibly shown), not a
-        // separately-tallied distinct-order count. A cross-team combo order (e.g.
-        // Pterygium bundling Sinuxyl units — see matchingOrders()'s $explicitMatch
-        // comment) legitimately counts toward BOTH products' rows, so tally()
-        // over $allOrders ran lower than the rows actually add up to. Explicit
-        // request: Grand Total should always equal the row sum. See
-        // ProductPerformance::sumRows()'s own doc comment for the full reasoning.
+        // Reverted (2026-08-21, explicit request) — see indexAll()'s matching
+        // revert and DashboardController's own for the full reasoning. tally()
+        // over this team's own distinct orders ($teamOrders, NOT $matchPool —
+        // the cross-team pool exists only so a combo order's OTHER team's
+        // product row can still find it, it was never this page's own order
+        // set), the same team-scoped set Dashboard's own per-team total_leads
+        // already uses.
         $visibleProducts = $productTables->pluck('product');
-        $grandTotal      = ProductPerformance::sumRows($productTables->pluck('total'));
+        $teamOrders       = (clone $ordersQuery)->get();
+        $grandTotal       = ProductPerformance::tally($teamOrders);
 
-        // Same per-hour breakdown as each product table above, but summing that
-        // hour's per-product rows (same reasoning as the all-range $grandTotal
-        // just above) instead of tally()-ing the hour's raw orders directly. Reuses
-        // buildHourlyRows()'s own shift-cutoff handling unchanged — it's the same
-        // per-slot machinery, just fed a row-summing $computeRow instead of a bare
-        // tally(). Sums over $matchPool (cross-team pool), matching what the
-        // per-product hourly rows themselves are built from.
+        // Same per-hour breakdown as each product table above, but tally()-ing
+        // that hour's own team-scoped orders directly (same reasoning as the
+        // all-range $grandTotal just above) instead of summing per-product rows
+        // built from the cross-team pool.
+        $teamOrdersBySlot = $teamOrders->groupBy($slotKeyOf);
         $grandTotalHourlyRows = $this->buildHourlyRows(
-            $slots, $matchPoolBySlot,
-            fn(Collection $orders) => ProductPerformance::sumRows(
-                $visibleProducts->map(fn($product) => ProductPerformance::buildRow($product, $orders, $products))
-            ),
+            $slots, $teamOrdersBySlot,
+            fn(Collection $orders) => ProductPerformance::tally($orders),
             $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
         );
 
-        $currentOrders = (clone $ordersQuery)
-            ->orderByRaw('COALESCE(pancake_inserted_at, pancake_created_at) DESC')
-            ->get();
+        $currentOrders = $teamOrders
+            ->sortByDesc(fn ($o) => $o->effective_created_at)
+            ->values();
         $metricCols    = ProductPerformance::METRIC_COLUMNS;
 
         return view('leads-report', compact(
@@ -351,14 +347,20 @@ class LeadsReportController extends Controller
             ->pluck('row')
             ->values();
 
-        // Grand Total — the sum of the product rows above, not a separately-tallied
-        // distinct-order count. A cross-team combo order (e.g. Pterygium bundling
-        // Sinuxyl units) legitimately counts toward BOTH products' rows — see
-        // matchingOrders()'s $explicitMatch comment — so a distinct-order tally()
-        // here would run lower than the rows visibly add up to. Explicit request:
-        // Grand Total should always equal the row sum. See ProductPerformance::
-        // sumRows()'s own doc comment for the full reasoning.
-        $grandTotal = ProductPerformance::sumRows($productRows);
+        // Reverted (2026-08-21, explicit request): Grand Total briefly summed the
+        // product rows above instead of a distinct-order tally() (a cross-team
+        // combo order legitimately counts toward BOTH products' rows, so the two
+        // definitions diverge) — but TSA Performance's own ALL-view Grand Total
+        // was never brought into that reconciliation and stayed a distinct-order
+        // tally() the whole time, so Dashboard/Leads Report ran ahead of it by
+        // exactly the count of combo orders in range. tally($orders) here is the
+        // same order set (team+date only, no per-product matching) Dashboard's
+        // own 'all'-team total_leads and TsaPerformanceController::indexAll()'s
+        // Grand Total both already use — see DashboardController's matching
+        // revert for the full reasoning. Trade-off (documented, accepted): this
+        // page's own Grand Total can now run lower than the sum of the product
+        // rows visibly shown above it, for a range containing a combo order.
+        $grandTotal = ProductPerformance::tally($orders);
 
         return view('leads-report-all', [
             'dateFrom'    => $dateFrom, 'dateTo' => $dateTo, 'mode' => $mode, 'rangeLabel' => $rangeLabel,
