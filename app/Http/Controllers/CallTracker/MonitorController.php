@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Controller;
+use App\Models\Lead;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
@@ -45,6 +46,45 @@ class MonitorController extends Controller
             $t->id => TsaStatusLog::secondsByStatus($t, $dateFrom, $dateTo, false),
         ]);
 
+        // Lead-queue health per TSA (explicit request, 2026-08-21) —
+        // Monitor previously showed TSA status/time only, with zero
+        // visibility into whether any of them actually have leads piling
+        // up. Same date range as the Daily minute record above (a past
+        // date's "overdue"/"callback due" is a real, meaningful question —
+        // "how far behind did that day end"), and the exact same query
+        // definitions LeadController's own Overdue/Callbacks views and
+        // NotificationController's sidebar badges already use, so these
+        // counts can never drift from what a TSA's own Leads page shows.
+        $leadCounts = $tsas->mapWithKeys(fn (TsaShift $t) => [
+            $t->id => [
+                'overdue' => Lead::where('tsa_id', $t->id)
+                    ->where('status', 'assigned')
+                    ->whereBetween('assigned_at', [$dateFrom, $dateTo])
+                    ->where('assigned_at', '<=', now()->subHours(LeadController::overdueThresholdHours()))
+                    ->count(),
+                'callbacks' => Lead::where('tsa_id', $t->id)
+                    ->whereNotNull('callback_at')
+                    ->whereBetween('callback_at', [$dateFrom, $dateTo])
+                    ->where('callback_at', '<=', now())
+                    ->count(),
+            ],
+        ]);
+
+        // Unassigned leads have no tsa_id, so there's no per-TSA card to put
+        // this on — shown instead as its own team-wide summary tile (same
+        // team-scoping $tsas above already applies, via each lead's own
+        // product; 'all' team intentionally counts every team's unassigned
+        // leads, same as the roster below does for TSAs). Same date-scoped
+        // definition NotificationController's own admin-only "unassigned"
+        // badge count uses (by pancake_created_at, not assigned_at — an
+        // unassigned lead was never assigned).
+        $unassignedLeadsQuery = Lead::where('status', 'unassigned')
+            ->whereBetween('pancake_created_at', [$dateFrom, $dateTo]);
+        if ($selectedTeam !== 'all') {
+            $unassignedLeadsQuery->whereHas('product', fn ($q2) => $q2->where('team', $teamsConfig[$selectedTeam]['order_team']));
+        }
+        $unassignedLeadsCount = $unassignedLeadsQuery->count();
+
         // Counts for the legend/summary cards — over every ACTIVE TSA in
         // the selected team (ignoring the search box, but still respecting
         // the status filter dropdown so the numbers stay consistent with
@@ -56,16 +96,18 @@ class MonitorController extends Controller
             ->mapWithKeys(fn ($s) => [$s => $countBase->where('status', $s)->count()]);
 
         $data = [
-            'tsas'             => $tsas,
-            'dailyRecords'     => $dailyRecords,
-            'statusCounts'     => $statusCounts,
-            'q'                => $q,
-            'selectedStatus'   => $status,
-            'wrapUpSeconds'    => max(1, (int) Setting::get('wrap_up_duration_seconds', 60)),
-            'teams'            => $teams,
-            'selectedTeam'     => $selectedTeam,
-            'dateFrom'         => $dateFrom,
-            'dateTo'           => $dateTo,
+            'tsas'                 => $tsas,
+            'dailyRecords'         => $dailyRecords,
+            'leadCounts'           => $leadCounts,
+            'unassignedLeadsCount' => $unassignedLeadsCount,
+            'statusCounts'         => $statusCounts,
+            'q'                    => $q,
+            'selectedStatus'       => $status,
+            'wrapUpSeconds'        => max(1, (int) Setting::get('wrap_up_duration_seconds', 60)),
+            'teams'                => $teams,
+            'selectedTeam'         => $selectedTeam,
+            'dateFrom'             => $dateFrom,
+            'dateTo'               => $dateTo,
         ];
 
         // Same "poll this same URL, swap in just the content" convention

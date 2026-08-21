@@ -126,6 +126,33 @@
     @endforeach
 </div>
 
+{{-- Lead-queue health (explicit request, 2026-08-21) — Monitor previously
+     showed TSA status/time only, with zero visibility into whether any of
+     them actually have leads piling up. Same date-scoped definitions
+     LeadController's own Overdue/Callbacks views use (see
+     MonitorController::index()'s own comment), summed here for an
+     at-a-glance total rather than making a supervisor add up every card
+     below by eye. Kept visually distinct from the TSA-status legend above
+     it — this is about the LEADS, not who's doing what right now. --}}
+@php
+    $totalOverdueLeads   = $leadCounts->sum('overdue');
+    $totalCallbacksDue   = $leadCounts->sum('callbacks');
+@endphp
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+    <div class="bg-white dark:bg-slate-900 rounded-xl border {{ $unassignedLeadsCount > 0 ? 'border-amber-300 dark:border-amber-700' : 'border-slate-200 dark:border-slate-700' }} px-4 py-3">
+        <p class="text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400 mb-1">Unassigned Leads</p>
+        <p class="text-2xl font-bold font-mono {{ $unassignedLeadsCount > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100' }}">{{ $unassignedLeadsCount }}</p>
+    </div>
+    <div class="bg-white dark:bg-slate-900 rounded-xl border {{ $totalOverdueLeads > 0 ? 'border-red-300 dark:border-red-700' : 'border-slate-200 dark:border-slate-700' }} px-4 py-3">
+        <p class="text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400 mb-1">Overdue Leads</p>
+        <p class="text-2xl font-bold font-mono {{ $totalOverdueLeads > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100' }}">{{ $totalOverdueLeads }}</p>
+    </div>
+    <div class="bg-white dark:bg-slate-900 rounded-xl border {{ $totalCallbacksDue > 0 ? 'border-orange-300 dark:border-orange-700' : 'border-slate-200 dark:border-slate-700' }} px-4 py-3">
+        <p class="text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400 mb-1">Callbacks Due</p>
+        <p class="text-2xl font-bold font-mono {{ $totalCallbacksDue > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-slate-800 dark:text-slate-100' }}">{{ $totalCallbacksDue }}</p>
+    </div>
+</div>
+
 @if($tsas->isEmpty())
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 py-16 text-center text-sm font-mono text-slate-400">
     No TSAs match this search/filter.
@@ -153,6 +180,28 @@
                 {{ \App\Models\TsaShift::STATUSES[$tsa->status]['label'] ?? $tsa->status }}
             </span>
         </div>
+
+        @php
+            $tsaLeadCounts = $leadCounts[$tsa->id] ?? ['overdue' => 0, 'callbacks' => 0];
+        @endphp
+        @if($tsaLeadCounts['overdue'] > 0 || $tsaLeadCounts['callbacks'] > 0)
+        {{-- Lead-queue health pills — only shown when there's actually
+             something to flag, same "quiet card, nothing to see" convention
+             the rest of this page already follows (e.g. the End Call button
+             below only renders while actually Calling). --}}
+        <div class="flex items-center gap-2 mb-4">
+            @if($tsaLeadCounts['overdue'] > 0)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
+                {{ $tsaLeadCounts['overdue'] }} Overdue
+            </span>
+            @endif
+            @if($tsaLeadCounts['callbacks'] > 0)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
+                {{ $tsaLeadCounts['callbacks'] }} Callback{{ $tsaLeadCounts['callbacks'] === 1 ? '' : 's' }} Due
+            </span>
+            @endif
+        </div>
+        @endif
 
         <div class="mb-4">
             <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wide">Current status time</p>

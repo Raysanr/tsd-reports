@@ -46,6 +46,11 @@ class LeadController extends Controller
         return max(1, (int) Setting::get('overdue_threshold_hours', 4));
     }
 
+    /** Valid values for the status filter re-added below — kept as its own
+     *  const (not inline in index()) so the controller and the blade filter
+     *  UI can never list a status the query itself doesn't recognize. */
+    private const STATUS_FILTER_VALUES = ['unassigned', 'assigned', 'called'];
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -100,12 +105,19 @@ class LeadController extends Controller
                 ->where('callback_at', '<=', now())
                 ->orderBy('callback_at');
         }
-        // The old Assigned/Called/Unassigned lead-status filter that used
-        // to live here was removed 2026-08-20 (not replaced by a filter —
-        // the "All statuses" control next to the TSA selector is now a
-        // STATUS-CHANGE action for whichever TSA is picked there, same as
-        // TSA Management's old per-row dropdown, not a way to narrow this
-        // list; see leads/index.blade.php).
+        // Status filter, brought back (explicit request, 2026-08-21) — the
+        // old Assigned/Called/Unassigned filter that lived here was removed
+        // 2026-08-20 in favor of a status-CHANGE control that looks similar
+        // but does something different (see leads/index.blade.php's own
+        // comment on that control). Only applies to the default Leads view
+        // — Overdue/Callbacks already have their own implicit status
+        // meaning (Overdue is always status=assigned; a callback can be due
+        // on a lead of any status), so a second, independent status filter
+        // there would just be confusing, not useful.
+        $status = $request->string('status')->toString();
+        if (!$view && in_array($status, self::STATUS_FILTER_VALUES, true)) {
+            $query->where('status', $status);
+        }
 
         if ($user->isAtLeastAdmin() && $request->filled('q')) {
             $q = trim($request->string('q'));
@@ -140,6 +152,7 @@ class LeadController extends Controller
             'selectedTsa'           => $request->integer('tsa'),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
+            'selectedStatus'        => $status,
             'dateFrom'              => $dateFromInput ?: $rangeFrom->toDateString(),
             'dateTo'                => $dateToInput ?: $rangeTo->toDateString(),
             'overdueThresholdHours' => self::overdueThresholdHours(),

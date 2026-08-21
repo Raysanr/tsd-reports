@@ -27,14 +27,22 @@
 // restored when the tsa key is missing from the URL entirely, so picking
 // "All TSAs" (which submits tsa= with an empty value) is never silently
 // overridden by an old saved value.
+//
+// status: same "sync when present (incl. empty), restore only when absent"
+// rule as tsa above — brought back 2026-08-21 alongside the filter itself.
+// Only ever meaningful on the bare Leads view (LeadController::index()
+// already ignores it on Overdue/Callbacks), so restoring it there is
+// harmless even though it only really does anything once back on Leads.
 (function () {
     const params = new URLSearchParams(window.location.search);
     const from = params.get('date_from');
     const to   = params.get('date_to');
     const hasTsa = params.has('tsa');
+    const hasStatus = params.has('status');
 
     if (from && to) localStorage.setItem('callsLeadsDateRange', JSON.stringify({ from, to }));
     if (hasTsa) localStorage.setItem('callsLeadsTsa', params.get('tsa') || '');
+    if (hasStatus) localStorage.setItem('callsLeadsStatus', params.get('status') || '');
 
     let needsRedirect = false;
 
@@ -53,6 +61,14 @@
         const savedTsa = localStorage.getItem('callsLeadsTsa');
         if (savedTsa) {
             params.set('tsa', savedTsa);
+            needsRedirect = true;
+        }
+    }
+
+    if (!hasStatus) {
+        const savedStatus = localStorage.getItem('callsLeadsStatus');
+        if (savedStatus) {
+            params.set('status', savedStatus);
             needsRedirect = true;
         }
     }
@@ -111,6 +127,24 @@
                 </div>
             </div>
         </div>
+
+        {{-- Status filter, brought back (explicit request, 2026-08-21) —
+             narrows this list to Unassigned/Assigned/Called; see
+             LeadController::index()'s own comment for why this only applies
+             on the bare Leads view, not Overdue/Callbacks. Same plain
+             &lt;select&gt;-submits-on-change pattern Monitor TSA's own status
+             filter already uses, rather than the TSA filter's fancier
+             custom dropdown above — this one's a short, fixed 3-value list
+             with no avatar/icon per option, so a native select is enough. --}}
+        @if(!$view)
+        <select name="status" onchange="this.form.submit()"
+                class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+            <option value="">All Statuses</option>
+            <option value="unassigned" {{ $selectedStatus === 'unassigned' ? 'selected' : '' }}>Unassigned</option>
+            <option value="assigned" {{ $selectedStatus === 'assigned' ? 'selected' : '' }}>Assigned</option>
+            <option value="called" {{ $selectedStatus === 'called' ? 'selected' : '' }}>Called</option>
+        </select>
+        @endif
 
         {{-- Explicit request (2026-08-20): this is what replaces TSA
              Management's old per-row status control — NOT a filter on this
