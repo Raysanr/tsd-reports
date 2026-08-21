@@ -629,7 +629,14 @@
             <p class="text-sm font-mono text-slate-400">{{ $leaderboardIsToday ? 'No calls logged yet today' : 'No calls logged for ' . $leaderboardRangeLabel }}</p>
         </div>
         @else
-        <div class="divide-y divide-slate-100 dark:divide-slate-700">
+        {{-- Capped + scrollable (explicit request, 2026-08-21) — unlike Top
+             Upsell Products (limit(6) in the controller), this list is every
+             TSA with at least one call today, so it grows with the roster
+             and used to stretch this card taller than its neighbor instead
+             of scrolling within a matched height. Same max-h-80 convention
+             Restocking's own "By TSA" card already uses further down this
+             page. --}}
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-80 overflow-y-auto">
             @foreach($tsaLeaderboard as $i => $row)
             <div class="px-5 py-3 flex items-center gap-4">
                 <span class="w-5 text-xs font-mono font-bold text-slate-300 dark:text-slate-600">{{ $i + 1 }}</span>
@@ -659,7 +666,11 @@
             <p class="text-sm font-mono text-slate-400">No upsells logged yet today</p>
         </div>
         @else
-        <div class="divide-y divide-slate-100 dark:divide-slate-700">
+        {{-- Same max-h-80 + scroll as the leaderboard card beside it
+             (explicit request, 2026-08-21) — kept even though this list is
+             already capped at 6 (limit(6) in the controller) so both cards
+             stay the same fixed height if that cap ever changes. --}}
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-80 overflow-y-auto">
             @foreach($topProducts as $i => $row)
             <div class="px-5 py-3 flex items-center gap-4">
                 <span class="w-5 text-xs font-mono font-bold text-slate-300 dark:text-slate-600">{{ $i + 1 }}</span>
