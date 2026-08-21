@@ -106,8 +106,18 @@ class DashboardController extends Controller
             // order whose pancake_inserted_at fell on a different calendar day than
             // its pancake_created_at counted toward one card's total but not the
             // other's for the same picked date).
+            //
+            // whereNotNull('tsa_name') (root-caused 2026-08-21: this card disagreed
+            // with the TSA Leaderboard below by exactly one order's amount again — a
+            // real upsell (upsell tag present) whose order carries no TSA name tag and
+            // no assigning_seller account match, so SyncTodayOrders::extractTsaInfo()
+            // resolves the order's team but leaves tsa_name null. This card had no
+            // tsa_name filter and counted it; the Leaderboard's own
+            // ->whereNotNull('tsa_name')->groupBy('tsa_name') structurally has no row
+            // to put it in and silently dropped it. Matching this card to the
+            // Leaderboard's own requirement keeps both scoped to the same order set).
             $upsells = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)->realUpsell();
+                ->whereIn('team', $orderTeams)->whereNotNull('tsa_name')->realUpsell();
 
             $totalOrders = (clone $upsells)->count();
             $grossSales  = (clone $upsells)->sum('amount');
@@ -147,9 +157,13 @@ class DashboardController extends Controller
             // Same COALESCE date basis as $upsells above, for the same reason —
             // Restocking's contribution to Total Cross-Sell Sales (via the Include
             // Restocking toggle below) must agree with which day the Leaderboard
-            // credits it to.
+            // credits it to. Same whereNotNull('tsa_name') as $upsells above too, for
+            // the same 2026-08-21 root cause — the Leaderboard folds restocking rows
+            // into a TSA's own bucket, so an unattributed restocking row has nowhere
+            // to land there either.
             $restocking = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
+                ->whereNotNull('tsa_name')
                 ->where('is_restocking_upsell', true);
 
             // Include Restocking toggle (see $includeRestocking's own comment above):
