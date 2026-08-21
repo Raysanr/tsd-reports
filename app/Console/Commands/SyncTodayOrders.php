@@ -325,8 +325,9 @@ class SyncTodayOrders extends Command
             // signal, falling back to a name tag), so this only ever
             // affects whether an order correctly-attributed to a TSA counts
             // as her upsell, never who it's attributed to.
-            $hasUpsellTag = Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
-                || Order::hasSeparateParcelTag($tagNames);
+            $hasUpsellTag = !$this->isExcludedUpsellSeller($raw)
+                && (Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
+                    || Order::hasSeparateParcelTag($tagNames));
 
             // Cancelled upsell: the order still carries an upsell tag, but the add-on
             // item(s) have been removed from it while the primary order kept going
@@ -901,6 +902,32 @@ class SyncTodayOrders extends Command
                 if ($seller !== '' && str_contains($seller, $keyword)) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True if any item at index 1+ (the same scope hasUpsellBySeller()/
+     * extractTsaInfo() check) was closed by a known non-TSA account —
+     * config/excluded_upsell_sellers.php. Checked ahead of every upsell
+     * signal (hasUpsellTag(), hasUpsellBySeller(), hasSeparateParcelTag()),
+     * not just the seller-signal path — a tag like "UPSELL TSD - ..." isn't
+     * a genuine TSA sale just because someone applied it; if the account
+     * that touched the item is known to not be a TSA, the tag is a false
+     * signal too. See that config file's own doc comment for the incident
+     * this fixes (order #1352836, account "Ralph Cruz").
+     */
+    private function isExcludedUpsellSeller(array $raw): bool
+    {
+        $excluded = array_map('strtolower', config('excluded_upsell_sellers', []));
+        if (empty($excluded)) return false;
+
+        foreach (\array_slice($raw['items'] ?? [], 1) as $item) {
+            $seller = strtolower($item['assigning_seller']['name'] ?? '');
+            if ($seller === '') continue;
+            foreach ($excluded as $needle) {
+                if (str_contains($seller, $needle)) return true;
             }
         }
         return false;
