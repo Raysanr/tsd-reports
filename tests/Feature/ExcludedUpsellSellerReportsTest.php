@@ -21,9 +21,15 @@ use Tests\TestCase;
  * status, whose is_upsell is ALSO forced false) — that fallback doesn't
  * know about excluded sellers, so it silently kept counting the order as
  * an upsell in Leads Report / TSA Performance / Analytics even after the
- * Dashboard card and TSA Leaderboard were already fixed. The lead itself
- * (the base order) still counts normally everywhere — only the false
- * "upsell" signal is suppressed.
+ * Dashboard card and TSA Leaderboard were already fixed.
+ *
+ * Explicit follow-up request (same day): an excluded-seller order should
+ * ALSO drop out of the plain lead/order count itself ("New Leads"), not
+ * just the upsell classification — the opposite of the reasoning
+ * originally applied here. Same mechanism the codebase already uses to
+ * drop Cancelled/Deleted orders from every count (Order::DELETED_STATUSES,
+ * rejected up front in tally()/ordersForColumn()/buildRow()), extended to
+ * also reject excluded_upsell_seller orders in those same three places.
  */
 class ExcludedUpsellSellerReportsTest extends TestCase
 {
@@ -55,18 +61,18 @@ class ExcludedUpsellSellerReportsTest extends TestCase
         ], $overrides));
     }
 
-    public function test_product_performance_tally_does_not_count_it_as_an_upsell(): void
+    public function test_product_performance_tally_does_not_count_it_at_all(): void
     {
         $order = $this->excludedSellerOrder();
 
         $row = ProductPerformance::tally(collect([$order]));
 
-        $this->assertSame(1, $row['total'], 'the base lead itself still counts');
+        $this->assertSame(0, $row['total'], 'not counted as a New Lead either');
         $this->assertSame(0, $row['upsell_confirmation']);
         $this->assertSame(0.0, $row['upsell_sales']);
     }
 
-    public function test_leads_report_grand_total_excludes_it_from_upsell_confirmation(): void
+    public function test_leads_report_grand_total_excludes_it_entirely(): void
     {
         $this->excludedSellerOrder();
 
@@ -78,13 +84,23 @@ class ExcludedUpsellSellerReportsTest extends TestCase
         $response->assertOk();
         $grandTotal = $response->viewData('grandTotal');
 
-        $this->assertSame(1, $grandTotal['total'], 'the lead still shows up as a New Lead');
+        $this->assertSame(0, $grandTotal['total'], 'no longer shows up as a New Lead');
         $this->assertSame(0, $grandTotal['upsell_confirmation']);
         $this->assertSame(0.0, $grandTotal['upsell_sales']);
     }
 
-    public function test_tsa_performance_unassigned_row_excludes_it_from_upsell_confirmation(): void
+    public function test_tsa_performance_unassigned_row_excludes_it_entirely(): void
     {
+        // A second, ordinary unclaimed order keeps the "unassigned" row itself
+        // present (it only renders when the bucket has real orders — see
+        // TsaPerformanceUnassignedRowTest) so this proves the excluded order
+        // specifically contributed nothing, rather than the row just being
+        // absent for an unrelated reason.
+        Order::create([
+            'pancake_order_id' => 'ordinary-unclaimed-1', 'team' => 'SH Naturals', 'tsa_name' => null,
+            'product' => 'Sinuxyl', 'disposition' => 'NOT ANSWERING', 'is_upsell' => false,
+            'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
         // tsa_name null lands this order in the "unassigned" bucket, same as any
         // other order nobody claimed — same shape production order #1352836 had.
         $this->excludedSellerOrder();
@@ -97,7 +113,7 @@ class ExcludedUpsellSellerReportsTest extends TestCase
         $unassigned = collect($tsaRows)->firstWhere('tsa_key', 'unassigned');
 
         $this->assertNotNull($unassigned);
-        $this->assertSame(1, $unassigned['total']);
+        $this->assertSame(1, $unassigned['total'], 'only the ordinary unclaimed order counts');
         $this->assertSame(0, $unassigned['upsell_confirmation']);
     }
 

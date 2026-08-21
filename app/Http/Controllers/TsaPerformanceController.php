@@ -718,8 +718,11 @@ class TsaPerformanceController extends Controller
         // kept in sync by hand, and never got this one when it was added to
         // the shared tally() — Leads Report's own hourly table was already
         // correct the whole time since it flows through tally() directly;
-        // only this hand-rolled path was missing it).
-        $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+        // only this hand-rolled path was missing it). excluded_upsell_seller
+        // rejected the same way (2026-08-21) — see ProductPerformance::tally()'s
+        // own comment.
+        $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+            || $o->excluded_upsell_seller);
 
         // Same "real upsell" definition and non-upsell exclusivity guard as
         // ProductPerformance::tally() — now the SAME shared method

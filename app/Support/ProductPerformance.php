@@ -216,7 +216,14 @@ class ProductPerformance
         // stale "last known live" status (often still Restocking/New) sat here forever
         // and got counted as an active lead. This is why Leads Report totals could run
         // HIGHER than Pancake's own order count for a product, not just lower.
-        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+        //
+        // excluded_upsell_seller (2026-08-21, explicit follow-up request): an order
+        // whose upsell item was closed by a known non-TSA account (config/
+        // excluded_upsell_sellers.php) doesn't count as a lead at all here, not just
+        // as a non-upsell — same "doesn't belong in this report's numbers" treatment
+        // as a Cancelled/Deleted order gets above.
+        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+            || $o->excluded_upsell_seller);
 
         // The 12 outcome columns count NON-upsell leads only: an upsell order often
         // still carries a disposition tag (e.g. is_upsell + "CONFIRMED VIA CALL", or
@@ -386,7 +393,10 @@ class ProductPerformance
      *  version that could drift out of sync with it. */
     public static function ordersForColumn(Collection $orders, string $column): Collection
     {
-        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true));
+        // Same exclusions as tally() above, including excluded_upsell_seller — see
+        // that method's own comment for why.
+        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+            || $o->excluded_upsell_seller);
 
         $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);
