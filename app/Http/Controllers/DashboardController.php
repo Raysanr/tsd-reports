@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -240,27 +241,43 @@ class DashboardController extends Controller
 
             $leadTally = ProductPerformance::tally($dayOrders);
 
-            // Reverted (2026-08-21, explicit request): Total Leads/Catered Leads
-            // briefly used "sum of the per-product rows" (2026-08-17), matching
-            // Leads Report's own Grand Total at the time — but that definition
-            // necessarily diverges from a plain distinct-order tally() whenever an
-            // order legitimately counts toward more than one product's row (a
-            // cross-team combo SKU: tally() counts it once, summing the per-product
-            // rows counts it once per product matched), and TSA Performance's own
-            // Grand Total was never brought into that reconciliation — it's always
-            // been (and still is) a distinct-order tally(), the same one $leadTally
-            // already is here. Root-caused live: Dashboard/Leads Report (357
-            // catered) vs TSA Performance (352 catered) for the same range, off by
-            // exactly the count of combo orders in it. Using $leadTally for all
-            // four figures now means Dashboard, Leads Report (see
-            // LeadsReportController's matching revert), and TSA Performance all
-            // share the exact same "how many distinct orders" definition — the
-            // trade-off (documented, accepted): Leads Report's own Grand Total row
-            // can now run lower than the sum of its own visible product rows for a
-            // range containing a combo order, the same way TSA Performance's
-            // Grand Total already could relative to Dashboard before this fix.
-            $stats['total_leads']    = $leadTally['total'];
-            $stats['catered_leads']  = $leadTally['catered'];
+            // Total Leads/Catered Leads use "sum of the per-product rows",
+            // matching Leads Report's own Grand Total (2026-08-21, explicit
+            // request — this exact definition was briefly reverted to
+            // $leadTally's plain distinct-order count, then reverted back
+            // here: see LeadsReportController::index()'s own comment for the
+            // full back-and-forth). An order for a genuinely untracked
+            // product (no Product row configured yet) isn't counted in
+            // either figure — the fix for that is adding the missing product
+            // in Product Management. Pick-up/Upselling rate stay off the
+            // distinct-order tally() — only Total/Catered Leads were asked to
+            // match Leads Report.
+            //
+            // $allProducts scoped to the SELECTED team's own product line
+            // (not literally every product) — otherwise, on a single-team
+            // view, the OTHER team's products would also get matched below
+            // and bleed their own counts into this team's Total Leads.
+            // $matchPool, unlike $dayOrders, is deliberately NOT team-scoped
+            // even on a single-team view — same reason Leads Report's own
+            // $matchPool isn't (LeadsReportController::index()'s comment): a
+            // cross-team combo order (e.g. an Eyecare-owned order bundling
+            // SH Naturals' Sinuxyl) needs to be visible to SINUXYL's own row
+            // even though its `team` column is Eyecare, not SH Naturals —
+            // $dayOrders alone (already team-filtered) would never surface it,
+            // which is exactly why Dashboard's single-team Total Leads used to
+            // disagree with Leads Report's for a range containing one.
+            $allProducts = $selectedTeam === 'all'
+                ? Product::orderBy('sort_order')->get()
+                : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
+            $matchPool = $selectedTeam === 'all'
+                ? $dayOrders
+                : Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                    ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+            $productRows     = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $matchPool, $allProducts));
+            $leadsGrandTotal = ProductPerformance::sumRows($productRows);
+
+            $stats['total_leads']    = $leadsGrandTotal['total'];
+            $stats['catered_leads']  = $leadsGrandTotal['catered'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
             $stats['upselling_rate'] = $leadTally['upselling_rate'];
             $stats['aov']            = $totalOrders > 0 ? $grossSales / $totalOrders : 0;

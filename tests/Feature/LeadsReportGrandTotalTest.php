@@ -9,25 +9,25 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * History: Grand Total was originally a distinct-order tally() (ran LOWER
- * than the visible product-row sum whenever a cross-team combo order
- * legitimately counted toward more than one product's row — order #1343222
- * in production, "10 Pterygium Drops + 10 Sinuxyl" summed to 333 across the
- * product rows but Grand Total showed 332). Fixed 2026-08-XX by switching
- * Grand Total to ProductPerformance::sumRows() over the visible rows, so
- * this page's own numbers always tallied internally.
- *
- * Reverted 2026-08-21 (explicit request): that fix never touched TSA
- * Performance's own Grand Total, which stayed a distinct-order tally() the
- * whole time — so Dashboard/Leads Report started disagreeing with TSA
- * Performance instead, by exactly the count of combo orders in range.
- * Grand Total is a distinct-order tally() again (same definition Dashboard's
- * total_leads and TsaPerformanceController's Grand Totals use), restoring
- * 3-way consistency across Dashboard/Leads Report/TSA Performance at the
- * cost of this page's OWN internal consistency for a range containing a
- * combo order — Grand Total can once again run lower than the sum of the
- * product rows shown above it. That trade-off is what these tests now
- * document, not guard against.
+ * History (2026-08-21, same day, three iterations): Grand Total was
+ * originally a distinct-order tally() (ran LOWER than the visible
+ * product-row sum whenever a cross-team combo order legitimately counted
+ * toward more than one product's row). Fixed by switching to
+ * ProductPerformance::sumRows() over the visible rows, so this page's own
+ * numbers always tallied internally. Reverted to a distinct-order tally()
+ * to match Dashboard/TSA Performance instead (see the git history on this
+ * file for that attempt) — but that broke this page's OWN internal
+ * consistency (row sum ≠ Grand Total whenever an order matched no tracked
+ * product at all), and adding an "Other/Unmatched Product" row to
+ * reconcile that was explicitly rejected ("no i dont want this... i want
+ * only will be the total will be like all of the added in this data").
+ * Landed back on sumRows() — Grand Total IS the sum of the visible product
+ * rows, full stop; an order matching no tracked product simply isn't
+ * counted anywhere on this page (fix: add the missing product in Product
+ * Management, not reconcile it here). DashboardController's total_leads/
+ * catered_leads were brought back to this same sumRows() definition too
+ * (explicit follow-up: "it will be tally too to the dashboard") — see that
+ * controller's own matching comment.
  */
 class LeadsReportGrandTotalTest extends TestCase
 {
@@ -44,7 +44,7 @@ class LeadsReportGrandTotalTest extends TestCase
         return $tables->sum(fn ($t) => $t['total']['total']);
     }
 
-    public function test_per_team_grand_total_is_this_teams_own_distinct_order_count_not_the_cross_team_product_row_sum(): void
+    public function test_per_team_grand_total_equals_the_sum_of_the_product_rows_with_a_cross_team_combo_order(): void
     {
         $shShift = TsaShift::where('team', 'SH Naturals')->first();
         $eyeShift = TsaShift::where('team', 'Eyecare Team')->first();
@@ -57,12 +57,8 @@ class LeadsReportGrandTotalTest extends TestCase
             'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
         ]);
 
-        // ...plus a cross-team combo order OWNED by Eyecare (its own `team`
-        // column) that bundles a SINUXYL half into it. SINUXYL's own product
-        // row still finds it via the cross-team match pool (matchingOrders()
-        // deliberately isn't team-scoped), but Grand Total is now this team's
-        // own distinct orders only — the combo order's `team` is Eyecare, not
-        // SH Naturals, so it doesn't belong to SH Naturals' own count.
+        // ...plus a cross-team combo order that bundles a SINUXYL half into an
+        // Eyecare-owned order — exactly the shape that caused the production gap.
         Order::create([
             'pancake_order_id' => 'combo-order', 'team' => 'Eyecare Team', 'tsa_name' => $eyeShift->tsa_key,
             'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
@@ -80,16 +76,12 @@ class LeadsReportGrandTotalTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) use ($response) {
             $grandTotal = $response->viewData('grandTotal');
-            // SINUXYL's own row still shows both orders (2) — the cross-team
-            // pool finds the combo order via its Sinuxyl content — but Grand
-            // Total (1) reflects only the ONE order whose own `team` is SH
-            // Naturals. The two deliberately disagree here.
-            return $this->sumOfProductTotals($tables) === 2
-                && $grandTotal['total'] === 1;
+            return $grandTotal['total'] === $this->sumOfProductTotals($tables)
+                && $grandTotal['total'] === 2; // plain-sinuxyl + the combo's Sinuxyl half
         });
     }
 
-    public function test_per_team_hourly_grand_total_matches_that_hours_team_scoped_orders(): void
+    public function test_per_team_hourly_grand_total_rows_sum_to_the_same_hours_product_rows(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
 
@@ -107,14 +99,21 @@ class LeadsReportGrandTotalTest extends TestCase
         ]));
 
         $response->assertOk();
+        $productTables = $response->viewData('productTables');
         $grandTotalHourlyRows = $response->viewData('grandTotalHourlyRows');
 
-        // No combo order in this scenario, so the team-scoped tally() and the
-        // product-row sum coincide — one real order shows up as exactly 1.
-        $this->assertSame(1, collect($grandTotalHourlyRows)->sum('row.total'));
+        // For every hour Grand Total shows a row, its total must equal that
+        // same hour's sum across every product's hourly row.
+        foreach ($grandTotalHourlyRows as $ghRow) {
+            $sumThatHour = $productTables->sum(function ($table) use ($ghRow) {
+                $match = collect($table['hourlyRows'])->firstWhere('label', $ghRow['label']);
+                return $match['row']['total'] ?? 0;
+            });
+            $this->assertSame($sumThatHour, $ghRow['row']['total'], "Mismatch at hour {$ghRow['label']}");
+        }
     }
 
-    public function test_all_view_grand_total_is_the_cross_team_distinct_order_count_not_the_product_row_sum(): void
+    public function test_all_view_grand_total_equals_the_sum_of_the_product_rows_with_a_cross_team_combo_order(): void
     {
         $shShift = TsaShift::where('team', 'SH Naturals')->first();
         $eyeShift = TsaShift::where('team', 'Eyecare Team')->first();
@@ -144,12 +143,57 @@ class LeadsReportGrandTotalTest extends TestCase
         $productRows = $response->viewData('productRows');
         $grandTotal  = $response->viewData('grandTotal');
 
-        // The combo order counts under both PTERYGIUM and SINUXYL, so the row
-        // sum (3) is one more than the true distinct-order count (2) — Grand
-        // Total is now the latter, matching Dashboard's own 'all'-team total
-        // and TsaPerformanceController::indexAll()'s Grand Total, both of
-        // which tally() this exact same team+date-scoped order set.
-        $this->assertSame(3, $productRows->sum('total'));
-        $this->assertSame(2, $grandTotal['total']);
+        $this->assertSame($productRows->sum('total'), $grandTotal['total']);
+        // The combo order counts under both PTERYGIUM and SINUXYL, so the true
+        // row sum (3) is one more than the distinct-order count (2) would be.
+        $this->assertSame(3, $grandTotal['total']);
+    }
+
+    /** Explicit request: SH Naturals' Grand Total + Eyecare's Grand Total must
+     *  equal the ALL view's Grand Total — holds by construction under
+     *  sumRows(), since every product belongs to exactly one team and every
+     *  view matches against the identical cross-team order pool. */
+    public function test_sh_naturals_plus_eyecare_grand_totals_equal_the_all_views_grand_total(): void
+    {
+        $shShift = TsaShift::where('team', 'SH Naturals')->first();
+        $eyeShift = TsaShift::where('team', 'Eyecare Team')->first();
+
+        Order::create([
+            'pancake_order_id' => 'sh-only', 'team' => 'SH Naturals', 'tsa_name' => $shShift->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($shShift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'eye-only', 'team' => 'Eyecare Team', 'tsa_name' => $eyeShift->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'raw_tags' => [strtoupper($eyeShift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+        // Cross-team combo — the exact case that could break additivity if
+        // matched against a team-scoped pool instead of the shared one.
+        Order::create([
+            'pancake_order_id' => 'combo-sum', 'team' => 'Eyecare Team', 'tsa_name' => $eyeShift->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'bundle_description' => '10 Pterygium Drops + 10 Sinuxyl',
+            'raw_tags' => [strtoupper($eyeShift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $today = now()->toDateString();
+
+        $sh  = $this->get(route('leads-report', ['team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today]));
+        $eye = $this->get(route('leads-report', ['team' => 'eyecare', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today]));
+        $all = $this->get(route('leads-report', ['team' => 'all', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today]));
+
+        $sh->assertOk();
+        $eye->assertOk();
+        $all->assertOk();
+
+        $shTotal  = $sh->viewData('grandTotal')['total'];
+        $eyeTotal = $eye->viewData('grandTotal')['total'];
+        $allTotal = $all->viewData('grandTotal')['total'];
+
+        $this->assertSame($allTotal, $shTotal + $eyeTotal);
     }
 }
