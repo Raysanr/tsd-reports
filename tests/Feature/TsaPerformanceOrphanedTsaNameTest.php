@@ -22,12 +22,23 @@ use Tests\TestCase;
  * Total ends up LOWER than the sum "should" be, and lower than Dashboard's
  * own number for the same range.
  *
- * Fix: a non-null tsa_name that doesn't match any TSA CURRENTLY on the
- * relevant roster falls back to the Unassigned bucket too (for a team-scoped
- * view: any roster, anywhere — because a tsa_name valid on a DIFFERENT team's
- * roster legitimately belongs to that team's own page, not this one's
- * Unassigned bucket; only a tsa_name matching NO team's roster at all counts
- * as orphaned for this purpose).
+ * Fix: a non-null tsa_name that doesn't match any TSA on THIS view's own
+ * roster falls back to the Unassigned bucket too.
+ *
+ * Revised same day (explicit follow-up request: SH Naturals' total +
+ * Eyecare's total must equal ALL's total, matching Dashboard/Leads Report
+ * exactly the same way): every view — index(), indexAll(), drilldown() —
+ * now partitions strictly by an order's own `team` column, the same field
+ * Dashboard/Leads Report already use, not by which team a TSA happens to be
+ * registered under. Previously, an order was credited to its tsa_name's OWN
+ * roster team regardless of the order's own `team` (deliberately, so a TSA
+ * wouldn't lose credit for a cross-team combo order she genuinely closed) —
+ * but that meant a single order could be included in one team's page via
+ * the roster-trust branch while ALSO belonging to a different team's page
+ * by its own `team` field, breaking the "the three team views sum to ALL"
+ * invariant Dashboard/Leads Report now guarantee. Strict team-column
+ * partitioning is the only way to guarantee both "no order counted twice"
+ * and "no order silently dropped" at once.
  */
 class TsaPerformanceOrphanedTsaNameTest extends TestCase
 {
@@ -82,14 +93,15 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $this->assertSame($grandTotal['total'], $tsaRows->sum('total'), 'ALL view rows must sum back to Grand Total');
     }
 
-    public function test_a_tsa_name_belonging_to_a_different_teams_roster_is_not_treated_as_orphaned(): void
+    public function test_a_tsa_name_belonging_to_a_different_teams_roster_is_now_treated_as_unassigned_here(): void
     {
-        // Julie is a real Eyecare TSA. An order tagged with her name but filed
-        // under SH Naturals must NOT land in SH Naturals' Unassigned bucket —
-        // she's a known TSA, just not on THIS team's roster. (What team's page
-        // she legitimately belongs on is a separate, pre-existing question this
-        // test doesn't take a position on — it only asserts she doesn't get
-        // mislabeled "Unassigned" on SH Naturals' page.)
+        // Julie is a real Eyecare TSA. An order FILED under SH Naturals (its own
+        // `team` column) but tagged with her name must land in SH Naturals'
+        // Unassigned bucket — her own roster team no longer overrides the
+        // order's own team column (see this file's class doc comment for why:
+        // crediting her under SH Naturals here, or under Eyecare via the ALL
+        // view's per-team loop, would count this ONE order on two different
+        // team pages, breaking "SH Naturals + Eyecare = ALL").
         $date = '2026-08-04';
         Order::create([
             'pancake_order_id' => 'cross-team-1', 'team' => 'SH Naturals',
@@ -104,6 +116,59 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $tsaRows = $response->viewData('tsaRows');
         $unassigned = $tsaRows->firstWhere('tsa_key', 'unassigned');
 
-        $this->assertNull($unassigned, 'a real TSA on another team should not be relabeled Unassigned here');
+        $this->assertNotNull($unassigned, 'a TSA not on this team\'s own roster falls back to Unassigned here');
+        $this->assertSame(1, $unassigned['total']);
+
+        // And she must NOT also pick up credit on her own team's page — the
+        // order's `team` column says SH Naturals, so Eyecare's page (which
+        // strictly follows that column too) never sees it at all.
+        $eyecareResponse = $this->get(route('tsa-performance', ['team' => 'eyecare', 'date_from' => $date, 'date_to' => $date]));
+        $eyecareResponse->assertOk();
+        $julieRow = $eyecareResponse->viewData('tsaRows')->firstWhere('tsa_key', 'Julie');
+        $this->assertSame(0, $julieRow['total'] ?? 0);
+    }
+
+    public function test_sh_naturals_plus_eyecare_totals_equal_the_all_views_grand_total(): void
+    {
+        $date = '2026-08-04';
+
+        // A normal same-team order on each side...
+        Order::create([
+            'pancake_order_id' => 'sh-plain', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'eye-plain', 'team' => 'Eyecare Team', 'tsa_name' => 'Joana',
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+        // ...plus the two trickier shapes this file already covers individually:
+        // an orphaned tsa_name, and a real TSA credited on the wrong team's order.
+        $this->orphanedOrder($date);
+        Order::create([
+            'pancake_order_id' => 'cross-team-2', 'team' => 'SH Naturals',
+            'tsa_name' => 'Julie', 'disposition' => 'CONFIRMED VIA CALL',
+            'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $sh   = $this->get(route('tsa-performance', ['team' => 'sh-naturals', 'date_from' => $date, 'date_to' => $date]));
+        $eye  = $this->get(route('tsa-performance', ['team' => 'eyecare', 'date_from' => $date, 'date_to' => $date]));
+        $all  = $this->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));
+
+        $sh->assertOk();
+        $eye->assertOk();
+        $all->assertOk();
+
+        $shTotal  = $sh->viewData('grandTotal')['total'];
+        $eyeTotal = $eye->viewData('grandTotal')['total'];
+        $allTotal = $all->viewData('grandTotal')['total'];
+
+        $this->assertSame(4, $allTotal);
+        $this->assertSame($allTotal, $shTotal + $eyeTotal);
+
+        // And the ALL view's own rows must still sum to its own Grand Total.
+        $this->assertSame($allTotal, $all->viewData('tsaRows')->sum('total'));
     }
 }
