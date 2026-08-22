@@ -239,6 +239,57 @@ class PancakeOrderTagApi
     }
 
     /**
+     * Removes a tag from the real POS order by name (case-insensitive) — the write
+     * side of the Leads tab's own "real tags" chip display (explicit request,
+     * 2026-08-22, mirroring Pancake POS's own tag chips + × remove button). Same
+     * GET-then-PUT-the-whole-order pattern as addTagsToOrder() above, just filtering
+     * $order['tags'] down instead of merging into it. No catalog lookup needed (unlike
+     * addTagsToOrder(), which has to resolve a bare name to a real {id, name} pair to
+     * ADD one) — the order's own GET response already carries the real {id, name} for
+     * every tag currently on it, so this only has to match against those.
+     */
+    public function removeTagFromOrder(string $orderId, string $tagName): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before removing tag failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            $order['tags'] = collect($order['tags'] ?? [])
+                ->reject(fn ($tag) => strcasecmp($tag['name'] ?? '', $tagName) === 0)
+                ->values()->all();
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: removeTagFromOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: removeTagFromOrder threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
      * Writes the order's status directly — one of Order::STATUS_LABELS' keys, `status`
      * being a plain top-level int field on the order object (confirmed by
      * ReconcileOrderStatuses::handle(), which already reads $raw['status'] off this

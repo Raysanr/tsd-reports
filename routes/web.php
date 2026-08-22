@@ -141,6 +141,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/leads/{lead}/products', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchProducts'])->name('leads.products');
         Route::post('/leads/{lead}/upsell', [\App\Http\Controllers\CallTracker\LeadController::class, 'addUpsell'])->name('leads.upsell');
         Route::post('/leads/{lead}/status', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateStatus'])->name('leads.status');
+        Route::post('/leads/{lead}/tags/remove', [\App\Http\Controllers\CallTracker\LeadController::class, 'removeTag'])->name('leads.tags.remove');
         Route::post('/leads/{lead}/call-click', [\App\Http\Controllers\CallTracker\LeadController::class, 'logCallClick'])->name('leads.call-click');
         Route::post('/leads/{lead}/end-call', [\App\Http\Controllers\CallTracker\LeadController::class, 'endCall'])->name('leads.end-call');
         Route::post('/leads/{lead}/pin', [\App\Http\Controllers\CallTracker\LeadController::class, 'togglePin'])->name('leads.pin');

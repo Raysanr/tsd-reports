@@ -228,4 +228,35 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertFalse($success);
         Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
+
+    public function test_remove_tag_from_order_filters_the_matching_tag_out_case_insensitively(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'tags' => [
+                    ['id' => 1, 'name' => 'Gemma'],
+                    ['id' => 2, 'name' => 'Confirmed'],
+                ],
+            ]], 200),
+        ]);
+
+        $success = $this->api->removeTagFromOrder('9001', 'confirmed');
+
+        $this->assertTrue($success);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT'
+            && count($r['tags']) === 1
+            && $r['tags'][0]['name'] === 'Gemma');
+    }
+
+    public function test_remove_tag_from_order_fails_gracefully_when_fetching_the_order_fails(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['message' => 'not found'], 404),
+        ]);
+
+        $success = $this->api->removeTagFromOrder('9001', 'Confirmed');
+
+        $this->assertFalse($success);
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
 }

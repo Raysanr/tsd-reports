@@ -53,7 +53,7 @@ class LeadController extends Controller
      *  UI can never list a status the query itself doesn't recognize. */
     private const STATUS_FILTER_VALUES = ['unassigned', 'assigned', 'called'];
 
-    public function index(Request $request)
+    public function index(Request $request, PancakeOrderTagApi $api)
     {
         $user = Auth::user();
         $view = $request->string('view')->toString(); // '', 'overdue', 'callbacks'
@@ -148,19 +148,33 @@ class LeadController extends Controller
 
         $leads = $query->paginate(30)->withQueryString();
 
-        // Order status pill (explicit request, 2026-08-22, mirrors Pancake POS's own
-        // Status control) — read from the locally-synced orders table, same "trust the
-        // periodic sync" convention every other bulk view in this app already follows
-        // (Leads Report, TSA Performance, etc.), rather than a live per-row Pancake
-        // fetch: this table can hold 30 rows and gets polled every 15s (calls.js'
-        // pollLeadsTable()), so a live fetch here would mean up to 30 extra Pancake API
-        // calls on every single poll tick.
-        $orderStatuses = Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id')->filter())
-            ->pluck('status_code', 'pancake_order_id');
+        // Order status pill + real tag chips (explicit request, 2026-08-22, mirrors
+        // Pancake POS's own Status control and tag chips) — both read from the
+        // locally-synced orders table, same "trust the periodic sync" convention
+        // every other bulk view in this app already follows (Leads Report, TSA
+        // Performance, etc.), rather than a live per-row Pancake fetch: this table
+        // can hold 30 rows and gets polled every 15s (calls.js' pollLeadsTable()),
+        // so a live fetch here would mean up to 30 extra Pancake API calls on every
+        // single poll tick.
+        $orders = Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id')->filter())
+            ->get(['pancake_order_id', 'status_code', 'raw_tags'])
+            ->keyBy('pancake_order_id');
+        $orderStatuses = $orders->map->status_code;
+        $orderTags     = $orders->map(fn ($o) => $o->raw_tags ?? []);
+
+        // Real tag catalog colors (explicit request, 2026-08-22) — matches each
+        // real tag's dot to the same color Pancake POS itself uses, not a generic
+        // gray. listTags() is cached 5 minutes (see PancakeOrderTagApi's own doc
+        // comment), so this is cheap even on every 15s poll.
+        $tagColors = collect($api->listTags())
+            ->filter(fn ($t) => !empty($t['name']))
+            ->mapWithKeys(fn ($t) => [strtolower($t['name']) => $t['color'] ?? '#94a3b8']);
 
         $data = [
             'leads'                 => $leads,
             'orderStatuses'         => $orderStatuses,
+            'orderTags'             => $orderTags,
+            'tagColors'             => $tagColors,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
             'q'                     => $request->string('q')->toString(),
@@ -550,6 +564,52 @@ class LeadController extends Controller
     }
 
     /**
+     * Removes a real tag from the order in Pancake — the write side of the Leads
+     * tab's own "real tags" chip display (explicit request, 2026-08-22, from a
+     * screenshot of Pancake POS's own tag chips + × remove button). Same GET-then-
+     * PUT-whole-order write PancakeOrderTagApi already uses elsewhere. On success,
+     * the locally-synced Order.raw_tags is updated too (same "keep the local cache
+     * in step so the next poll shows it immediately" convention as updateStatus()
+     * above) rather than waiting for the next full sync to drop it.
+     */
+    public function removeTag(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate(['tag' => ['required', 'string', 'max:255']]);
+
+        $success = $api->removeTagFromOrder($lead->pancake_order_id, $data['tag']);
+
+        if ($success) {
+            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
+            if ($order) {
+                $order->update(['raw_tags' => collect($order->raw_tags ?? [])
+                    ->reject(fn ($t) => strcasecmp($t, $data['tag']) === 0)->values()->all()]);
+            }
+        }
+
+        LeadActivity::log(
+            $lead, 'tag_removed',
+            "Removed tag \"{$data['tag']}\" by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
+            $user
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not remove this tag in Pancake — try again or remove it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
      * Live read of the lead's real Pancake order notes (PancakeOrderTagApi::
      * getNotes() — see its own doc comment: `note`/`note_print`, the only
      * two note fields Pancake's API actually has). Explicit request
@@ -816,9 +876,10 @@ class LeadController extends Controller
      * (re-)confirmed TSA tag — the real POS order-tags API (PancakeOrderTagApi
      * — see its own doc comment for why this, not the conversation-scoped
      * tags API, is the one that actually shows up in Pancake POS and reaches
-     * TSD Reports' own sync). This is the ONLY thing that writes a tag to
-     * Pancake now — round-robin assignment itself (SyncPancakeLeads) is a
-     * local-only signal, no automatic tag on a new lead. Silently no-ops
+     * TSD Reports' own sync). This and removeTag() above are the only things
+     * that write a tag to Pancake now — round-robin assignment itself
+     * (SyncPancakeLeads) is a local-only signal, no automatic tag on a new
+     * lead. Silently no-ops
      * (with a logged warning) per-tag when there's no linked order or a tag
      * doesn't exist in the real catalog — same "feature unavailable, not
      * fatal" convention as elsewhere; a TSA's outcome is still saved

@@ -477,6 +477,46 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') document.getElementById('orderStatusPanel')?.classList.add('hidden');
 });
 
+// Real order tag removal (explicit request, 2026-08-22) — the × on each real-tag
+// chip (leads/_table.blade.php's own .real-tag-chip row, distinct from the
+// disposition-picker's staged outcome chips below) writes live to Pancake via
+// LeadController::removeTag(). Optimistic: the chip disappears immediately, same
+// "act now, let the next poll reconcile whatever actually persisted" convention as
+// transfer-select/pin-form/order-status above.
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.real-tag-remove');
+    if (!btn) return;
+
+    const leadId = btn.dataset.leadId;
+    const tag    = btn.dataset.tag;
+    btn.closest('.real-tag-chip')?.remove();
+
+    fetch(`/calls/leads/${leadId}/tags/remove`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({ tag }),
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then(() => {
+            window.showToast?.(`Removed "${tag}".`, 'success');
+        })
+        .catch(async (res) => {
+            let message = `Could not remove "${tag}" — try again.`;
+            if (res?.json) {
+                try {
+                    const data = await res.json();
+                    message = data.error || message;
+                } catch (err) { /* not JSON — keep the generic message */ }
+            }
+            window.showToast?.(message, 'error');
+        })
+        .finally(() => pollLeadsTable());
+});
+
 // Real-time-ish Leads table — re-fetches the same filtered URL every few
 // seconds and swaps in the freshly rendered table (see
 // LeadController::index()'s X-Table-Refresh branch), so a lead the scheduler

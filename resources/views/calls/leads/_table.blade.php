@@ -180,6 +180,34 @@
                 <td class="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">{{ $lead->callback_at?->format('M j, g:i A') }}</td>
                 @endif
                 <td class="px-4 py-3">
+                    {{-- Real order tags (explicit request, 2026-08-22) — mirrors
+                         Pancake POS's own tag chips (color dot + name + × remove),
+                         reading the order's ACTUAL current tag list
+                         (\App\Models\Order::raw_tags, synced locally — same "trust
+                         the periodic sync" convention as the Status pill above) —
+                         distinct from the disposition-picker below, which only
+                         reflects what a TSA is choosing to log as THIS call's
+                         outcome, not everything already on the order (TSA
+                         assignment tag, product tag, any earlier upsell tag, etc).
+                         Removing one here writes live to Pancake
+                         (LeadController::removeTag(), same GET-then-PUT pattern as
+                         every other order mutation on this page) — see calls.js'
+                         delegated .real-tag-remove click handler. --}}
+                    @php $realTags = $orderTags[$lead->pancake_order_id] ?? []; @endphp
+                    @if(count($realTags))
+                    <div class="flex flex-wrap gap-1 mb-1.5">
+                        @foreach($realTags as $tag)
+                        @php $dotColor = $tagColors[strtolower($tag)] ?? '#94a3b8'; @endphp
+                        <span class="real-tag-chip inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-mono pl-1.5 pr-1 py-0.5 rounded-full">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{{ $dotColor }}"></span>
+                            {{ $tag }}
+                            @if(auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id)
+                            <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="{{ $lead->id }}" data-tag="{{ $tag }}" title="Remove tag from order" aria-label="Remove {{ $tag }}">×</button>
+                            @endif
+                        </span>
+                        @endforeach
+                    </div>
+                    @endif
                     @if($lead->status === 'called')
                         <span class="text-slate-700 dark:text-slate-200 font-semibold">{{ $lead->disposition }}</span>
                         @if($lead->notes)
