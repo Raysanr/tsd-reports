@@ -477,6 +477,61 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') document.getElementById('orderStatusPanel')?.classList.add('hidden');
 });
 
+// Real order tags panel (follow-up, 2026-08-22) — one shared floating panel
+// (calls/partials/modals.blade.php's #realTagsPanel), opened by clicking a row's
+// compact tag-count badge instead of always rendering the chips inline (inline
+// chips made a row with several real tags visibly taller than every other row).
+// Same trigger+floating-panel shape as openOrderStatusPill() above. Populated
+// entirely from the trigger's own data-tags JSON (server-rendered already, since
+// the badge's own count needed it) — no extra fetch.
+let activeRealTagsLeadId = null;
+
+window.openRealTagsPanel = function (e, trigger) {
+    e.stopPropagation();
+    const panel = document.getElementById('realTagsPanel');
+    if (!panel) return;
+
+    document.querySelectorAll('[data-status-panel], [data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    document.getElementById('orderStatusPanel')?.classList.add('hidden');
+
+    const leadId = trigger.dataset.leadId;
+    const alreadyOpenForThisLead = !panel.classList.contains('hidden') && activeRealTagsLeadId === leadId;
+    panel.classList.add('hidden');
+    if (alreadyOpenForThisLead) {
+        activeRealTagsLeadId = null;
+        return;
+    }
+
+    activeRealTagsLeadId = leadId;
+    let tags = [];
+    try {
+        tags = JSON.parse(trigger.dataset.tags || '[]');
+    } catch (err) { /* leave tags empty */ }
+
+    panel.querySelector('.real-tags-panel-list').innerHTML = tags.map((t) => `
+        <span class="real-tag-chip inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-mono pl-1.5 pr-1 py-0.5 rounded-full">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${escapeHtml(t.color)}"></span>
+            ${escapeHtml(t.name)}
+            <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="${leadId}" data-tag="${escapeHtml(t.name)}" title="Remove tag from order" aria-label="Remove ${escapeHtml(t.name)}">×</button>
+        </span>
+    `).join('');
+
+    const rect = trigger.getBoundingClientRect();
+    panel.style.top  = `${rect.bottom + 6}px`;
+    panel.style.left = `${rect.left}px`;
+    panel.classList.remove('hidden');
+};
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-real-tags-panel]') && !e.target.closest('.real-tags-badge')) {
+        document.getElementById('realTagsPanel')?.classList.add('hidden');
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.getElementById('realTagsPanel')?.classList.add('hidden');
+});
+
 // Real order tag removal (explicit request, 2026-08-22) — the × on each real-tag
 // chip (leads/_table.blade.php's own .real-tag-chip row, distinct from the
 // disposition-picker's staged outcome chips below) writes live to Pancake via
@@ -490,6 +545,8 @@ document.addEventListener('click', (e) => {
     const leadId = btn.dataset.leadId;
     const tag    = btn.dataset.tag;
     btn.closest('.real-tag-chip')?.remove();
+    document.getElementById('realTagsPanel')?.classList.add('hidden');
+    activeRealTagsLeadId = null;
 
     fetch(`/calls/leads/${leadId}/tags/remove`, {
         method: 'POST',

@@ -189,24 +189,31 @@
                          reflects what a TSA is choosing to log as THIS call's
                          outcome, not everything already on the order (TSA
                          assignment tag, product tag, any earlier upsell tag, etc).
-                         Removing one here writes live to Pancake
-                         (LeadController::removeTag(), same GET-then-PUT pattern as
-                         every other order mutation on this page) — see calls.js'
-                         delegated .real-tag-remove click handler. --}}
-                    @php $realTags = $orderTags[$lead->pancake_order_id] ?? []; @endphp
+                         Shown as a compact count badge, not inline chips (follow-up
+                         fix, 2026-08-22: inline chips made a row with several real
+                         tags visibly taller than every other row, breaking the
+                         table's uniform row height) — click opens the shared
+                         floating #realTagsPanel (calls/partials/modals.blade.php),
+                         same anchored-panel pattern as the Status pill's own
+                         dropdown, where the full list + remove × actually lives.
+                         Removing one writes live to Pancake (LeadController::
+                         removeTag(), same GET-then-PUT pattern as every other order
+                         mutation on this page) — see calls.js' delegated
+                         .real-tag-remove click handler. --}}
+                    @php
+                        $realTags = $orderTags[$lead->pancake_order_id] ?? [];
+                        $realTagsPayload = collect($realTags)->map(fn ($t) => ['name' => $t, 'color' => $tagColors[strtolower($t)] ?? '#94a3b8'])->values();
+                    @endphp
                     @if(count($realTags))
-                    <div class="flex flex-wrap gap-1 mb-1.5">
-                        @foreach($realTags as $tag)
-                        @php $dotColor = $tagColors[strtolower($tag)] ?? '#94a3b8'; @endphp
-                        <span class="real-tag-chip inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[11px] font-mono pl-1.5 pr-1 py-0.5 rounded-full">
-                            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:{{ $dotColor }}"></span>
-                            {{ $tag }}
-                            @if(auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id)
-                            <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="{{ $lead->id }}" data-tag="{{ $tag }}" title="Remove tag from order" aria-label="Remove {{ $tag }}">×</button>
-                            @endif
-                        </span>
-                        @endforeach
-                    </div>
+                    <button type="button" onclick="openRealTagsPanel(event, this)"
+                            data-lead-id="{{ $lead->id }}" data-tags="{{ $realTagsPayload->toJson() }}"
+                            class="real-tags-badge inline-flex items-center gap-1 px-1.5 py-0.5 mb-1.5 rounded-full text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>
+                        </svg>
+                        {{ count($realTags) }}
+                    </button>
                     @endif
                     @if($lead->status === 'called')
                         <span class="text-slate-700 dark:text-slate-200 font-semibold">{{ $lead->disposition }}</span>

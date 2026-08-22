@@ -158,6 +158,21 @@
     </div>
 </div>
 
+{{-- Real order tags panel (follow-up, 2026-08-22) — one shared floating panel,
+     same pattern as #orderStatusPanel right above, opened by clicking a row's
+     tag-count badge (leads/_table.blade.php's .real-tags-badge) instead of always
+     rendering the chips inline — inline chips made a row with several real tags
+     visibly taller than every other row, breaking the table's uniform height.
+     Populated entirely client-side from the trigger's own data-tags JSON (see
+     openRealTagsPanel() in calls.js) rather than a fetch, since the table already
+     rendered that data server-side for the badge's own count. --}}
+<div id="realTagsPanel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-64" data-real-tags-panel>
+    <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+        <p class="text-xs font-bold text-slate-700 dark:text-slate-200 font-mono">Order tags</p>
+    </div>
+    <div class="real-tags-panel-list p-3 flex flex-wrap gap-1 max-h-60 overflow-y-auto"></div>
+</div>
+
 {{-- Call recording playback modal (explicit request, 2026-08-19) — lists
      every Drive recording matching this lead's phone number
      (LeadController::recordings(), matched by phone rather than a stored

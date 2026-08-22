@@ -40,7 +40,7 @@ class LeadOrderTagsTest extends TestCase
         ]);
     }
 
-    public function test_the_leads_table_shows_the_orders_real_current_tags_as_colored_chips(): void
+    public function test_the_leads_table_shows_a_compact_tag_count_badge_carrying_the_real_tags_and_colors(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $lead  = $this->leadFor($gemma);
@@ -60,6 +60,12 @@ class LeadOrderTagsTest extends TestCase
         $response = $this->actingAs($user)->get(route('calls.leads.index'));
 
         $response->assertOk();
+        $response->assertSee('real-tags-badge', false);
+        // Real-tag data now travels in the badge's data-tags JSON, not inline
+        // chips (follow-up fix, 2026-08-22: inline chips made a row with several
+        // tags taller than every other row) — the panel that renders them is
+        // populated client-side from this payload, so its presence here is what
+        // proves the read side actually works.
         $response->assertSee('GEMMA');
         $response->assertSee('NOT ANSWERING - EYECARE');
         $response->assertSee('#123456', false);
