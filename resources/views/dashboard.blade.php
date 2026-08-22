@@ -324,33 +324,21 @@
         @endif
     </div>
 
-    {{-- HOURLY ACTIVITY — see partials/hourly-radial-chart.blade.php for why a
-         clock-face radial chart instead of a linear bar chart. --}}
-    @include('partials.hourly-radial-chart', [
-        'id' => 'calls', 'title' => 'Hourly Activity', 'subtitle' => 'Calls per hour, today',
-        'unit' => 'call', 'data' => $hourlyActivity,
-    ])
-
-</div>
-
-{{-- HOURLY LEADS (explicit request, 2026-08-22: "make this hourly leads" —
-     a second radial chart alongside Hourly Activity) — raw lead ARRIVAL
-     volume per hour, deliberately the opposite of Hourly Activity's own
-     definition: that chart counts total_called (a lead actually worked),
-     specifically to exclude a lead Pancake auto-creates from an inbound
-     message before any TSA has touched it (see that chart's own comment —
-     this used to be what "Hourly Activity" showed, until it was fixed to
-     mean real call activity instead). This chart is where that raw-arrival
-     view still belongs: "how many leads came in this hour", independent of
-     whether anyone's called them yet — same $dayOrders this page already
-     fetched, just a plain count per hour instead of a tally() filter.
-     Same half-width sizing as Hourly Activity above (a lone grid child, not
-     stretched full-bleed) for visual consistency between the two. --}}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+    {{-- HOURLY LEADS (explicit request, 2026-08-22: replaces what used to be
+         here, Hourly Activity/calls-per-hour) — raw lead ARRIVAL volume per
+         hour instead. See partials/hourly-radial-chart.blade.php for why a
+         clock-face radial chart instead of a linear bar chart. Not shift-
+         cutoff-zeroed the way the old calls-based chart was: an overnight
+         arrival is real data worth seeing here, not a "nobody's working
+         yet" artifact to hide. DashboardController::index() still computes
+         $hourlyActivity (calls/shift-cutoff logic, its own tested behavior)
+         even though nothing renders it now — left in place rather than
+         deleted, in case this chart swaps back. --}}
     @include('partials.hourly-radial-chart', [
         'id' => 'leads', 'title' => 'Hourly Leads', 'subtitle' => 'Leads per hour, today',
         'unit' => 'lead', 'data' => $hourlyLeads,
     ])
+
 </div>
 
 {{-- TEAM COMPARISON — replaces the old Shop Lines panel. That one only showed
