@@ -122,24 +122,6 @@ class TsaPerformanceController extends Controller
             ->where('team', $teamsConfig[$selectedTeam]['order_team'])
             ->get();
 
-        // Cross-team pool + this team's own products, used ONLY by Grand
-        // Total below (a separate, summary-level figure) — NOT to restrict
-        // $orders/$tsaRows/the hourly breakdown above. An earlier version of
-        // this fix filtered $orders itself down to product-matched orders
-        // only, which DID make Grand Total and $tsaRows agree — but at the
-        // cost of silently dropping every order for a genuinely untracked
-        // product from EVERY TSA's own row, not just Grand Total (confirmed
-        // live: 323 real orders here vs. 262 product-matched on the same
-        // range/team — 61 real leads that would have vanished from actual
-        // TSAs' own performance numbers). That's a worse regression than the
-        // inconsistency it fixed, so reverted: $orders (and every row built
-        // from it) keeps counting every order regardless of product match;
-        // only Grand Total's own computation differs (see below).
-        $teamProducts = Product::where('team', $teamsConfig[$selectedTeam]['order_team'])->orderBy('sort_order')->get();
-        $matchPool    = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
-            ->get();
-
         if ($selectedProduct !== 'all') {
             $matchKeyword = $selectedProductModel->effective_keyword;
             $orders = $orders->filter(function ($order) use ($matchKeyword) {
@@ -194,22 +176,21 @@ class TsaPerformanceController extends Controller
             $tsaRows->push($unassignedRow);
         }
 
-        // Grand Total — sum of this team's own product rows, matched against
-        // the cross-team $matchPool from above (2026-08-21, explicit request:
-        // Catered Leads here must tally with Dashboard/Leads Report too — see
-        // those controllers' own matching comments for the full history).
-        // Deliberately a DIFFERENT number than $tsaRows->sum('catered') now
-        // (see $matchPool's own comment above for why $orders/$tsaRows were
-        // NOT also restricted to product-matched orders) — Grand Total here
-        // answers "how many product-tracked leads", $tsaRows answers "how
-        // much did each TSA actually handle", and those aren't always the
-        // same count. Only applies with no product filter active — a
-        // filtered view keeps the simpler tally() over the already
-        // tag-filtered $orders, which has no real Dashboard/Leads Report
-        // equivalent to reconcile against.
-        $grandTotal = $selectedProduct === 'all'
-            ? ProductPerformance::sumRows($teamProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $matchPool, $teamProducts)))
-            : ProductPerformance::tally($orders);
+        // Grand Total (revised 2026-08-22, explicit request: "make it the
+        // grand total equal the sum of rows" — a user manually summed this
+        // page's own Catered Leads column and got a different number than
+        // Grand Total showed) — simply the sum of $tsaRows above, Unassigned
+        // included. This used to be a SEPARATE product-matched figure (see
+        // git history / TsaPerformanceOrphanedTsaNameTest's class comment for
+        // that whole trade-off) specifically so it would tally with Dashboard/
+        // Leads Report — but that traded one inconsistency for another: it
+        // could never disagree with Dashboard, but could and did disagree
+        // with the very rows sitting right above it on this same page, which
+        // is the mismatch a person actually notices by eye. sumRows($tsaRows)
+        // is correct by construction (every order lands in exactly one row,
+        // see $tsaRows' own grouping above), so there is no longer any
+        // possible daylight between this number and what the rows add up to.
+        $grandTotal = ProductPerformance::sumRows($tsaRows);
 
         $allKeys        = $shifts->keys();
         $ordersByHour   = $orders->groupBy(fn($o) => (int) $o->pancake_created_at->format('G'));
@@ -674,16 +655,6 @@ class TsaPerformanceController extends Controller
             ->whereIn('team', $orderTeams)
             ->get();
 
-        // All products (both teams) — used ONLY by Grand Total below, not to
-        // restrict $orders/$tsaRows. See index()'s own matching comment for
-        // why: restricting $orders to product-matched orders only made Grand
-        // Total and $tsaRows agree, but at the cost of silently dropping
-        // every real order for a genuinely untracked product from EVERY
-        // TSA's own row too — a worse regression than the inconsistency it
-        // fixed. $orders here already IS the cross-team pool, so it doubles
-        // as its own match pool for Grand Total's purposes.
-        $allProductsForMatch = Product::orderBy('sort_order')->get();
-
         // Every TSA across every team, sorted team-then-sort_order — same convention
         // as the product ALL view this replaces (orderBy('team') alone would sort
         // alphabetically, wrongly putting Eyecare before SH Naturals).
@@ -740,17 +711,14 @@ class TsaPerformanceController extends Controller
         }
         $tsaRows = $tsaRows->values();
 
-        // Grand Total — sum of every product's row (both teams), matched
-        // against this same (already product-restricted) $orders pool
-        // (2026-08-21, explicit request: Catered Leads here must tally with
-        // Dashboard/Leads Report too — see index()'s matching comment for
-        // the full history). Kept additive with index()'s own per-team Grand
-        // Total the same way it always has been: every product belongs to
-        // exactly one team's disjoint set, and both this view and each
-        // team's own page match against the identical pool, so SH Naturals'
-        // total + Eyecare's total still equals this one by construction.
-        $productRows = $allProductsForMatch->map(fn (Product $p) => ProductPerformance::buildRow($p, $orders, $allProductsForMatch));
-        $grandTotal  = ProductPerformance::sumRows($productRows);
+        // Grand Total — sum of $tsaRows above, same as index()'s own (see
+        // that method's own comment for the 2026-08-22 revision this is).
+        // Still additive with each single-team page's own Grand Total by
+        // construction: $tsaRows here is literally every team's own rows
+        // concatenated (the loop above), so summing them can never produce a
+        // different total than summing each team's rows separately first and
+        // adding those two sums together.
+        $grandTotal = ProductPerformance::sumRows($tsaRows);
 
         $teams = $this->teamsMenu($teamsConfig);
 

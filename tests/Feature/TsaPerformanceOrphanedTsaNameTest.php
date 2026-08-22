@@ -41,18 +41,19 @@ use Tests\TestCase;
  * and "no order silently dropped" at once.
  *
  * Revised again same day (explicit follow-up: Catered Leads/Grand Total
- * here must ALSO tally with Dashboard/Leads Report): Grand Total is now a
- * sum of product-matched rows (see index()'s own comment), a genuinely
- * DIFFERENT figure than $tsaRows->sum() — $tsaRows still counts every
- * order regardless of product match (an earlier attempt at also
- * restricting $tsaRows to product-matched-only was reverted: it silently
- * dropped real, un-product-tagged orders from individual TSAs' own numbers,
- * a worse regression than the inconsistency it fixed — see that same
- * comment). These tests' orphaned/cross-team orders don't set a real
- * product, so they no longer contribute to Grand Total at all; the
- * "$grandTotal === $tsaRows->sum()" assertions those tests used to make
- * are gone accordingly. SH+Eyecare=ALL for Grand Total is still tested,
- * now with orders that actually match a tracked product.
+ * here must ALSO tally with Dashboard/Leads Report): Grand Total became a
+ * sum of product-matched rows (see index()'s own comment at the time), a
+ * genuinely DIFFERENT figure than $tsaRows->sum() — these tests' orphaned/
+ * cross-team orders don't set a real product, so they no longer contributed
+ * to Grand Total at all under that definition.
+ *
+ * Reverted 2026-08-22 (explicit user request: "make it the grand total
+ * equal the sum of rows" — found by hand-summing this page's own Catered
+ * Leads column against Grand Total and getting a different answer): Grand
+ * Total is $tsaRows summed again, product match or not — see index()'s own
+ * current comment. The orphaned/cross-team orders below are back to
+ * contributing to Grand Total via their Unassigned row, same as any other
+ * order.
  */
 class TsaPerformanceOrphanedTsaNameTest extends TestCase
 {
@@ -141,8 +142,6 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
     {
         $date = '2026-08-04';
 
-        // Grand Total is product-matched now, so these need to actually match
-        // a tracked product to contribute to it.
         Order::create([
             'pancake_order_id' => 'sh-plain', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
             'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
@@ -157,9 +156,10 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         ]);
         // Plus the two trickier shapes this file already covers individually
         // (an orphaned tsa_name, and a real TSA credited on the wrong team's
-        // order) — neither sets a real product, so they contribute 0 to Grand
-        // Total either way; included here to prove they don't silently break
-        // the additivity of the two that DO.
+        // order) — neither sets a real product, but both still land in an
+        // Unassigned row and so still contribute to Grand Total now;
+        // included here to prove they don't break the additivity of the
+        // two plain ones above.
         $this->orphanedOrder($date);
         Order::create([
             'pancake_order_id' => 'cross-team-2', 'team' => 'SH Naturals',
@@ -180,7 +180,10 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $eyeTotal = $eye->viewData('grandTotal')['total'];
         $allTotal = $all->viewData('grandTotal')['total'];
 
-        $this->assertSame(2, $allTotal);
+        // 4 = the 2 plain orders + the orphaned order + the cross-team order
+        // — all four now land somewhere in $tsaRows (two real TSA rows, two
+        // Unassigned rows), so all four contribute to Grand Total.
+        $this->assertSame(4, $allTotal);
         $this->assertSame($allTotal, $shTotal + $eyeTotal);
     }
 }

@@ -69,13 +69,12 @@ class TsaPerformanceUnassignedRowTest extends TestCase
         $this->assertSame('Unassigned', $unassignedRow['display_name']);
         $this->assertSame(1, $unassignedRow['not_answering']);
 
-        // $tsaRows counts every order regardless of product match; Grand
-        // Total (2026-08-21, explicit request) is a separate, product-
-        // matched figure so it tallies with Dashboard/Leads Report instead
-        // — see TsaPerformanceOrphanedTsaNameTest's class doc comment for
-        // the full trade-off. These three orders don't set a real product,
-        // so they no longer necessarily equal Grand Total.
         $this->assertSame(3, $tsaRows->sum('catered'));
+        // Grand Total is $tsaRows summed (2026-08-22) — always equal by
+        // construction, product match or not. See
+        // TsaPerformanceOrphanedTsaNameTest's class doc comment for the
+        // fuller history of this definition.
+        $this->assertSame(3, $response->viewData('grandTotal')['catered']);
     }
 
     /** Proves the guard in tsa-performance.blade.php is load-bearing, not
@@ -120,8 +119,7 @@ class TsaPerformanceUnassignedRowTest extends TestCase
         $unassignedRow = $tsaRows->first(fn ($row) => $row['tsa_key'] === 'unassigned' && $row['team_key'] === 'sh-naturals');
         $this->assertNotNull($unassignedRow, 'Expected an SH Naturals Unassigned row in the ALL view.');
 
-        // See the single-team test above for why this no longer checks
-        // against Grand Total (now a separate, product-matched figure).
         $this->assertSame(3, $tsaRows->sum('catered'));
+        $this->assertSame(3, $response->viewData('grandTotal')['catered']);
     }
 }

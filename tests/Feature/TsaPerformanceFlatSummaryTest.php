@@ -57,13 +57,9 @@ class TsaPerformanceFlatSummaryTest extends TestCase
         $this->assertSame(1, $marielRow['not_answering']);
         $this->assertSame('sh-naturals', $gemmaRow['team_key']);
 
-        // $totals (the hourly view's own accumulator) counts every order
-        // regardless of product match; Grand Total (2026-08-21, explicit
-        // request) is a separate, product-matched figure so it tallies with
-        // Dashboard/Leads Report instead (see TsaPerformanceController::
-        // index()'s own comment) — both orders here match a real tracked
-        // product (SINUXYL), so the two coincide for this scenario, but
-        // they're no longer the SAME definition in general.
+        // $totals (the hourly view's own accumulator) and $grandTotal
+        // (sum of $tsaRows, 2026-08-22) both count every order regardless
+        // of product match, so they always agree.
         $this->assertSame($totals['total_called'], $grandTotal['total_called']);
         $this->assertSame(2, $grandTotal['total_called']);
     }
