@@ -86,9 +86,9 @@ class DashboardHourlyShiftCutoffTest extends TestCase
     }
 
     /**
-     * Explicit request (2026-08-22): "make this hourly leads" — a second
-     * chart alongside Hourly Activity, showing raw lead ARRIVAL volume per
-     * hour. Deliberately NOT shift-cutoff-zeroed like hourlyActivity above —
+     * Explicit request (2026-08-22) — Dashboard's own hourly chart now shows
+     * Hourly Leads (real lead arrivals) instead of Hourly Activity (calls
+     * made). Deliberately NOT shift-cutoff-zeroed like hourlyActivity above —
      * an order genuinely arriving/getting tagged before the team's shift
      * starts is real data worth seeing (the whole point of this chart), not
      * a "nobody's working yet" artifact to hide.
@@ -104,5 +104,30 @@ class DashboardHourlyShiftCutoffTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('hourlyActivity', fn ($activity) => $activity[6] === 0);
         $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[6] === 1);
+    }
+
+    /**
+     * Follow-up correction (2026-08-22): "the leads is like the actual
+     * leads from POS like in the new leads in the leads report" — hourlyLeads
+     * must use the exact same ProductPerformance::tally() 'total' definition
+     * Leads Report's own hourly "New Leads" column uses, not a bare
+     * unfiltered order count. A Canceled order (Pancake itself no longer
+     * really has it — Order::DELETED_STATUSES) must not count as a real
+     * lead here, same as it never counts as one anywhere else in this app.
+     */
+    public function test_hourly_leads_excludes_orders_pancake_itself_no_longer_has(): void
+    {
+        Order::create([
+            'pancake_order_id' => 'cancelled-hourly-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'SINUXYL', 'raw_tags' => ['GEMMA'], 'is_upsell' => false,
+            'status_code' => 6, // Canceled
+            'pancake_created_at' => '2026-07-22 10:15:00', 'pancake_inserted_at' => '2026-07-22 10:15:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->get(route('dashboard', ['date_from' => '2026-07-22', 'date_to' => '2026-07-22']));
+
+        $response->assertOk();
+        $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[10] === 0);
     }
 }

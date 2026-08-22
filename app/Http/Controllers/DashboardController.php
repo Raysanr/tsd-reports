@@ -371,17 +371,20 @@ class DashboardController extends Controller
             $hourlyActivity = collect(range(0, 23))
                 ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total_called']);
 
-            // Hourly Leads (explicit request, 2026-08-22: "make this hourly leads" —
-            // a second chart alongside Hourly Activity) — deliberately the RAW
-            // arrival count Hourly Activity's own comment above says it used to be
-            // and was fixed to exclude. A lead Pancake auto-creates from an inbound
-            // message belongs here even with zero calls made on it yet — that's
-            // the whole point of this chart (when leads actually arrive), not a
-            // gap to filter out. No shift-cutoff zeroing either (unlike Hourly
-            // Activity below): an overnight arrival is real data worth seeing, not
-            // a "nobody's working yet" artifact to hide.
+            // Hourly Leads (explicit request, 2026-08-22) — real leads from Pancake,
+            // same "New Leads" definition Leads Report's own hourly breakdown uses
+            // (ProductPerformance::tally()'s 'total' — every real order EXCEPT ones
+            // Pancake itself no longer has, Order::DELETED_STATUSES, and orders
+            // closed under a known non-TSA account, excluded_upsell_seller — see
+            // tally()'s own doc comment). A lead Pancake auto-creates from an
+            // inbound message still belongs here even with zero calls made on it
+            // yet — that's the whole point of this chart (when leads actually
+            // arrive) — this only excludes rows tally() itself would never count
+            // as a real lead anywhere else in this app. No shift-cutoff zeroing
+            // either (unlike Hourly Activity below): an overnight arrival is real
+            // data worth seeing, not a "nobody's working yet" artifact to hide.
             $hourlyLeads = collect(range(0, 23))
-                ->map(fn($h) => $ordersByHour->get($h, collect())->count());
+                ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total']);
 
             // Shift-start cutoff — same reasoning as Leads Report's hourly breakdown
             // (LeadsReportController::buildHourlyRows): confirmed in production, an
