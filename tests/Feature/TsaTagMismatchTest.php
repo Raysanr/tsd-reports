@@ -130,4 +130,99 @@ class TsaTagMismatchTest extends TestCase
 
         $response->assertForbidden();
     }
+
+    /**
+     * The "By TSA" mismatch summary only ever catches ONE class of gap
+     * (tag disagrees with who actually got credited) — explicit request
+     * (2026-08-22, live investigation): a user confirmed 11 real orders
+     * tagged "ANGEL" in Pancake, all genuinely Angelica's, with ZERO tag
+     * mismatches reported here, yet the Leaderboard only counted 10. That
+     * proves the gap is a COUNTING exclusion (excluded seller, cancelled
+     * add-on, void/restocking status, or the order never actually carrying
+     * the real "UPSELL TSD" tag despite a human-readable note saying
+     * "WITH UPSELL"), not an attribution one — this ?tsa= audit mode exists
+     * to make every one of those reasons directly visible per order,
+     * instead of requiring a fifth theory each time this happens again.
+     */
+    public function test_selecting_a_tsa_shows_every_order_under_her_own_tag_with_a_counted_reason(): void
+    {
+        // Counts normally — the baseline "nothing wrong here" row.
+        $this->order(['pancake_order_id' => 'counted-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Gemma', 'is_upsell' => true]);
+
+        // Tagged GEMMA, correctly attributed to Gemma (no tag mismatch at
+        // all), but silently dropped from her upsell count because the item
+        // was closed under a known non-TSA account — the exact shape of the
+        // Ralph Cruz incident this session already fixed once.
+        $this->order([
+            'pancake_order_id' => 'excluded-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Gemma',
+            'is_upsell' => false, 'excluded_upsell_seller' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('tsa-tag-mismatches', ['tsa' => 'Gemma']));
+
+        $response->assertOk();
+        $response->assertSee('#counted-1');
+        $response->assertSee('#excluded-1');
+        $response->assertSee('excluded seller', false);
+    }
+
+    public function test_tsa_audit_explains_a_cancelled_upsell_add_on(): void
+    {
+        $this->order([
+            'pancake_order_id' => 'cancelled-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Gemma',
+            'is_upsell' => false, 'is_cancelled_upsell' => true,
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('tsa-tag-mismatches', ['tsa' => 'Gemma']));
+
+        $response->assertOk();
+        $response->assertSee('#cancelled-1');
+        $response->assertSee('cancelled', false);
+    }
+
+    public function test_tsa_audit_explains_a_void_status_order(): void
+    {
+        $this->order([
+            'pancake_order_id' => 'voided-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Gemma',
+            'is_upsell' => false, 'status_code' => 6,
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('tsa-tag-mismatches', ['tsa' => 'Gemma']));
+
+        $response->assertOk();
+        $response->assertSee('#voided-1');
+        $response->assertSee('Canceled', false);
+    }
+
+    public function test_tsa_audit_explains_an_order_with_no_real_upsell_tag(): void
+    {
+        // Carries Gemma's own name tag but never carried the actual
+        // "UPSELL TSD" Pancake tag the sync reads — e.g. a plain lead she
+        // called that never upsold, or a human note said "WITH UPSELL"
+        // without the real tag ever being applied.
+        $this->order([
+            'pancake_order_id' => 'no-real-tag-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Gemma',
+            'is_upsell' => false,
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('tsa-tag-mismatches', ['tsa' => 'Gemma']));
+
+        $response->assertOk();
+        $response->assertSee('#no-real-tag-1');
+        $response->assertSee('No &quot;UPSELL TSD&quot; tag', false);
+    }
+
+    public function test_tsa_audit_still_shows_an_order_credited_to_someone_else(): void
+    {
+        // A tag mismatch is still a valid reason an order doesn't show up
+        // under this TSA's own count — the audit view must surface it too,
+        // not just the exclusion-style reasons.
+        $this->order(['pancake_order_id' => 'stolen-1', 'raw_tags' => ['GEMMA'], 'tsa_name' => 'Mariel', 'is_upsell' => true]);
+
+        $response = $this->actingAs($this->admin())->get(route('tsa-tag-mismatches', ['tsa' => 'Gemma']));
+
+        $response->assertOk();
+        $response->assertSee('#stolen-1');
+        $response->assertSee('Mariel Entanto');
+    }
 }

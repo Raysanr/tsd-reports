@@ -1,20 +1,115 @@
 @extends('layouts.app')
 @section('title', 'TSA Tag Mismatches')
-@section('subtitle', 'Orders whose name tag disagrees with who actually got credited')
+@section('subtitle', $mode === 'audit' ? "Every order tagged \"{$tsaFilterName}\" and why it did or didn't count" : 'Orders whose name tag disagrees with who actually got credited')
 
 @section('content')
 
-{{-- HEADER EXPLANATION — same "what this means, where to look" convention
-     Unmatched Orders' own header follows. Attribution priority (account over
-     tag) is deliberate and right almost every time — this page exists for
-     the rare cases where it isn't, not to suggest the rule itself is wrong. --}}
+@if($mode === 'audit')
+{{-- AUDIT MODE — a tag disagreement isn't the only way an order can drop out
+     of a TSA's own count: it can be tagged and credited correctly and STILL
+     get excluded afterward (excluded seller, cancelled add-on, void/
+     restocking status, or never carrying the real "UPSELL TSD" tag at all).
+     Live investigation (2026-08-22) proved the mismatch check alone can
+     report zero and still miss a real gap — this mode shows every order
+     under one TSA's own tag with the exact reason, superseding the need to
+     re-investigate from scratch next time. --}}
+<div class="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4">
+    <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+        Every order below carries <span class="font-semibold text-slate-800 dark:text-slate-100">{{ $tsaFilterName }}'s</span>
+        own name tag in Pancake for this range. <span class="font-semibold text-slate-800 dark:text-slate-100">Counted</span> means
+        it's inside her real-upsell total (Dashboard, TSA Performance, Leads Report all agree on this same definition) — if it
+        isn't, the Reason column says exactly why: credited to someone else, closed under an excluded seller account, the add-on
+        was cancelled, the order landed in a void/restocking status, or it never actually carried the real "UPSELL TSD" tag
+        Pancake requires, even if a note says otherwise.
+    </p>
+</div>
+
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
+    <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between flex-wrap gap-3">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $tsaFilterName }} — Tagged Orders</h2>
+            <p class="text-xs font-mono text-slate-400 mt-0.5">
+                {{ $rows->count() }} total ·
+                <span class="font-semibold text-emerald-600 dark:text-emerald-400">{{ $rows->where('counted', true)->count() }} counted</span> ·
+                <span class="font-semibold text-rose-600 dark:text-rose-400">{{ $rows->where('counted', false)->count() }} not counted</span>
+            </p>
+        </div>
+        <input type="text" data-table-filter="tsaAuditTable" placeholder="Filter…" aria-label="Filter tagged orders"
+               class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+    </div>
+
+    @if($rows->isEmpty())
+    <div class="py-16 flex flex-col items-center justify-center text-center gap-3">
+        <p class="text-sm font-mono text-slate-400">No orders carry {{ $tsaFilterName }}'s tag for this range.</p>
+    </div>
+    @else
+    <div class="overflow-x-auto" id="tsaAuditTable" data-sortable-table data-scroll-shadow>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">
+                <th class="px-5 py-2.5 text-left" data-sort-key="order_id">Order ID</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="date">Date</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="product">Product</th>
+                <th class="px-4 py-2.5 text-center" data-sort-key="counted">Counted?</th>
+                <th class="px-4 py-2.5 text-left" data-sort-key="reason">Reason (if not)</th>
+                <th class="px-4 py-2.5 text-right" data-sort-key="amount">Amount</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
+            @foreach($rows as $row)
+            @php $order = $row->order; @endphp
+            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                <td class="px-5 py-3 font-mono text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" data-sort-key="order_id" data-sort-value="{{ $order->pancake_order_id }}">
+                    #{{ $order->pancake_order_id }}
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" data-sort-key="date" data-sort-value="{{ $order->pancake_created_at?->timestamp ?? 0 }}">
+                    {{ $order->pancake_created_at?->format('M j, Y g:i A') ?? '—' }}
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200" data-sort-key="product" data-sort-value="{{ $order->product ?? '' }}">
+                    {{ $order->product ?? '—' }}
+                </td>
+                <td class="px-4 py-3 text-center" data-sort-key="counted" data-sort-value="{{ $row->counted ? 1 : 0 }}">
+                    @if($row->counted)
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">Yes</span>
+                    @else
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">No</span>
+                    @endif
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300" data-sort-key="reason" data-sort-value="{{ $row->reason ?? '' }}">
+                    @if(!$row->agrees)
+                    <span class="text-rose-600 dark:text-rose-400">Credited to {{ $row->actual_name ?? '— unattributed —' }}</span>
+                    @elseif($row->reason)
+                    {{ $row->reason }}
+                    @else
+                    <span class="text-slate-300 dark:text-slate-600">—</span>
+                    @endif
+                </td>
+                <td class="px-4 py-3 font-mono text-xs text-right font-semibold text-accent" data-sort-key="amount" data-sort-value="{{ $order->amount }}">
+                    ₱{{ number_format($order->amount, 2) }}
+                </td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    </div>
+    @endif
+</div>
+
+@else
+{{-- MISMATCH MODE (default) — same "what this means, where to look"
+     convention Unmatched Orders' own header follows. Attribution priority
+     (account over tag) is deliberate and right almost every time — this
+     page exists for the rare cases where it isn't, not to suggest the rule
+     itself is wrong. Select a TSA above to switch to the fuller per-order
+     audit instead, which also catches gaps this summary can't (see that
+     mode's own header). --}}
 <div class="mb-6 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4">
     <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
         Every order below carries a TSA's own name tag in Pancake, but was actually credited to someone else — or to
-        nobody — because whoever's Pancake account closed the upsell item didn't match that tag. Account-based
-        attribution is checked first and is right almost every time (a coverage swap, a teammate helping close a lead,
-        or a leftover tag from before a handoff are the usual reasons it disagrees) — this page exists to make those
-        rare disagreements checkable instead of only found by hand.
+        nobody — because whoever's Pancake account closed the upsell item didn't match that tag. This only catches
+        THAT one class of gap — pick a TSA from the dropdown above for the fuller per-order audit, which also catches
+        an order that was tagged and credited correctly but still didn't count (excluded seller, cancelled add-on,
+        void/restocking status, or no real upsell tag at all).
     </p>
 </div>
 
@@ -141,13 +236,32 @@
     </div>
 </div>
 @endif
+@endif
 
 @endsection
 
 @push('topbar-right')
+{{-- TSA picker — switches the page into per-order audit mode for whoever's
+     selected (?tsa=), same GET-form-soft-submits convention the rest of the
+     app's team/status filters already use. "All TSAs" (empty value) returns
+     to the tag-mismatch summary above. --}}
+<form method="GET" action="{{ route('tsa-tag-mismatches') }}" class="contents">
+    <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
+    <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
+    <select name="tsa" onchange="this.form.submit()"
+            class="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-yellow-500">
+        <option value="">All TSAs (mismatches only)</option>
+        @foreach($tsaOptions as $key => $name)
+        <option value="{{ $key }}" {{ ($tsaFilter ?? null) === $key ? 'selected' : '' }}>{{ $name }}</option>
+        @endforeach
+    </select>
+</form>
+
 {{-- Range date-picker, same navigate-mode pattern Dashboard's own topbar uses
-     — this page has no wrapping <form>, so 'navigate' just redirects with
-     date_from/date_to instead of submitting a field. --}}
+     — this page has no wrapping <form> around the whole toolbar, so
+     'navigate' just redirects with date_from/date_to (dropping the tsa
+     filter back to "All TSAs" on a date change, same as every other page's
+     filters reset to their defaults on navigate). --}}
 @include('partials.date-picker', [
     'mode' => 'range', 'id' => 'tagMismatchDrp', 'dateFrom' => $dateFrom, 'dateTo' => $dateTo,
     'submit' => 'navigate', 'navigateBase' => route('tsa-tag-mismatches'),
