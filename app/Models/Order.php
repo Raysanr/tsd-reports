@@ -31,6 +31,7 @@ class Order extends Model
         'is_restocking_upsell',
         'restocking_upsell_amount',
         'excluded_upsell_seller',
+        'is_upsell_on_voided_order',
         'status_code',
         'pancake_created_at',
         'pancake_inserted_at',
@@ -46,6 +47,7 @@ class Order extends Model
         'is_returned_upsell'      => 'boolean',
         'is_restocking_upsell'    => 'boolean',
         'excluded_upsell_seller'  => 'boolean',
+        'is_upsell_on_voided_order' => 'boolean',
         'amount'                  => 'decimal:2',
         'cancelled_upsell_amount' => 'decimal:2',
         'returned_upsell_amount'  => 'decimal:2',
@@ -177,10 +179,18 @@ class Order extends Model
      *  flag set — and that fallback has its own known edge case letting a
      *  Restocking-status order slip through, so it isn't safe to blindly copy
      *  here). Use realUpsell()/scopeRealUpsell() for a query builder, this for
-     *  an already-fetched Order/Collection. */
+     *  an already-fetched Order/Collection.
+     *
+     *  Also includes is_upsell_on_voided_order (2026-08-22) — a Canceled-
+     *  status order (Pancake status_code 6) whose upsell genuinely happened,
+     *  confirmed live on order #1353632. Deliberately scoped to Canceled
+     *  only, not every VOID_STATUSES code: Deleted-recently (7) means the
+     *  order no longer exists in Pancake at all (see VOID_STATUSES' own doc
+     *  comment), and Partial-return (15) has no confirmed real-world case
+     *  yet — extend this the same evidence-first way if one turns up. */
     public static function isRealUpsell(self $order): bool
     {
-        return $order->is_upsell || $order->is_returned_upsell;
+        return $order->is_upsell || $order->is_returned_upsell || $order->is_upsell_on_voided_order;
     }
 
     /** Query-builder counterpart to isRealUpsell() above — same definition,
@@ -188,7 +198,9 @@ class Order extends Model
      *  to ->get() first just to filter in PHP. */
     public function scopeRealUpsell($query)
     {
-        return $query->where(fn ($q) => $q->where('is_upsell', true)->orWhere('is_returned_upsell', true));
+        return $query->where(fn ($q) => $q->where('is_upsell', true)
+            ->orWhere('is_returned_upsell', true)
+            ->orWhere('is_upsell_on_voided_order', true));
     }
 
     /**
@@ -212,6 +224,7 @@ class Order extends Model
 
         return $order->is_upsell
             || $order->is_returned_upsell
+            || $order->is_upsell_on_voided_order
             || (!$order->is_cancelled_upsell && self::hasUpsellTag($order->raw_tags ?? []));
     }
 

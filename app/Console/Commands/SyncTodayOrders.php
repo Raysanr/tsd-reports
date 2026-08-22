@@ -384,6 +384,22 @@ class SyncTodayOrders extends Command
             // is_returned_upsell preserves the Returned/Returning case just above.
             $isRestockingUpsell = $statusCode === 11 && $hasUpsellTag;
 
+            // Upsell on a Canceled order: the order carries the TSA's upsell
+            // tag but its Pancake status is Canceled specifically (not
+            // Returned/Returning/Restocking/Deleted, the other VOID_STATUSES).
+            // is_upsell above is already forced false for it like any void
+            // status — but confirmed live (2026-08-22), order #1353632/
+            // Angelica: Pancake still shows the order and both line items
+            // intact (AudiCure + a genuinely tagged "Upsell TSD (Ear Relief
+            // Balm)" add-on), the upsell itself clearly happened, only the
+            // order's own status went to Canceled afterward for an unrelated
+            // reason. This preserves that fact separately, the same way
+            // is_returned_upsell/is_restocking_upsell preserve their own void
+            // statuses above. Deliberately scoped to Canceled (6) only, not
+            // every VOID_STATUSES code — see Order::isRealUpsell()'s own doc
+            // comment for why.
+            $isUpsellOnVoidedOrder = $statusCode === 6 && $hasUpsellTag;
+
             $productInfo       = $this->extractUpsellProduct($raw, $isUpsell);
             $productName       = $productInfo['name'];
             $bundleDescription = $productInfo['display_id'];
@@ -445,7 +461,7 @@ class SyncTodayOrders extends Command
             // from one single order. RtsReportController already knew to
             // read returned_upsell_amount instead of amount for exactly
             // this reason; every other consumer didn't.
-            $amount = ($isUpsell || $isReturnedUpsell)
+            $amount = ($isUpsell || $isReturnedUpsell || $isUpsellOnVoidedOrder)
                 ? Order::extractUpsellAmount($raw)
                 : (float)($raw['total_price'] ?? $raw['cod'] ?? 0);
 
@@ -495,6 +511,7 @@ class SyncTodayOrders extends Command
                 'is_restocking_upsell'    => $isRestockingUpsell,
                 'restocking_upsell_amount' => $restockingUpsellAmount,
                 'excluded_upsell_seller'  => $isExcludedUpsellSeller,
+                'is_upsell_on_voided_order' => $isUpsellOnVoidedOrder,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
                 // Pancake's raw inserted_at, untouched — see the orders migration's
@@ -567,6 +584,7 @@ class SyncTodayOrders extends Command
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'is_restocking_upsell', 'restocking_upsell_amount', 'excluded_upsell_seller',
+                    'is_upsell_on_voided_order',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
                     'pancake_updated_at', 'synced_at',
                 ]
