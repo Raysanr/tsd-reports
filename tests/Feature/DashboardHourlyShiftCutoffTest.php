@@ -84,4 +84,25 @@ class DashboardHourlyShiftCutoffTest extends TestCase
         // counts at its own hour, same as before this fix.
         $response->assertViewHas('hourlyActivity', fn ($activity) => $activity[6] === 1);
     }
+
+    /**
+     * Explicit request (2026-08-22): "make this hourly leads" — a second
+     * chart alongside Hourly Activity, showing raw lead ARRIVAL volume per
+     * hour. Deliberately NOT shift-cutoff-zeroed like hourlyActivity above —
+     * an order genuinely arriving/getting tagged before the team's shift
+     * starts is real data worth seeing (the whole point of this chart), not
+     * a "nobody's working yet" artifact to hide.
+     */
+    public function test_hourly_leads_is_not_affected_by_the_shift_cutoff(): void
+    {
+        // Same 6am pre-shift order the test above proves shows 0 in
+        // hourlyActivity — hourlyLeads must still count it at its own hour.
+        $this->order('cutoff-5', '2026-07-22 06:47:00', isUpsell: true);
+
+        $response = $this->get(route('dashboard', ['date_from' => '2026-07-22', 'date_to' => '2026-07-22']));
+
+        $response->assertOk();
+        $response->assertViewHas('hourlyActivity', fn ($activity) => $activity[6] === 0);
+        $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[6] === 1);
+    }
 }

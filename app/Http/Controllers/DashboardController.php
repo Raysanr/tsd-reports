@@ -64,6 +64,7 @@ class DashboardController extends Controller
         $tsaLeaderboard   = collect();
         $topProducts      = collect();
         $hourlyActivity   = collect();
+        $hourlyLeads      = collect();
         $teamComparison   = collect();
         $restockingByTsa  = collect();
         $restockingByTeam = collect();
@@ -370,6 +371,18 @@ class DashboardController extends Controller
             $hourlyActivity = collect(range(0, 23))
                 ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total_called']);
 
+            // Hourly Leads (explicit request, 2026-08-22: "make this hourly leads" —
+            // a second chart alongside Hourly Activity) — deliberately the RAW
+            // arrival count Hourly Activity's own comment above says it used to be
+            // and was fixed to exclude. A lead Pancake auto-creates from an inbound
+            // message belongs here even with zero calls made on it yet — that's
+            // the whole point of this chart (when leads actually arrive), not a
+            // gap to filter out. No shift-cutoff zeroing either (unlike Hourly
+            // Activity below): an overnight arrival is real data worth seeing, not
+            // a "nobody's working yet" artifact to hide.
+            $hourlyLeads = collect(range(0, 23))
+                ->map(fn($h) => $ordersByHour->get($h, collect())->count());
+
             // Shift-start cutoff — same reasoning as Leads Report's hourly breakdown
             // (LeadsReportController::buildHourlyRows): confirmed in production, an
             // order can carry a genuine upsell tag (Order::hasUpsellTag) timestamped
@@ -484,7 +497,7 @@ class DashboardController extends Controller
         return view('dashboard', compact(
             'stats', 'recentOrders', 'apiConnected', 'dbError',
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
-            'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'teamComparison',
+            'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'hourlyLeads', 'teamComparison',
             'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
             'teams', 'selectedTeam', 'includeRestocking'
         ));
