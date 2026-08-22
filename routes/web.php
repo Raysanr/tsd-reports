@@ -16,6 +16,7 @@ use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
+use App\Http\Controllers\TsaTagMismatchController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -91,6 +92,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
 
         Route::get('/unmatched-orders',          [UnmatchedOrdersController::class, 'index'])->name('unmatched-orders');
         Route::post('/unmatched-orders/reinfer', [UnmatchedOrdersController::class, 'reinfer'])->name('unmatched-orders.reinfer');
+
+        Route::get('/tsa-tag-mismatches', [TsaTagMismatchController::class, 'index'])->name('tsa-tag-mismatches');
 
         Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
