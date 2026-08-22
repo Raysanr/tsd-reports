@@ -228,4 +228,40 @@ class TsaStatusControllerTest extends TestCase
         $this->assertSame('status', $logs[2]->kind);
         $this->assertSame('break', $logs[2]->status);
     }
+
+    /**
+     * Explicit request (2026-08-22): the topbar badge should reflect
+     * Calling/Wrap Up — both system-only, set automatically — without the
+     * TSA reloading the page. This endpoint is what the badge polls.
+     */
+    public function test_own_status_returns_the_authenticated_tsas_current_status(): void
+    {
+        $tsa  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user = $this->tsaUser('Gemma');
+        $tsa->applyStatusChange(TsaShift::STATUS_CALLING);
+
+        $response = $this->actingAs($user)->getJson(route('calls.tsa-status.own'));
+
+        $response->assertOk();
+        $response->assertJson(['status' => 'calling', 'label' => 'Calling', 'dot_class' => 'bg-red-500', 'readonly' => false]);
+    }
+
+    public function test_own_status_reflects_wrap_up(): void
+    {
+        $tsa  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user = $this->tsaUser('Gemma');
+        $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
+
+        $response = $this->actingAs($user)->getJson(route('calls.tsa-status.own'));
+
+        $response->assertOk();
+        $response->assertJson(['status' => 'wrap_up', 'dot_class' => 'bg-orange-500']);
+    }
+
+    public function test_own_status_is_forbidden_for_a_user_with_no_tsa(): void
+    {
+        $response = $this->actingAs($this->admin())->getJson(route('calls.tsa-status.own'));
+
+        $response->assertForbidden();
+    }
 }

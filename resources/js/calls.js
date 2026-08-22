@@ -243,6 +243,33 @@ if (document.getElementById('badge-assigned') || document.getElementById('badge-
     setInterval(pollNotificationCounts, 30000);
 }
 
+// Own status badge (topbar, explicit request 2026-08-22) — Calling and Wrap
+// Up are BOTH system-only (see TsaStatusController::update()'s own two
+// guards), set automatically the instant a call starts/ends with no button a
+// TSA ever clicks to confirm either one. Before this, the badge was a
+// one-time server-rendered snapshot from whenever the current page happened
+// to load (layouts/calls.blade.php) — a TSA could go Calling -> Wrap Up ->
+// back to Login while sitting on the Leads page the whole time and never see
+// their own badge move. 5s (not the 15-30s intervals elsewhere on this page)
+// because Calling/Wrap Up are often over within seconds — a slower poll
+// would mean this rarely catches either one before it's already passed.
+function pollOwnStatus() {
+    fetch('/calls/api/own-status', { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+            if (!data) return;
+            const dot   = document.getElementById('statusDot-topbar');
+            const label = document.getElementById('statusLabel-topbar');
+            if (dot) dot.className = `w-2 h-2 rounded-full shrink-0 ${data.dot_class}`;
+            if (label) label.textContent = data.label.toUpperCase();
+        })
+        .catch(() => {});
+}
+
+if (document.getElementById('statusTrigger-topbar')) {
+    setInterval(pollOwnStatus, 5000);
+}
+
 // TSA status panel (calls/partials/tsa-status-panel.blade.php) — one shared
 // component for both the topbar (a TSA's own LOGIN/BREAK/DNA HUDDLE/
 // COACHING/LOGOUT — not wired into tsd-reports' shared header yet, see that

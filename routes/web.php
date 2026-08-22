@@ -149,6 +149,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
 
         Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
+        Route::get('/api/own-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'own'])->name('tsa-status.own');
 
         Route::middleware('role:super_admin,admin')->group(function () {
             Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');

@@ -104,6 +104,52 @@ class TsaStatusController extends Controller
     }
 
     /**
+     * Polled by the topbar's own status badge (calls.js pollOwnStatus(),
+     * explicit request 2026-08-22) — Wrap Up and Calling are BOTH
+     * system-only (see the two guards in update() above), set automatically
+     * the instant a call starts/ends, with no button a TSA ever clicks to
+     * confirm either one. Without this, the topbar badge (layouts/
+     * calls.blade.php) was a one-time server-rendered snapshot from
+     * whenever the current page happened to load — a TSA could go
+     * Calling -> Wrap Up -> back to Login without their own badge ever
+     * moving unless they reloaded.
+     *
+     * dot_class mirrors partials/tsa-status-panel.blade.php's own
+     * $dotColor match() exactly — a third copy (Monitor TSA's own
+     * _content.blade.php has one too); keep all three in sync if a status
+     * ever gets a new color.
+     */
+    public function own(Request $request)
+    {
+        $tsa = Auth::user()->tsa;
+        if (!$tsa) {
+            abort(403);
+        }
+
+        $dotClass = match (true) {
+            $tsa->status === TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+            $tsa->status === TsaShift::STATUS_CALLING    => 'bg-red-500',
+            $tsa->status === TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
+            $tsa->status === TsaShift::STATUS_BREAK      => 'bg-yellow-500',
+            $tsa->status === TsaShift::STATUS_LUNCH      => 'bg-amber-800',
+            $tsa->status === TsaShift::STATUS_COACHING   => 'bg-blue-500',
+            $tsa->status === TsaShift::STATUS_DNA_HUDDLE => 'bg-purple-500',
+            $tsa->status === TsaShift::STATUS_HUDDLE     => 'bg-sky-500',
+            $tsa->status === TsaShift::STATUS_OTHERS     => 'bg-slate-400',
+            $tsa->status === TsaShift::STATUS_LOGOUT     => 'bg-slate-300 dark:bg-slate-600',
+            $tsa->status === TsaShift::STATUS_LOCKED     => 'bg-red-700',
+            default => 'bg-amber-500',
+        };
+
+        return response()->json([
+            'status'    => $tsa->status,
+            'label'     => TsaShift::STATUSES[$tsa->status]['label'] ?? $tsa->status,
+            'dot_class' => $dotClass,
+            'readonly'  => $tsa->status === TsaShift::STATUS_LOCKED,
+        ]);
+    }
+
+    /**
      * TSA Logs — the timestamped history behind the topbar dropdown, so an
      * admin can see when each TSA actually logged in/took a break/etc.
      * across a shift, not just their current status. Same filter/pagination

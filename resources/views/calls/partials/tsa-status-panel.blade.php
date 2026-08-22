@@ -76,8 +76,8 @@
     <button type="button" @if(!$readonly) onclick="toggleStatusPanel('{{ $id }}')" @endif id="statusTrigger-{{ $id }}"
             title="{{ $readonly ? 'Locked by an admin — ask them to change your status' : '' }}"
             class="{{ $readonly ? 'inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-slate-400 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 cursor-not-allowed' : ($triggerClass ?? 'inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer') }}">
-        <span class="w-2 h-2 rounded-full shrink-0 {{ $dotColor }}"></span>
-        {{ strtoupper(\App\Models\TsaShift::STATUSES[$current]['label'] ?? $current) }}
+        <span id="statusDot-{{ $id }}" class="w-2 h-2 rounded-full shrink-0 {{ $dotColor }}"></span>
+        <span id="statusLabel-{{ $id }}">{{ strtoupper(\App\Models\TsaShift::STATUSES[$current]['label'] ?? $current) }}</span>
         @if(!$readonly)
         <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
         @endif
