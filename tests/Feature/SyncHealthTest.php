@@ -290,7 +290,7 @@ class SyncHealthTest extends TestCase
 
         $response->assertRedirect(route('sync-health'));
         $response->assertSessionHas('success');
-        $this->assertStringContainsString('limited to the most recent 2 of 20 selected days', session('success'));
+        $this->assertStringContainsString('limited to the most recent 1 of 20 selected days', session('success'));
     }
 
     public function test_backfill_duplicated_logistics_reports_failure_without_credentials(): void

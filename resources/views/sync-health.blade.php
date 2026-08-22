@@ -219,23 +219,26 @@
      2026-08-22) for orders synced before Order::isDuplicatedByLogistics()
      existed (215 found live in the shop). The regular sync sets this flag on
      its own going forward — this is only for orders that already existed
-     before that check did. Plain form POST + redirect (not fetch/JSON), same
-     as Retry a Date above — deliberately NOT the fancy fetch+spinner flow
-     Fix Now uses, since that would invite picking a wide range the way that
-     button's own history warns against; this one is capped hard (see
-     SyncHealthController::MAX_BACKFILL_DAYS) specifically because it has no
-     cheap local pre-filter the way reconcile-statuses' passes do — it has to
-     live-check EVERY order in the window, not just narrow suspects, on a
-     single-process server with no request concurrency (a slow request here
-     freezes the whole app for every user until it finishes — same
-     constraint that capped Fix Now itself). Run it a few days at a time
-     rather than picking a wide range. --}}
+     before that check did. Capped hard (see SyncHealthController::
+     MAX_BACKFILL_DAYS) specifically because it has no cheap local pre-filter
+     the way reconcile-statuses' passes do — it has to live-check EVERY order
+     in the window, not just narrow suspects, on a single-process server with
+     no request concurrency (a slow request here freezes the whole app for
+     every user until it finishes — same constraint that capped Fix Now
+     itself). Run it a few days at a time rather than picking a wide window.
+     Submitted via fetch with an in-page loading state + Cancel (follow-up
+     fix, 2026-08-22: this started as a plain form POST, same as Retry a
+     Date — but unlike that instant action, this one can genuinely take a
+     minute or more, and a bare full-page load with no feedback read as a
+     frozen/broken page rather than a slow-but-working one). Same
+     "soft cancel only" contract as Fix Now — see app.js's own comment on
+     that block for why a real server-side cancel isn't possible here. --}}
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm px-5 py-4 mb-6">
     <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-1">Backfill Duplicated-by-Logistics Orders</h2>
     <p class="text-xs font-mono text-slate-400 mb-3">
-        One-off catch-up for orders synced before this app could recognize a warehouse/logistics duplicate ("DUPLICATED BY LOGISTICS" in Pancake's own notes) — new orders are flagged automatically going forward. Live-checks every order in the range, so keep it to a couple of days at a time (capped to 2 days) rather than a wide window.
+        One-off catch-up for orders synced before this app could recognize a warehouse/logistics duplicate ("DUPLICATED BY LOGISTICS" in Pancake's own notes) — new orders are flagged automatically going forward. Live-checks every order in the range (capped to 1 day per click) and can take a minute or more — avoid running it during busy hours, and wait for one run to finish before starting another.
     </p>
-    <form method="POST" action="{{ route('sync-health.backfill-duplicated-logistics') }}" class="flex items-end gap-3 flex-wrap">
+    <form method="POST" action="{{ route('sync-health.backfill-duplicated-logistics') }}" id="backfillForm" class="flex items-end gap-3 flex-wrap">
         @csrf
         <div>
             <label class="block text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Date range</label>
@@ -247,13 +250,23 @@
                 'rangeMonths' => 1,
             ])
         </div>
-        <button type="submit"
-                class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
-            </svg>
-            Run Backfill
-        </button>
+        <div class="flex items-center gap-2">
+            <button type="submit" id="backfillSubmitBtn"
+                    class="inline-flex items-center gap-1.5 px-4 py-1.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap disabled:opacity-70 disabled:cursor-wait">
+                <svg id="backfillIconIdle" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
+                </svg>
+                <svg id="backfillIconBusy" class="hidden animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span id="backfillBtnLabel">Run Backfill</span>
+            </button>
+            <button type="button" id="backfillCancelBtn"
+                    class="hidden text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline cursor-pointer">
+                Cancel
+            </button>
+        </div>
         @error('date_from')
         <p class="text-xs font-mono text-red-600 dark:text-red-400 w-full">{{ $message }}</p>
         @enderror

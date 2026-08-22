@@ -49,10 +49,12 @@ class SyncHealthController extends Controller
      *  local signal to pre-filter on at all (nothing local distinguishes a
      *  warehouse-duplicated order from a real one) — it has to live-check EVERY
      *  order in the window. Confirmed live (2026-08-22): a single day alone
-     *  turned up 215 matching orders shop-wide, so even a 2-3 day window here
-     *  is already a meaningfully larger live-check batch than reconcile-
-     *  statuses' own 9-day default. */
-    private const MAX_BACKFILL_DAYS = 2;
+     *  turned up 215 matching orders shop-wide, and a 2-day run against
+     *  production caused a real "upstream error" (Railway's proxy timing out
+     *  while this single-process app was tied up) — cut from 2 to 1 the same
+     *  day for that reason. Still capable of being slow on a high-volume day;
+     *  this only bounds the worst case, it doesn't make it fast. */
+    private const MAX_BACKFILL_DAYS = 1;
 
     public function index(Request $request)
     {

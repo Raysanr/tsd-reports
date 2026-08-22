@@ -878,6 +878,71 @@ window.showToast = function (message, variant = 'success') {
     cancelBtn.addEventListener('click', () => controller?.abort());
 })();
 
+// ─── Sync Health: "Run Backfill" (duplicated-by-logistics), in-page + cancelable ──
+// Same exact shape as the "Fix Now" block above, for the same reason (follow-up
+// fix, 2026-08-22): this form started as a plain POST, and unlike the other
+// plain-POST actions on this page (Retry a Date), this one can genuinely run a
+// minute or more — a bare full-page load with no feedback for that long reads
+// as a frozen/broken page rather than a slow-but-working one, and a user who
+// thinks it's stuck is likely to reload or click again, which only adds MORE
+// concurrent load to the exact single-process bottleneck this is already
+// straining (confirmed live the same day: a 2-day run produced a real
+// "upstream error" on production). See the Fix Now block's own comment for why
+// Cancel here is soft too — Artisan::call() has no cancellation hook of its own.
+(function () {
+    const form = document.getElementById('backfillForm');
+    if (!form) return;
+
+    const submitBtn = document.getElementById('backfillSubmitBtn');
+    const cancelBtn = document.getElementById('backfillCancelBtn');
+    const iconIdle  = document.getElementById('backfillIconIdle');
+    const iconBusy  = document.getElementById('backfillIconBusy');
+    const label     = document.getElementById('backfillBtnLabel');
+
+    let controller = null;
+
+    const setBusy = (busy) => {
+        submitBtn.disabled = busy;
+        iconIdle.classList.toggle('hidden', busy);
+        iconBusy.classList.toggle('hidden', !busy);
+        cancelBtn.classList.toggle('hidden', !busy);
+        label.textContent = busy ? 'Running…' : 'Run Backfill';
+    };
+
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        controller = new AbortController();
+        setBusy(true);
+
+        fetch(form.action, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: new FormData(form),
+            signal: controller.signal,
+        })
+            .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                window.showToast(data.message || 'Done.', (ok && data.success) ? 'success' : 'error');
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') {
+                    window.showToast('Cancelled — the backfill may still finish running on the server.', 'info');
+                    return;
+                }
+                window.showToast('Something went wrong — check your connection and try again.', 'error');
+            })
+            .finally(() => {
+                setBusy(false);
+                controller = null;
+            });
+    });
+
+    cancelBtn.addEventListener('click', () => controller?.abort());
+})();
+
 // ─── Confirm modal ────────────────────────────────────────────────────────────
 // window.showConfirm(message, opts) replaces every destructive-action
 // confirm() across the app (delete, bulk delete, move team, etc.) — the
