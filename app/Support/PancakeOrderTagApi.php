@@ -239,6 +239,54 @@ class PancakeOrderTagApi
     }
 
     /**
+     * Writes the order's status directly — one of Order::STATUS_LABELS' keys, `status`
+     * being a plain top-level int field on the order object (confirmed by
+     * ReconcileOrderStatuses::handle(), which already reads $raw['status'] off this
+     * same GET response shape). Same GET-then-PUT-the-whole-order pattern as every
+     * other write above (see addTagsToOrder()'s own doc comment for why). Explicit
+     * request (2026-08-22): mirrors Pancake POS's own Status dropdown from inside
+     * Call Tracker's Leads tab, so a TSA never has to leave this app to move an order
+     * along (Confirm it, mark it Packing, Shipped, etc).
+     */
+    public function updateStatus(string $orderId, int $statusCode): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating status failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+            $order['status'] = $statusCode;
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateStatus PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateStatus threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
      * Creates a new order tag in Pancake's real catalog if $name doesn't
      * already exist there (case-insensitive) — e.g. a brand-new product's
      * own "UPSELL TSD - X" tag, which addTagsToOrder() alone can never add

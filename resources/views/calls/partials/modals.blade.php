@@ -114,6 +114,50 @@
     </div>
 </div>
 
+{{-- Order status panel (explicit request, 2026-08-22) — one shared floating
+     panel reused by every row's Status pill in leads/_table.blade.php, same
+     "one shared component, positioned to whichever trigger was clicked"
+     pattern as calls/partials/tsa-status-panel.blade.php and the Leads tab's
+     own TSA filter dropdown. Icon + label rows, same shape as
+     tsa-status-panel's own options, mirroring Pancake POS's own Status
+     dropdown (screenshot, 2026-08-22) — real order statuses only
+     (\App\Models\Order::STATUS_ASSIGNABLE), not the two non-status rows
+     that screenshot also showed ("Prioritize order" / "Create duplicate" —
+     see that constant's own doc comment for why). Opened via
+     openOrderStatusPill(event, leadId, currentCode) in calls.js, which also
+     positions it under the clicked pill via getBoundingClientRect() — same
+     technique as toggleStatusPanel()/the TSA filter dropdown, not a
+     centered modal, so it's clear which row is being changed. --}}
+@php
+    $orderStatusIcons = [
+        11 => '<svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2"/><circle cx="12" cy="12" r="8.25"/></svg>',
+        12 => '<svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.32 0H6.34m10.94-11.171V4.125A1.125 1.125 0 0016.155 3H7.845A1.125 1.125 0 006.72 4.125v2.704M6.72 13.829V6.829m10.56 7V6.829"/></svg>',
+        13 => '<svg class="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.32 0H6.34m10.94-11.171V4.125A1.125 1.125 0 0016.155 3H7.845A1.125 1.125 0 006.72 4.125v2.704M6.72 13.829V6.829m10.56 7V6.829"/></svg>',
+        20 => '<svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>',
+        1  => '<svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+        8  => '<svg class="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/></svg>',
+        9  => '<svg class="w-4 h-4 text-violet-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+        2  => '<svg class="w-4 h-4 text-teal-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.25h-8.85c-1.033 0-1.9.766-2.055 1.788l-.63 4.16A2.25 2.25 0 004.44 15.75H14.25m0-11.25v11.25"/></svg>',
+        6  => '<svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+        7  => '<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/></svg>',
+    ];
+@endphp
+<div id="orderStatusPanel" class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-64" data-order-status-panel>
+    <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-700">
+        <p class="text-xs font-bold text-slate-700 dark:text-slate-200 font-mono">Order status</p>
+    </div>
+    <div class="py-1 max-h-80 overflow-y-auto">
+        @foreach(\App\Models\Order::STATUS_ASSIGNABLE as $code)
+        @php $opt = \App\Models\Order::STATUS_PILL[$code]; @endphp
+        <div class="order-status-panel-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-code="{{ $code }}" data-label="{{ $opt['label'] }}">
+            <span class="shrink-0">{!! $orderStatusIcons[$code] !!}</span>
+            <p class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $opt['label'] }}</p>
+            <svg class="order-status-panel-check hidden w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        @endforeach
+    </div>
+</div>
+
 {{-- Call recording playback modal (explicit request, 2026-08-19) — lists
      every Drive recording matching this lead's phone number
      (LeadController::recordings(), matched by phone rather than a stored

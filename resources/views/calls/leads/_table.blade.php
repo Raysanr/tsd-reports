@@ -140,14 +140,41 @@
                 </td>
                 @endif
                 <td class="px-4 py-3">
-                    <span @class([
-                        'inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide',
-                        'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400' => $lead->status === 'called',
-                        'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400'   => $lead->status === 'assigned',
-                        'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'         => $lead->status === 'unassigned',
-                    ])>
-                        {{ $lead->status }}
-                    </span>
+                    {{-- Order status pill (explicit request, 2026-08-22) — mirrors
+                         Pancake POS's own Status control (screenshot: colored pill
+                         trigger + icon dropdown of real order statuses) instead of
+                         this column's old called/assigned/unassigned badge, which is
+                         still visible via the Outcome column's own shape (a logged
+                         disposition vs. an open "+ Add tag" picker) — see
+                         \App\Models\Order::STATUS_PILL/STATUS_ASSIGNABLE for the full
+                         status list and colors this reads. Opens the shared floating
+                         #orderStatusPanel (see calls/partials/modals.blade.php),
+                         positioned under whichever pill was clicked — same
+                         trigger+floating-panel shape as the Leads tab's own TSA
+                         filter dropdown / status panel (openOrderStatusPill in
+                         calls.js), not a centered modal, since a centered modal would
+                         lose the "which row am I even changing" context a screenshot-
+                         accurate anchored dropdown keeps. --}}
+                    @php $orderStatusCode = $orderStatuses[$lead->pancake_order_id] ?? null; @endphp
+                    @if($orderStatusCode !== null && (\App\Models\Order::STATUS_PILL[$orderStatusCode] ?? null))
+                        @php $pill = \App\Models\Order::STATUS_PILL[$orderStatusCode]; @endphp
+                        @if($lead->pancake_order_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
+                        <button type="button"
+                                onclick="openOrderStatusPill(event, {{ $lead->id }}, {{ $orderStatusCode }})"
+                                class="order-status-pill-trigger order-status-pill-{{ $lead->id }} inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide cursor-pointer hover:opacity-80 bg-{{ $pill['color'] }}-100 dark:bg-{{ $pill['color'] }}-900/40 text-{{ $pill['color'] }}-700 dark:text-{{ $pill['color'] }}-400">
+                            <span class="order-status-pill-label">{{ $pill['label'] }}</span>
+                            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        @else
+                        <span class="inline-flex px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide bg-{{ $pill['color'] }}-100 dark:bg-{{ $pill['color'] }}-900/40 text-{{ $pill['color'] }}-700 dark:text-{{ $pill['color'] }}-400">
+                            {{ $pill['label'] }}
+                        </span>
+                        @endif
+                    @else
+                        <span class="text-slate-300 dark:text-slate-600">—</span>
+                    @endif
                 </td>
                 @if($view === 'callbacks')
                 <td class="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">{{ $lead->callback_at?->format('M j, g:i A') }}</td>

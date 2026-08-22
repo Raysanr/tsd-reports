@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\Order;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\GoogleDriveClient;
@@ -16,6 +17,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift,
@@ -146,8 +148,19 @@ class LeadController extends Controller
 
         $leads = $query->paginate(30)->withQueryString();
 
+        // Order status pill (explicit request, 2026-08-22, mirrors Pancake POS's own
+        // Status control) — read from the locally-synced orders table, same "trust the
+        // periodic sync" convention every other bulk view in this app already follows
+        // (Leads Report, TSA Performance, etc.), rather than a live per-row Pancake
+        // fetch: this table can hold 30 rows and gets polled every 15s (calls.js'
+        // pollLeadsTable()), so a live fetch here would mean up to 30 extra Pancake API
+        // calls on every single poll tick.
+        $orderStatuses = Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id')->filter())
+            ->pluck('status_code', 'pancake_order_id');
+
         $data = [
             'leads'                 => $leads,
+            'orderStatuses'         => $orderStatuses,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
             'q'                     => $request->string('q')->toString(),
@@ -485,6 +498,55 @@ class LeadController extends Controller
         }
 
         return response()->json(['success' => true, 'message' => "Added \"{$data['name']}\" to order #{$lead->pancake_order_id}."]);
+    }
+
+    /**
+     * Changes the order's status directly from Call Tracker's Leads tab — mirrors
+     * Pancake POS's own Status dropdown (explicit request, 2026-08-22, from a
+     * screenshot of that exact control). Same GET-then-PUT-whole-order write
+     * PancakeOrderTagApi already uses for tags/notes/upsell items. $statusCode is
+     * restricted to Order::STATUS_ASSIGNABLE — the same fixed set Pancake's own
+     * dropdown showed, not every status_code Order::STATUS_LABELS knows about (see
+     * that constant's own doc comment for why the two lists differ). On a successful
+     * Pancake write, the locally-synced Order row is updated too so the Leads tab's
+     * own pill (read from that local cache, not a live fetch — see LeadController::
+     * index()) reflects the change immediately rather than waiting for the next sync.
+     */
+    public function updateStatus(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'status_code' => ['required', 'integer', Rule::in(Order::STATUS_ASSIGNABLE)],
+        ]);
+        $statusCode = $data['status_code'];
+        $label      = Order::STATUS_PILL[$statusCode]['label'] ?? (string) $statusCode;
+
+        $success = $api->updateStatus($lead->pancake_order_id, $statusCode);
+
+        if ($success) {
+            Order::where('pancake_order_id', $lead->pancake_order_id)->update(['status_code' => $statusCode]);
+        }
+
+        LeadActivity::log(
+            $lead, 'status_changed',
+            "Changed order status to \"{$label}\" by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
+            $user
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not update the order status in Pancake — try again or update it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true, 'status_code' => $statusCode, 'label' => $label]);
     }
 
     /**

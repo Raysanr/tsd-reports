@@ -388,6 +388,95 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Order status pill (explicit request, 2026-08-22) — one shared floating
+// panel (calls/partials/modals.blade.php's #orderStatusPanel) reused by
+// every row's Status pill, positioned under whichever pill triggered it —
+// same trigger+floating-panel shape as toggleStatusPanel()/the TSA filter
+// dropdown above, not a centered modal (a modal would lose the "which row
+// am I changing" context an anchored dropdown keeps). Mirrors Pancake POS's
+// own Status control.
+let activeOrderStatusLeadId = null;
+
+window.openOrderStatusPill = function (e, leadId, currentCode) {
+    e.stopPropagation();
+    const panel = document.getElementById('orderStatusPanel');
+    if (!panel) return;
+
+    // Close every other floating panel/dropdown first — only one should
+    // ever be open, same convention as toggleStatusPanel()/the TSA filter.
+    document.querySelectorAll('[data-status-panel], [data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+
+    const alreadyOpenForThisLead = !panel.classList.contains('hidden') && activeOrderStatusLeadId === leadId;
+    panel.classList.add('hidden');
+    if (alreadyOpenForThisLead) {
+        activeOrderStatusLeadId = null;
+        return;
+    }
+
+    activeOrderStatusLeadId = leadId;
+    panel.querySelectorAll('.order-status-panel-option').forEach((opt) => {
+        opt.querySelector('.order-status-panel-check')?.classList.toggle('hidden', Number(opt.dataset.code) !== Number(currentCode));
+    });
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    panel.style.top  = `${rect.bottom + 6}px`;
+    panel.style.left = `${rect.left}px`;
+    panel.classList.remove('hidden');
+};
+
+document.addEventListener('click', (e) => {
+    const option = e.target.closest('.order-status-panel-option');
+    if (option) {
+        const leadId = activeOrderStatusLeadId;
+        const code   = Number(option.dataset.code);
+        const label  = option.dataset.label;
+        document.getElementById('orderStatusPanel')?.classList.add('hidden');
+        activeOrderStatusLeadId = null;
+        if (!leadId) return;
+
+        // Optimistic — updates the pill immediately, same "act now, let the
+        // next poll reconcile whatever actually persisted" convention as
+        // transfer-select/pin-form above.
+        document.querySelectorAll(`.order-status-pill-${leadId} .order-status-pill-label`).forEach((el) => {
+            el.textContent = label;
+        });
+
+        fetch(`/calls/leads/${leadId}/status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({ status_code: code }),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then((data) => {
+                window.showToast?.(`Status updated to "${data.label}".`, 'success');
+            })
+            .catch(async (res) => {
+                let message = 'Could not update the order status — try again.';
+                if (res?.json) {
+                    try {
+                        const data = await res.json();
+                        message = data.error || message;
+                    } catch (err) { /* not JSON — keep the generic message */ }
+                }
+                window.showToast?.(message, 'error');
+            })
+            .finally(() => pollLeadsTable());
+        return;
+    }
+
+    if (!e.target.closest('[data-order-status-panel]') && !e.target.closest('.order-status-pill-trigger')) {
+        document.getElementById('orderStatusPanel')?.classList.add('hidden');
+    }
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.getElementById('orderStatusPanel')?.classList.add('hidden');
+});
+
 // Real-time-ish Leads table — re-fetches the same filtered URL every few
 // seconds and swaps in the freshly rendered table (see
 // LeadController::index()'s X-Table-Refresh branch), so a lead the scheduler

@@ -199,4 +199,33 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertFalse($success);
         Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
+
+    public function test_update_status_writes_the_new_status_code_back_without_disturbing_other_fields(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'status' => 0, 'note' => 'do not clobber me', 'tags' => [['id' => 1, 'name' => 'GEMMA']],
+            ]], 200),
+        ]);
+
+        $success = $this->api->updateStatus('9001', 1);
+
+        $this->assertTrue($success);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT'
+            && $r['status'] === 1
+            && $r['note'] === 'do not clobber me'
+            && $r['tags'][0]['name'] === 'GEMMA');
+    }
+
+    public function test_update_status_fails_gracefully_when_fetching_the_order_fails(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['message' => 'not found'], 404),
+        ]);
+
+        $success = $this->api->updateStatus('9001', 1);
+
+        $this->assertFalse($success);
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
 }

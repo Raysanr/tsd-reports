@@ -121,6 +121,45 @@ class Order extends Model
         return self::STATUS_LABELS[$this->status_code] ?? null;
     }
 
+    /** Every status_code this app knows about, rendered as a colored pill — used by
+     *  Call Tracker's Leads tab Status column (explicit request, 2026-08-22: mirror
+     *  Pancake POS's own Status control) to show whatever the order's CURRENT status
+     *  actually is, which can be any of these, not just the assignable subset below.
+     *  'color' is a Tailwind color name resolved to bg-*-100/dark:bg-*-900 text-*-700/
+     *  dark:text-*-400 classes by the view, same badge convention already used
+     *  throughout this app (e.g. leads/_table.blade.php's own called/assigned/
+     *  unassigned pills). */
+    public const STATUS_PILL = [
+        0  => ['label' => 'New',                     'color' => 'slate'],
+        17 => ['label' => 'Waiting for confirmation', 'color' => 'amber'],
+        11 => ['label' => 'Awaiting stock',           'color' => 'amber'],
+        12 => ['label' => 'Awaiting print',           'color' => 'sky'],
+        13 => ['label' => 'Printed',                  'color' => 'sky'],
+        20 => ['label' => 'Ordered',                  'color' => 'indigo'],
+        1  => ['label' => 'Confirmed',                'color' => 'blue'],
+        8  => ['label' => 'Packing',                  'color' => 'purple'],
+        9  => ['label' => 'Pending shipment',          'color' => 'violet'],
+        2  => ['label' => 'Shipped',                  'color' => 'teal'],
+        3  => ['label' => 'Received',                 'color' => 'emerald'],
+        16 => ['label' => 'Collected money',          'color' => 'emerald'],
+        4  => ['label' => 'Returning',                'color' => 'orange'],
+        15 => ['label' => 'Partial return',           'color' => 'orange'],
+        5  => ['label' => 'Returned',                 'color' => 'red'],
+        6  => ['label' => 'Canceled',                 'color' => 'red'],
+        7  => ['label' => 'Deleted recently',         'color' => 'slate'],
+    ];
+
+    /** The exact set of statuses a TSA can change an order TO from Call Tracker's Leads
+     *  tab, in the same order Pancake POS's own Status dropdown showed them (screenshot,
+     *  2026-08-22). Deliberately NOT every code STATUS_PILL knows about: Pancake's own
+     *  dropdown only offered this subset for a New order (not Received/Collected money/
+     *  Returning/Partial return/Returned), and New (0) itself is Pancake's own starting
+     *  state, never something a TSA picks TO. Two rows from that screenshot are left out
+     *  entirely — "Prioritize order" and "Create duplicate" aren't order statuses at all
+     *  (no status_code maps to either), they're separate actions on Pancake's own order
+     *  detail page. */
+    public const STATUS_ASSIGNABLE = [11, 12, 13, 20, 1, 8, 9, 2, 6, 7];
+
     /** True if any tag matches "UPSELL TSD" or "TSD UPSELL" (case-insensitive) — the
      *  tag marking a real upsell/cross-sell add-on, distinct from "Follow up -
      *  Upsell" (a disposition, not a new upsell). Single source of truth for
