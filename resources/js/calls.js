@@ -1042,6 +1042,104 @@ document.addEventListener('click', (e) => {
     if (e.target.id === 'upsellModal') window.closeUpsellModal(); // backdrop click
 });
 
+// Pancake Notes (lead detail page, explicit request 2026-08-22) — mirrors
+// Pancake POS's own order note panel (Internal / For printing — its only two
+// real note fields; "Conversation" in POS's own tabs isn't a third note
+// field, it's the message thread already reachable here via "View
+// Conversation"). Both read AND write go straight to the live order in
+// Pancake (LeadController::notes()/updateNotes() -> PancakeOrderTagApi), not
+// through this app's own `orders` table — the same "always reflect Pancake's
+// real current state" contract Add Upsell's product search already follows.
+const pancakeNotesPanel = document.getElementById('pancakeNotesPanel');
+
+function pancakeNotesLeadId() {
+    return pancakeNotesPanel?.dataset.leadId;
+}
+
+// Skips a field currently focused — a TSA mid-edit shouldn't have their own
+// unsaved typing overwritten by a poll response that raced it.
+function applyPancakeNotes(data) {
+    if (!pancakeNotesPanel || !data) return;
+    pancakeNotesPanel.querySelectorAll('[data-notes-field]').forEach((el) => {
+        if (document.activeElement === el) return;
+        const key = el.dataset.notesField;
+        if (key in data) el.value = data[key] ?? '';
+    });
+}
+
+function loadPancakeNotes() {
+    const leadId = pancakeNotesLeadId();
+    if (!leadId) return;
+
+    fetch(`/calls/leads/${leadId}/notes`, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : null))
+        .then(applyPancakeNotes)
+        .catch(() => {});
+}
+
+window.savePancakeNotes = async function (btn) {
+    const leadId = pancakeNotesLeadId();
+    if (!leadId || !pancakeNotesPanel) return;
+
+    const statusEl = document.getElementById('pancakeNotesStatus');
+    const note      = pancakeNotesPanel.querySelector('[data-notes-field="note"]')?.value ?? '';
+    const notePrint = pancakeNotesPanel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
+
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Saving…';
+    if (statusEl) statusEl.textContent = '';
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/notes`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({ note, note_print: notePrint }),
+        });
+        const data = await res.json();
+
+        if (statusEl) {
+            statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
+            statusEl.className = `text-[11px] font-mono ${data.success ? 'text-emerald-500' : 'text-red-500'}`;
+        }
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = 'Could not reach the server — try again.';
+            statusEl.className = 'text-[11px] font-mono text-red-500';
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+    }
+};
+
+if (pancakeNotesPanel) {
+    loadPancakeNotes();
+    setInterval(loadPancakeNotes, 8000);
+
+    pancakeNotesPanel.querySelectorAll('.notes-tab').forEach((tabBtn) => {
+        tabBtn.addEventListener('click', () => {
+            const which = tabBtn.dataset.notesTab;
+
+            pancakeNotesPanel.querySelectorAll('.notes-tab').forEach((t) => {
+                const active = t === tabBtn;
+                t.classList.toggle('text-primary', active);
+                t.classList.toggle('border-primary', active);
+                t.classList.toggle('text-slate-400', !active);
+                t.classList.toggle('border-transparent', !active);
+            });
+
+            pancakeNotesPanel.querySelectorAll('[data-notes-block]').forEach((block) => {
+                block.classList.toggle('hidden', which !== 'all' && block.dataset.notesBlock !== which);
+            });
+        });
+    });
+}
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();
 });

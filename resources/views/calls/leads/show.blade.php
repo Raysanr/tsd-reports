@@ -75,6 +75,47 @@
             </dl>
         </div>
 
+        {{-- Pancake Notes (explicit request, 2026-08-22) — Pancake POS's own
+             order notes (Internal / For printing, its only two real note
+             fields — "Conversation" in POS's own note panel isn't a third
+             note field, it's the message thread already available here via
+             "View Conversation" above), readable AND writable from Call
+             Tracker so a TSA never has to leave this page to check or add
+             one. Polled live (calls.js pollPancakeNotes()) so an edit made
+             directly in POS shows up here without a reload — distinct from
+             this lead's own local "Notes (optional)" field in Log outcome
+             below, which is a TSD Reports-only disposition note, never
+             written to Pancake at all. --}}
+        @if($lead->pancake_order_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
+        <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6" id="pancakeNotesPanel" data-lead-id="{{ $lead->id }}">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Pancake Notes</h2>
+                <span id="pancakeNotesStatus" class="text-[11px] font-mono text-slate-400"></span>
+            </div>
+            <div class="flex gap-1 mb-3 border-b border-slate-100 dark:border-slate-700">
+                <button type="button" data-notes-tab="all" class="notes-tab px-3 py-1.5 text-xs font-mono font-semibold text-primary border-b-2 border-primary cursor-pointer">All</button>
+                <button type="button" data-notes-tab="note" class="notes-tab px-3 py-1.5 text-xs font-mono font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">Internal</button>
+                <button type="button" data-notes-tab="note_print" class="notes-tab px-3 py-1.5 text-xs font-mono font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">For printing</button>
+            </div>
+            <div class="space-y-4">
+                <div data-notes-block="note">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Internal</p>
+                    <textarea data-notes-field="note" rows="3" placeholder="Staff-only note…"
+                              class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"></textarea>
+                </div>
+                <div data-notes-block="note_print">
+                    <p class="text-[11px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">For printing</p>
+                    <textarea data-notes-field="note_print" rows="3" placeholder="Printed on order documents…"
+                              class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"></textarea>
+                </div>
+            </div>
+            <button type="button" onclick="savePancakeNotes(this)"
+                    class="mt-3 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer">
+                Save
+            </button>
+        </div>
+        @endif
+
         @if($lead->status !== 'called' && $lead->tsa_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
         <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
             <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-4">Log outcome</h2>

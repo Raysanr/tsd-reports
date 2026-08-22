@@ -138,6 +138,107 @@ class PancakeOrderTagApi
     }
 
     /**
+     * Live read of an order's two real Pancake note fields — confirmed
+     * against the real OpenAPI spec: `note` ("Internal note" / "Ghi chú nội
+     * bộ") and `note_print` ("Note for printing" / "Ghi chú đơn hàng"),
+     * both plain strings directly on the Order object, not their own
+     * sub-resource (Pancake has no dedicated /notes endpoint — reading or
+     * writing either one always goes through the order itself). Explicit
+     * request (2026-08-22): shown/edited from the lead detail page so a TSA
+     * never has to leave Call Tracker to check or add a POS note. Fetched
+     * live on every call (not cached, not synced into the local `orders`
+     * table) so it can never show a stale value if someone edited it
+     * directly in Pancake POS a moment ago — the same reasoning
+     * PancakeProductApi::search() already follows for the exact same
+     * "must reflect Pancake's real current state" requirement.
+     */
+    public function getNotes(string $orderId): array
+    {
+        $empty = ['note' => null, 'note_print' => null];
+
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return $empty;
+        }
+
+        try {
+            $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$response->successful()) {
+                return $empty;
+            }
+
+            $order = $response->json('data') ?? $response->json();
+
+            return [
+                'note'       => $order['note'] ?? null,
+                'note_print' => $order['note_print'] ?? null,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: getNotes threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return $empty;
+        }
+    }
+
+    /**
+     * Writes one or both note fields back to the real order — same
+     * GET-the-whole-order-then-PUT-it-back pattern as addTagsToOrder()/
+     * addUpsellItem() above (see addTagsToOrder()'s own doc comment for
+     * why: echoing back every field GET just returned, not a bare
+     * {note: "..."} guess, is what keeps this from silently wiping out
+     * unrelated order data on an endpoint with no documented partial-update
+     * behavior). $note/$notePrint: null means "leave this field alone",
+     * not "clear it" — pass an empty string explicitly to actually blank
+     * one out.
+     */
+    public function updateNotes(string $orderId, ?string $note, ?string $notePrint): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating notes failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            if ($note !== null) {
+                $order['note'] = $note;
+            }
+            if ($notePrint !== null) {
+                $order['note_print'] = $notePrint;
+            }
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateNotes PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateNotes threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
      * Creates a new order tag in Pancake's real catalog if $name doesn't
      * already exist there (case-insensitive) — e.g. a brand-new product's
      * own "UPSELL TSD - X" tag, which addTagsToOrder() alone can never add

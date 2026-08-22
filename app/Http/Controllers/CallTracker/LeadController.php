@@ -488,6 +488,73 @@ class LeadController extends Controller
     }
 
     /**
+     * Live read of the lead's real Pancake order notes (PancakeOrderTagApi::
+     * getNotes() — see its own doc comment: `note`/`note_print`, the only
+     * two note fields Pancake's API actually has). Explicit request
+     * (2026-08-22): polled by the lead detail page (calls.js) so an edit
+     * made directly in Pancake POS shows up here without a reload, the same
+     * "must reflect Pancake's real current state" contract the Add Upsell
+     * search already follows.
+     */
+    public function notes(Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'note' => null, 'note_print' => null]);
+        }
+
+        return response()->json(['success' => true] + $api->getNotes($lead->pancake_order_id));
+    }
+
+    /**
+     * Writes one or both Pancake note fields back to the real order — see
+     * PancakeOrderTagApi::updateNotes()'s own doc comment for the GET-then-
+     * PUT mechanics. No local LeadActivity entry (unlike addUpsell()/
+     * updateDisposition() above): a note edit isn't a TSD Reports-tracked
+     * event, it's a direct edit of Pancake's own order record — the
+     * activity feed here is about this app's own actions, not everything
+     * that ever touches the order.
+     */
+    public function updateNotes(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'note'       => ['nullable', 'string', 'max:5000'],
+            'note_print' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        if (!array_key_exists('note', $data) && !array_key_exists('note_print', $data)) {
+            return response()->json(['success' => false, 'error' => 'Nothing to save.'], 422);
+        }
+
+        $success = $api->updateNotes(
+            $lead->pancake_order_id,
+            array_key_exists('note', $data) ? ($data['note'] ?? '') : null,
+            array_key_exists('note_print', $data) ? ($data['note_print'] ?? '') : null,
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not save this note in Pancake — try again or edit it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
      * Explicit request: clicking a customer's phone number in My Leads/the
      * lead detail page should show up on TSA Logs, not just status changes.
      * Fire-and-forget from calls.js's existing tel: click handler — this
