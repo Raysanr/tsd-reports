@@ -334,8 +334,16 @@ class SyncTodayOrders extends Command
             // gating only $hasUpsellTag here would leave this order still counted
             // as an upsell everywhere except the Dashboard card/Leaderboard.
             $isExcludedUpsellSeller = $this->isExcludedUpsellSeller($raw);
+            $isDuplicatedByLogistics = Order::isDuplicatedByLogistics($raw);
 
-            $hasUpsellTag = !$isExcludedUpsellSeller
+            // is_duplicated_by_logistics gates this too (2026-08-22, explicit
+            // follow-up request) — a warehouse duplicate of an already-real order
+            // is never a genuine upsell either, same reasoning as
+            // isExcludedUpsellSeller above. This is what makes scopeRealUpsell()
+            // (Dashboard's topProducts/tsaLeaderboard, which query is_upsell
+            // directly rather than going through ProductPerformance::tally()'s
+            // own separate exclusion check) correctly exclude these too.
+            $hasUpsellTag = !$isExcludedUpsellSeller && !$isDuplicatedByLogistics
                 && (Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
                     || Order::hasSeparateParcelTag($tagNames));
 
@@ -511,6 +519,7 @@ class SyncTodayOrders extends Command
                 'is_restocking_upsell'    => $isRestockingUpsell,
                 'restocking_upsell_amount' => $restockingUpsellAmount,
                 'excluded_upsell_seller'  => $isExcludedUpsellSeller,
+                'is_duplicated_by_logistics' => $isDuplicatedByLogistics,
                 'is_upsell_on_voided_order' => $isUpsellOnVoidedOrder,
                 'status_code'             => $statusCode,
                 'pancake_created_at'      => $workedAt?->toDateTimeString(),
@@ -584,6 +593,7 @@ class SyncTodayOrders extends Command
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'is_restocking_upsell', 'restocking_upsell_amount', 'excluded_upsell_seller',
+                    'is_duplicated_by_logistics',
                     'is_upsell_on_voided_order',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',
                     'pancake_updated_at', 'synced_at',

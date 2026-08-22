@@ -86,6 +86,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
         Route::post('/sync-health/reconcile-statuses', [SyncHealthController::class, 'reconcileStatuses'])->name('sync-health.reconcile-statuses');
+        Route::post('/sync-health/backfill-duplicated-logistics', [SyncHealthController::class, 'backfillDuplicatedLogistics'])->name('sync-health.backfill-duplicated-logistics');
 
         Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 

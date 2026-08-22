@@ -752,10 +752,15 @@ class TsaPerformanceController extends Controller
         // the shared tally() — Leads Report's own hourly table was already
         // correct the whole time since it flows through tally() directly;
         // only this hand-rolled path was missing it). excluded_upsell_seller
-        // rejected the same way (2026-08-21) — see ProductPerformance::tally()'s
-        // own comment.
+        // and is_duplicated_by_logistics (2026-08-22, explicit follow-up
+        // request — TSA Performance was still counting warehouse-duplicated
+        // orders as real leads even after Leads Report's own tally()-based
+        // views were fixed, exactly the hand-copied-path drift this comment
+        // already warned about) rejected the same way — see
+        // ProductPerformance::tally()'s own comment.
         $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
-            || $o->excluded_upsell_seller);
+            || $o->excluded_upsell_seller
+            || $o->is_duplicated_by_logistics);
 
         // Same "real upsell" definition and non-upsell exclusivity guard as
         // ProductPerformance::tally() — now the SAME shared method

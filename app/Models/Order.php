@@ -31,6 +31,7 @@ class Order extends Model
         'is_restocking_upsell',
         'restocking_upsell_amount',
         'excluded_upsell_seller',
+        'is_duplicated_by_logistics',
         'is_upsell_on_voided_order',
         'status_code',
         'pancake_created_at',
@@ -47,6 +48,7 @@ class Order extends Model
         'is_returned_upsell'      => 'boolean',
         'is_restocking_upsell'    => 'boolean',
         'excluded_upsell_seller'  => 'boolean',
+        'is_duplicated_by_logistics' => 'boolean',
         'is_upsell_on_voided_order' => 'boolean',
         'amount'                  => 'decimal:2',
         'cancelled_upsell_amount' => 'decimal:2',
@@ -171,6 +173,26 @@ class Order extends Model
      *  AudiCure order sitting in Restocking, tagged "Upsell TSD (Ear Relief Balm)",
      *  counted as neither a real disposition nor an upsell — invisible as Catered
      *  work that clearly happened). */
+    /**
+     * True when a warehouse/logistics duplicate created a second order for
+     * the same real lead — confirmed live (2026-08-22): Pancake staff flag
+     * these by writing "DUPLICATED BY LOGISTICS" into the order's note_print
+     * ("For printing") field (215 such orders found in the shop's recent
+     * history, all counted as real leads despite being a duplicate of an
+     * already-counted order). Checks note too, not just note_print — same
+     * phrase confirmed to sometimes land in whichever free-text field a
+     * staff member happened to type into, and checking both costs nothing.
+     * Single source of truth for both SyncTodayOrders (sync-time) and
+     * BackfillDuplicatedByLogistics (a one-off reconcile pass over orders
+     * already synced before this check existed) — same "one shared check,
+     * not hand-copied" reasoning as hasUpsellTag() above.
+     */
+    public static function isDuplicatedByLogistics(array $raw): bool
+    {
+        $text = strtoupper(($raw['note'] ?? '') . ' ' . ($raw['note_print'] ?? ''));
+        return str_contains($text, 'DUPLICATED BY LOGISTIC');
+    }
+
     public static function hasUpsellTag(array $tagNames): bool
     {
         foreach ($tagNames as $tag) {

@@ -248,4 +248,58 @@ class SyncHealthTest extends TestCase
         $response->assertRedirect(route('sync-health'));
         $response->assertSessionHas('error');
     }
+
+    public function test_backfill_duplicated_logistics_flags_and_reports_the_count(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        Order::factory()->create(['pancake_order_id' => '1354614', 'is_duplicated_by_logistics' => false, 'pancake_inserted_at' => now()]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/1354614*' => Http::response(['data' => [
+                'id' => 1354614, 'note' => '', 'note_print' => 'DUPLICATED BY LOGISTICS',
+            ]], 200),
+        ]);
+
+        $response = $this->post(route('sync-health.backfill-duplicated-logistics'), ['days' => 1]);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('success');
+        $this->assertStringContainsString('corrected 1 newly-found duplicate', session('success'));
+        $this->assertTrue(Order::where('pancake_order_id', '1354614')->first()->is_duplicated_by_logistics);
+    }
+
+    /** MAX_BACKFILL_DAYS caps this tighter than reconcile-statuses' own
+     *  window (see that constant's own doc comment) — a wide range must be
+     *  silently clamped, same "cap, don't refuse" UX as reconcile-statuses. */
+    public function test_backfill_duplicated_logistics_caps_a_wide_range(): void
+    {
+        $this->actingAs(User::factory()->create());
+        Setting::set('pancake_api_key', 'a-working-key');
+        Setting::set('shop_id', '30037101');
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => ['id' => 1, 'note' => '', 'note_print' => '']], 200),
+        ]);
+
+        $response = $this->post(route('sync-health.backfill-duplicated-logistics'), [
+            'date_from' => '2026-01-01', 'date_to' => '2026-01-20',
+        ]);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('success');
+        $this->assertStringContainsString('limited to the most recent 2 of 20 selected days', session('success'));
+    }
+
+    public function test_backfill_duplicated_logistics_reports_failure_without_credentials(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->post(route('sync-health.backfill-duplicated-logistics'), ['days' => 1]);
+
+        $response->assertRedirect(route('sync-health'));
+        $response->assertSessionHas('error');
+    }
 }

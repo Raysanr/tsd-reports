@@ -222,8 +222,16 @@ class ProductPerformance
         // excluded_upsell_sellers.php) doesn't count as a lead at all here, not just
         // as a non-upsell — same "doesn't belong in this report's numbers" treatment
         // as a Cancelled/Deleted order gets above.
+        //
+        // is_duplicated_by_logistics (2026-08-22, explicit follow-up request):
+        // confirmed live — a warehouse/logistics duplicate of an already-real order
+        // (Pancake staff flag these via a "DUPLICATED BY LOGISTICS" note, see
+        // SyncTodayOrders::isDuplicatedByLogistics()) is a second order record for
+        // the SAME lead, not a second real lead — 215 such orders were inflating
+        // Leads Report/TSA Performance before this exclusion.
         $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
-            || $o->excluded_upsell_seller);
+            || $o->excluded_upsell_seller
+            || $o->is_duplicated_by_logistics);
 
         // The 12 outcome columns count NON-upsell leads only: an upsell order often
         // still carries a disposition tag (e.g. is_upsell + "CONFIRMED VIA CALL", or
@@ -393,10 +401,11 @@ class ProductPerformance
      *  version that could drift out of sync with it. */
     public static function ordersForColumn(Collection $orders, string $column): Collection
     {
-        // Same exclusions as tally() above, including excluded_upsell_seller — see
-        // that method's own comment for why.
+        // Same exclusions as tally() above, including excluded_upsell_seller and
+        // is_duplicated_by_logistics — see that method's own comment for why.
         $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
-            || $o->excluded_upsell_seller);
+            || $o->excluded_upsell_seller
+            || $o->is_duplicated_by_logistics);
 
         $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);

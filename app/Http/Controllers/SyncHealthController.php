@@ -41,6 +41,19 @@ class SyncHealthController extends Controller
      *  date_to" reasoning as the re-match cap. */
     private const MAX_RECONCILE_DAYS = 9;
 
+    /** Same single-process/no-concurrency constraint as MAX_RECONCILE_DAYS above
+     *  (see that constant's own doc comment — a slow request here freezes the
+     *  WHOLE app for every user until it finishes), capped tighter: unlike
+     *  reconcile-statuses' passes, which only ever live-check a narrow, cheaply
+     *  pre-filtered candidate set, pancake:backfill-duplicated-logistics has no
+     *  local signal to pre-filter on at all (nothing local distinguishes a
+     *  warehouse-duplicated order from a real one) — it has to live-check EVERY
+     *  order in the window. Confirmed live (2026-08-22): a single day alone
+     *  turned up 215 matching orders shop-wide, so even a 2-3 day window here
+     *  is already a meaningfully larger live-check batch than reconcile-
+     *  statuses' own 9-day default. */
+    private const MAX_BACKFILL_DAYS = 2;
+
     public function index(Request $request)
     {
         $health = SyncHealth::status();
@@ -217,6 +230,60 @@ class SyncHealthController extends Controller
         // regardless, matching Artisan::call() above having no cancellation
         // hook of its own. The redirect() fallback below still runs this
         // same logic for a plain (non-JS) form submit.
+        if ($request->expectsJson()) {
+            return response()->json(['success' => !$failed, 'message' => $message]);
+        }
+
+        return redirect()->route('sync-health')
+            ->with($failed ? 'error' : 'success', $message);
+    }
+
+    /**
+     * Manual trigger for pancake:backfill-duplicated-logistics (explicit
+     * request, 2026-08-22) — one-off backfill for orders synced before
+     * Order::isDuplicatedByLogistics() existed. Same date-range-picker +
+     * synchronous Artisan::call() shape as reconcileStatuses() above, capped
+     * to MAX_BACKFILL_DAYS instead of MAX_RECONCILE_DAYS (see that constant's
+     * own doc comment for why this needs a tighter cap: no cheap local
+     * pre-filter narrows the candidate set the way reconcile-statuses' own
+     * passes do, so even a couple of days here is already a large live-check
+     * batch on this single-process, no-concurrency server).
+     */
+    public function backfillDuplicatedLogistics(Request $request)
+    {
+        $data = $request->validate([
+            'days'      => 'nullable|integer|min:1|max:365',
+            'date_from' => 'nullable|date',
+            'date_to'   => 'nullable|date|after_or_equal:date_from',
+        ]);
+
+        $capped = null;
+        if (!empty($data['date_from'])) {
+            $to   = $data['date_to'] ?? now('Asia/Manila')->toDateString();
+            $span = Carbon::parse($data['date_from'])->diffInDays(Carbon::parse($to)) + 1;
+            if ($span > self::MAX_BACKFILL_DAYS) {
+                $data['date_from'] = Carbon::parse($to)->subDays(self::MAX_BACKFILL_DAYS - 1)->toDateString();
+                $capped = "limited to the most recent " . self::MAX_BACKFILL_DAYS . " of {$span} selected days";
+            }
+        }
+
+        $options = !empty($data['date_from'])
+            ? ['--from' => $data['date_from'], '--to' => $data['date_to'] ?? now('Asia/Manila')->toDateString()]
+            : ['--days' => min($data['days'] ?? self::MAX_BACKFILL_DAYS, self::MAX_BACKFILL_DAYS)];
+
+        $exitCode = \Artisan::call('pancake:backfill-duplicated-logistics', $options);
+
+        $failed    = $exitCode !== 0;
+        $checked   = (int) Setting::get('duplicated_logistics_backfill_last_checked', 0);
+        $corrected = (int) Setting::get('duplicated_logistics_backfill_last_corrected', 0);
+
+        $message = $failed
+            ? 'Backfill failed — check the Pancake API key/shop ID.'
+            : "Checked {$checked} order(s) not yet flagged; corrected {$corrected} newly-found duplicate(s)."
+                . ($capped ? " ({$capped})" : '');
+
+        ActivityLogger::log('sync-health.backfill-duplicated-logistics', null, $message);
+
         if ($request->expectsJson()) {
             return response()->json(['success' => !$failed, 'message' => $message]);
         }
