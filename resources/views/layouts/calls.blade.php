@@ -137,6 +137,64 @@
         font-weight: 700;
         text-transform: uppercase;
     }
+
+    /* ─── Dark mode ───────────────────────────────────────────────────────────
+       Bug fix (explicit request, 2026-08-22 — reported as "the light numbers
+       aren't clickable"): this block was present in layouts/app.blade.php's
+       own copy of this same calendar CSS but was missing here entirely, so
+       every genuinely-enabled day in dark mode fell back to the LIGHT-mode
+       text color above (#334155, a dark slate meant for a white background)
+       — nearly unreadable against this dark navy surface, and easy to
+       mistake for a disabled/unclickable date. It was never actually
+       disabled (cursor: pointer, no .flatpickr-disabled class the whole
+       time) — just wrong-contrast text. Same rules as app.blade.php's own
+       dark-mode block, copied verbatim so the two calendars can't drift
+       apart again. */
+    .dark .flatpickr-day { color: #e2e8f0 !important; }
+    .dark .flatpickr-day:hover {
+        background: rgba(202,138,4,0.18) !important;
+        color: #fde047 !important;
+    }
+
+    .dark .flatpickr-day.flatpickr-disabled,
+    .dark .flatpickr-day.flatpickr-disabled:hover {
+        color: #475569 !important;
+        background: transparent !important;
+    }
+    .dark .flatpickr-day.prevMonthDay,
+    .dark .flatpickr-day.nextMonthDay {
+        color: #475569 !important;
+    }
+
+    .dark .flatpickr-day.today {
+        border-color: #ca8a04 !important;
+        color: #fde047 !important;
+    }
+    .dark .flatpickr-day.today:hover { background: rgba(202,138,4,0.18) !important; }
+
+    .dark .flatpickr-day.inRange {
+        background: rgba(202,138,4,0.22) !important;
+        box-shadow: -5px 0 0 rgba(202,138,4,0.22), 5px 0 0 rgba(202,138,4,0.22) !important;
+        color: #fde047 !important;
+    }
+    .dark .flatpickr-day.startRange,
+    .dark .flatpickr-day.endRange,
+    .dark .flatpickr-day.selected {
+        background: linear-gradient(135deg, #ca8a04, #a16207) !important;
+        border-color: #eab308 !important;
+        color: #fff !important;
+    }
+
+    .dark .flatpickr-months .flatpickr-month { color: #e2e8f0 !important; }
+    .dark .flatpickr-current-month .cur-month { color: #e2e8f0 !important; }
+    .dark .flatpickr-months .flatpickr-prev-month:hover,
+    .dark .flatpickr-months .flatpickr-next-month:hover { background: rgba(202,138,4,0.18) !important; }
+    .dark .flatpickr-months .flatpickr-prev-month svg,
+    .dark .flatpickr-months .flatpickr-next-month svg { fill: #94a3b8 !important; }
+
+    .dark .flatpickr-weekday {
+        color: #64748b !important;
+    }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
