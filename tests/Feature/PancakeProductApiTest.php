@@ -50,6 +50,40 @@ class PancakeProductApiTest extends TestCase
         Http::assertSent(fn ($r) => str_contains($r->url(), 'search=sinuxyl') && str_contains($r->url(), 'api_key=fake-api-key'));
     }
 
+    /** image (explicit request, 2026-08-22): checked defensively across
+     *  several plausible field shapes since this endpoint's own schema isn't
+     *  in the public docs — this covers the `images: [{url}]` shape. */
+    public function test_search_extracts_an_image_url_when_present(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/products/variations*' => Http::response(['success' => true, 'data' => [
+                [
+                    'id' => 'var-1', 'product_id' => 'prod-1', 'display_id' => '3 Sinuxyl',
+                    'retail_price' => 999, 'images' => [['url' => 'https://cdn.example.com/sinuxyl.jpg']],
+                ],
+            ]], 200),
+        ]);
+
+        $results = $this->api->search('sinuxyl');
+
+        $this->assertSame('https://cdn.example.com/sinuxyl.jpg', $results[0]['image']);
+    }
+
+    /** No image field in the raw payload at all — null, not an error, same
+     *  "feature unavailable" convention as every other empty-result case. */
+    public function test_search_leaves_image_null_when_the_api_has_none(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/products/variations*' => Http::response(['success' => true, 'data' => [
+                ['id' => 'var-1', 'product_id' => 'prod-1', 'display_id' => '3 Sinuxyl', 'retail_price' => 999],
+            ]], 200),
+        ]);
+
+        $results = $this->api->search('sinuxyl');
+
+        $this->assertNull($results[0]['image']);
+    }
+
     public function test_search_returns_empty_for_a_blank_query_without_calling_the_api(): void
     {
         Http::fake();

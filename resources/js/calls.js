@@ -920,9 +920,22 @@ function renderUpsellModalResults(products) {
         return;
     }
 
+    // Explicit request (2026-08-22): a TSA picking an upsell here used to see
+    // only a truncated name + price — POS itself shows a thumbnail and the
+    // FULL bundle/quantity name (e.g. "3 Haplunas Balm + 1 Clear Sight"),
+    // which matters here specifically because that combo text is exactly
+    // what distinguishes two otherwise-identical-looking rows. Image is
+    // shown only when PancakeProductApi actually returned one (unconfirmed
+    // whether this endpoint always carries one) — a plain placeholder icon
+    // otherwise, never a broken-image glyph.
     results.innerHTML = products.map((p, i) => `
-        <div class="upsell-modal-result-row flex items-center justify-between gap-2 px-4 py-2.5 text-sm font-mono cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 border-b border-slate-50 dark:border-slate-800 text-slate-700 dark:text-slate-200" data-index="${i}">
-            <span class="flex-1 truncate">${escapeHtml(p.name)}</span>
+        <div class="upsell-modal-result-row flex items-center gap-3 px-4 py-2.5 text-sm font-mono cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 border-b border-slate-50 dark:border-slate-800 text-slate-700 dark:text-slate-200" data-index="${i}">
+            ${p.image
+                ? `<img src="${escapeHtml(p.image)}" alt="" class="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'w-10 h-10 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800'}))">`
+                : `<div class="w-10 h-10 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
+                       <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 3h18M3 21h18M4.5 3v18m15-18v18M9 3v18m6-18v18"/></svg>
+                   </div>`}
+            <span class="flex-1 min-w-0 leading-snug line-clamp-2">${escapeHtml(p.name)}</span>
             <span class="text-primary-dark dark:text-yellow-300 font-semibold shrink-0">₱${Number(p.retail_price).toLocaleString()}</span>
         </div>`).join('');
 
