@@ -118,7 +118,8 @@
         background: #fff;
         border-radius: 16px;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 14px 28px -18px rgba(133,77,14,0.16);
-        overflow: hidden;
+        max-height: calc(100vh - 320px);
+        overflow-y: auto;
     }
     .row {
         padding: 16px 22px;
