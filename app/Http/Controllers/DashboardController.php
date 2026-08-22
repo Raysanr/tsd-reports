@@ -381,10 +381,23 @@ class DashboardController extends Controller
             // yet — that's the whole point of this chart (when leads actually
             // arrive) — this only excludes rows tally() itself would never count
             // as a real lead anywhere else in this app. No shift-cutoff zeroing
-            // either (unlike Hourly Activity below): an overnight arrival is real
+            // either (unlike Hourly Activity above): an overnight arrival is real
             // data worth seeing, not a "nobody's working yet" artifact to hide.
+            //
+            // Bug fix (2026-08-22): this originally reused $ordersByHour, which is
+            // keyed by pancake_created_at — despite the name, that column actually
+            // holds the "worked at" timestamp (see Order::getEffectiveCreatedAtAttribute()'s
+            // doc comment / SyncTodayOrders::resolveWorkedAt()), the moment a TSA's
+            // tag was added, not when the lead arrived. An overnight lead nobody
+            // touches until the first shift starts got its whole hour's backlog
+            // dumped into the shift-start bucket instead — confirmed in production
+            // (2026-08-22): Leads Report showed real leads 12am–9am while this chart
+            // showed nothing before a single huge 10am spike. Leads Report's own
+            // hourly breakdown avoids this by keying off effective_created_at
+            // (pancake_inserted_at, the real arrival time) instead — same fix here.
+            $leadsByHour = $dayOrders->groupBy(fn($o) => (int) $o->effective_created_at->format('G'));
             $hourlyLeads = collect(range(0, 23))
-                ->map(fn($h) => ProductPerformance::tally($ordersByHour->get($h, collect()))['total']);
+                ->map(fn($h) => ProductPerformance::tally($leadsByHour->get($h, collect()))['total']);
 
             // Shift-start cutoff — same reasoning as Leads Report's hourly breakdown
             // (LeadsReportController::buildHourlyRows): confirmed in production, an

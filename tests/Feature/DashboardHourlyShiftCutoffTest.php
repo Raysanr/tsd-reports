@@ -130,4 +130,37 @@ class DashboardHourlyShiftCutoffTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[10] === 0);
     }
+
+    /**
+     * Bug fix (2026-08-22): confirmed in production — Leads Report showed real
+     * leads spread across 12am-9am while Dashboard's Hourly Leads chart showed
+     * nothing before a single huge shift-start spike. Root cause: hourlyLeads
+     * was keying off pancake_created_at (the "worked at" timestamp — see
+     * Order::getEffectiveCreatedAtAttribute()'s doc comment) instead of the
+     * real arrival time. A lead that arrives at 3am but isn't worked (tagged)
+     * until Gemma's 8am shift start must show at hour 3, not hour 8 — same
+     * effective_created_at Leads Report's own hourly breakdown already uses.
+     */
+    public function test_hourly_leads_uses_the_real_arrival_time_not_the_worked_at_time(): void
+    {
+        Order::create([
+            'pancake_order_id'    => 'arrival-vs-worked-1',
+            'team'                => 'SH Naturals',
+            'tsa_name'            => 'Gemma',
+            'product'             => 'SINUXYL',
+            'disposition'         => null,
+            'raw_tags'            => ['GEMMA', 'UPSELL TSD (SINUXYL)'],
+            'is_upsell'           => true,
+            'status_code'         => 1,
+            // Arrived at 3am, but not worked (tagged) until 8am — Gemma's shift start.
+            'pancake_inserted_at' => '2026-07-22 03:10:00',
+            'pancake_created_at'  => '2026-07-22 08:05:00',
+            'synced_at'           => now(),
+        ]);
+
+        $response = $this->get(route('dashboard', ['date_from' => '2026-07-22', 'date_to' => '2026-07-22']));
+
+        $response->assertOk();
+        $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[3] === 1 && $leads[8] === 0);
+    }
 }
