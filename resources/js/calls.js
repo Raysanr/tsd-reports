@@ -1220,6 +1220,24 @@ document.addEventListener('click', (e) => {
             method: 'POST',
             headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
         }).catch(() => {});
+
+        // Explicit request (2026-08-22): the dialed checkmark must appear the
+        // instant a TSA clicks to call, not wait for the Leads table's own
+        // 15s poll (pollLeadsTable() below) to catch up — inserted here
+        // optimistically rather than waiting on the fire-and-forget request
+        // above, since nothing about showing "you just clicked this" depends
+        // on the server round-trip actually succeeding first. Same markup
+        // leads/_table.blade.php renders server-side for dialed_at, so the
+        // next real poll swaps in an identical-looking node, just with the
+        // real timestamp in its title instead of "just now".
+        if (!link.parentElement.querySelector('.dialed-indicator')) {
+            link.insertAdjacentHTML('afterend', `
+                <span class="dialed-indicator inline-flex items-center justify-center w-5 h-5 rounded-full text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 shrink-0" title="Called just now">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                    </svg>
+                </span>`);
+        }
     }
 
     // Auto-dial (dial-host set on this lead's TSA, Call Rotation → Dialer

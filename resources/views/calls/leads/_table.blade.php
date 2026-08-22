@@ -84,8 +84,8 @@
                              logCallClick()), so this shows up the moment a
                              TSA dials, no outcome required yet. --}}
                         @if($lead->dialed_at)
-                        <span title="Called {{ $lead->dialed_at->diffForHumans() }}"
-                              class="inline-flex items-center justify-center w-5 h-5 rounded-full text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 shrink-0">
+                        <span class="dialed-indicator inline-flex items-center justify-center w-5 h-5 rounded-full text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 shrink-0"
+                              title="Called {{ $lead->dialed_at->diffForHumans() }}">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
                             </svg>
