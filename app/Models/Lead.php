@@ -14,12 +14,14 @@ class Lead extends Model
         'pancake_page_id', 'pancake_conversation_id',
         'product_id', 'tsa_id', 'assigned_at',
         'status', 'disposition', 'callback_at', 'notes', 'called_at', 'called_by_user_id',
+        'dialed_at',
         'pancake_created_at', 'synced_at', 'pinned_at',
     ];
 
     protected $casts = [
         'assigned_at'        => 'datetime',
         'called_at'          => 'datetime',
+        'dialed_at'          => 'datetime',
         'callback_at'        => 'datetime',
         'pancake_created_at' => 'datetime',
         'synced_at'          => 'datetime',

@@ -531,6 +531,15 @@ class LeadController extends Controller
                 $user
             );
             $lead->tsa?->applyStatusChange(TsaShift::STATUS_CALLING);
+
+            // dialed_at (explicit request, 2026-08-22): a lighter, separate
+            // signal from called_at — this fires on every click, well before
+            // any disposition/outcome exists, so the Leads table can show
+            // "this customer was dialed" without waiting for the call to be
+            // wrapped up. A redial just moves it forward, same as any other
+            // "most recent activity" timestamp on this model (assigned_at,
+            // callback_at).
+            $lead->update(['dialed_at' => now()]);
         }
 
         return response()->json(['success' => true]);

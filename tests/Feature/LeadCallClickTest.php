@@ -82,4 +82,68 @@ class LeadCallClickTest extends TestCase
         $response->assertOk();
         $this->assertSame(0, LeadActivity::where('lead_id', $lead->id)->count());
     }
+
+    /**
+     * Explicit request (2026-08-22): the Leads table had no visible way to
+     * tell whether a TSA had actually dialed a customer yet, only whether an
+     * outcome had been logged (called_at, set once a disposition is chosen —
+     * a much later step). dialed_at is a separate, lighter-weight signal set
+     * on this exact same click, before any disposition exists.
+     */
+    public function test_clicking_to_call_stamps_the_leads_own_dialed_at(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->assertNull($lead->fresh()->dialed_at);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertNotNull($lead->fresh()->dialed_at);
+        // Not the same thing as an actual recorded outcome — that's a
+        // separate, later step (LeadController::updateDisposition()).
+        $this->assertNull($lead->fresh()->called_at);
+    }
+
+    /** Redialing (a second click) must not error and should just move the
+     *  timestamp forward — nothing here assumes a click only ever happens once. */
+    public function test_clicking_to_call_again_updates_dialed_at_to_the_latest_click(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $lead->update(['dialed_at' => now()->subHour()]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertTrue($lead->fresh()->dialed_at->isAfter(now()->subMinute()));
+    }
+
+    /** Same "nothing meaningful to log" guard as the unassigned-lead
+     *  LeadActivity case above — dialed_at must not get stamped either. */
+    public function test_a_call_click_on_an_unassigned_lead_does_not_stamp_dialed_at(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '9003', 'customer_name' => 'Ana', 'phone_number' => '09171234567', 'product_id' => $product->id, 'status' => 'unassigned']);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertNull($lead->fresh()->dialed_at);
+    }
+
+    public function test_the_leads_table_shows_a_dialed_indicator_once_stamped(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $dialed    = $this->leadFor($gemma, '9004');
+        $notDialed = $this->leadFor($gemma, '9005');
+        $dialed->update(['dialed_at' => now()]);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Called ' . $dialed->fresh()->dialed_at->diffForHumans(), false);
+    }
 }

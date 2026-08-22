@@ -74,6 +74,23 @@
                         @else
                         <span class="text-slate-300 dark:text-slate-600">no number</span>
                         @endif
+                        {{-- Dialed indicator (explicit request, 2026-08-22) —
+                             the table had no way to see whether a TSA had
+                             actually called this customer yet, only whether
+                             an outcome had already been logged for it
+                             (called_at, a much later step — see the
+                             recording button below for that one). dialed_at
+                             stamps on every tel: click (LeadController::
+                             logCallClick()), so this shows up the moment a
+                             TSA dials, no outcome required yet. --}}
+                        @if($lead->dialed_at)
+                        <span title="Called {{ $lead->dialed_at->diffForHumans() }}"
+                              class="inline-flex items-center justify-center w-5 h-5 rounded-full text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 shrink-0">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                            </svg>
+                        </span>
+                        @endif
                         @if($lead->pancake_page_id && $lead->pancake_conversation_id)
                         <button type="button" onclick="openConversationModal({{ $lead->id }})" title="View conversation"
                            class="inline-flex items-center justify-center w-5 h-5 rounded text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer">
