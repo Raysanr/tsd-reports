@@ -6,6 +6,11 @@
         'SH Naturals'  => ['dot' => 'bg-primary',    'text' => 'text-primary-dark dark:text-yellow-400', 'bg' => 'bg-primary/10'],
         'Eyecare Team' => ['dot' => 'bg-teal-600',    'text' => 'text-teal-700 dark:text-teal-400',       'bg' => 'bg-teal-500/10'],
     ];
+    // Reads honestly as "today" only when it actually is (explicit request,
+    // 2026-08-24) — same "the label says what day this really is" reasoning
+    // Monitor TSA's own $dailyRecordLabel already follows, so a past date
+    // picked here never silently reads like a live "today" count.
+    $assignedColumnLabel = $date->isToday() ? 'Assigned today' : 'Assigned — ' . $date->format('M j, Y');
 @endphp
 
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -23,7 +28,7 @@
             <tr class="border-b border-slate-200 dark:border-slate-700">
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">TSA</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Team</th>
-                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Assigned today</th>
+                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">{{ $assignedColumnLabel }}</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Status</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Daily cap</th>
             </tr>

@@ -11,19 +11,41 @@
      its own background — that's what makes it glide instead of snap. Links
      stay real hrefs (working nav, right-click/open-in-new-tab, no-JS
      fallback); JS only intercepts the click to animate instead of reload. --}}
-<div id="rrsFilter" class="relative mb-6 inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-    <span id="rrsFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
+<div class="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div id="rrsFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+        <span id="rrsFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
 
-    <a href="{{ route('calls.round-robin-setup') }}" data-team=""
-       class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
-        All teams
-    </a>
-    @foreach($teams as $team)
-    <a href="{{ route('calls.round-robin-setup', ['team' => $team]) }}" data-team="{{ $team }}"
-       class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $team ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
-        {{ $team }}
-    </a>
-    @endforeach
+        <a href="{{ route('calls.round-robin-setup', array_filter(['date_from' => $date->isToday() ? null : $date->toDateString()])) }}" data-team=""
+           class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+            All teams
+        </a>
+        @foreach($teams as $team)
+        <a href="{{ route('calls.round-robin-setup', array_filter(['team' => $team, 'date_from' => $date->isToday() ? null : $date->toDateString()])) }}" data-team="{{ $team }}"
+           class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $team ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+            {{ $team }}
+        </a>
+        @endforeach
+    </div>
+
+    {{-- Date picker (explicit request, 2026-08-24, "like the Dashboard") —
+         review a past day's "Assigned" count, not just live today. Single
+         date (not a range — this table's whole point is a per-day count
+         next to a per-day cap, a range wouldn't map onto that column
+         cleanly). submit='navigate': a real page reload, same as Dashboard's
+         own picker — round-robin enforcement itself never depends on what's
+         picked here (RoundRobinSetupController::index()'s own comment), so
+         there's no live state this would need to keep in sync with via AJAX
+         the way the team pills above do. Team filter isn't preserved through
+         a date change (navigate mode always builds its URL as
+         "{navigateBase}?date_from=...&date_to=...", no room for a third
+         query param) — an accepted minor rough edge, not worth a custom
+         picker integration to close. --}}
+    @include('partials.date-picker', [
+        'mode' => 'single', 'id' => 'rrsDrp',
+        'date' => $date->toDateString(),
+        'submit' => 'navigate', 'navigateBase' => route('calls.round-robin-setup'),
+        'showLabel' => true,
+    ])
 </div>
 
 <div id="rrsTableContainer" class="transition-opacity duration-150">

@@ -129,10 +129,25 @@ class TsaShift extends Model
 
     /** How many leads round-robin has assigned this TSA today — computed
      *  live off leads.assigned_at rather than a stored counter, so the cap
-     *  resets itself at midnight with no scheduled job needed. */
+     *  resets itself at midnight with no scheduled job needed. Always the
+     *  REAL today, regardless of what date Leads Setup's own picker (see
+     *  leadsAssignedOn() below) happens to be showing — this is what
+     *  RoundRobinAssigner::next() actually enforces, so it can never be
+     *  pointed at a different day. */
     public function leadsAssignedToday(): int
     {
         return $this->leads()->whereDate('assigned_at', today())->count();
+    }
+
+    /** Same count as leadsAssignedToday(), for an arbitrary date — Leads
+     *  Setup's own date picker (explicit request, 2026-08-24), for reviewing
+     *  a past day's assignment volume against the TSA's current cap. Never
+     *  used for actual round-robin enforcement (that's always
+     *  leadsAssignedToday()/hasReachedDailyCap(), hardcoded to today) — this
+     *  is a read-only historical view only. */
+    public function leadsAssignedOn(\Illuminate\Support\Carbon $date): int
+    {
+        return $this->leads()->whereDate('assigned_at', $date)->count();
     }
 
     /** Whether round-robin should skip this TSA for the rest of today —
