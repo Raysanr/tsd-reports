@@ -80,6 +80,50 @@ class LeadRecordingStreamRangeTest extends TestCase
         $response->assertHeader('Accept-Ranges', 'bytes');
     }
 
+    /** Confirmed live, 2026-08-24: a slow/unreliable path to Drive threw an
+     *  uncaught ConnectionException that bubbled all the way up to a raw,
+     *  unhandled 500 — the player showed nothing and there was no way to
+     *  tell why. Covers GoogleDriveClient::downloadFileRanged()'s try/catch
+     *  turning that into a clean, handled failure instead. */
+    public function test_a_drive_timeout_on_download_is_handled_cleanly_not_a_500(): void
+    {
+        Setting::set('drive_client_id', 'client-id');
+        Setting::set('drive_client_secret', 'client-secret');
+        Setting::set('drive_refresh_token', 'refresh-token');
+        Setting::set('drive_folder_eyecare', 'root-eyecare');
+
+        $tsa = TsaShift::create(['tsa_key' => 'RecTestTsa2', 'display_name' => 'RecTestTsa2', 'team' => 'Eyecare Team', 'sort_order' => 1]);
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                ['files' => [['id' => 'julie-root', 'name' => 'RECTESTTSA2', 'mimeType' => 'application/vnd.google-apps.folder']]]
+            ),
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
+                ['files' => [['id' => 'rec-1', 'name' => '09171234567 2026-08-23 09-25-00.m4a', 'mimeType' => 'audio/mp4']]]
+            ),
+            // Simulates the real timeout: the download itself never responds.
+            'https://www.googleapis.com/drive/v3/files/rec-1*' => function () {
+                throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out');
+            },
+        ]);
+
+        $lead = Lead::create([
+            'pancake_order_id' => 'REC-TEST-2',
+            'customer_name'    => 'Recording Timeout Test',
+            'phone_number'     => '09171234567',
+            'tsa_id'           => $tsa->id,
+            'status'           => 'called',
+            'called_at'        => now(),
+        ]);
+
+        $admin = User::factory()->create(['role' => 'admin']);
+        $response = $this->actingAs($admin)->get(route('calls.leads.recordings.stream', [$lead, 'rec-1']));
+
+        // Handled cleanly, never a raw unhandled 500.
+        $response->assertStatus(404);
+    }
+
     public function test_a_plain_request_with_no_range_header_still_gets_a_full_200_with_accept_ranges(): void
     {
         $lead = $this->setUpLeadWithRecording();

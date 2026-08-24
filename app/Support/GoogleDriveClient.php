@@ -94,13 +94,26 @@ class GoogleDriveClient
      *  downloadFile() above) so SyncCallRecordings' own call — which wants
      *  one predictable ?string return, not a Range-negotiated one — is
      *  untouched. */
+    /** Wrapped in try/catch (confirmed live, 2026-08-24: a slow/unreliable
+     *  path to Drive — e.g. a single-threaded `php artisan serve` dev
+     *  server queuing this behind another slow request — can time out and
+     *  throw ConnectionException, which previously bubbled all the way up
+     *  to an unhandled 500 with the player showing nothing and no way to
+     *  tell why) — returns 'successful' => false instead, same shape a
+     *  clean non-2xx/206 Drive response already produces, so callers only
+     *  ever need one failure branch. */
     public function downloadFileRanged(string $token, string $fileId, ?string $rangeHeader): array
     {
         $request = Http::withToken($token)->timeout(30);
         if ($rangeHeader) {
             $request = $request->withHeaders(['Range' => $rangeHeader]);
         }
-        $res = $request->get("https://www.googleapis.com/drive/v3/files/{$fileId}", ['alt' => 'media']);
+
+        try {
+            $res = $request->get("https://www.googleapis.com/drive/v3/files/{$fileId}", ['alt' => 'media']);
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return ['successful' => false, 'status' => 504, 'body' => '', 'content_range' => null, 'content_length' => null];
+        }
 
         return [
             'successful'     => $res->successful() || $res->status() === 206,
