@@ -19,14 +19,19 @@ class RoundRobinSetupController extends Controller
     {
         $team = $request->string('team')->toString();
 
-        // Date picker (explicit request, 2026-08-24, "like the Dashboard") —
-        // review a past day's assignment volume, not just live today. Purely
-        // a viewing feature: leadsAssignedOn() is a read-only historical
-        // count, never what round-robin itself enforces (that's always
-        // leadsAssignedToday(), hardcoded to the real today regardless of
-        // what's picked here — see that method's own doc comment).
-        $dateInput = $request->string('date_from')->toString();
-        $date      = $dateInput ? Carbon::parse($dateInput, 'Asia/Manila')->startOfDay() : today('Asia/Manila');
+        // Date picker (explicit request, 2026-08-24, "like the Dashboard" —
+        // follow-up: upgraded from a single date to a real range, same
+        // two-calendar picker Dashboard itself uses, not just its icon) —
+        // review a past day/range's assignment volume, not just live today.
+        // Purely a viewing feature: leadsAssignedBetween() is a read-only
+        // historical count, never what round-robin itself enforces (that's
+        // always leadsAssignedToday(), hardcoded to the real today
+        // regardless of what's picked here — see that method's own doc
+        // comment).
+        $dateFromInput = $request->string('date_from')->toString();
+        $dateToInput   = $request->string('date_to')->toString();
+        $dateFrom = $dateFromInput ? Carbon::parse($dateFromInput, 'Asia/Manila')->startOfDay() : today('Asia/Manila');
+        $dateTo   = $dateToInput ? Carbon::parse($dateToInput, 'Asia/Manila')->startOfDay() : $dateFrom->copy();
 
         $query = TsaShift::where('active', true)->orderBy('sort_order');
         if ($team) {
@@ -36,14 +41,15 @@ class RoundRobinSetupController extends Controller
         $tsas = $query->get()
             ->map(fn (TsaShift $tsa) => [
                 'tsa'            => $tsa,
-                'assigned_today' => $tsa->leadsAssignedOn($date),
+                'assigned_today' => $tsa->leadsAssignedBetween($dateFrom, $dateTo),
             ]);
 
         $data = [
             'tsas'         => $tsas,
             'teams'        => collect(config('teams'))->pluck('order_team')->all(),
             'selectedTeam' => $team,
-            'date'         => $date,
+            'dateFrom'     => $dateFrom,
+            'dateTo'       => $dateTo,
         ];
 
         // The team filter fetches this same URL in the background (see the

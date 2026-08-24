@@ -12,11 +12,13 @@ use Tests\TestCase;
 /**
  * Explicit request (2026-08-24): Leads Setup's "Assigned today" column only
  * ever showed the real today, with no way to review a past day's assignment
- * volume. Added a date picker ("like the Dashboard"), reusing TsaShift's
- * existing leadsAssignedOn() — a NEW, separate method from
- * leadsAssignedToday(), which stays hardcoded to the real today since that's
- * what RoundRobinAssigner actually enforces and must never be pointed at a
- * different day just because this page's picker is.
+ * volume. Added a date picker ("like the Dashboard"), then upgraded the same
+ * day to a real two-calendar range ("can select multiple dates... 2 calendar
+ * like in the dashboard") — TsaShift::leadsAssignedBetween() is a NEW,
+ * separate method from leadsAssignedToday(), which stays hardcoded to the
+ * real today since that's what RoundRobinAssigner actually enforces and must
+ * never be pointed at a different day/range just because this page's picker
+ * is.
  */
 class RoundRobinSetupDatePickerTest extends TestCase
 {
@@ -59,6 +61,29 @@ class RoundRobinSetupDatePickerTest extends TestCase
         $response->assertSee('Assigned — ' . $threeDaysAgo->format('M j, Y'));
         $tsas = collect($response->viewData('tsas'));
         $this->assertSame(2, $tsas->firstWhere('tsa.tsa_key', 'Gemma')['assigned_today']);
+    }
+
+    public function test_a_picked_range_sums_the_whole_span_not_just_one_day(): void
+    {
+        $gemma      = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product    = Product::where('display_name', 'SINUXYL')->first();
+        $rangeStart = now()->subDays(3);
+        $rangeEnd   = now()->subDays(1);
+        Lead::create(['pancake_order_id' => 'range-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart]);
+        Lead::create(['pancake_order_id' => 'range-2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->addDay()]);
+        Lead::create(['pancake_order_id' => 'range-3', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeEnd]);
+        // Outside the picked range on both ends — must not be counted.
+        Lead::create(['pancake_order_id' => 'before-range', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->subDay()]);
+        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.round-robin-setup', [
+            'date_from' => $rangeStart->toDateString(), 'date_to' => $rangeEnd->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Assigned — ' . $rangeStart->format('M j') . ' to ' . $rangeEnd->format('M j, Y'));
+        $tsas = collect($response->viewData('tsas'));
+        $this->assertSame(3, $tsas->firstWhere('tsa.tsa_key', 'Gemma')['assigned_today']);
     }
 
     public function test_the_picked_date_never_affects_live_cap_enforcement(): void
