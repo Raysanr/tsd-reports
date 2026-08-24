@@ -205,17 +205,26 @@
             panel.style.top       = `${rect.bottom + 8}px`;
             panel.style.transform = ''; // clear a leftover mobile centering transform
 
-            // Clamp so the panel never runs off the LEFT edge of the viewport —
-            // confirmed live (2026-08-24): a trigger sitting close to the left
-            // (common at higher browser zoom levels, which shrink the effective
-            // CSS-px viewport width while a fixed-width sidebar doesn't) let this
-            // 440–700px-wide panel's left edge go negative, overlapping the
-            // sidebar entirely instead of staying visible next to its trigger.
-            // panel.offsetWidth only reads correctly once the panel is actually
-            // in the render tree (not `hidden`/display:none) — the caller now
-            // unhides it before calling this, in the same synchronous click
-            // handler, so there's no visible flicker before this repositions it.
-            const margin    = 8;
+            // Clamp so the panel never runs UNDER the sidebar — first attempt
+            // (2026-08-24) only clamped against the bare viewport edge (x=0),
+            // which turned out not to be the actual left boundary: layouts/
+            // app.blade.php's #sidebar is a persistent w-64 (256px) column with
+            // its own manual collapse toggle, completely independent of this
+            // picker's own 640px mobile/desktop breakpoint — so a panel sitting
+            // anywhere left of x=256 (confirmed live via the browser console:
+            // `right: 642px` computed with no clamp applied at all, since
+            // panelLeft was still >= the old flat 8px margin) was satisfying
+            // that old check while still landing squarely underneath the
+            // sidebar. Reads the sidebar's REAL current right edge instead of
+            // a guessed constant — 0 whenever it's off-screen (mobile drawer,
+            // `-translate-x-full`) or collapsed to its icon-only width, so this
+            // never over-clamps on those layouts. panel.offsetWidth only reads
+            // correctly once the panel is actually in the render tree (not
+            // `hidden`/display:none) — the caller unhides it before calling
+            // this, in the same synchronous click handler, so there's no
+            // visible flicker before this repositions it.
+            const sidebarRight = document.getElementById('sidebar')?.getBoundingClientRect().right ?? 0;
+            const margin    = Math.max(8, sidebarRight + 8);
             const panelLeft = window.innerWidth - right - panel.offsetWidth;
             if (panelLeft < margin) {
                 right = window.innerWidth - margin - panel.offsetWidth;
