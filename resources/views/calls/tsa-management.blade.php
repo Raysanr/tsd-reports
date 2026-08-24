@@ -1,6 +1,6 @@
 @extends('layouts.calls')
 @section('title', 'Call Rotation')
-@section('subtitle', 'Active status & which products each TSA handles')
+@section('subtitle', 'Live status & which products each TSA handles')
 
 @section('content')
 

@@ -195,18 +195,24 @@ class CallTrackerTsaManagementTest extends TestCase
         $this->actingAs($user)->post(route('calls.tsa-management.regenerate-token', $gemma))->assertForbidden();
     }
 
-    public function test_unchecking_active_deactivates_the_tsa(): void
+    /** Explicit request (2026-08-24): the manual Active checkbox is gone —
+     *  the table shows each TSA's real live status instead, which already
+     *  conveys whether they're actually working. A save here must never be
+     *  able to silently deactivate someone the way it would have if this
+     *  still read $request->boolean('active') against a form with no such
+     *  field left to submit. */
+    public function test_saving_an_update_never_changes_active(): void
     {
         $this->actingAs($this->admin());
 
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $this->assertTrue($gemma->active);
 
         $this->post(route('calls.tsa-management.update', $gemma), [
-            // 'active' omitted — an unchecked checkbox never gets submitted.
             'products' => $gemma->products()->pluck('products.id')->all(),
         ]);
 
-        $this->assertFalse($gemma->fresh()->active);
+        $this->assertTrue($gemma->fresh()->active);
     }
 
     public function test_a_tsa_cannot_add_a_new_tsa_or_search_pos_users(): void

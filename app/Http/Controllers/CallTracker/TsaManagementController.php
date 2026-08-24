@@ -60,6 +60,12 @@ class TsaManagementController extends Controller
             'assignments'  => $assignments,
             'teams'        => collect(config('teams'))->pluck('order_team')->all(),
             'selectedTeam' => $team,
+            // Explicit request (2026-08-24): the table's old "Active" column
+            // (a manual admin toggle) is replaced with the TSA's real live
+            // status (Login/Break/Logout/etc.) — status already tells you
+            // whether someone's actually working, making the separate
+            // active flag redundant to manage by hand.
+            'statuses'     => TsaShift::STATUSES,
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -116,8 +122,13 @@ class TsaManagementController extends Controller
             'dialer_host'  => ['nullable', 'string', 'max:64'],
         ]);
 
+        // No 'active' here (explicit request, 2026-08-24 — the checkbox that
+        // used to control it is gone) — every TSA created via store() is
+        // already active=true and stays that way; this form no longer
+        // touches the column at all, so a save here can never silently
+        // deactivate someone the way it would have if this still read
+        // $request->boolean('active') against a form with no such field.
         $tsaShift->update([
-            'active'       => $request->boolean('active'),
             'phone_number' => $data['phone_number'] ?? null,
             'dialer_host'  => $data['dialer_host'] ?? null,
         ]);
@@ -145,7 +156,7 @@ class TsaManagementController extends Controller
         }
 
         $productNames = Product::whereIn('id', $selected)->pluck('display_name')->implode(', ') ?: 'none';
-        ActivityLogger::log('tsa.updated', $tsaShift, "Updated {$tsaShift->display_name} — active: " . ($tsaShift->active ? 'yes' : 'no') . ", handles: {$productNames}.");
+        ActivityLogger::log('tsa.updated', $tsaShift, "Updated {$tsaShift->display_name} — handles: {$productNames}.");
 
         $message = "Updated {$tsaShift->display_name}.";
 

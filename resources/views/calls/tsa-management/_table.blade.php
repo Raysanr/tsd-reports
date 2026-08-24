@@ -5,6 +5,21 @@
         'SH Naturals'  => ['dot' => 'bg-primary',  'text' => 'text-primary-dark dark:text-yellow-400', 'bg' => 'bg-primary/10'],
         'Eyecare Team' => ['dot' => 'bg-teal-600',  'text' => 'text-teal-700 dark:text-teal-400',       'bg' => 'bg-teal-500/10'],
     ];
+    // Same status pill colors as Dashboard's own TSA Performance Overview
+    // table (explicit request, 2026-08-24: replace the old manual "Active"
+    // toggle/column with the TSA's real live status instead).
+    $statusDot = fn ($status) => match (true) {
+        $status === \App\Models\TsaShift::STATUS_LOGIN  => 'bg-emerald-500',
+        $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-300 dark:bg-slate-600',
+        $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-500',
+        default => 'bg-amber-500',
+    };
+    $statusBadge = fn ($status) => match (true) {
+        $status === \App\Models\TsaShift::STATUS_LOGIN  => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
+        $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+        $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
+        default => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
+    };
 @endphp
 
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -22,7 +37,7 @@
             <tr class="border-b border-slate-200 dark:border-slate-700">
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">TSA</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Team</th>
-                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Active</th>
+                <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Status</th>
                 <th class="px-5 py-3 text-left text-[11px] font-bold font-mono text-slate-400 uppercase tracking-wide">Handles</th>
                 <th class="px-5 py-3"></th>
             </tr>
@@ -58,17 +73,10 @@
                         </span>
                     </td>
                     <td class="px-5 py-4">
-                        @if($tsa->active)
-                        <span class="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 rounded-full px-2.5 py-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            Active
+                        <span class="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1 {{ $statusBadge($tsa->status) }}">
+                            <span class="w-1.5 h-1.5 rounded-full {{ $statusDot($tsa->status) }}"></span>
+                            {{ $statuses[$tsa->status]['label'] ?? $tsa->status }}
                         </span>
-                        @else
-                        <span class="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 rounded-full px-2.5 py-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                            Inactive
-                        </span>
-                        @endif
                     </td>
                     <td class="px-5 py-4">
                         @if($handledNames->isEmpty())
@@ -106,14 +114,6 @@
                             <form method="POST" action="{{ route('calls.tsa-management.update', $tsa) }}"
                                   class="tsa-update-form bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
                                 @csrf
-
-                                <div class="flex items-center justify-end mb-4">
-                                    <label class="flex items-center gap-2 text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide cursor-pointer">
-                                        <input type="checkbox" name="active" value="1" {{ $tsa->active ? 'checked' : '' }}
-                                               class="rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500">
-                                        Active
-                                    </label>
-                                </div>
 
                                 <div class="mb-4">
                                     <label class="block text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Phone number</label>
