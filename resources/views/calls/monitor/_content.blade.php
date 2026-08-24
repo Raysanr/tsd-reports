@@ -175,10 +175,20 @@
                 <p class="font-bold text-slate-800 dark:text-slate-100 truncate">{{ $tsa->display_name }}</p>
                 <p class="text-xs text-slate-400 font-mono truncate">{{ $tsa->team }}</p>
             </div>
+            {{-- Current-status badge only makes sense for TODAY (explicit
+                 request, 2026-08-24) — $tsa->status/status_changed_at is
+                 always the TSA's live, right-now status, with no concept of
+                 "what were they doing on Aug 20" — showing it (and the
+                 "Current status time"/End Call block below) next to a past
+                 day's minute-record data read as if it belonged to that day,
+                 when it's really just whatever they happen to be doing at
+                 this exact moment regardless of which date is selected. --}}
+            @if($isSingleDay && $dateFrom->isToday())
             <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide shrink-0 {{ $statusBadgeClass($tsa->status) }}">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0 {{ $statusDotClass($tsa->status) }}"></span>
                 {{ \App\Models\TsaShift::STATUSES[$tsa->status]['label'] ?? $tsa->status }}
             </span>
+            @endif
         </div>
 
         @php
@@ -203,6 +213,7 @@
         </div>
         @endif
 
+        @if($isSingleDay && $dateFrom->isToday())
         <div class="mb-4">
             <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wide">Current status time</p>
             <p class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">{{ $formatSeconds($statusSecondsElapsed) }}</p>
@@ -218,6 +229,7 @@
                 End Call &rarr; Auto Wrap Up
             </button>
         </form>
+        @endif
         @endif
 
         <div class="border-t border-slate-100 dark:border-slate-700 pt-3">
