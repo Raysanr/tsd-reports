@@ -22,6 +22,15 @@ class OrderUpsellTagTest extends TestCase
         $this->assertTrue(Order::hasUpsellTag(['SINUXYL RELIEF BUNDLE (TAGGING)']));
     }
 
+    /** Confirmed live, 2026-08-24: a real CanPro Guyabano Oil order tagged
+     *  plain "CANPRO OIL UPSELL" — has "UPSELL" but no "TSD" anywhere, so
+     *  the adjacency regex alone could never catch it either. */
+    public function test_recognizes_the_named_canpro_oil_upsell_tag_with_no_tsd_word(): void
+    {
+        $this->assertTrue(Order::hasUpsellTag(['CANPRO OIL UPSELL']));
+        $this->assertTrue(Order::hasUpsellTag(['CRD - SEGMENTATION', 'KATH', 'CANPRO OIL UPSELL']));
+    }
+
     /** @dataProvider realProductTagProvider */
     public function test_recognizes_every_sh_naturals_product_upsell_tag(string $tag): void
     {

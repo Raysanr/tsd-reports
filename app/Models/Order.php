@@ -182,28 +182,29 @@ class Order extends Model
         return str_contains($text, 'DUPLICATED BY LOGISTIC');
     }
 
-    /** SH Naturals' own per-product upsell-trigger tag names that DON'T
-     *  contain "UPSELL"/"TSD" at all — hasUpsellTag()'s regex below can
-     *  never catch these no matter how it's tuned. Explicit request,
-     *  2026-08-24, after a real gap: Mariel's SINUXYL "Relief Bundle"
-     *  upsells (tagged "Sinuxyl Relief Bundle Instructions" in production,
-     *  "SINUXYL RELIEF BUNDLE (TAGGING)" as the TSA lead named it) were
-     *  never counted — the tag alone means "TSD upsold this into the
-     *  bundle," same intent as every UPSELL-TSD-prefixed tag, just a
-     *  different naming convention Pancake/the TSA team happened to use
-     *  for this one product line. Matched as a normalized (uppercase,
-     *  non-alphanumeric stripped) substring in hasUpsellTag() below so
-     *  real-world suffix drift ("Instructions" vs "(TAGGING)" vs nothing)
-     *  never breaks it — only the core phrase has to be present. Kept
-     *  short and product-specific on purpose: a bare product name (e.g.
-     *  "SINUXYL INHALER") is deliberately NOT listed here even though the
-     *  TSA lead's own list mentions it, because that one's real tag
-     *  ("TSD UPSELL SINUXYL INHALER") already matches the regex below —
-     *  adding it again as a bare substring would just add false-positive
-     *  risk (matching a plain "Sinuxyl Inhaler" product tag on a
-     *  non-upsell order) for zero gain in what it actually catches. */
+    /** SH Naturals' own per-product upsell-trigger tag names that don't
+     *  satisfy hasUpsellTag()'s "UPSELL"+"TSD" adjacency regex below —
+     *  either word missing entirely, or (like "CANPRO OIL UPSELL") one
+     *  present without the other. Explicit request, 2026-08-24, after two
+     *  real confirmed gaps: Mariel's SINUXYL "Relief Bundle" upsells
+     *  (tagged "Sinuxyl Relief Bundle Instructions" in production) and a
+     *  real CanPro Guyabano Oil upsell tagged plain "CANPRO OIL UPSELL" —
+     *  neither ever counted. Each tag alone means "TSD upsold this," same
+     *  intent as every UPSELL-TSD-prefixed tag, just a different naming
+     *  convention Pancake/the TSA team happened to use for that product
+     *  line. Matched as a normalized (uppercase, non-alphanumeric
+     *  stripped) substring in hasUpsellTag() below so real-world
+     *  punctuation/suffix drift never breaks it — only the core phrase has
+     *  to be present. Kept short and product-specific on purpose: a bare
+     *  product name (e.g. "SINUXYL INHALER") is deliberately NOT listed
+     *  here even though the TSA lead's own list mentions it, because that
+     *  one's real tag ("TSD UPSELL SINUXYL INHALER") already matches the
+     *  regex below — adding it again as a bare substring would just add
+     *  false-positive risk (matching a plain "Sinuxyl Inhaler" product tag
+     *  on a non-upsell order) for zero gain in what it actually catches. */
     private const NAMED_UPSELL_TAG_PHRASES = [
         'SINUXYL RELIEF BUNDLE',
+        'CANPRO OIL UPSELL',
     ];
 
     /** True if any tag matches "UPSELL TSD"/"TSD UPSELL" (case-insensitive)
