@@ -230,6 +230,26 @@
                 right = window.innerWidth - margin - panel.offsetWidth;
                 panel.style.right = `${right}px`;
             }
+
+            // Same idea, vertical axis (follow-up, 2026-08-24): `top` was set
+            // straight from the trigger's own position with no check for
+            // whether the panel (which can run tall — a full calendar +
+            // preset list, capped at max-h-[85vh] but still routinely 400px+)
+            // actually fits before the bottom of the screen. A trigger sitting
+            // in the lower half of a page left the panel's own bottom content
+            // (the Apply/Close buttons, the later calendar rows) scrolled past
+            // the viewport with no way to reach it. Slides the panel up just
+            // enough to fit above the viewport's bottom margin instead —
+            // never above `margin` from the top either, so a very tall panel
+            // on a short screen clips at the bottom (where max-h-[85vh]'s own
+            // overflow-y-auto takes over) rather than the top.
+            const topMargin    = 8;
+            const bottomMargin = 8;
+            let top = rect.bottom + 8;
+            if (top + panel.offsetHeight > window.innerHeight - bottomMargin) {
+                top = Math.max(topMargin, window.innerHeight - bottomMargin - panel.offsetHeight);
+            }
+            panel.style.top = `${top}px`;
         }
     }
 
@@ -439,7 +459,22 @@
             // actually paints at the old, unclamped position first.
             panel.classList.remove('hidden');
             positionPanel();
-            requestAnimationFrame(() => initFp());
+            // Re-run AFTER flatpickr actually renders (follow-up, 2026-08-24):
+            // the vertical clamp above needs panel.offsetHeight, but at the
+            // point positionPanel() first runs the panel's own calendar grid
+            // hasn't been built yet (initFp() below is itself deferred a
+            // frame) — offsetHeight at that moment only reflects the static
+            // header/preset-list markup, a real underestimate of the panel's
+            // final height once the calendar populates, so the first pass
+            // under-clamped and the panel's bottom (Apply/Close, later rows)
+            // still ran past the viewport. The horizontal clamp doesn't need
+            // this re-run (the panel's WIDTH is a fixed Tailwind class, never
+            // content-dependent) but re-positioning is cheap enough to just
+            // always do both together rather than split the two axes apart.
+            requestAnimationFrame(() => {
+                initFp();
+                positionPanel();
+            });
         } else {
             panel.classList.add('hidden');
         }
