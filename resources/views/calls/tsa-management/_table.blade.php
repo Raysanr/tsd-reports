@@ -301,14 +301,15 @@
                                             <strong>Find the phone's own recordings folder.</strong> Most Android phones auto-record calls locally with no setup — check Settings → Call app, or look for a "Call recordings" folder in the Files app. The exact path depends on the phone's brand (e.g. Samsung: <code>Call/</code>, Xiaomi/MIUI: <code>MIUI/sound_recorder/call_rec/</code>). If nothing's there, the phone's built-in dialer likely needs call recording turned on first.
                                         </li>
                                         <li>
-                                            <strong>Create {{ $tsa->display_name }}'s Drive folder</strong> (once, if it doesn't already exist): in the shared <code>TSD CALLS</code> folder → <code>{{ $tsa->team }}</code> → a new folder named exactly <code>{{ $tsa->tsa_key }}</code>.
+                                            <strong>Create {{ $tsa->display_name }}'s Drive folder</strong> (once, if it doesn't already exist): in the shared <code>TSD 2026 RECORDING</code> folder → <code>TEAM {{ strtoupper($tsa->team) }}</code> → this month's folder (create it if it doesn't exist yet, named the full month, e.g. <code>{{ now('Asia/Manila')->format('F') }}</code>) → a new folder named exactly <code>{{ $tsa->tsa_key }}</code>. Any day-subfolders {{ $tsa->display_name }} makes for themselves inside that (however they like to name them) are fine — the sync only reads the recording filenames, never the subfolder names.
                                         </li>
                                         <li>
                                             <strong>Install "Autosync for Google Drive"</strong> (by MetaCtrl) from the Play Store on {{ $tsa->display_name }}'s phone — free, no PC needed.
                                         </li>
                                         <li>
-                                            <strong>Sign in</strong> with whichever Google account has access to the shared <code>TSD CALLS</code> folder, then create one sync pair:
-                                            <span class="block mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5">Local: (the recordings folder from step 1) &nbsp;→&nbsp; Drive: TSD CALLS / {{ $tsa->team }} / {{ $tsa->tsa_key }}</span>
+                                            <strong>Sign in</strong> with whichever Google account has access to the shared <code>TSD 2026 RECORDING</code> folder, then create one sync pair:
+                                            <span class="block mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5">Local: (the recordings folder from step 1) &nbsp;→&nbsp; Drive: TSD 2026 RECORDING / TEAM {{ strtoupper($tsa->team) }} / {{ now('Asia/Manila')->format('F') }} / {{ $tsa->tsa_key }}</span>
+                                            Next month, update the sync pair's Drive side to point at that new month's folder instead (create it the same way as step 1).
                                         </li>
                                         <li>
                                             <strong>Set the sync direction to upload-only</strong> (phone → Drive, not the reverse) and pick a frequency — every 15–30 minutes is plenty; this doesn't need to be instant.
