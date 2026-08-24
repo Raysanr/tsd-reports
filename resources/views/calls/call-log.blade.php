@@ -128,7 +128,6 @@
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">When</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Number</th>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Direction</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Duration</th>
                     {{-- Gap to next customer (explicit request, 2026-08-24) —
                          idle time between this TSA's PREVIOUS call ending and
@@ -147,14 +146,6 @@
                     <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ $event->occurred_at->format('M j, g:i A') }}</td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->tsa?->display_name ?? '—' }}</td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->phone_number }}</td>
-                    <td class="px-4 py-3">
-                        <span @class([
-                            'inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide',
-                            'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400' => $event->direction === 'outgoing',
-                            'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'       => $event->direction === 'incoming',
-                            'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'         => $event->direction === 'missed',
-                        ])>{{ $event->direction }}</span>
-                    </td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->duration_seconds !== null ? gmdate('i:s', $event->duration_seconds) : '—' }}</td>
                     <td class="px-4 py-3">
                         @php $gap = $gapBeforeSeconds[$event->id] ?? null; @endphp
