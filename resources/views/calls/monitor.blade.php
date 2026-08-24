@@ -99,6 +99,38 @@
             .catch(() => {});
     }
 
+    // The status-duration readout ticks live now (explicit request,
+    // 2026-08-24) — previously only updated on the 15s poll/a manual reload, visibly
+    // frozen in between on a screen meant to just sit there and be watched.
+    // Re-queries [data-status-changed-at] fresh on every tick rather than
+    // caching a node list once — refresh() below replaces #monitorContent's
+    // entire innerHTML every 15s, so any cached reference would go stale
+    // (pointing at detached elements) the moment that happens; querying
+    // fresh each second is cheap enough (a handful of TSA cards, not
+    // hundreds) that this is simpler than re-binding after every poll.
+    // Mirrors _content.blade.php's own $formatSeconds() exactly (same h/m/s
+    // thresholds) so this never visibly disagrees with what the next real
+    // poll renders.
+    function formatElapsedSeconds(totalSeconds) {
+        totalSeconds = Math.max(0, Math.round(totalSeconds));
+        const hours   = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+        if (minutes > 0) return `${minutes}m ${seconds}s`;
+        return `${seconds}s`;
+    }
+
+    function tickStatusTimes() {
+        document.querySelectorAll('[data-status-changed-at]').forEach((el) => {
+            const changedAt = el.dataset.statusChangedAt;
+            if (!changedAt) return;
+            const elapsedSeconds = (Date.now() - new Date(changedAt).getTime()) / 1000;
+            el.textContent = formatElapsedSeconds(elapsedSeconds);
+        });
+    }
+    setInterval(tickStatusTimes, 1000);
+
     // Smooth crossfade — used only for a deliberate team-tab switch
     // (explicit request, 2026-08-20). Fades #monitorContent out, swaps in
     // the new HTML (banner/legend/summary cards/TSA cards, all of it —

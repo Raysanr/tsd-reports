@@ -216,7 +216,17 @@
         @if($isSingleDay && $dateFrom->isToday())
         <div class="mb-4">
             <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wide">Current status time</p>
-            <p class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">{{ $formatSeconds($statusSecondsElapsed) }}</p>
+            {{-- Ticks live client-side (explicit request, 2026-08-24) — this
+                 used to only update on the 15s poll/a manual reload, visibly
+                 frozen in between on a screen meant to just sit there and be
+                 watched. data-status-changed-at is the one fixed point in
+                 time this needs; monitor.blade.php's own tickStatusTimes()
+                 recomputes "now - that" every second and reformats it with
+                 the same h/m/s rules $formatSeconds() uses server-side, so
+                 the two never visibly disagree — this is just what fills the
+                 15s gaps between real polls, not a second source of truth. --}}
+            <p id="statusTime-{{ $tsa->id }}" data-status-changed-at="{{ optional($tsa->status_changed_at)->toIso8601String() }}"
+               class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">{{ $formatSeconds($statusSecondsElapsed) }}</p>
         </div>
 
         @if($tsa->status === \App\Models\TsaShift::STATUS_CALLING)
