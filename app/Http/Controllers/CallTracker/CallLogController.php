@@ -26,8 +26,21 @@ class CallLogController extends Controller
         $from     = Carbon::parse($dateFrom, 'Asia/Manila')->startOfDay();
         $to       = Carbon::parse($dateTo, 'Asia/Manila')->endOfDay();
 
+        // Team filter (explicit request, 2026-08-24) — same "ALL" + config('teams')
+        // convention Monitor TSA's own resolveTeam()/filteredTsas() already use,
+        // duplicated locally rather than extracted to a shared trait since this is
+        // the only other controller that needs it so far.
+        $teamsConfig  = config('teams', []);
+        $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
+        $selectedTeam = $request->input('team', 'all');
+        if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
+            $selectedTeam = 'all';
+        }
+        $orderTeam = $selectedTeam !== 'all' ? $teamsConfig[$selectedTeam]['order_team'] : null;
+
         $events = CallEvent::with(['tsa', 'lead'])
             ->whereBetween('occurred_at', [$from, $to])
+            ->when($orderTeam, fn ($q) => $q->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
             ->orderByDesc('occurred_at')
             ->get();
 
@@ -82,6 +95,8 @@ class CallLogController extends Controller
             'gapBeforeSeconds' => $gapBeforeSeconds,
             'dateFrom'         => $dateFrom,
             'dateTo'           => $dateTo,
+            'teams'            => $teams,
+            'selectedTeam'     => $selectedTeam,
         ]);
     }
 }

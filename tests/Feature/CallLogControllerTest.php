@@ -100,4 +100,29 @@ class CallLogControllerTest extends TestCase
         $this->assertSame((300 + 840) / 2, $gemmaRow['avg_gap_seconds']);
         $this->assertSame(840, $gemmaRow['longest_gap_seconds']);
     }
+
+    /** Explicit request (2026-08-24): filter by team, same ALL/SH Naturals/
+     *  Eyecare convention Monitor TSA's own filter already uses. */
+    public function test_a_team_filter_scopes_both_the_totals_and_the_recent_calls_list(): void
+    {
+        $admin  = User::factory()->create(['role' => 'admin']);
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+        $today  = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $julie->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'team' => 'sh-naturals', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        $rows = collect($response->viewData('rows'));
+        $this->assertNotNull($rows->firstWhere('tsa.id', $gemma->id));
+        $this->assertNull($rows->firstWhere('tsa.id', $julie->id));
+
+        $events = $response->viewData('events');
+        $this->assertTrue($events->every(fn ($e) => $e->tsa_id === $gemma->id));
+    }
 }
