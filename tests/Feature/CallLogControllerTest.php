@@ -12,12 +12,16 @@ use Tests\TestCase;
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift, routes -> calls.*.
  *
  * NOTE (adapted, not a verbatim port): the original test used TSA key
- * "Katherine" for the "a TSA with zero calls doesn't clutter the totals
- * table" assertion. tsd-reports' baseline tsa_shifts seed only has 6 TSAs
- * (Gemma, Mariel, Kathleen, Julie, Joana, Marisol) — no Katherine (see
- * ReconcileCallTrackerRosterTest's own comment on this exact gap) —
- * substituted "Kathleen", who exists in the seed and also gets zero calls
- * in this test, to preserve the same assertion's intent.
+ * "Katherine" for a "TSA with zero calls" assertion. tsd-reports' baseline
+ * tsa_shifts seed only has 6 TSAs (Gemma, Mariel, Kathleen, Julie, Joana,
+ * Marisol) — no Katherine (see ReconcileCallTrackerRosterTest's own comment
+ * on this exact gap) — substituted "Kathleen" throughout, who exists in the
+ * seed and also gets zero calls in these tests.
+ *
+ * Follow-up (2026-08-24): a zero-call TSA used to be filtered OUT of the
+ * totals table entirely ("doesn't clutter") — explicit request reversed
+ * that: every active TSA in scope shows up now, 0 calls included, since
+ * disappearing read as "not tracked" rather than "tracked, made no calls".
  */
 class CallLogControllerTest extends TestCase
 {
@@ -59,9 +63,13 @@ class CallLogControllerTest extends TestCase
         $this->assertNull($marielRow['avg_gap_seconds']);
         $this->assertNull($marielRow['longest_gap_seconds']);
 
-        // A TSA with zero calls in range doesn't clutter the totals table.
+        // A TSA with zero calls in range still shows up, with 0 — not
+        // filtered out entirely.
         $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
-        $this->assertNull($rows->firstWhere('tsa.id', $kathleen->id));
+        $kathleenRow = $rows->firstWhere('tsa.id', $kathleen->id);
+        $this->assertNotNull($kathleenRow);
+        $this->assertSame(0, $kathleenRow['total_calls']);
+        $this->assertNull($kathleenRow['avg_gap_seconds']);
     }
 
     /**

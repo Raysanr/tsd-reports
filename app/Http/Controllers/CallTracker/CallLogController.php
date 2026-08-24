@@ -78,16 +78,25 @@ class CallLogController extends Controller
             }
         }
 
-        $rows = TsaShift::orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($events, $tsaGapStats) {
-            $mine = $events->where('tsa_id', $tsa->id);
+        // Every TSA in scope shows up here now (explicit request, 2026-08-24)
+        // — a TSA with zero calls in the picked range used to just vanish
+        // from the table entirely, which read as "not tracked" rather than
+        // "tracked, made no calls". Team-scoped explicitly here (not just
+        // relying on $events already being team-filtered above) since a
+        // zero-call TSA has no events to filter through in the first place.
+        $rows = TsaShift::where('active', true)
+            ->when($orderTeam, fn ($q) => $q->where('team', $orderTeam))
+            ->orderBy('sort_order')->get()
+            ->map(function (TsaShift $tsa) use ($events, $tsaGapStats) {
+                $mine = $events->where('tsa_id', $tsa->id);
 
-            return [
-                'tsa'                 => $tsa,
-                'total_calls'         => $mine->count(),
-                'avg_gap_seconds'     => $tsaGapStats[$tsa->id]['avg_gap_seconds'] ?? null,
-                'longest_gap_seconds' => $tsaGapStats[$tsa->id]['longest_gap_seconds'] ?? null,
-            ];
-        })->filter(fn ($row) => $row['total_calls'] > 0)->values();
+                return [
+                    'tsa'                 => $tsa,
+                    'total_calls'         => $mine->count(),
+                    'avg_gap_seconds'     => $tsaGapStats[$tsa->id]['avg_gap_seconds'] ?? null,
+                    'longest_gap_seconds' => $tsaGapStats[$tsa->id]['longest_gap_seconds'] ?? null,
+                ];
+            })->values();
 
         return view('calls.call-log', [
             'rows'             => $rows,

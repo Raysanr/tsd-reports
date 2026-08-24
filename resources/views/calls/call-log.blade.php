@@ -3,6 +3,26 @@
 @section('subtitle', 'Real calls reported by each TSA\'s own phone — the basis for load reimbursement')
 
 @push('topbar-right')
+{{-- Team filter (explicit request, 2026-08-24, moved into the topbar the
+     same day — "make the team filter too in the topbar too like the
+     dashboard too") — same ALL/SH Naturals/Eyecare pill group + bg-primary-
+     active styling, and same topbar-right placement, as Monitor TSA's own
+     filter. Plain links (a real page reload), same as the date picker below
+     — no partial-swap infrastructure exists on this page yet, and mixing an
+     instant AJAX team-switch with a full-reload date change would feel
+     inconsistent. Date range carries through the link (the date picker's
+     own navigate mode can't carry `team` back the other way — an accepted
+     minor rough edge, same as Leads Setup's own picker). --}}
+<div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
+    @foreach($teams as $key => $label)
+    <a href="{{ route('calls.call-log', ['team' => $key, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+       class="px-3 py-1.5 text-xs font-semibold font-mono transition-colors duration-200
+              {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+        {{ $label }}
+    </a>
+    @endforeach
+</div>
+
 {{-- Icon-only, same shared range picker Dashboard/Leads Setup use (explicit
      request, 2026-08-24: "make the date picker too of call log is like in
      the dashboard") — replaces the two plain <input type="date"> fields +
@@ -41,25 +61,6 @@
 @endphp
 
 @section('content')
-
-{{-- Team filter (explicit request, 2026-08-24) — same ALL/SH Naturals/Eyecare
-     pill group + bg-primary-active styling Monitor TSA's own topbar filter
-     already uses, matching that established convention rather than
-     introducing a new pill style. Plain links (a real page reload), same as
-     the date picker above — no partial-swap infrastructure exists on this
-     page yet, and mixing an instant AJAX team-switch with a full-reload date
-     change would feel inconsistent. Date range carries through the link (the
-     date picker's own navigate mode can't carry `team` back the other way —
-     an accepted minor rough edge, same as Leads Setup's own picker). --}}
-<div class="mb-6 flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden w-fit">
-    @foreach($teams as $key => $label)
-    <a href="{{ route('calls.call-log', ['team' => $key, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
-       class="px-3 py-1.5 text-xs font-semibold font-mono transition-colors duration-200
-              {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
-        {{ $label }}
-    </a>
-    @endforeach
-</div>
 
 <div class="mb-4">
     <h2 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Per-TSA totals (for reimbursement)</h2>
