@@ -162,17 +162,6 @@ class Order extends Model
      *  detail page. */
     public const STATUS_ASSIGNABLE = [11, 12, 13, 20, 1, 8, 9, 2, 6, 7];
 
-    /** True if any tag matches "UPSELL TSD" or "TSD UPSELL" (case-insensitive) — the
-     *  tag marking a real upsell/cross-sell add-on, distinct from "Follow up -
-     *  Upsell" (a disposition, not a new upsell). Single source of truth for
-     *  SyncTodayOrders' is_upsell detection at sync time AND
-     *  ProductPerformance::tally()'s catered-count check — the latter reads raw tag
-     *  text directly instead of trusting the stored is_upsell column alone, because
-     *  that column is deliberately forced false for a Restocking/void-status order
-     *  even when it genuinely carries this tag (confirmed in production: an
-     *  AudiCure order sitting in Restocking, tagged "Upsell TSD (Ear Relief Balm)",
-     *  counted as neither a real disposition nor an upsell — invisible as Catered
-     *  work that clearly happened). */
     /**
      * True when a warehouse/logistics duplicate created a second order for
      * the same real lead — confirmed live (2026-08-22): Pancake staff flag
@@ -185,7 +174,7 @@ class Order extends Model
      * Single source of truth for both SyncTodayOrders (sync-time) and
      * BackfillDuplicatedByLogistics (a one-off reconcile pass over orders
      * already synced before this check existed) — same "one shared check,
-     * not hand-copied" reasoning as hasUpsellTag() above.
+     * not hand-copied" reasoning as hasUpsellTag() below.
      */
     public static function isDuplicatedByLogistics(array $raw): bool
     {
@@ -193,11 +182,56 @@ class Order extends Model
         return str_contains($text, 'DUPLICATED BY LOGISTIC');
     }
 
+    /** SH Naturals' own per-product upsell-trigger tag names that DON'T
+     *  contain "UPSELL"/"TSD" at all — hasUpsellTag()'s regex below can
+     *  never catch these no matter how it's tuned. Explicit request,
+     *  2026-08-24, after a real gap: Mariel's SINUXYL "Relief Bundle"
+     *  upsells (tagged "Sinuxyl Relief Bundle Instructions" in production,
+     *  "SINUXYL RELIEF BUNDLE (TAGGING)" as the TSA lead named it) were
+     *  never counted — the tag alone means "TSD upsold this into the
+     *  bundle," same intent as every UPSELL-TSD-prefixed tag, just a
+     *  different naming convention Pancake/the TSA team happened to use
+     *  for this one product line. Matched as a normalized (uppercase,
+     *  non-alphanumeric stripped) substring in hasUpsellTag() below so
+     *  real-world suffix drift ("Instructions" vs "(TAGGING)" vs nothing)
+     *  never breaks it — only the core phrase has to be present. Kept
+     *  short and product-specific on purpose: a bare product name (e.g.
+     *  "SINUXYL INHALER") is deliberately NOT listed here even though the
+     *  TSA lead's own list mentions it, because that one's real tag
+     *  ("TSD UPSELL SINUXYL INHALER") already matches the regex below —
+     *  adding it again as a bare substring would just add false-positive
+     *  risk (matching a plain "Sinuxyl Inhaler" product tag on a
+     *  non-upsell order) for zero gain in what it actually catches. */
+    private const NAMED_UPSELL_TAG_PHRASES = [
+        'SINUXYL RELIEF BUNDLE',
+    ];
+
+    /** True if any tag matches "UPSELL TSD"/"TSD UPSELL" (case-insensitive)
+     *  or one of NAMED_UPSELL_TAG_PHRASES above — the tag marking a real
+     *  upsell/cross-sell add-on, distinct from "Follow up - Upsell" (a
+     *  disposition, not a new upsell). Single source of truth for
+     *  SyncTodayOrders' is_upsell detection at sync time AND
+     *  ProductPerformance::tally()'s catered-count check — the latter reads
+     *  raw tag text directly instead of trusting the stored is_upsell
+     *  column alone, because that column is deliberately forced false for a
+     *  Restocking/void-status order even when it genuinely carries this
+     *  tag (confirmed in production: an AudiCure order sitting in
+     *  Restocking, tagged "Upsell TSD (Ear Relief Balm)", counted as
+     *  neither a real disposition nor an upsell — invisible as Catered
+     *  work that clearly happened). */
     public static function hasUpsellTag(array $tagNames): bool
     {
         foreach ($tagNames as $tag) {
             if (preg_match('/\bUPSELL\s+TSD\b|\bTSD\s+UPSELL\b/i', $tag)) {
                 return true;
+            }
+
+            $normalizedTag = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $tag));
+            foreach (self::NAMED_UPSELL_TAG_PHRASES as $phrase) {
+                $normalizedPhrase = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $phrase));
+                if ($normalizedPhrase !== '' && str_contains($normalizedTag, $normalizedPhrase)) {
+                    return true;
+                }
             }
         }
         return false;
