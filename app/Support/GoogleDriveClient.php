@@ -83,20 +83,75 @@ class GoogleDriveClient
         return strtoupper(trim($a)) === strtoupper(trim($b));
     }
 
-    /** TSA folders sit directly under their team's root (TSD CALLS >
-     *  SH NATURALS|EYECARE > <tsa_key or display_name>) — resolves that one
-     *  folder for a given TSA, or null if Drive isn't configured for their
-     *  team or no matching folder exists yet. */
-    public function resolveTsaFolder(string $token, TsaShift $tsa): ?array
+    /** Recursion guard shared with the recursive file walk below — mirrors
+     *  SyncCallRecordings::MAX_DEPTH's own reasoning (the messiest real TSA
+     *  folder seen while mapping this out was 3 levels deep). */
+    private const MAX_WALK_DEPTH = 4;
+
+    /**
+     * TSA folders now sit under a MONTH folder under their team's root
+     * (confirmed live, 2026-08-25: TSD 2026 RECORDING > TEAM SH NATURALS >
+     * AUGUST > <tsa_key or display_name>) — an outer layer added on top of
+     * the flat Team > TSA structure this previously assumed. Looks for a
+     * folder matching $forDate's full month name (e.g. "August" — matches
+     * "AUGUST" case-insensitively via namesMatch()) directly under the team
+     * root first; if found, resolves the TSA inside THAT. Falls back to
+     * treating the team root itself as the TSA's parent (the old flat
+     * lookup) when no matching month folder exists — keeps this working
+     * for a team that hasn't adopted the month layer yet, or the first few
+     * days of a new month before that month's folder has been created.
+     */
+    public function resolveTsaFolder(string $token, TsaShift $tsa, ?\Illuminate\Support\Carbon $forDate = null): ?array
     {
         $settingKey = self::FOLDER_SETTING_KEYS[$tsa->team] ?? null;
         if (!$settingKey) return null;
 
-        $rootId = Setting::get($settingKey);
-        if (!$rootId) return null;
+        $teamRootId = Setting::get($settingKey);
+        if (!$teamRootId) return null;
 
-        return collect($this->listChildren($token, $rootId))->first(
+        $forDate ??= now('Asia/Manila');
+        $monthFolder = collect($this->listChildren($token, $teamRootId))->first(
+            fn ($f) => $f['mimeType'] === 'application/vnd.google-apps.folder' && $this->namesMatch($f['name'], $forDate->format('F'))
+        );
+
+        $tsaParentId = $monthFolder['id'] ?? $teamRootId;
+        $tsaFolder   = collect($this->listChildren($token, $tsaParentId))->first(
             fn ($f) => $this->namesMatch($f['name'], $tsa->display_name) || $this->namesMatch($f['name'], $tsa->tsa_key)
         );
+
+        // Month folder existed but didn't have this TSA (e.g. genuinely no
+        // recordings yet this month) — still try the team root directly
+        // before giving up, same fallback reasoning as above.
+        if (!$tsaFolder && $monthFolder) {
+            $tsaFolder = collect($this->listChildren($token, $teamRootId))->first(
+                fn ($f) => $this->namesMatch($f['name'], $tsa->display_name) || $this->namesMatch($f['name'], $tsa->tsa_key)
+            );
+        }
+
+        return $tsaFolder;
+    }
+
+    /** Shared recursive file walk (extracted from SyncCallRecordings, which
+     *  had this as a private method before LeadController's own recording-
+     *  playback lookup needed the identical logic — confirmed live,
+     *  2026-08-25: a TSA's day folders sit ONE level under their own folder
+     *  (e.g. "MARIEL/AUGUST 7/<recordings>"), so a flat listChildren() on
+     *  the TSA folder alone finds only day-folders, never actual .m4a
+     *  files — this was silently broken for recording playback specifically
+     *  until this fix, since that lookup never recursed at all). Same
+     *  MAX_WALK_DEPTH guard as SyncCallRecordings::MAX_DEPTH always had. */
+    public function listFilesRecursively(string $token, string $folderId, int $depth = 0): array
+    {
+        if ($depth > self::MAX_WALK_DEPTH) return [];
+
+        $files = [];
+        foreach ($this->listChildren($token, $folderId) as $child) {
+            if ($child['mimeType'] === 'application/vnd.google-apps.folder') {
+                $files = array_merge($files, $this->listFilesRecursively($token, $child['id'], $depth + 1));
+            } elseif (str_ends_with(strtolower($child['name']), '.m4a')) {
+                $files[] = $child;
+            }
+        }
+        return $files;
     }
 }

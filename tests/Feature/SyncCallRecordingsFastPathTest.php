@@ -10,22 +10,18 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * Real production case (Eyecare/Marisol, 2026-07-29): the sync recursively
- * walked a TSA's ENTIRE Drive folder history (2,257 files across every month
- * ever uploaded) on every single run, just to find the ~50 files relevant to
- * one target day — confirmed live this took ~30 seconds of listing alone, per
- * TSA, before a single file was even downloaded. That's very likely why real
- * AHT/OPT data only ever showed up for a couple of a day's hours: the walk was
- * too slow to reliably finish (every TSA, every 2-hourly run) before running
- * out of time, so which hours got downloaded before that happened was
- * effectively random.
- *
- * The real folder tree nests a "<MONTH> <YEAR>" folder (e.g. "JULY 2026")
- * directly under each TSA, and a "<MONTH> <DAY>" folder (e.g. "JULY 29", no
- * leading zero) under THAT, holding that day's files directly — confirmed
- * live. These tests prove the sync now navigates straight there instead of
- * enumerating irrelevant month folders, and still falls back to the original
- * full walk when that clean structure isn't there.
+ * Rewritten 2026-08-25 — the previous version of this file tested a
+ * "<TSA>/<MONTH> <YEAR>/<MONTH> <DAY>" tree that was already stale before
+ * today (the class's own docblock noted it was "simplified 2026-08-19" to a
+ * flat Team > TSA structure). Confirmed live today the REAL tree gained a
+ * new outer layer instead: Team > <full month name, e.g. "AUGUST"> > TSA >
+ * day-subfolder(s) with genuinely inconsistent per-TSA naming (e.g.
+ * "AUGUST 7" for one TSA, "August 13-- Recording uploaded" for another) —
+ * see GoogleDriveClient::resolveTsaFolder()/listFilesRecursively()'s own
+ * doc comments for the full history. These tests now exercise THAT
+ * structure: month-folder resolution, the flat-lookup fallback when no
+ * month folder exists, and a real recording synced end-to-end through an
+ * inconsistently-named day-subfolder.
  */
 class SyncCallRecordingsFastPathTest extends TestCase
 {
@@ -54,7 +50,7 @@ class SyncCallRecordingsFastPathTest extends TestCase
         return ['id' => $id, 'name' => $name, 'mimeType' => 'audio/mp4'];
     }
 
-    public function test_navigates_straight_to_the_day_folder_without_listing_other_months(): void
+    public function test_resolves_the_tsa_folder_through_the_month_layer_and_walks_its_day_subfolders(): void
     {
         $this->configureDrive();
         TsaShift::where('team', 'Eyecare Team')->where('tsa_key', 'Julie')->update(['tsa_key' => 'Julie']);
@@ -62,72 +58,61 @@ class SyncCallRecordingsFastPathTest extends TestCase
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
 
-            // Root Eyecare folder -> month-recordings folder
+            // Team root -> month folders (only AUGUST matters — the target
+            // date below is in August).
             'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
-                $this->folderListResponse([$this->folder('month-root', 'JULY CALL RECORDINGS')])
+                $this->folderListResponse([$this->folder('month-august', 'AUGUST'), $this->folder('month-july', 'JULY')])
             ),
-            // Month-recordings folder -> per-TSA folders
-            'https://www.googleapis.com/drive/v3/files?q=%27month-root%27*' => Http::response(
+            // AUGUST -> per-TSA folders.
+            'https://www.googleapis.com/drive/v3/files?q=%27month-august%27*' => Http::response(
                 $this->folderListResponse([$this->folder('julie-root', 'JULIE'), $this->folder('other-root', 'OTHER TSA')])
             ),
-            // Julie's own root -> ONLY the year-month folder (fast path)
+            // Julie's own folder -> a day-subfolder with a real, messy name
+            // (not a clean "AUGUST 29" — proves this is never name-matched,
+            // only walked).
             'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
-                $this->folderListResponse([$this->folder('julie-july-2026', 'JULY 2026')])
+                $this->folderListResponse([$this->folder('julie-aug-29', 'August 29-- Recording uploaded')])
             ),
-            // Year-month folder -> the target day folder (+ a decoy other day)
-            'https://www.googleapis.com/drive/v3/files?q=%27julie-july-2026%27*' => Http::response(
-                $this->folderListResponse([
-                    $this->folder('julie-july-29', 'JULY 29'),
-                    $this->folder('julie-july-28', 'JULY 28'),
-                ])
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-aug-29%27*' => Http::response(
+                $this->folderListResponse([$this->file('rec-1', '09171234567 2026-08-29 08-15-00.m4a')])
             ),
-            // The day folder itself -> one file
-            'https://www.googleapis.com/drive/v3/files?q=%27julie-july-29%27*' => Http::response(
-                $this->folderListResponse([$this->file('rec-1', '09171234567 2026-07-29 08-15-00.m4a')])
-            ),
-            // Download — content doesn't need to be a real m4a for this test;
-            // an unparsable download just means no CallRecordingHour row, which
-            // isn't what this test is checking.
             'https://www.googleapis.com/drive/v3/files/rec-1*' => Http::response('not-a-real-m4a'),
         ]);
 
-        $this->artisan('calls:sync-recordings', ['--date' => '2026-07-29'])->assertSuccessful();
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
 
-        // The decoy "JULY 28" day folder and the "OTHER TSA" folder must never
-        // have had their own children listed — proves the walk went straight
-        // to the one relevant folder instead of enumerating siblings.
-        Http::assertNotSent(fn($request) => str_contains($request->url(), "q=%27julie-july-28%27"));
-        Http::assertNotSent(fn($request) => str_contains($request->url(), "q=%27other-root%27"));
+        // JULY's own children and the sibling "OTHER TSA" folder must never
+        // have been listed — proves this went straight to the right month
+        // and TSA instead of enumerating siblings.
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), "q=%27month-july%27"));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), "q=%27other-root%27"));
     }
 
-    public function test_falls_back_to_the_full_walk_when_there_is_no_year_month_day_structure(): void
+    public function test_falls_back_to_a_flat_team_root_lookup_when_there_is_no_month_folder(): void
     {
         $this->configureDrive();
 
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            // Team root has no month folders at all — the older flat
+            // Team > TSA structure a team that hasn't adopted the month
+            // layer yet (or is between months) would still have.
             'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
-                $this->folderListResponse([$this->folder('month-root', 'JULY CALL RECORDINGS')])
-            ),
-            'https://www.googleapis.com/drive/v3/files?q=%27month-root%27*' => Http::response(
                 $this->folderListResponse([$this->folder('julie-root', 'JULIE')])
             ),
-            // Julie's own root has files sitting directly in it — no
-            // "<MONTH> <YEAR>" subfolder at all (the messy variant the class
-            // doc already describes).
             'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
-                $this->folderListResponse([$this->file('rec-2', '09171234567 2026-07-29 09-30-00.m4a')])
+                $this->folderListResponse([$this->file('rec-2', '09171234567 2026-08-29 09-30-00.m4a')])
             ),
             'https://www.googleapis.com/drive/v3/files/rec-2*' => Http::response('not-a-real-m4a'),
         ]);
 
-        // Must not error out just because the fast-path structure isn't there.
-        $this->artisan('calls:sync-recordings', ['--date' => '2026-07-29'])->assertSuccessful();
+        // Must not error out just because there's no month folder to find.
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
 
-        Http::assertSent(fn($request) => str_contains($request->url(), "q=%27julie-root%27"));
+        Http::assertSent(fn ($request) => str_contains($request->url(), "q=%27julie-root%27"));
     }
 
-    public function test_real_recording_still_gets_synced_via_the_fast_path(): void
+    public function test_a_real_recording_gets_synced_through_an_inconsistently_named_day_subfolder(): void
     {
         $this->configureDrive();
 
@@ -142,26 +127,26 @@ class SyncCallRecordingsFastPathTest extends TestCase
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
             'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
-                $this->folderListResponse([$this->folder('month-root', 'JULY CALL RECORDINGS')])
+                $this->folderListResponse([$this->folder('month-august', 'AUGUST')])
             ),
-            'https://www.googleapis.com/drive/v3/files?q=%27month-root%27*' => Http::response(
+            'https://www.googleapis.com/drive/v3/files?q=%27month-august%27*' => Http::response(
                 $this->folderListResponse([$this->folder('julie-root', 'JULIE')])
             ),
+            // Real per-TSA naming is inconsistent (confirmed live) — this
+            // one uses "Aug 29" with no dashes, unlike the previous test's
+            // "August 29-- Recording uploaded".
             'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
-                $this->folderListResponse([$this->folder('julie-july-2026', 'JULY 2026')])
+                $this->folderListResponse([$this->folder('julie-aug-29', 'Aug 29')])
             ),
-            'https://www.googleapis.com/drive/v3/files?q=%27julie-july-2026%27*' => Http::response(
-                $this->folderListResponse([$this->folder('julie-july-29', 'JULY 29')])
-            ),
-            'https://www.googleapis.com/drive/v3/files?q=%27julie-july-29%27*' => Http::response(
-                $this->folderListResponse([$this->file('rec-3', '09171234567 2026-07-29 08-15-00.m4a')])
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-aug-29%27*' => Http::response(
+                $this->folderListResponse([$this->file('rec-3', '09171234567 2026-08-29 08-15-00.m4a')])
             ),
             'https://www.googleapis.com/drive/v3/files/rec-3*' => Http::response($m4aBytes),
         ]);
 
-        $this->artisan('calls:sync-recordings', ['--date' => '2026-07-29'])->assertSuccessful();
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
 
-        $row = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-07-29')->where('hour', 8)->first();
+        $row = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-29')->where('hour', 8)->first();
         $this->assertNotNull($row);
         $this->assertSame(5, $row->total_seconds);
         $this->assertSame(1, $row->call_count);

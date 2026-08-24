@@ -20,16 +20,21 @@ use Illuminate\Support\Facades\Log;
  * OPT assumption on the individual TSA page with real data wherever it's
  * available (see TsaPerformanceController::showTsa()).
  *
- * Folder tree: TSD CALLS > SH NATURALS|EYECARE > <TSA tsa_key or
- * display_name, either matches — see namesMatch()> > every recording flat,
- * no date subfolders (simplified 2026-08-19 from an earlier, deeper "<MONTH>
- * CALL RECORDINGS> ... > <MONTH> <DAY>" tree — that nesting no longer
- * exists, the settings below just need to point at the new root). Every
+ * Folder tree (confirmed live, 2026-08-25 — reintroduced a month layer this
+ * class briefly went without, see git history around 2026-08-19 for the flat
+ * version this replaced): TSD 2026 RECORDING > TEAM SH NATURALS|EYECARE >
+ * <full month name, e.g. "AUGUST"> > <TSA tsa_key or display_name, either
+ * matches — see namesMatch()> > <day-subfolder(s), naming inconsistent per
+ * TSA (e.g. "AUGUST 7" vs "August 13-- Recording uploaded") — never matched
+ * by name, only walked> > the actual recordings.
+ * GoogleDriveClient::resolveTsaFolder() finds the TSA's own folder through
+ * the month layer (falling back to a flat team-root lookup if a team/month
+ * hasn't adopted this structure yet); listFilesRecursively() from there
+ * walks whatever day-subfolders exist regardless of their naming. Every
  * recording's own filename ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is still
  * the single source of truth for which date/hour it counts toward
- * (parseFilename()) — folder location was never trusted for that, only for
- * narrowing which files to look at, which now means "everything in this
- * TSA's one folder" rather than a specific day's own subfolder.
+ * (parseFilename()) — folder/subfolder naming was never trusted for that,
+ * only for narrowing which files get looked at at all.
  */
 class SyncCallRecordings extends Command
 {
@@ -40,12 +45,6 @@ class SyncCallRecordings extends Command
     {
         parent::__construct();
     }
-
-    /** Recursion guard for collectFilesRecursively() — the messiest real TSA
-     *  folder seen while mapping this out was 3 levels deep (TSA > date
-     *  variant > files); this leaves headroom without risking a runaway walk
-     *  if a folder is ever nested unexpectedly deeply. */
-    private const MAX_DEPTH = 4;
 
     /** Circuit breaker on actual file downloads (not listings) for one run —
      *  real usage across every TSA/team for a full day has been ~160-190
@@ -137,23 +136,22 @@ class SyncCallRecordings extends Command
             $shifts = TsaShift::where('team', $orderTeam)->get();
             if ($shifts->isEmpty()) continue;
 
-            // TSA folders sit directly under the team root now (TSD CALLS >
-            // SH NATURALS|EYECARE > <tsa_key or display_name>) — no
-            // month-level folder to find first any more.
-            $tsaFolders = $this->drive->listChildren($token, $rootId);
-
             foreach ($shifts as $shift) {
-                $tsaFolder = collect($tsaFolders)->first(
-                    fn($f) => $this->drive->namesMatch($f['name'], $shift->display_name)
-                        || $this->drive->namesMatch($f['name'], $shift->tsa_key)
-                );
+                // TSA folders now sit under a MONTH folder under the team
+                // root (see GoogleDriveClient::resolveTsaFolder()'s own doc
+                // comment) — $date (this run's target date, defaults to
+                // today) picks which month to look in, so a manual re-sync
+                // for a past date still finds the right month even after
+                // the calendar has moved on.
+                $tsaFolder = $this->drive->resolveTsaFolder($token, $shift, $date);
                 if (!$tsaFolder) continue; // no recordings folder for this TSA
 
-                // Flat — every recording sits directly in the TSA's own
-                // folder (no date subfolders to navigate), so this just
-                // lists everything there; parseFilename() below is still
-                // what actually decides which of those match $dateString.
-                $files = $this->collectFilesRecursively($token, $tsaFolder['id'], 0);
+                // Recurses through whatever day-subfolders exist under the
+                // TSA's own folder (real naming is inconsistent per TSA —
+                // confirmed live, 2026-08-25 — so this never tries to guess
+                // a specific day-folder name); parseFilename() below is
+                // still what actually decides which files match $dateString.
+                $files = $this->drive->listFilesRecursively($token, $tsaFolder['id']);
 
                 foreach ($files as $file) {
                     if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
@@ -231,21 +229,6 @@ class SyncCallRecordings extends Command
             return null;
         }
         return ['date' => $m[1], 'hour' => (int) $m[2]];
-    }
-
-    private function collectFilesRecursively(string $token, string $folderId, int $depth): array
-    {
-        if ($depth > self::MAX_DEPTH) return [];
-
-        $files = [];
-        foreach ($this->drive->listChildren($token, $folderId) as $child) {
-            if ($child['mimeType'] === 'application/vnd.google-apps.folder') {
-                $files = array_merge($files, $this->collectFilesRecursively($token, $child['id'], $depth + 1));
-            } elseif (str_ends_with(strtolower($child['name']), '.m4a')) {
-                $files[] = $child;
-            }
-        }
-        return $files;
     }
 
     /** Minimal MP4/M4A atom parser — walks top-level boxes to find moov > mvhd,

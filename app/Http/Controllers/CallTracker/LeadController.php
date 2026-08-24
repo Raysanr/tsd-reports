@@ -352,7 +352,14 @@ class LeadController extends Controller
             return null;
         }
 
-        $folder = $drive->resolveTsaFolder($token, $lead->tsa);
+        // Best-guess month for the month-folder layer (see
+        // GoogleDriveClient::resolveTsaFolder()'s own doc comment) — when
+        // this lead was actually called, not just created, since that's
+        // when its recording would have been filed; falls back to when the
+        // lead itself was created for one never actually called yet (no
+        // recording to find either way, but keeps this from crashing on a
+        // null date).
+        $folder = $drive->resolveTsaFolder($token, $lead->tsa, $lead->called_at ?? $lead->pancake_created_at);
         if (!$folder) {
             return [];
         }
@@ -363,9 +370,14 @@ class LeadController extends Controller
             return [];
         }
 
-        return collect($drive->listChildren($token, $folder['id']))
-            ->filter(fn ($f) => str_ends_with(strtolower($f['name']), '.m4a')
-                && str_contains(preg_replace('/[^0-9]/', '', $f['name']), $last9))
+        // Recurses through the TSA's day-subfolders instead of a flat
+        // listChildren() (fixed 2026-08-25) — real day-subfolder naming is
+        // inconsistent per TSA (confirmed live: "AUGUST 7" vs "August 13--
+        // Recording uploaded"), so a flat listing on the TSA folder alone
+        // only ever found day-FOLDERS, never the actual .m4a files inside
+        // them — this silently never matched anything until now.
+        return collect($drive->listFilesRecursively($token, $folder['id']))
+            ->filter(fn ($f) => str_contains(preg_replace('/[^0-9]/', '', $f['name']), $last9))
             ->sortByDesc(fn ($f) => $this->parsedRecordingMoment($f['name'])?->timestamp ?? 0)
             ->values()
             ->all();
