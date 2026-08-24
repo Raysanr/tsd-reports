@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\CallEvent;
 use App\Models\TsaShift;
@@ -19,20 +20,23 @@ use Illuminate\Support\Carbon;
  */
 class CallLogController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     public function index(Request $request)
     {
-        $dateFrom = $request->string('date_from', now('Asia/Manila')->format('Y-m-d'))->toString();
-        $dateTo   = $request->string('date_to', $dateFrom)->toString();
+        // Remembered across a tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment.
+        $dateFrom = $this->rememberedFilter($request, 'call-log', 'date_from', now('Asia/Manila')->format('Y-m-d'));
+        $dateTo   = $this->rememberedFilter($request, 'call-log', 'date_to', $dateFrom);
         $from     = Carbon::parse($dateFrom, 'Asia/Manila')->startOfDay();
         $to       = Carbon::parse($dateTo, 'Asia/Manila')->endOfDay();
 
         // Team filter (explicit request, 2026-08-24) — same "ALL" + config('teams')
-        // convention Monitor TSA's own resolveTeam()/filteredTsas() already use,
-        // duplicated locally rather than extracted to a shared trait since this is
-        // the only other controller that needs it so far.
+        // convention Monitor TSA's own resolveTeam()/filteredTsas() already use.
         $teamsConfig  = config('teams', []);
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
-        $selectedTeam = $request->input('team', 'all');
+        $selectedTeam = $this->rememberedFilter($request, 'call-log', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
             $selectedTeam = 'all';
         }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\Setting;
@@ -28,9 +29,16 @@ use Illuminate\Support\Facades\Http;
  */
 class TsaManagementController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     public function index(Request $request)
     {
-        $team = $request->string('team')->toString();
+        // Remembered across a tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment. Falls back to '' (empty string, not the 'all' string
+        // convention some other pages use), matching this page's own
+        // existing "falsy = no filter applied" default.
+        $team = $this->rememberedFilter($request, 'tsa-management', 'team', '') ?? '';
 
         $query = TsaShift::orderBy('sort_order');
         if ($team) {

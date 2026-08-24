@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\LeadActivity;
 use App\Models\TsaShift;
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Auth;
  */
 class TsaStatusController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     /**
      * The topbar status panel (a TSA switching their OWN real-time
      * availability) AND TSA Management's per-row panel (an admin switching
@@ -164,10 +167,16 @@ class TsaStatusController extends Controller
      */
     public function index(Request $request)
     {
-        $tsaId    = $request->filled('tsa') ? $request->integer('tsa') : null;
-        $dateFrom = $request->string('date_from')->toString();
-        $dateTo   = $request->string('date_to')->toString();
-        $range    = ($dateFrom && $dateTo)
+        // Remembered across a tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment. Falls back to null/no-filter, matching this page's own
+        // existing "unfiltered history" default (unlike most other Call
+        // Tracker pages, which default to today).
+        $tsaFilter = $this->rememberedFilter($request, 'tsa-logs', 'tsa');
+        $tsaId     = $tsaFilter ? (int) $tsaFilter : null;
+        $dateFrom  = $this->rememberedFilter($request, 'tsa-logs', 'date_from') ?? '';
+        $dateTo    = $this->rememberedFilter($request, 'tsa-logs', 'date_to') ?? '';
+        $range     = ($dateFrom && $dateTo)
             ? [Carbon::parse($dateFrom)->startOfDay(), Carbon::parse($dateTo)->endOfDay()]
             : null;
 
@@ -231,7 +240,7 @@ class TsaStatusController extends Controller
         return view('calls.tsa-logs', [
             'logs'        => $logs,
             'tsas'        => TsaShift::orderBy('sort_order')->get(),
-            'selectedTsa' => $request->integer('tsa'),
+            'selectedTsa' => $tsaId,
             'dateFrom'    => $dateFrom,
             'dateTo'      => $dateTo,
             'statuses'    => TsaShift::STATUSES,

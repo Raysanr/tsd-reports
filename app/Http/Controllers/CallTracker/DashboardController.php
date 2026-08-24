@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\CallRecordingHour;
 use App\Models\Lead;
@@ -22,6 +23,8 @@ use Illuminate\Support\Facades\Auth;
  */
 class DashboardController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     /**
      * Explicit request (2026-08-08): a real overview page, now Call
      * Tracker's actual home (see routes/web.php's 'dashboard' rename).
@@ -50,12 +53,14 @@ class DashboardController extends Controller
     {
         $user = Auth::user();
 
-        $dateFrom = $request->filled('date_from')
-            ? Carbon::parse($request->query('date_from'))->startOfDay()
-            : today();
-        $dateTo = $request->filled('date_to')
-            ? Carbon::parse($request->query('date_to'))->endOfDay()
-            : today()->copy()->endOfDay();
+        // Remembered across a genuine tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment. Falls back to the same "today"/"all" default as before on
+        // a first-ever visit (nothing in session yet).
+        $dateFromInput = $this->rememberedFilter($request, 'dashboard', 'date_from');
+        $dateToInput   = $this->rememberedFilter($request, 'dashboard', 'date_to');
+        $dateFrom = $dateFromInput ? Carbon::parse($dateFromInput)->startOfDay() : today();
+        $dateTo   = $dateToInput ? Carbon::parse($dateToInput)->endOfDay() : today()->copy()->endOfDay();
         if ($dateTo->lt($dateFrom)) {
             $dateTo = $dateFrom->copy()->endOfDay();
         }
@@ -66,7 +71,7 @@ class DashboardController extends Controller
         // key, handled as its own branch below, same convention as that page.
         $teamsConfig  = config('teams', []);
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
-        $selectedTeam = $request->input('team', 'all');
+        $selectedTeam = $this->rememberedFilter($request, 'dashboard', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
             $selectedTeam = 'all';
         }

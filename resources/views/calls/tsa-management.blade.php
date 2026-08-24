@@ -11,7 +11,12 @@
     <div id="tsaMgmtFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
         <span id="tsaMgmtFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
 
-        <a href="{{ route('calls.tsa-management') }}" data-team=""
+        {{-- team='' explicit, not omitted — an omitted param is
+             indistinguishable from a fresh sidebar navigation to this page,
+             which would wrongly leave the last-remembered team filter in
+             place instead of actually clearing it (see
+             PersistsCallTrackerFilters's own doc comment). --}}
+        <a href="{{ route('calls.tsa-management', ['team' => '']) }}" data-team=""
            class="tsaMgmt-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
             All teams
         </a>

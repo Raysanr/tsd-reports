@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\TsaShift;
 use Illuminate\Http\Request;
@@ -15,9 +16,16 @@ use Illuminate\Support\Carbon;
  */
 class RoundRobinSetupController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     public function index(Request $request)
     {
-        $team = $request->string('team')->toString();
+        // Remembered across a tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment. Falls back to '' (empty string, not the 'all' string
+        // convention some other pages use), matching this page's own
+        // existing "falsy = no filter applied" default.
+        $team = $this->rememberedFilter($request, 'leads-setup', 'team', '') ?? '';
 
         // Date picker (explicit request, 2026-08-24, "like the Dashboard" —
         // follow-up: upgraded from a single date to a real range, same
@@ -28,8 +36,8 @@ class RoundRobinSetupController extends Controller
         // always leadsAssignedToday(), hardcoded to the real today
         // regardless of what's picked here — see that method's own doc
         // comment).
-        $dateFromInput = $request->string('date_from')->toString();
-        $dateToInput   = $request->string('date_to')->toString();
+        $dateFromInput = $this->rememberedFilter($request, 'leads-setup', 'date_from');
+        $dateToInput   = $this->rememberedFilter($request, 'leads-setup', 'date_to');
         $dateFrom = $dateFromInput ? Carbon::parse($dateFromInput, 'Asia/Manila')->startOfDay() : today('Asia/Manila');
         $dateTo   = $dateToInput ? Carbon::parse($dateToInput, 'Asia/Manila')->startOfDay() : $dateFrom->copy();
 

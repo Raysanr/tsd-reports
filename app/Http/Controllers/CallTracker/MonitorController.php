@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\Setting;
@@ -19,6 +20,8 @@ use Illuminate\Support\Collection;
  */
 class MonitorController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     public function index(Request $request)
     {
         [$teams, $selectedTeam, $teamsConfig] = $this->resolveTeam($request);
@@ -191,12 +194,14 @@ class MonitorController extends Controller
 
     /** Same ALL/SH Naturals/Eyecare filter as Dashboard (explicit request,
      *  2026-08-20) — identical resolution logic (config('teams'), default
-     *  'all', an unknown key falls back to 'all' rather than erroring). */
+     *  'all', an unknown key falls back to 'all' rather than erroring).
+     *  Remembered across a tab-away-and-back navigation since 2026-08-24 —
+     *  see PersistsCallTrackerFilters's own doc comment. */
     private function resolveTeam(Request $request): array
     {
         $teamsConfig  = config('teams', []);
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
-        $selectedTeam = $request->input('team', 'all');
+        $selectedTeam = $this->rememberedFilter($request, 'monitor', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
             $selectedTeam = 'all';
         }
@@ -209,11 +214,13 @@ class MonitorController extends Controller
      *  picked, same as those pages. TsaStatusLog::secondsByStatus() already
      *  clips a still-future $dateTo to now() on its own, so passing today's
      *  end-of-day here for the common "today" case works the same as the
-     *  literal now() this method passed before date filtering existed. */
+     *  literal now() this method passed before date filtering existed.
+     *  Remembered across a tab-away-and-back navigation since 2026-08-24 —
+     *  see PersistsCallTrackerFilters's own doc comment. */
     private function resolveDateRange(Request $request): array
     {
-        $dateFromInput = $request->string('date_from')->toString();
-        $dateToInput   = $request->string('date_to')->toString();
+        $dateFromInput = $this->rememberedFilter($request, 'monitor', 'date_from');
+        $dateToInput   = $this->rememberedFilter($request, 'monitor', 'date_to');
 
         $dateFrom = $dateFromInput
             ? Carbon::parse($dateFromInput, 'Asia/Manila')->startOfDay()

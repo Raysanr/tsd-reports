@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CallTracker;
 
+use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\CallEvent;
 use App\Models\Lead;
@@ -13,6 +14,8 @@ use Illuminate\Support\Carbon;
 /** Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift. */
 class AnalyticsController extends Controller
 {
+    use PersistsCallTrackerFilters;
+
     // Fixed shift length (minutes/working day) used as "Total Logged-in Hours"
     // in the Unproductive Time formula — a flat per-TSA constant, not derived
     // from TsaShift::shift_start/shift_end (those currently run ~540min/9hr
@@ -21,8 +24,11 @@ class AnalyticsController extends Controller
 
     public function index(Request $request)
     {
-        $dateFrom = $request->string('date_from', now('Asia/Manila')->format('Y-m-d'))->toString();
-        $dateTo   = $request->string('date_to', $dateFrom)->toString();
+        // Remembered across a tab-away-and-back navigation (explicit
+        // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
+        // comment.
+        $dateFrom = $this->rememberedFilter($request, 'analytics', 'date_from', now('Asia/Manila')->format('Y-m-d'));
+        $dateTo   = $this->rememberedFilter($request, 'analytics', 'date_to', $dateFrom);
         $from     = Carbon::parse($dateFrom, 'Asia/Manila')->startOfDay();
         $to       = Carbon::parse($dateTo, 'Asia/Manila')->endOfDay();
 

@@ -44,7 +44,11 @@
         $isDefaultRange = $dateFrom->isToday() && $dateTo->isToday();
         $rangeQuery = $isDefaultRange ? [] : ['date_from' => $dateFrom->toDateString(), 'date_to' => $dateTo->toDateString()];
     @endphp
-    <a href="{{ route('calls.round-robin-setup', $rangeQuery) }}" data-team=""
+    {{-- team='' explicit, not omitted — an omitted param is indistinguishable
+         from a fresh sidebar navigation to this page, which would wrongly
+         leave the last-remembered team filter in place instead of actually
+         clearing it (see PersistsCallTrackerFilters's own doc comment). --}}
+    <a href="{{ route('calls.round-robin-setup', ['team' => ''] + $rangeQuery) }}" data-team=""
        class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
         All teams
     </a>
