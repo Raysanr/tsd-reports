@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Product;
@@ -120,6 +121,42 @@ class CallTrackerDashboardControllerTest extends TestCase
         $response->assertOk();
         $atRisk = $response->viewData('atRiskProducts');
         $this->assertTrue($atRisk->contains('id', $product->id));
+    }
+
+    /** Switched 2026-08-24 (explicit request) from CallEvent to
+     *  CallRecordingHour — CallEvent needs each TSA's phone actually
+     *  hitting the app via MacroDroid, which isn't in real use yet, so
+     *  these cards need to work off Google Drive-synced data instead. */
+    public function test_aht_and_unproductive_time_are_computed_from_real_synced_recording_hours(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 8, 'total_seconds' => 600, 'call_count' => 2]);
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 9, 'total_seconds' => 300, 'call_count' => 1]);
+
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        // AHT = pooled total_seconds / total call_count = 900 / 3 = 300s = 05:00.
+        $this->assertSame('05:00', $response->viewData('ahtDisplay'));
+        // Unproductive = 1 working day * 440min - (900s / 60) = 425 minutes = 425:00.
+        $this->assertSame('425:00', $response->viewData('unproductiveDisplay'));
+    }
+
+    /** An hour with no synced recording contributes nothing (not a 3-min/
+     *  call estimate, unlike TsaPerformanceController's own blended OPT) —
+     *  confirms this stays real-data-only, the explicit choice made when
+     *  wiring the Dashboard cards to CallRecordingHour. */
+    public function test_hours_with_no_synced_recording_are_not_estimated(): void
+    {
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame('—', $response->viewData('ahtDisplay'));
+        // 1 working day * 440min - 0 real seconds = 440:00, not a partial estimate.
+        $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
     }
 
     public function test_does_not_flag_a_product_with_at_least_one_tsa_logged_in(): void

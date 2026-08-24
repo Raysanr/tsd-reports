@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Controller;
-use App\Models\CallEvent;
+use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\LeadSyncRun;
 use App\Models\Product;
@@ -35,9 +35,16 @@ class DashboardController extends Controller
      * date range except TSA Log In, which — like the TSA Status board and
      * At-Risk Products below it — stays live regardless of the picker:
      * "who's logged in right now" has no historical snapshot to show for a
-     * past date. AHT/Unproductive Time reuse the same CallEvent-based
-     * formula as Team Analytics (AnalyticsController), aggregated across the
-     * team in scope instead of that page's own per-TSA breakdown.
+     * past date. AHT/Unproductive Time were switched 2026-08-24 (explicit
+     * request) from CallEvent to CallRecordingHour (real per-hour call
+     * durations synced from Google Drive, see SyncCallRecordings) —
+     * CallEvent needs each TSA's phone to hit the app directly via
+     * MacroDroid, which isn't in real use yet, so it stayed permanently
+     * empty and made these two cards always show blank/meaningless numbers.
+     * Deliberately real-data-only, no fallback estimate for hours with no
+     * synced recording yet (unlike TsaPerformanceController's own blended
+     * OPT/AHT, which mixes in a 3-min/call guess) — an explicit choice so
+     * these cards never show a partly-fabricated number.
      */
     public function index(Request $request)
     {
@@ -94,47 +101,53 @@ class DashboardController extends Controller
         $totalCateredLeads = $totalCateredQuery->count();
         $cateredRate        = $totalLeads > 0 ? round($totalCateredLeads / $totalLeads * 100, 1) : null;
 
-        // AHT & Unproductive Time — same CallEvent.duration_seconds source
-        // and working-days formula as Team Analytics (AnalyticsController),
-        // but aggregated across the whole team in scope for one headline
-        // number instead of that page's own per-TSA breakdown, which stays
-        // the place for "who's fastest." Scoped the same self/team/all way
-        // as the two counts above, using TsaShift rows (not Lead rows) since
-        // a TSA can be "in scope" here with zero leads and still have logged
-        // calls (or vice versa).
+        // AHT & Unproductive Time — real per-hour call-duration totals
+        // synced from Google Drive (CallRecordingHour, see
+        // SyncCallRecordings), not CallEvent (see this method's own doc
+        // comment for why). Scoped the same self/team/all way as the two
+        // counts above, using TsaShift rows (not Lead rows) since a TSA can
+        // be "in scope" here with zero leads and still have logged calls
+        // (or vice versa). Keyed by tsa_key, not tsa_id — CallRecordingHour
+        // has no tsa_id column (see its own migration).
         $scopeTsasQuery = TsaShift::query();
         if (!$user->isAtLeastAdmin()) {
             $scopeTsasQuery->where('id', $user->tsa_id);
         } elseif ($teamTsaIds !== null) {
             $scopeTsasQuery->whereIn('id', $teamTsaIds);
         }
-        $scopeTsas   = $scopeTsasQuery->with('restDays')->get();
-        $scopeTsaIds = $scopeTsas->pluck('id');
+        $scopeTsas    = $scopeTsasQuery->with('restDays')->get();
+        $scopeTsaKeys = $scopeTsas->pluck('tsa_key');
 
-        $rangeCallEvents = CallEvent::whereIn('tsa_id', $scopeTsaIds)
-            ->where('direction', '!=', 'missed')
-            ->whereNotNull('duration_seconds')
-            ->whereBetween('occurred_at', [$dateFrom, $dateTo])
+        $rangeRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
+            ->whereDate('date', '>=', $dateFrom)
+            ->whereDate('date', '<=', $dateTo)
             ->get();
 
-        $ahtSeconds = $rangeCallEvents->isNotEmpty() ? (int) round($rangeCallEvents->avg('duration_seconds')) : null;
+        // AHT = total real seconds / total real calls (a true pooled
+        // average across every synced hour), not an average-of-per-hour-
+        // averages — same reasoning the TOTAL row below already uses for
+        // the per-TSA table's own AHT.
+        $rangeRealCalls = $rangeRecordingHours->sum('call_count');
+        $ahtSeconds = $rangeRealCalls > 0
+            ? (int) round($rangeRecordingHours->sum('total_seconds') / $rangeRealCalls)
+            : null;
 
         // Per TSA: working days in range (TsaShift::isOffOn(), same rest-day
         // rule round-robin assignment already respects) x the same flat
         // 440min/day shift constant AnalyticsController uses, minus that
-        // TSA's own total handle time in the range — then averaged across
-        // the roster in scope for one team-wide number.
+        // TSA's own real synced call duration in the range — then averaged
+        // across the roster in scope for one team-wide number.
         $avgUnproductiveMinutes = null;
         if ($scopeTsas->isNotEmpty()) {
-            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($rangeCallEvents, $dateFrom, $dateTo) {
+            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($rangeRecordingHours, $dateFrom, $dateTo) {
                 $workingDays = 0;
                 for ($day = $dateFrom->copy()->startOfDay(); $day->lte($dateTo); $day->addDay()) {
                     if (!$tsa->isOffOn($day)) {
                         $workingDays++;
                     }
                 }
-                $thtSeconds = $rangeCallEvents->where('tsa_id', $tsa->id)->sum('duration_seconds');
-                return max(0, $workingDays * 440 - $thtSeconds / 60);
+                $realSeconds = $rangeRecordingHours->where('tsa_key', $tsa->tsa_key)->sum('total_seconds');
+                return max(0, $workingDays * 440 - $realSeconds / 60);
             });
             $avgUnproductiveMinutes = $perTsaUnproductive->avg();
         }
@@ -209,20 +222,23 @@ class DashboardController extends Controller
         // assigned_at-scoped set (status now 'called'), matching Analytics'
         // own 'called' definition exactly, rather than an independently
         // called_at-scoped query that could disagree with Analytics too.
-        $tsaIds = $tsas->pluck('id');
+        $tsaIds  = $tsas->pluck('id');
+        $tsaKeys = $tsas->pluck('tsa_key');
 
         $perfLeads = Lead::whereIn('tsa_id', $tsaIds)
             ->whereBetween('assigned_at', [$dateFrom, $dateTo])->get();
-        $perfCallEvents = CallEvent::whereIn('tsa_id', $tsaIds)
-            ->where('direction', '!=', 'missed')->whereNotNull('duration_seconds')
-            ->whereBetween('occurred_at', [$dateFrom, $dateTo])->get();
+        $perfRecordingHours = CallRecordingHour::whereIn('tsa_key', $tsaKeys)
+            ->whereDate('date', '>=', $dateFrom)
+            ->whereDate('date', '<=', $dateTo)
+            ->get();
 
-        $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfCallEvents, $dateFrom, $dateTo, $formatMmSs) {
+        $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfRecordingHours, $dateFrom, $dateTo, $formatMmSs) {
             $tsaLeads      = $perfLeads->where('tsa_id', $tsa->id);
             $tsaTotalLeads = $tsaLeads->count();
             $tsaCatered    = $tsaLeads->where('status', 'called')->count();
-            $tsaEvents     = $perfCallEvents->where('tsa_id', $tsa->id);
-            $tsaAhtSeconds = $tsaEvents->isNotEmpty() ? (int) round($tsaEvents->avg('duration_seconds')) : null;
+            $tsaHours      = $perfRecordingHours->where('tsa_key', $tsa->tsa_key);
+            $tsaRealCalls  = $tsaHours->sum('call_count');
+            $tsaAhtSeconds = $tsaRealCalls > 0 ? (int) round($tsaHours->sum('total_seconds') / $tsaRealCalls) : null;
 
             $workingDays = 0;
             for ($day = $dateFrom->copy()->startOfDay(); $day->lte($dateTo); $day->addDay()) {
@@ -230,7 +246,7 @@ class DashboardController extends Controller
                     $workingDays++;
                 }
             }
-            $tsaUnproductiveMinutes = max(0, $workingDays * 440 - $tsaEvents->sum('duration_seconds') / 60);
+            $tsaUnproductiveMinutes = max(0, $workingDays * 440 - $tsaHours->sum('total_seconds') / 60);
 
             return [
                 'tsa'                 => $tsa,
@@ -252,7 +268,9 @@ class DashboardController extends Controller
         $tsaPerformanceTotal = [
             'totalLeads'          => $tsaPerformance->sum('totalLeads'),
             'catered'             => $tsaPerformance->sum('catered'),
-            'ahtDisplay'          => $formatMmSs($perfCallEvents->isNotEmpty() ? $perfCallEvents->avg('duration_seconds') : null),
+            'ahtDisplay'          => $formatMmSs($perfRecordingHours->sum('call_count') > 0
+                ? $perfRecordingHours->sum('total_seconds') / $perfRecordingHours->sum('call_count')
+                : null),
             'unproductiveDisplay' => $formatMmSs($tsaPerformance->isNotEmpty() ? $tsaPerformance->avg('unproductiveMinutes') * 60 : null),
             'cateredRate'         => $tsaPerformance->sum('totalLeads') > 0
                 ? round($tsaPerformance->sum('catered') / $tsaPerformance->sum('totalLeads') * 100, 1)
@@ -264,33 +282,33 @@ class DashboardController extends Controller
         // source of truth). The AHT & Unproductive Time trend is its own
         // trailing-7-day window, deliberately NOT scoped to the picked date
         // range (same "always live, not a historical snapshot" reasoning as
-        // the TSA Status board above) — same CallEvent source and per-day
-        // version of the working-days formula used for the cards, just run
-        // once per day instead of once for the whole range. A TSA off that
-        // day is excluded from that day's average entirely (there's no
-        // "unproductive" shift to measure), not counted as 0.
+        // the TSA Status board above) — same CallRecordingHour source and
+        // per-day version of the working-days formula used for the cards,
+        // just run once per day instead of once for the whole range. A TSA
+        // off that day is excluded from that day's average entirely
+        // (there's no "unproductive" shift to measure), not counted as 0.
         $trendDays = collect(range(6, 0))->map(fn ($i) => today()->subDays($i));
         $trendFrom = $trendDays->first()->copy()->startOfDay();
         $trendTo   = $trendDays->last()->copy()->endOfDay();
 
-        $trendCallEvents = CallEvent::whereIn('tsa_id', $scopeTsaIds)
-            ->where('direction', '!=', 'missed')
-            ->whereNotNull('duration_seconds')
-            ->whereBetween('occurred_at', [$trendFrom, $trendTo])
+        $trendRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
+            ->whereDate('date', '>=', $trendFrom)
+            ->whereDate('date', '<=', $trendTo)
             ->get();
 
-        $trendAht = $trendDays->map(function ($day) use ($trendCallEvents) {
-            $dayEvents = $trendCallEvents->filter(fn ($e) => $e->occurred_at->isSameDay($day));
-            return $dayEvents->isNotEmpty() ? (int) round($dayEvents->avg('duration_seconds')) : null;
+        $trendAht = $trendDays->map(function ($day) use ($trendRecordingHours) {
+            $dayHours = $trendRecordingHours->filter(fn ($r) => $r->date->isSameDay($day));
+            $dayCalls = $dayHours->sum('call_count');
+            return $dayCalls > 0 ? (int) round($dayHours->sum('total_seconds') / $dayCalls) : null;
         })->values();
 
-        $trendUnproductive = $trendDays->map(function ($day) use ($trendCallEvents, $scopeTsas) {
-            $dayEvents = $trendCallEvents->filter(fn ($e) => $e->occurred_at->isSameDay($day));
-            $working   = $scopeTsas->reject(fn (TsaShift $tsa) => $tsa->isOffOn($day));
+        $trendUnproductive = $trendDays->map(function ($day) use ($trendRecordingHours, $scopeTsas) {
+            $dayHours = $trendRecordingHours->filter(fn ($r) => $r->date->isSameDay($day));
+            $working  = $scopeTsas->reject(fn (TsaShift $tsa) => $tsa->isOffOn($day));
             if ($working->isEmpty()) {
                 return null;
             }
-            $perTsa = $working->map(fn (TsaShift $tsa) => max(0, 440 - $dayEvents->where('tsa_id', $tsa->id)->sum('duration_seconds') / 60));
+            $perTsa = $working->map(fn (TsaShift $tsa) => max(0, 440 - $dayHours->where('tsa_key', $tsa->tsa_key)->sum('total_seconds') / 60));
             return round($perTsa->avg(), 1);
         })->values();
 
@@ -307,7 +325,7 @@ class DashboardController extends Controller
                 'ahtSeconds'   => $trendAht,
                 'unproductive' => $trendUnproductive,
             ],
-            'hasTrendData' => $trendCallEvents->isNotEmpty(),
+            'hasTrendData' => $trendRecordingHours->isNotEmpty(),
         ];
 
         return view('calls.dashboard', [
