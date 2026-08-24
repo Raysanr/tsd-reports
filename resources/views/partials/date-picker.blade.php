@@ -199,10 +199,28 @@
             // top-full mt-2` (below the trigger, right edges aligned), just
             // computed from the trigger's real viewport position now that
             // the panel isn't DOM-adjacent to it any more.
-            panel.style.right     = `${window.innerWidth - rect.right}px`;
+            let right = window.innerWidth - rect.right;
+            panel.style.right     = `${right}px`;
             panel.style.left      = '';
             panel.style.top       = `${rect.bottom + 8}px`;
             panel.style.transform = ''; // clear a leftover mobile centering transform
+
+            // Clamp so the panel never runs off the LEFT edge of the viewport —
+            // confirmed live (2026-08-24): a trigger sitting close to the left
+            // (common at higher browser zoom levels, which shrink the effective
+            // CSS-px viewport width while a fixed-width sidebar doesn't) let this
+            // 440–700px-wide panel's left edge go negative, overlapping the
+            // sidebar entirely instead of staying visible next to its trigger.
+            // panel.offsetWidth only reads correctly once the panel is actually
+            // in the render tree (not `hidden`/display:none) — the caller now
+            // unhides it before calling this, in the same synchronous click
+            // handler, so there's no visible flicker before this repositions it.
+            const margin    = 8;
+            const panelLeft = window.innerWidth - right - panel.offsetWidth;
+            if (panelLeft < margin) {
+                right = window.innerWidth - margin - panel.offsetWidth;
+                panel.style.right = `${right}px`;
+            }
         }
     }
 
@@ -405,8 +423,13 @@
         e.stopPropagation();
         const isHidden = panel.classList.contains('hidden');
         if (isHidden) {
-            positionPanel();
+            // Unhide BEFORE positioning (reordered 2026-08-24) — positionPanel()'s
+            // left-edge clamp now needs panel.offsetWidth, which reads 0 while the
+            // panel is still `hidden` (display:none has no box to measure). Both
+            // calls happen synchronously in this one handler, so the panel never
+            // actually paints at the old, unclamped position first.
             panel.classList.remove('hidden');
+            positionPanel();
             requestAnimationFrame(() => initFp());
         } else {
             panel.classList.add('hidden');
