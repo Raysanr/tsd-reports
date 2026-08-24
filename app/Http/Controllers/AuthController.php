@@ -71,6 +71,14 @@ class AuthController extends Controller
         } catch (\Exception $e) {
             // Covers the user cancelling on Google's consent screen, an
             // expired/replayed callback URL, and bad client credentials.
+            // Logged (2026-08-24, real production incident: every attempt
+            // failed with this generic message and NOTHING in the logs to
+            // diagnose it by, since this catch previously discarded $e
+            // entirely) — the real exception (redirect_uri_mismatch, an
+            // expired/revoked client secret, etc.) is what actually
+            // explains a failure here, this message alone never does.
+            \Illuminate\Support\Facades\Log::error('Google sign-in failed: ' . $e->getMessage(), ['exception' => $e]);
+
             return redirect()->route('login')->withErrors([
                 'email' => 'Google sign-in failed. Please try again.',
             ]);
