@@ -52,15 +52,52 @@ class CallLogControllerTest extends TestCase
 
         $gemmaRow = $rows->firstWhere('tsa.id', $gemma->id);
         $this->assertSame(2, $gemmaRow['total_calls']);
-        $this->assertSame(1, $gemmaRow['outgoing']);
-        $this->assertSame(1, $gemmaRow['missed']);
-        $this->assertSame(60, $gemmaRow['total_duration_s']);
 
         $marielRow = $rows->firstWhere('tsa.id', $mariel->id);
         $this->assertSame(1, $marielRow['total_calls']);
+        // Nothing earlier in range to gap against — a lone call has no gap.
+        $this->assertNull($marielRow['avg_gap_seconds']);
+        $this->assertNull($marielRow['longest_gap_seconds']);
 
         // A TSA with zero calls in range doesn't clutter the totals table.
         $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
         $this->assertNull($rows->firstWhere('tsa.id', $kathleen->id));
+    }
+
+    /**
+     * Explicit request (2026-08-24): replaced the outgoing/incoming/missed/
+     * duration breakdown with "how much idle time sat between this TSA's
+     * calls" — the actual pace question this page was for. Gap is measured
+     * from one call's END (occurred_at, stamped when Macro 1's "Call Ended"
+     * trigger fires) to the NEXT call's START (its own occurred_at minus its
+     * own duration), never confused with a call's own length.
+     */
+    public function test_computes_the_idle_gap_between_a_tsas_consecutive_calls(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->startOfDay()->addHours(9);
+
+        // Call 1: 9:00:00 - 9:01:00 (60s).
+        $call1 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => $today->copy()->addMinute()]);
+        // Call 2 starts 9:06:00 (5 real idle minutes after call 1 ended at 9:01:00), ends 9:06:30.
+        $call2 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(6)->addSeconds(30)]);
+        // Call 3 starts 9:20:30 (14 idle minutes after call 2 ended), ends 9:21:00.
+        $call3 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '3', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(21)]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today->toDateString(), 'date_to' => $today->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $gapBeforeSeconds = $response->viewData('gapBeforeSeconds');
+
+        $this->assertArrayNotHasKey($call1->id, $gapBeforeSeconds, 'first call of the day has no gap');
+        $this->assertSame(300, $gapBeforeSeconds[$call2->id]); // 5 minutes
+        $this->assertSame(840, $gapBeforeSeconds[$call3->id]); // 14 minutes
+
+        $gemmaRow = collect($response->viewData('rows'))->firstWhere('tsa.id', $gemma->id);
+        $this->assertSame((300 + 840) / 2, $gemmaRow['avg_gap_seconds']);
+        $this->assertSame(840, $gemmaRow['longest_gap_seconds']);
     }
 }

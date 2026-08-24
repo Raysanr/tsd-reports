@@ -2,6 +2,30 @@
 @section('title', 'Call Log')
 @section('subtitle', 'Real calls reported by each TSA\'s own phone — the basis for load reimbursement')
 
+@php
+    // Shared by both tables below (explicit request, 2026-08-24: show the
+    // idle gap between calls instead of the outgoing/incoming/missed/
+    // duration breakdown) — same "h/m/s, drop the leading zero units"
+    // shape as Monitor TSA's own $formatSeconds.
+    $formatGap = function (?int $totalSeconds) {
+        if ($totalSeconds === null) return null;
+        $hours   = intdiv($totalSeconds, 3600);
+        $minutes = intdiv($totalSeconds % 3600, 60);
+        $seconds = $totalSeconds % 60;
+        if ($hours > 0)   return "{$hours}h {$minutes}m";
+        if ($minutes > 0) return "{$minutes}m {$seconds}s";
+        return "{$seconds}s";
+    };
+    // Same "how worried should this look" thresholds for both the per-TSA
+    // Longest Gap column and each row's own Gap column, so a TSA flagged
+    // amber/red in the summary is traceable to the exact call that caused it.
+    $gapSeverityClass = function (int $seconds) {
+        if ($seconds >= 1800) return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400';     // 30m+
+        if ($seconds >= 600)  return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'; // 10m+
+        return 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400';
+    };
+@endphp
+
 @section('content')
 
 <div class="mb-6">
@@ -35,10 +59,8 @@
                 <tr>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
                     <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total Calls</th>
-                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Outgoing</th>
-                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Incoming</th>
-                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Missed</th>
-                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total Duration</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Avg Gap</th>
+                    <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Longest Gap</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -46,10 +68,18 @@
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
                     <td class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">{{ $row['tsa']->display_name }}</td>
                     <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['total_calls'] }}</td>
-                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['outgoing'] }}</td>
-                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['incoming'] }}</td>
-                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['missed'] }}</td>
-                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ gmdate('H:i:s', $row['total_duration_s']) }}</td>
+                    <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">
+                        {{ $row['avg_gap_seconds'] !== null ? $formatGap($row['avg_gap_seconds']) : '—' }}
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        @if($row['longest_gap_seconds'] !== null)
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $gapSeverityClass($row['longest_gap_seconds']) }}">
+                            {{ $formatGap($row['longest_gap_seconds']) }}
+                        </span>
+                        @else
+                        <span class="text-slate-300 dark:text-slate-600">—</span>
+                        @endif
+                    </td>
                 </tr>
                 @endforeach
             </tbody>
@@ -79,6 +109,14 @@
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Number</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Direction</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Duration</th>
+                    {{-- Gap to next customer (explicit request, 2026-08-24) —
+                         idle time between this TSA's PREVIOUS call ending and
+                         this one starting, not this row's own call length
+                         (that's the Duration column already). "First call"
+                         when there's nothing earlier for this TSA in the
+                         picked range — see CallLogController::index()'s own
+                         comment for exactly how this is computed. --}}
+                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Gap Before</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Matched Lead</th>
                 </tr>
             </thead>
@@ -97,6 +135,16 @@
                         ])>{{ $event->direction }}</span>
                     </td>
                     <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->duration_seconds !== null ? gmdate('i:s', $event->duration_seconds) : '—' }}</td>
+                    <td class="px-4 py-3">
+                        @php $gap = $gapBeforeSeconds[$event->id] ?? null; @endphp
+                        @if($gap !== null)
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $gapSeverityClass($gap) }}">
+                            {{ $formatGap($gap) }}
+                        </span>
+                        @else
+                        <span class="text-xs text-slate-300 dark:text-slate-600">First call</span>
+                        @endif
+                    </td>
                     <td class="px-4 py-3">
                         @if($event->lead)
                         <a href="{{ route('calls.leads.show', $event->lead) }}" class="text-primary hover:underline">{{ $event->lead->customer_name ?: '#'.$event->lead->pancake_order_id }}</a>
