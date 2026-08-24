@@ -744,21 +744,32 @@ class TsaPerformanceController extends Controller
 
     private function buildRow(?TsaShift $shift, ?string $key, Collection $orders, ?string $displayNameOverride = null): array
     {
-        // Drop orders Pancake itself no longer has (Order::DELETED_STATUSES:
-        // Canceled or Deleted recently) before counting anything — same
-        // exclusion ProductPerformance::tally() applies (fixed 2026-08-18:
-        // this hourly per-TSA breakdown has its own separate accumulator,
-        // kept in sync by hand, and never got this one when it was added to
-        // the shared tally() — Leads Report's own hourly table was already
-        // correct the whole time since it flows through tally() directly;
-        // only this hand-rolled path was missing it). excluded_upsell_seller
-        // and is_duplicated_by_logistics (2026-08-22, explicit follow-up
-        // request — TSA Performance was still counting warehouse-duplicated
-        // orders as real leads even after Leads Report's own tally()-based
-        // views were fixed, exactly the hand-copied-path drift this comment
-        // already warned about) rejected the same way — see
-        // ProductPerformance::tally()'s own comment.
-        $orders = $orders->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+        // Drop orders Pancake itself no longer has (Deleted recently) before
+        // counting anything — same exclusion ProductPerformance::tally()
+        // applies (fixed 2026-08-18: this hourly per-TSA breakdown has its
+        // own separate accumulator, kept in sync by hand, and never got this
+        // one when it was added to the shared tally() — Leads Report's own
+        // hourly table was already correct the whole time since it flows
+        // through tally() directly; only this hand-rolled path was
+        // missing it). excluded_upsell_seller and is_duplicated_by_logistics
+        // (2026-08-22, explicit follow-up request — TSA Performance was
+        // still counting warehouse-duplicated orders as real leads even
+        // after Leads Report's own tally()-based views were fixed, exactly
+        // the hand-copied-path drift this comment already warned about)
+        // rejected the same way — see ProductPerformance::tally()'s own
+        // comment.
+        //
+        // Canceled (6) is handled separately from Deleted (7) (fixed
+        // 2026-08-24, real gap: Marisol showed 11 here vs. the Dashboard's
+        // correct 12) — a Canceled order can still carry a genuine upsell
+        // that happened before it was later canceled
+        // (is_upsell_on_voided_order, commit 78c5094); blanket-dropping
+        // every Canceled order here was silently undoing that fix for this
+        // page specifically, exactly the same hand-copied-path drift this
+        // comment already warns about above — see
+        // ProductPerformance::tally()'s own comment for the identical fix.
+        $orders = $orders->reject(fn ($o) => $o->status_code === 7
+            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 

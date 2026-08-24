@@ -229,7 +229,19 @@ class ProductPerformance
         // SyncTodayOrders::isDuplicatedByLogistics()) is a second order record for
         // the SAME lead, not a second real lead — 215 such orders were inflating
         // Leads Report/TSA Performance before this exclusion.
-        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+        //
+        // Canceled (6) is handled separately from Deleted (7) here (fixed
+        // 2026-08-24, real gap: Marisol showed 11 here vs. the Dashboard's
+        // correct 12) — Deleted means the order no longer exists in Pancake
+        // at all, always dropped; but a Canceled order can still carry a
+        // genuine upsell that happened before it was later canceled
+        // (is_upsell_on_voided_order, see Order.php's own doc comment,
+        // commit 78c5094) — blanket-dropping every Canceled order here was
+        // silently undoing that fix for every page that flows through
+        // tally(), even though the Dashboard's own Leaderboard (which
+        // doesn't apply this exclusion) already counted it correctly.
+        $orders = $orders->reject(fn($o) => $o->status_code === 7
+            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 
@@ -401,9 +413,11 @@ class ProductPerformance
      *  version that could drift out of sync with it. */
     public static function ordersForColumn(Collection $orders, string $column): Collection
     {
-        // Same exclusions as tally() above, including excluded_upsell_seller and
-        // is_duplicated_by_logistics — see that method's own comment for why.
-        $orders = $orders->reject(fn($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+        // Same exclusions as tally() above, including the Canceled-but-a-
+        // genuine-upsell carve-out (2026-08-24) — see that method's own
+        // comment for why.
+        $orders = $orders->reject(fn($o) => $o->status_code === 7
+            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 

@@ -421,11 +421,15 @@ class LeadsReportController extends Controller
         if ($column) {
             $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
         } else {
-            // Same DELETED_STATUSES/excluded_upsell_seller/is_duplicated_by_logistics
-            // exclusions ordersForColumn() already applies for every other column —
-            // see this method's own docblock for why the Total cell now matches
-            // instead of being the one exception.
-            $matching = $matching->reject(fn ($o) => in_array($o->status_code, Order::DELETED_STATUSES, true)
+            // Same exclusions ordersForColumn() already applies for every
+            // other column — see this method's own docblock for why the
+            // Total cell now matches instead of being the one exception.
+            // Canceled (6) carve-out (2026-08-24) matches
+            // ProductPerformance::tally()'s own fix — a genuine upsell that
+            // happened before an order was later canceled still counts, see
+            // that method's own comment.
+            $matching = $matching->reject(fn ($o) => $o->status_code === 7
+                || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
                 || $o->excluded_upsell_seller
                 || $o->is_duplicated_by_logistics);
         }
