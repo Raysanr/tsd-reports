@@ -305,7 +305,13 @@ class LeadController extends Controller
      * swap in an arbitrary Drive file id belonging to a lead/TSA they don't
      * have access to.
      */
-    public function streamRecording(Lead $lead, string $fileId, GoogleDriveClient $drive)
+    /** Relays the browser's own Range header straight through to Drive and
+     *  back (see GoogleDriveClient::downloadFileRanged()'s own doc comment
+     *  for why this is required, not optional, for playback to work at
+     *  all) — a real 206 Partial Content on a Range request, Accept-Ranges
+     *  on every response so the <audio> element knows it CAN seek/range-
+     *  request in the first place. */
+    public function streamRecording(Request $request, Lead $lead, string $fileId, GoogleDriveClient $drive)
     {
         $user = Auth::user();
 
@@ -320,15 +326,27 @@ class LeadController extends Controller
         }
 
         $token = $drive->accessToken();
-        $bytes = $token ? $drive->downloadFile($token, $fileId) : null;
-        if ($bytes === null) {
+        if (!$token) {
             abort(404);
         }
 
-        return response($bytes, 200, [
-            'Content-Type'   => 'audio/mp4',
-            'Content-Length' => (string) strlen($bytes),
-        ]);
+        $result = $drive->downloadFileRanged($token, $fileId, $request->header('Range'));
+        if (!$result['successful']) {
+            abort(404);
+        }
+
+        $headers = [
+            'Content-Type'  => 'audio/mp4',
+            'Accept-Ranges' => 'bytes',
+        ];
+        if ($result['content_length']) {
+            $headers['Content-Length'] = $result['content_length'];
+        }
+        if ($result['content_range']) {
+            $headers['Content-Range'] = $result['content_range'];
+        }
+
+        return response($result['body'], $result['status'], $headers);
     }
 
     /** Matches this lead's phone number against every recording filename in

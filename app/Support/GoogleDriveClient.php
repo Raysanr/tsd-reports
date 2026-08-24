@@ -78,6 +78,39 @@ class GoogleDriveClient
         return $res->successful() ? $res->body() : null;
     }
 
+    /** Forwards an optional browser Range header straight through to Drive's
+     *  own media download (Drive supports HTTP Range requests same as any
+     *  static file host) and returns exactly what Drive replied with, so
+     *  LeadController::streamRecording() can relay a faithful 206 Partial
+     *  Content — or plain 200 — response back to the <audio> element.
+     *  Confirmed live, 2026-08-24: real phone-recorded M4A/MP4 files are
+     *  almost never "fast-start" optimized (their moov metadata atom sits
+     *  at the end of the file, after the audio data itself), so a browser
+     *  can only ever find it by seeking via Range requests — without this,
+     *  streamRecording()'s old plain single-shot response left the player
+     *  showing working controls but stuck at 0:00/0:00 forever, even
+     *  though the exact same bytes download and parse as perfectly valid
+     *  M4A outside a browser. A separate method (not an optional param on
+     *  downloadFile() above) so SyncCallRecordings' own call — which wants
+     *  one predictable ?string return, not a Range-negotiated one — is
+     *  untouched. */
+    public function downloadFileRanged(string $token, string $fileId, ?string $rangeHeader): array
+    {
+        $request = Http::withToken($token)->timeout(30);
+        if ($rangeHeader) {
+            $request = $request->withHeaders(['Range' => $rangeHeader]);
+        }
+        $res = $request->get("https://www.googleapis.com/drive/v3/files/{$fileId}", ['alt' => 'media']);
+
+        return [
+            'successful'     => $res->successful() || $res->status() === 206,
+            'status'         => $res->status(),
+            'body'           => $res->body(),
+            'content_range'  => $res->header('Content-Range'),
+            'content_length' => $res->header('Content-Length'),
+        ];
+    }
+
     public function namesMatch(string $a, string $b): bool
     {
         return strtoupper(trim($a)) === strtoupper(trim($b));
