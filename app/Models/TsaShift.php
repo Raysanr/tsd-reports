@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\LogoutLeadRedistributor;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -179,12 +180,23 @@ class TsaShift extends Model
      *  change showing up here, automatic or not. */
     public function applyStatusChange(string $status, ?int $lockedByUserId = null): void
     {
+        $wasLoggedOut = $this->status === self::STATUS_LOGOUT;
+
         $this->update([
             'status'            => $status,
             'status_changed_at' => now(),
             'status_locked_by'  => $lockedByUserId,
         ]);
         TsaStatusLog::log($this, $status);
+
+        // "Smart rotation" (explicit request, 2026-08-25) — a fresh
+        // transition INTO logout (not an already-logged-out TSA getting a
+        // redundant logout write) hands off whatever's still uncalled in
+        // this TSA's queue to her teammates — see
+        // LogoutLeadRedistributor's own doc comment for the full reasoning.
+        if ($status === self::STATUS_LOGOUT && !$wasLoggedOut) {
+            LogoutLeadRedistributor::redistribute($this);
+        }
     }
 
     public function callEvents(): HasMany
