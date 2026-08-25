@@ -190,8 +190,24 @@ class PancakeOrderTagApi
             $order = $response->json('data') ?? $response->json();
 
             return [
-                'items' => $order['items'] ?? [],
-                'tags'  => $order['tags'] ?? [],
+                'items'    => $order['items'] ?? [],
+                'tags'     => $order['tags'] ?? [],
+                // Delivery (explicit follow-up request, 2026-08-25: "add
+                // delivery to this like in the POS") — confirmed against a
+                // real live order's own raw response: shipping_address is
+                // the recipient/full address, partner is the assigned
+                // courier (null until Pancake/the shop actually books one —
+                // e.g. still New/unprinted), estimate_delivery_date is
+                // nullable the same way. Read-only display only — Pancake's
+                // own Delivery panel is a real editable form backed by a
+                // full province/city/barangay address-cascading picker,
+                // building an equivalent editor here is a materially
+                // bigger undertaking than what was asked for.
+                'shipping_address'      => $order['shipping_address'] ?? null,
+                'shipping_fee'          => $order['shipping_fee'] ?? null,
+                'estimate_delivery_date' => $order['estimate_delivery_date'] ?? null,
+                'courier_name'          => $order['partner']['partner_name'] ?? null,
+                'tracking_link'         => $order['tracking_link'] ?? null,
             ];
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);

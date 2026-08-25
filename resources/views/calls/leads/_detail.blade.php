@@ -309,6 +309,56 @@
                 <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ $lead->phone_number ?: '—' }}</p>
             </div>
 
+            @if($liveOrder && $liveOrder['shipping_address'])
+            {{-- Delivery (explicit follow-up request, 2026-08-25: "add
+                 delivery to this like in the POS") — live from the same
+                 order fetch as Products/POS Tags above
+                 (PancakeOrderTagApi::getOrderDetail()). Read-only display:
+                 Pancake's own Delivery panel is a real editable form
+                 backed by a full province/city/barangay address-cascading
+                 picker — building an equivalent editor is a materially
+                 bigger undertaking than what was asked for here. --}}
+            @php $shipping = $liveOrder['shipping_address']; @endphp
+            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+                <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Delivery</p>
+                <dl class="space-y-3 text-sm">
+                    <div>
+                        <dt class="text-slate-400 text-xs">Recipient</dt>
+                        <dd class="text-slate-700 dark:text-slate-200 font-semibold">{{ $shipping['full_name'] ?? '—' }}</dd>
+                        <dd class="text-slate-500 dark:text-slate-400">{{ $shipping['phone_number'] ?? '—' }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-slate-400 text-xs">Address</dt>
+                        <dd class="text-slate-700 dark:text-slate-200">{{ $shipping['full_address'] ?? '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <dt class="text-slate-400 text-xs">Courier</dt>
+                            <dd class="text-slate-700 dark:text-slate-200">{{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</dd>
+                        </div>
+                        {{-- Pancake returns a tracking_link even before a courier is
+                             assigned (a placeholder page) — only show "Track" once
+                             there's an actual courier to track with. --}}
+                        @if($liveOrder['tracking_link'] && $liveOrder['courier_name'])
+                        <a href="{{ $liveOrder['tracking_link'] }}" target="_blank" rel="noopener" class="text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0">Track ↗</a>
+                        @endif
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <dt class="text-slate-400 text-xs">Shipping fee</dt>
+                            <dd class="text-slate-700 dark:text-slate-200">₱{{ number_format($liveOrder['shipping_fee'] ?? 0, 2) }}</dd>
+                        </div>
+                        @if($liveOrder['estimate_delivery_date'])
+                        <div class="text-right">
+                            <dt class="text-slate-400 text-xs">Est. delivery</dt>
+                            <dd class="text-slate-700 dark:text-slate-200">{{ \Illuminate\Support\Carbon::parse($liveOrder['estimate_delivery_date'])->format('M j, Y') }}</dd>
+                        </div>
+                        @endif
+                    </div>
+                </dl>
+            </div>
+            @endif
+
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Activity</p>
                 @if($lead->activities->isEmpty())

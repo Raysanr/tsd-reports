@@ -203,6 +203,67 @@ class LeadShowTest extends TestCase
         $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
     }
 
+    /** Explicit follow-up request (2026-08-25): "add delivery to this like
+     *  in the POS" — live from the same order fetch as Products/POS Tags,
+     *  read-only display of recipient/address/courier/fee. */
+    public function test_shows_the_real_delivery_info_from_pancake(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's11', 'customer_name' => 'Delivery Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s11*' => Http::response(['data' => [
+                'items' => [], 'tags' => [],
+                'shipping_address' => [
+                    'full_name' => 'Victoriano Brugada', 'phone_number' => '09163774053',
+                    'full_address' => 'Landmark: Malapit sa Tower ng Globe Padulo, Poblacion ibaba, Angono, Rizal',
+                ],
+                'shipping_fee' => 150,
+                'estimate_delivery_date' => '2026-08-28',
+                'partner' => ['partner_name' => 'J&T Philippines'],
+                'tracking_link' => 'https://order.pke.gg/tracking?id=abc123',
+            ]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('Victoriano Brugada');
+        $response->assertSee('09163774053');
+        $response->assertSee('Angono, Rizal');
+        $response->assertSee('J&amp;T Philippines', false);
+        $response->assertSee('₱150.00', false);
+        $response->assertSee('Aug 28, 2026');
+    }
+
+    /** No shipping_address at all (Pancake unreachable, or a genuinely
+     *  address-less order) — the whole Delivery card must not render, not
+     *  show a broken/empty panel. */
+    public function test_no_delivery_card_when_pancake_has_no_shipping_address(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's12', 'customer_name' => 'Juan Dela Cruz', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s12*' => Http::response(['data' => ['items' => [], 'tags' => []]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertDontSee('Delivery');
+    }
+
     /** Pancake unreachable (timeout, not configured, etc.) — must fall back
      *  to the local summarized card cleanly, never error the whole modal. */
     public function test_falls_back_to_the_local_summary_when_pancake_is_unreachable(): void
