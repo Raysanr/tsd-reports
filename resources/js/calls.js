@@ -2570,7 +2570,8 @@ document.addEventListener('keydown', (e) => {
 // duplicating Analytics' own per-TSA breakdown, which stays the one place
 // for that. Two independent empty states: the bar/donut pair reflects the
 // picked date range and can legitimately be all-zero (a quiet day), while
-// the AHT/Unproductive trend line is its own always-on 7-day window.
+// the AHT/Unproductive trend line is its own always-on today-by-hour
+// window (explicit follow-up request, 2026-08-25: "make this per hour").
 (function initDashboardCharts() {
     const dataEl = document.getElementById('dashboardChartData');
     if (!dataEl) return;
@@ -2595,7 +2596,10 @@ document.addEventListener('keydown', (e) => {
     // own format (see calls/analytics.blade.php) so this chart and that
     // table never disagree about how a duration reads.
     const formatSeconds = (s) => `${Math.floor(s / 60)}m ${s % 60}s`;
-    const formatMinutes = (m) => `${Math.floor(m / 60)}h ${Math.round(m % 60)}m`;
+    // Unproductive Time is now minutes within a single hour (0-60, never
+    // more — see DashboardController::index()'s own comment on the
+    // per-hour switch), so no "0h" prefix like the old whole-shift version.
+    const formatMinutes = (m) => `${Math.round(m)}m`;
 
     const overviewEmpty = document.getElementById('dashboardOverviewEmpty');
     const overviewWrap = document.getElementById('dashboardOverviewWrap');
@@ -2671,9 +2675,9 @@ document.addEventListener('keydown', (e) => {
 
     // AHT & Unproductive Time trend — dual y-axes, not a shared one: AHT
     // runs in seconds (a single call, usually single-digit minutes) while
-    // Unproductive Time runs in minutes across a whole shift (can be
-    // hours) — sharing one axis would flatten the AHT line to near-zero
-    // next to it. spanGaps bridges a day with no scoped TSAs working (see
+    // Unproductive Time runs in minutes per hour (up to a full 60) —
+    // sharing one axis would flatten the AHT line to near-zero next to it.
+    // spanGaps bridges an hour with no scoped TSAs active (see
     // DashboardController::index()'s own comment) rather than breaking the
     // line at that point.
     const trendCanvas = document.getElementById('chartTrend');
@@ -2717,7 +2721,12 @@ document.addEventListener('keydown', (e) => {
                         title: { display: true, text: 'AHT', font: { family: 'Fira Sans', size: 10 }, color: tickColor },
                     },
                     yUnproductive: {
-                        beginAtZero: true, position: 'right', grid: { display: false },
+                        // Fixed 0-60 (a whole hour), not auto-scaled — every
+                        // value is already bounded to one hour's worth of
+                        // minutes, so a fixed ceiling reads more intuitively
+                        // ("how much of this hour was wasted") than an axis
+                        // that rescales as different hours come in.
+                        beginAtZero: true, max: 60, position: 'right', grid: { display: false },
                         ticks: { ...tickFont, color: tickColor, callback: (v) => formatMinutes(v) },
                         title: { display: true, text: 'Unproductive Time', font: { family: 'Fira Sans', size: 10 }, color: tickColor },
                     },

@@ -9,6 +9,7 @@ use App\Models\Lead;
 use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\TsaShift;
+use App\Support\HourFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -284,36 +285,41 @@ class DashboardController extends Controller
 
         // Chart payload — bar/donut reshape the same Total Leads/Catered
         // Leads numbers already in the KPI cards above (never a separate
-        // source of truth). The AHT & Unproductive Time trend is its own
-        // trailing-7-day window, deliberately NOT scoped to the picked date
-        // range (same "always live, not a historical snapshot" reasoning as
-        // the TSA Status board above) — same CallRecordingHour source and
-        // per-day version of the working-days formula used for the cards,
-        // just run once per day instead of once for the whole range. A TSA
-        // off that day is excluded from that day's average entirely
-        // (there's no "unproductive" shift to measure), not counted as 0.
-        $trendDays = collect(range(6, 0))->map(fn ($i) => today()->subDays($i));
-        $trendFrom = $trendDays->first()->copy()->startOfDay();
-        $trendTo   = $trendDays->last()->copy()->endOfDay();
-
-        $trendRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
-            ->whereDate('date', '>=', $trendFrom)
-            ->whereDate('date', '<=', $trendTo)
+        // source of truth). The AHT & Unproductive Time trend is today's
+        // real hour-by-hour breakdown (explicit follow-up request,
+        // 2026-08-25: "make this per hour" — was a trailing-7-day view),
+        // deliberately NOT scoped to the picked date range (same "always
+        // live, not a historical snapshot" reasoning as the TSA Status board
+        // above) — same CallRecordingHour source, just grouped by hour
+        // instead of by day. Only the hours the team actually has synced
+        // recording data for today appear (not a fixed 0-23 range) so a
+        // not-yet-reached hour, or a day with nothing synced yet, doesn't
+        // show as a misleading flat zero.
+        $todayRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
+            ->whereDate('date', today())
             ->get();
 
-        $trendAht = $trendDays->map(function ($day) use ($trendRecordingHours) {
-            $dayHours = $trendRecordingHours->filter(fn ($r) => $r->date->isSameDay($day));
-            $dayCalls = $dayHours->sum('call_count');
-            return $dayCalls > 0 ? (int) round($dayHours->sum('total_seconds') / $dayCalls) : null;
+        $trendHours = $todayRecordingHours->pluck('hour')->unique()->sort()->values();
+
+        $trendAht = $trendHours->map(function ($hour) use ($todayRecordingHours) {
+            $hourRows = $todayRecordingHours->where('hour', $hour);
+            $hourCalls = $hourRows->sum('call_count');
+            return $hourCalls > 0 ? (int) round($hourRows->sum('total_seconds') / $hourCalls) : null;
         })->values();
 
-        $trendUnproductive = $trendDays->map(function ($day) use ($trendRecordingHours, $scopeTsas) {
-            $dayHours = $trendRecordingHours->filter(fn ($r) => $r->date->isSameDay($day));
-            $working  = $scopeTsas->reject(fn (TsaShift $tsa) => $tsa->isOffOn($day));
-            if ($working->isEmpty()) {
+        // Unproductive minutes this hour = 60 - minutes actually spent on a
+        // call, averaged across every TSA who logged SOME recording time
+        // this hour — the per-hour stand-in for the daily version's
+        // isOffOn() check: there's no exact shift-start/end clock to test
+        // against a single hour, so "recorded any call time this hour" is
+        // what marks a TSA as working it instead.
+        $trendUnproductive = $trendHours->map(function ($hour) use ($todayRecordingHours) {
+            $hourRows = $todayRecordingHours->where('hour', $hour);
+            $activeTsaKeys = $hourRows->pluck('tsa_key')->unique();
+            if ($activeTsaKeys->isEmpty()) {
                 return null;
             }
-            $perTsa = $working->map(fn (TsaShift $tsa) => max(0, 440 - $dayHours->where('tsa_key', $tsa->tsa_key)->sum('total_seconds') / 60));
+            $perTsa = $activeTsaKeys->map(fn ($tsaKey) => max(0, 60 - $hourRows->where('tsa_key', $tsaKey)->sum('total_seconds') / 60));
             return round($perTsa->avg(), 1);
         })->values();
 
@@ -326,11 +332,11 @@ class DashboardController extends Controller
             'hasOverviewData' => $totalLeads > 0,
             'cateredRate'     => $cateredRate,
             'trend' => [
-                'labels'       => $trendDays->map(fn ($d) => $d->format('M j'))->values(),
+                'labels'       => $trendHours->map(fn ($h) => HourFormatter::label($h))->values(),
                 'ahtSeconds'   => $trendAht,
                 'unproductive' => $trendUnproductive,
             ],
-            'hasTrendData' => $trendRecordingHours->isNotEmpty(),
+            'hasTrendData' => $todayRecordingHours->isNotEmpty(),
         ];
 
         return view('calls.dashboard', [

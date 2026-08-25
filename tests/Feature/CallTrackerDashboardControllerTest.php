@@ -159,6 +159,47 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
     }
 
+    /** Explicit follow-up request (2026-08-25): "make this per hour" — the
+     *  AHT & Unproductive Time trend chart switched from a trailing-7-day
+     *  view to today's real hour-by-hour breakdown, same CallRecordingHour
+     *  source as the KPI cards above, just grouped by hour instead of day. */
+    public function test_the_trend_chart_is_grouped_by_hour_not_by_day(): void
+    {
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 8, 'total_seconds' => 600, 'call_count' => 2]);
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 9, 'total_seconds' => 300, 'call_count' => 1]);
+        // Yesterday's data must NOT bleed into today's hourly trend (the old
+        // 7-day version deliberately included it; the hourly version is
+        // scoped to today only).
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today()->subDay(), 'hour' => 8, 'total_seconds' => 9999, 'call_count' => 99]);
+
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $trend = $response->viewData('chartData')['trend'];
+
+        $this->assertSame(['8:00am', '9:00am'], $trend['labels']->all());
+        // Hour 8: 600s / 2 calls = 300s AHT. Hour 9: 300s / 1 call = 300s AHT.
+        $this->assertSame([300, 300], $trend['ahtSeconds']->all());
+        // Hour 8: 60 - (600s / 60) = 50 unproductive minutes. Hour 9: 60 - (300s / 60) = 55.
+        $this->assertSame([50.0, 55.0], $trend['unproductive']->all());
+    }
+
+    /** An hour nobody's logged any recording time for yet just doesn't
+     *  appear — not a misleading flat zero for a shift hour not yet
+     *  reached. */
+    public function test_the_trend_chart_only_shows_hours_with_real_data(): void
+    {
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $chartData = $response->viewData('chartData');
+
+        $this->assertFalse($chartData['hasTrendData']);
+        $this->assertSame([], $chartData['trend']['labels']->all());
+    }
+
     public function test_does_not_flag_a_product_with_at_least_one_tsa_logged_in(): void
     {
         $product = Product::where('display_name', 'SINUXYL')->first();

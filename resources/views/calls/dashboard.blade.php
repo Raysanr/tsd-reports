@@ -152,8 +152,8 @@ $statusBadge = fn($status) => match(true) {
 
 {{-- Overview charts — bar/donut reshape the same Total Leads/Catered Leads
      numbers already in the KPI cards above (never a separate source of
-     truth); the trend line is AHT & Unproductive Time over the trailing 7
-     days, its own always-on window (see DashboardController::index()'s own
+     truth); the trend line is AHT & Unproductive Time today, hour by hour,
+     its own always-on window (see DashboardController::index()'s own
      comment on why) — same source data as Team Analytics' own AHT tab,
      aggregated for the team in scope instead of broken out per TSA. --}}
 <script type="application/json" id="dashboardChartData">{!! json_encode($chartData) !!}</script>
@@ -192,14 +192,14 @@ $statusBadge = fn($status) => match(true) {
 
     <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
         <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">AHT &amp; Unproductive Time Trend</h2>
-        <p class="text-xs font-mono text-slate-400 mb-4">Team averages per day, last 7 days</p>
+        <p class="text-xs font-mono text-slate-400 mb-4">Team averages per hour, today</p>
         @if(!$chartData['hasTrendData'])
         <div id="dashboardTrendEmpty" class="h-48 flex items-center justify-center text-center px-2">
-            <p class="text-xs font-mono text-slate-400">No logged calls in the last 7 days yet.</p>
+            <p class="text-xs font-mono text-slate-400">No logged calls today yet.</p>
         </div>
         @else
         <div id="dashboardTrendWrap" class="h-48">
-            <canvas id="chartTrend" role="img" aria-label="Line chart tracking average handle time and average unproductive time per day over the last 7 days"></canvas>
+            <canvas id="chartTrend" role="img" aria-label="Line chart tracking average handle time and average unproductive time per hour, today"></canvas>
         </div>
         @endif
     </div>
