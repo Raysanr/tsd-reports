@@ -671,6 +671,57 @@ class LeadController extends Controller
     }
 
     /**
+     * Adds a real tag to the order in Pancake directly — the write side of
+     * the lead detail modal's own "POS Tags" panel (explicit follow-up
+     * request, 2026-08-25: "there's add tag too like in the pos not log
+     * like log outcome or upsell" — a real Pancake tag is its own concept,
+     * distinct from updateDisposition()'s own tag-writing, which is really
+     * about logging a call OUTCOME and only writes tags as a side effect of
+     * that). Reuses searchTags() for the picker (same real Pancake tag
+     * catalog, so a chosen tag is always guaranteed to exist and match
+     * PancakeOrderTagApi::addTagsToOrder()'s own catalog lookup). Same
+     * GET-then-PUT-whole-order write, same "keep the local Order.raw_tags
+     * cache in step" convention as removeTag() above.
+     */
+    public function addTag(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate(['tag' => ['required', 'string', 'max:255']]);
+
+        $result  = $api->addTagsToOrder($lead->pancake_order_id, [$data['tag']]);
+        $success = $result[$data['tag']] ?? false;
+
+        if ($success) {
+            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
+            if ($order) {
+                $order->update(['raw_tags' => collect($order->raw_tags ?? [])
+                    ->push($data['tag'])->unique(fn ($t) => strtolower($t))->values()->all()]);
+            }
+        }
+
+        LeadActivity::log(
+            $lead, 'tag_added',
+            "Added tag \"{$data['tag']}\" by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
+            $user
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not add this tag in Pancake — try again or add it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
      * Live read of the lead's real Pancake order notes (PancakeOrderTagApi::
      * getNotes() — see its own doc comment: `note`/`note_print`, the only
      * two note fields Pancake's API actually has). Explicit request

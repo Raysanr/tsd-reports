@@ -824,10 +824,27 @@ function renderMessage(msg) {
 // AJAX-partial convention TSA Management's own table already uses) and
 // injects it as raw HTML rather than JSON-driven rendering, since the
 // content itself is a full interactive Blade partial (disposition picker,
-// Pancake Notes, Upsell button) — re-implementing that in JS would mean
-// duplicating a lot of already-working Blade logic. initPancakeNotesPanel()
-// must be re-run after injecting (see that function's own comment for why —
-// it can't just be captured once at page load the way it used to be).
+// Pancake Notes, inline Add Upsell/Add Tag) — re-implementing that in JS
+// would mean duplicating a lot of already-working Blade logic.
+// initPancakeNotesPanel()/initInlineUpsellSearch()/initInlineTagsPanel()
+// must all be re-run after injecting (see initPancakeNotesPanel()'s own
+// comment for why — none of them can just be captured once at page load
+// the way this used to work). Factored into loadLeadDetailInto() so
+// refreshLeadDetail() (called after a real Pancake write — adding a
+// product or tag — so the card reflects it immediately) can reuse the
+// exact same fetch+inject+re-init sequence instead of a second hand-copied
+// copy that could drift out of sync with it.
+function loadLeadDetailInto(leadId, body) {
+    return fetch(`/calls/leads/${leadId}`, { headers: { 'X-Table-Refresh': '1' } })
+        .then((res) => (res.ok ? res.text() : Promise.reject()))
+        .then((html) => {
+            body.innerHTML = html;
+            initPancakeNotesPanel();
+            initInlineUpsellSearch();
+            initInlineTagsPanel();
+        });
+}
+
 window.openLeadModal = function (leadId) {
     const modal = document.getElementById('leadDetailModal');
     const body = document.getElementById('leadDetailModalBody');
@@ -842,15 +859,28 @@ window.openLeadModal = function (leadId) {
             </svg>
         </div>`;
 
-    fetch(`/calls/leads/${leadId}`, { headers: { 'X-Table-Refresh': '1' } })
-        .then((res) => (res.ok ? res.text() : Promise.reject()))
-        .then((html) => {
-            body.innerHTML = html;
-            initPancakeNotesPanel();
-        })
-        .catch(() => {
-            body.innerHTML = '<p class="text-red-500 text-center py-24">Could not load this lead — try again.</p>';
+    loadLeadDetailInto(leadId, body).catch(() => {
+        body.innerHTML = '<p class="text-red-500 text-center py-24">Could not load this lead — try again.</p>';
+    });
+};
+
+// Called after adding a product/tag writes to the real Pancake order
+// (submitInlineUpsell()/submitInlineTagAdd() below) so the card reflects
+// it immediately instead of waiting for a manual reopen. Re-fetches in
+// place when the modal is what's open; a plain reload when this is the
+// standalone full page instead (calls/leads/show.blade.php) — the whole
+// page's own state, not just this one card, needs to reflect the write
+// there, and there's no separate "just this card" container to target.
+window.refreshLeadDetail = function (leadId) {
+    const modal = document.getElementById('leadDetailModal');
+    const body = document.getElementById('leadDetailModalBody');
+    if (modal && body && !modal.classList.contains('hidden')) {
+        loadLeadDetailInto(leadId, body).catch(() => {
+            window.showToast?.('Could not refresh this lead — reload the page.', 'error');
         });
+        return;
+    }
+    window.location.reload();
 };
 
 // Same "plain click opens the modal, ctrl/cmd/middle-click still opens the
@@ -1290,6 +1320,281 @@ document.addEventListener('click', (e) => {
     if (e.target.id === 'upsellModal') window.closeUpsellModal(); // backdrop click
 });
 
+// Inline Add Upsell / Add Tag (lead detail modal, 2nd explicit follow-up
+// request, 2026-08-25: "the search products in the pos is [at] the top of
+// displaying products ... not log like log outcome or upsell") — same
+// search/add endpoints as the Leads table's own #upsellModal above
+// (LeadController::searchProducts()/addUpsell()) and the real-tags panel's
+// own remove flow (LeadController::searchTags()/addTag()), but rendered
+// inline in the Products/POS Tags cards instead of a separate modal or a
+// disposition-logging form, matching Pancake's own layout. Genuinely
+// different element IDs from #upsellModal's own so the two never collide —
+// the Leads table's per-row "+ Add Upsell" button keeps working unchanged.
+// init*()  functions re-query and re-bind fresh every call (not captured
+// once at page load) since this content is destroyed/recreated on every
+// modal open — same reason initPancakeNotesPanel() has to.
+let selectedInlineUpsellProduct = null;
+let inlineUpsellDebounce = null;
+
+function initInlineUpsellSearch() {
+    const wrap = document.getElementById('inlineUpsellSearchWrap');
+    const search = document.getElementById('inlineUpsellSearch');
+    if (!wrap || !search) return;
+
+    selectedInlineUpsellProduct = null;
+
+    search.addEventListener('input', (e) => {
+        clearTimeout(inlineUpsellDebounce);
+        inlineUpsellDebounce = setTimeout(() => searchInlineUpsell(wrap.dataset.leadId, e.target.value.trim()), 250);
+    });
+    search.addEventListener('focus', () => {
+        if (search.value.trim()) document.getElementById('inlineUpsellResults')?.classList.remove('hidden');
+    });
+}
+
+async function searchInlineUpsell(leadId, q) {
+    const results = document.getElementById('inlineUpsellResults');
+    if (!results) return;
+
+    if (!q) {
+        results.classList.add('hidden');
+        results.innerHTML = '';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/products?q=` + encodeURIComponent(q));
+        const data = await res.json();
+        renderInlineUpsellResults(data.success ? data.products : []);
+    } catch (e) {
+        renderInlineUpsellResults([]);
+    }
+}
+
+function renderInlineUpsellResults(products) {
+    const results = document.getElementById('inlineUpsellResults');
+    if (!results) return;
+
+    if (!products.length) {
+        results.innerHTML = '<p class="text-slate-400 text-center text-xs py-4">No products found.</p>';
+        results.classList.remove('hidden');
+        return;
+    }
+
+    // Same thumbnail + full combo name + price shape as the #upsellModal
+    // results above (renderUpsellModalResults()) — see that function's own
+    // comment for why the full name matters here specifically.
+    results.innerHTML = products.map((p, i) => `
+        <div class="inline-upsell-result-row flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 border-b border-slate-50 dark:border-slate-800 last:border-b-0 text-slate-700 dark:text-slate-200" data-index="${i}">
+            ${p.image
+                ? `<img src="${escapeHtml(p.image)}" alt="" class="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'w-8 h-8 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800'}))">`
+                : `<div class="w-8 h-8 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800"></div>`}
+            <span class="flex-1 min-w-0 leading-snug line-clamp-2">${escapeHtml(p.name)}</span>
+            <span class="text-primary-dark dark:text-yellow-300 font-semibold shrink-0 text-xs">₱${Number(p.retail_price).toLocaleString()}</span>
+        </div>`).join('');
+    results.dataset.products = JSON.stringify(products);
+    results.classList.remove('hidden');
+}
+
+function selectInlineUpsellProduct(product) {
+    selectedInlineUpsellProduct = product;
+    document.getElementById('inlineUpsellResults')?.classList.add('hidden');
+    const search = document.getElementById('inlineUpsellSearch');
+    if (search) search.value = '';
+    document.getElementById('inlineUpsellConfirmName').textContent = `${product.name} — ₱${Number(product.retail_price).toLocaleString()}`;
+    document.getElementById('inlineUpsellQuantity').value = 1;
+    document.getElementById('inlineUpsellError').classList.add('hidden');
+    const confirm = document.getElementById('inlineUpsellConfirm');
+    confirm.classList.remove('hidden');
+    confirm.classList.add('flex');
+}
+
+window.submitInlineUpsell = async function () {
+    const wrap = document.getElementById('inlineUpsellSearchWrap');
+    if (!wrap || !selectedInlineUpsellProduct) return;
+    const leadId = wrap.dataset.leadId;
+
+    const qty = Math.max(1, parseInt(document.getElementById('inlineUpsellQuantity').value, 10) || 1);
+    const btn = document.getElementById('inlineUpsellAddBtn');
+    const errorEl = document.getElementById('inlineUpsellError');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    errorEl.classList.add('hidden');
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/upsell`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({
+                variation_id: selectedInlineUpsellProduct.variation_id,
+                product_id: selectedInlineUpsellProduct.product_id,
+                name: selectedInlineUpsellProduct.name,
+                retail_price: selectedInlineUpsellProduct.retail_price,
+                quantity: qty,
+            }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            window.showToast?.('Added to order.', 'success');
+            window.refreshLeadDetail(leadId);
+        } else {
+            errorEl.textContent = data.error || 'Could not add this product — try again.';
+            errorEl.classList.remove('hidden');
+            btn.disabled = false;
+            btn.textContent = 'Add';
+        }
+    } catch (e) {
+        errorEl.textContent = 'Could not reach the server — try again.';
+        errorEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Add';
+    }
+};
+
+document.addEventListener('click', (e) => {
+    const row = e.target.closest('.inline-upsell-result-row');
+    if (!row) return;
+    const results = document.getElementById('inlineUpsellResults');
+    const products = JSON.parse(results?.dataset.products || '[]');
+    const product = products[parseInt(row.dataset.index, 10)];
+    if (product) selectInlineUpsellProduct(product);
+});
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#inlineUpsellSearchWrap')) {
+        document.getElementById('inlineUpsellResults')?.classList.add('hidden');
+    }
+});
+
+// Inline "+ Add tag" chip in the POS Tags card — writes a real tag straight
+// to Pancake (LeadController::addTag(), new 2026-08-25) the moment one's
+// picked, distinct from updateDisposition()'s own tag-writing (that's
+// really about logging a call OUTCOME, real Pancake tags are only a side
+// effect of it). Remove buttons on each pill reuse the existing
+// .real-tag-remove class + already-delegated document-level click handler
+// above (see that handler's own comment) — no new code needed for removal.
+let inlineTagAddDebounce = null;
+
+function initInlineTagsPanel() {
+    const list = document.getElementById('inlineTagsList');
+    if (!list) return;
+
+    document.getElementById('inlineTagAddPanel')?.classList.add('hidden');
+
+    const search = document.getElementById('inlineTagAddSearch');
+    if (search) {
+        search.addEventListener('input', (e) => {
+            clearTimeout(inlineTagAddDebounce);
+            inlineTagAddDebounce = setTimeout(() => searchInlineTagAdd(list.dataset.leadId, e.target.value.trim()), 250);
+        });
+    }
+}
+
+window.openInlineTagAdd = function () {
+    const panel = document.getElementById('inlineTagAddPanel');
+    if (!panel) return;
+
+    const wasOpen = !panel.classList.contains('hidden');
+    panel.classList.add('hidden');
+    if (wasOpen) return;
+
+    panel.classList.remove('hidden');
+    document.getElementById('inlineTagAddResults').innerHTML =
+        '<p class="text-slate-400 text-center text-[11px] py-3">Type to search…</p>';
+    const search = document.getElementById('inlineTagAddSearch');
+    search.value = '';
+    search.focus();
+};
+
+async function searchInlineTagAdd(leadId, q) {
+    const results = document.getElementById('inlineTagAddResults');
+    if (!results) return;
+
+    if (!q) {
+        results.innerHTML = '<p class="text-slate-400 text-center text-[11px] py-3">Type to search…</p>';
+        return;
+    }
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/tags?q=` + encodeURIComponent(q));
+        const data = await res.json();
+        renderInlineTagAddResults(data.success ? data.tags : []);
+    } catch (e) {
+        renderInlineTagAddResults([]);
+    }
+}
+
+function renderInlineTagAddResults(tags) {
+    const results = document.getElementById('inlineTagAddResults');
+    if (!results) return;
+
+    if (!tags.length) {
+        results.innerHTML = '<p class="text-slate-400 text-center text-[11px] py-3">No tags found.</p>';
+        return;
+    }
+
+    // searchTags() (LeadController.php) normalizes each real Pancake tag to
+    // {id, text, color} — `text`, not `name` (see that method's own
+    // comment: "the frontend picker/chips code doesn't need to know which
+    // Pancake API a tag came from"), same field the existing outcome-tag
+    // picker (renderOutcomeTagModalResults() below) already reads.
+    results.innerHTML = tags.map((t, i) => `
+        <div class="inline-tag-add-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-700 dark:text-slate-200" data-index="${i}">
+            <span class="w-2 h-2 rounded-full shrink-0" style="background:${escapeHtml(t.color || '#94a3b8')}"></span>
+            <span class="flex-1 min-w-0 truncate">${escapeHtml(t.text)}</span>
+        </div>`).join('');
+    results.dataset.tags = JSON.stringify(tags);
+}
+
+document.addEventListener('click', (e) => {
+    const row = e.target.closest('.inline-tag-add-result-row');
+    if (!row) return;
+    const results = document.getElementById('inlineTagAddResults');
+    const tags = JSON.parse(results?.dataset.tags || '[]');
+    const tag = tags[parseInt(row.dataset.index, 10)];
+    if (tag) submitInlineTagAdd(tag.text);
+});
+
+async function submitInlineTagAdd(tagName) {
+    const list = document.getElementById('inlineTagsList');
+    if (!list) return;
+    const leadId = list.dataset.leadId;
+    document.getElementById('inlineTagAddPanel')?.classList.add('hidden');
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/tags/add`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({ tag: tagName }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            window.showToast?.(`Added "${tagName}".`, 'success');
+            window.refreshLeadDetail(leadId);
+        } else {
+            window.showToast?.(data.error || `Could not add "${tagName}".`, 'error');
+        }
+    } catch (e) {
+        window.showToast?.('Could not reach the server — try again.', 'error');
+    }
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#inlineTagAddWrap')) {
+        document.getElementById('inlineTagAddPanel')?.classList.add('hidden');
+    }
+});
+
 // Pancake Notes (lead detail page, explicit request 2026-08-22) — mirrors
 // Pancake POS's own order note panel (Internal / For printing — its only two
 // real note fields; "Conversation" in POS's own tabs isn't a third note
@@ -1403,6 +1708,12 @@ function initPancakeNotesPanel() {
 }
 
 initPancakeNotesPanel();
+// Full-page (non-modal) load of calls/leads/show.blade.php — the modal
+// path re-runs these itself after each fetch (loadLeadDetailInto() above),
+// this covers the standalone page's own first render the same way
+// initPancakeNotesPanel() just did on the line above.
+initInlineUpsellSearch();
+initInlineTagsPanel();
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

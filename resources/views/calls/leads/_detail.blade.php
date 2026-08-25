@@ -48,9 +48,41 @@
                  PancakeOrderTagApi::getOrderDetail()'s own doc comment), so
                  a genuine multi-item order needs the real items[] to show
                  the base product's own line/price alongside it, matching
-                 what Pancake's own order popup shows. --}}
+                 what Pancake's own order popup shows.
+
+                 Search bar pinned at the TOP of this card, not a separate
+                 "+ Add upsell product" button/section below (2nd explicit
+                 follow-up request, 2026-08-25: "the search products in the
+                 pos is [at] the top of displaying products ... not log
+                 like log outcome or upsell") — matches Pancake's own
+                 Products panel layout exactly. Same search/add endpoints
+                 the Leads table's own per-row "+ Add Upsell" button uses
+                 (LeadController::searchProducts()/addUpsell()) — a
+                 genuinely different widget/element IDs from that button's
+                 own #upsellModal (calls/partials/modals.blade.php) so the
+                 two never collide, but both write to the exact same real
+                 order. initInlineUpsellSearch() (calls.js) re-binds this on
+                 every modal open, same reason initPancakeNotesPanel() does. --}}
+            @if($canManage)
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Products</p>
+                <div class="relative mb-3" id="inlineUpsellSearchWrap" data-lead-id="{{ $lead->id }}">
+                    <input type="text" id="inlineUpsellSearch" placeholder="Search products to add…" autocomplete="off"
+                           class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <div id="inlineUpsellResults" class="hidden absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-64 overflow-y-auto"></div>
+                </div>
+                {{-- Hidden until a search result is picked — see selectInlineUpsellProduct() in calls.js. --}}
+                <div id="inlineUpsellConfirm" class="hidden items-center gap-2 mb-3 p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-lg">
+                    <p id="inlineUpsellConfirmName" class="flex-1 min-w-0 text-sm font-semibold text-slate-700 dark:text-slate-200 truncate"></p>
+                    <label class="text-xs text-slate-400 shrink-0">Qty</label>
+                    <input type="number" id="inlineUpsellQuantity" value="1" min="1" max="99"
+                           class="w-14 text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    <button type="button" onclick="submitInlineUpsell()" id="inlineUpsellAddBtn"
+                            class="bg-primary hover:bg-primary-dark text-white text-xs font-semibold px-3 py-2 rounded-lg cursor-pointer shrink-0">
+                        Add
+                    </button>
+                </div>
+                <p id="inlineUpsellError" class="hidden text-[11px] text-red-500 mb-3"></p>
                 <div class="space-y-3">
                     @foreach($liveOrder['items'] as $item)
                     @php
@@ -74,6 +106,7 @@
                     @endforeach
                 </div>
             </div>
+            @endif
             @else
             {{-- Fallback: Pancake unreachable, or nothing synced locally
                  either — same single summarized line as before this fetch
@@ -101,26 +134,59 @@
             @endif
 
             @php
-                // Live tags win when Pancake answered; raw_tags (whatever
-                // this order's own last local sync happened to see) is a
-                // best-effort fallback, same "something beats nothing"
-                // reasoning as the Product card's own fallback above.
-                $liveTags = collect($liveOrder['tags'] ?? [])->pluck('name')->filter();
-                $fallbackTags = $liveTags->isEmpty() ? collect($order?->raw_tags ?? []) : collect();
-                $displayTags = $liveTags->isEmpty() ? $fallbackTags : $liveTags;
+                // $liveOrder !== null (the fetch itself succeeded, whether or
+                // not this specific order happens to carry zero tags right
+                // now) is what gates interactive add/remove below — a tag
+                // pulled from $order->raw_tags (whatever this order's own
+                // last local sync happened to see, best-effort fallback,
+                // same "something beats nothing" reasoning as the Product
+                // card's own fallback above) could be stale, so removing/
+                // adding against it isn't offered, only plain display.
+                $liveTags = $liveOrder !== null ? collect($liveOrder['tags'] ?? [])->pluck('name')->filter() : null;
+                $displayTags = $liveTags ?? collect($order?->raw_tags ?? []);
             @endphp
-            @if($displayTags->isNotEmpty())
-            {{-- Current POS tags (explicit follow-up request, 2026-08-25) —
-                 matches Pancake's own "Information" panel's tag pills. --}}
+            @if($lead->pancake_order_id && $canManage)
+            {{-- Current POS tags (2nd explicit follow-up request,
+                 2026-08-25: "the display of tags too is like there's add
+                 tag too like in the pos ... not log like log outcome or
+                 upsell") — an inline "+ Add tag" chip right among the
+                 pills, matching Pancake's own Information panel layout,
+                 instead of routing through updateDisposition()'s own
+                 tag-writing (that's really about logging a call OUTCOME,
+                 tags are only a side effect of it — a real Pancake tag is
+                 its own concept). Remove buttons reuse the exact same
+                 .real-tag-remove class + already-delegated click handler
+                 the Leads table's own tag panel uses (calls.js) — no new
+                 JS needed for removal, only for the add side
+                 (initInlineTagsPanel() in calls.js). --}}
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">POS Tags</p>
-                <div class="flex flex-wrap gap-1.5">
+                <div class="flex flex-wrap items-center gap-1.5" id="inlineTagsList" data-lead-id="{{ $lead->id }}" data-writable="{{ $liveTags !== null ? '1' : '0' }}">
                     @foreach($displayTags as $tagName)
-                    <span class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full px-2.5 py-1">
+                    <span class="real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1">
                         <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                         {{ $tagName }}
+                        @if($liveTags !== null)
+                        <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="{{ $lead->id }}" data-tag="{{ $tagName }}" title="Remove tag from order" aria-label="Remove {{ $tagName }}">×</button>
+                        @endif
                     </span>
                     @endforeach
+                    @if($liveTags !== null)
+                    <div class="relative" id="inlineTagAddWrap">
+                        <button type="button" id="inlineTagAddBtn" onclick="openInlineTagAdd()"
+                                class="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-primary-dark border border-dashed border-slate-300 dark:border-slate-600 hover:border-primary rounded-full px-2.5 py-1 cursor-pointer">
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+                            </svg>
+                            Add tag
+                        </button>
+                        <div id="inlineTagAddPanel" class="hidden absolute z-20 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
+                            <input type="text" id="inlineTagAddSearch" placeholder="Search tags…" autocomplete="off"
+                                   class="w-full text-xs border-b border-slate-100 dark:border-slate-700 px-3 py-2 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none">
+                            <div id="inlineTagAddResults" class="max-h-48 overflow-y-auto"></div>
+                        </div>
+                    </div>
+                    @endif
                 </div>
             </div>
             @endif
@@ -232,19 +298,6 @@
                         Save
                     </button>
                 </form>
-            </div>
-            @endif
-
-            @if($lead->pancake_order_id && $canManage)
-            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Upsell</p>
-                <button type="button" onclick="openUpsellModal({{ $lead->id }})"
-                        class="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-primary-dark border border-dashed border-slate-300 dark:border-slate-600 hover:border-primary rounded-lg px-3 py-2 cursor-pointer">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-                    </svg>
-                    Add upsell product
-                </button>
             </div>
             @endif
         </div>
