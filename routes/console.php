@@ -76,21 +76,25 @@ Schedule::command(PancakeReconcile::class)->hourly()->withoutOverlapping(10);
 // withoutOverlapping(10): same 2026-08-21 fix as the jobs above.
 Schedule::command(LinkSeparateParcelOrders::class)->hourly()->withoutOverlapping(10);
 
-// Corrects local orders Pancake has since canceled/deleted — the regular sync
-// above can never catch this on its own: Pancake's list-orders endpoint
-// excludes removed orders by default, so no date-scoped query (delta or full
-// day, any date) ever sees one again once it's gone. Daily is enough — this
-// isn't time-critical the way today's own orders are, and confirmed live this
-// is small sequential JSON list calls, not file downloads, so even a wide
-// window finishes in seconds.
+// Corrects local orders Pancake has since canceled/deleted, or whose upsell
+// add-on was removed after the fact — the regular sync above can never catch
+// either on its own: Pancake's list-orders endpoint excludes removed orders
+// by default, so no date-scoped query (delta or full day, any date) ever
+// sees one again once it's gone, and an upsell cancellation doesn't change
+// which date-window the order falls into at all. Switched from daily to
+// hourly (2026-08-25, explicit request) — daily (midnight-only) left same-day
+// cancellations showing stale on the Dashboard/TSA Leaderboard for up to 24h,
+// confirmed live: order #1356481 (Mariel's upsell) was canceled in Pancake
+// ~8:53 PM but the day's one reconcile run had already happened before that,
+// so it kept counting until the NEXT day's midnight run — manually re-running
+// this exact command confirmed it corrects the stale flag immediately once
+// run. Confirmed live this is small sequential JSON list calls, not file
+// downloads, so even a wide window finishes in seconds — hourly is cheap.
 //
-// withoutOverlapping(30): same 2026-08-21 fix as the jobs above — a daily job
-// is less exposed to a redeploy landing mid-run than an every-minute one, but
-// getting stuck on the bare 1440-minute default here is WORSE if it ever does
-// happen: it would block this command's entire NEXT day's run too, not just
-// a few missed ticks. 30 (vs. the 10 used above) gives real headroom over its
-// "finishes in seconds" actual duration while staying far under 24h.
-Schedule::command(ReconcileOrderStatuses::class)->daily()->withoutOverlapping(30);
+// withoutOverlapping(30): same 2026-08-21 fix as the jobs above — 30 minutes
+// still gives real headroom over its "finishes in seconds" actual duration
+// while staying comfortably under the new 60-minute gap between runs.
+Schedule::command(ReconcileOrderStatuses::class)->hourly()->withoutOverlapping(30);
 
 // Full re-sync of the last few days, once nightly — a safety net against rare
 // completeness gaps the continuous "today" sync can miss right at the midnight
