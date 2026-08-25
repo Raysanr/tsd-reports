@@ -1142,6 +1142,17 @@ document.addEventListener('mousedown', (e) => {
 });
 
 document.addEventListener('click', (e) => {
+    // Log outcome's own small fixed set of one-click outcome buttons
+    // (explicit follow-up request, 2026-08-25 — see _detail.blade.php's own
+    // comment on $quickOutcomes) — reuses toggleDispositionTag() exactly
+    // like the full-catalog modal's own result rows do, just a different
+    // trigger element, so chip rendering/callback-input show-hide/submit
+    // guard all keep working unchanged.
+    const quickTag = e.target.closest('.disposition-quick-tag');
+    if (quickTag) {
+        toggleDispositionTag(quickTag.closest('.disposition-picker'), quickTag.dataset.text);
+        return;
+    }
     const removeBtn = e.target.closest('.disposition-chip-remove');
     if (removeBtn) {
         // The remove × can be clicked either on a row's own chip strip or
@@ -1640,6 +1651,39 @@ function loadPancakeNotes() {
         .catch(() => {});
 }
 
+/** Read-only Messenger thread inside the Pancake Notes card's own
+ *  "Conversation" tab (explicit follow-up request, 2026-08-25) — same fetch
+ *  and renderMessage() the separate #conversationModal's "View" button
+ *  already uses, just rendered inline instead of in a popup. Fetched once
+ *  from initPancakeNotesPanel() below, not on loadPancakeNotes()'s own 8s
+ *  poll — a full message thread is heavier than two note fields and doesn't
+ *  need sub-10-second freshness for a read-only reference view. */
+function loadPancakeConversationThread() {
+    const container = document.getElementById('pancakeConversationThread');
+    if (!container) return; // no linked conversation for this lead
+    const leadId = pancakeNotesLeadId();
+    if (!leadId) return;
+
+    fetch(`/calls/leads/${leadId}/conversation`, { headers: { Accept: 'application/json' } })
+        .then((res) => res.json())
+        .then((data) => {
+            if (!data.success) {
+                container.innerHTML = `<p class="text-red-500 text-center text-xs py-6">${escapeHtml(data.error || 'Could not load this conversation.')}</p>`;
+                return;
+            }
+            if (!data.messages.length) {
+                container.innerHTML = '<p class="text-slate-400 text-center text-xs py-6">No messages yet.</p>';
+                return;
+            }
+            // API returns newest-first; render oldest-first like a normal chat thread.
+            container.innerHTML = data.messages.slice().reverse().map(renderMessage).join('');
+            container.scrollTop = container.scrollHeight;
+        })
+        .catch(() => {
+            container.innerHTML = '<p class="text-red-500 text-center text-xs py-6">Something went wrong loading this conversation.</p>';
+        });
+}
+
 window.savePancakeNotes = async function (btn) {
     const leadId = pancakeNotesLeadId();
     const panel = document.getElementById('pancakeNotesPanel');
@@ -2016,6 +2060,7 @@ function initPancakeNotesPanel() {
 
     if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
     loadPancakeNotes();
+    loadPancakeConversationThread();
     pancakeNotesInterval = setInterval(loadPancakeNotes, 8000);
 
     panel.querySelectorAll('.notes-tab').forEach((tabBtn) => {

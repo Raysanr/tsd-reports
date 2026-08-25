@@ -256,6 +256,9 @@
                     <button type="button" data-notes-tab="all" class="notes-tab px-3 py-1.5 text-xs font-semibold text-primary border-b-2 border-primary cursor-pointer">All</button>
                     <button type="button" data-notes-tab="note" class="notes-tab px-3 py-1.5 text-xs font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">Internal</button>
                     <button type="button" data-notes-tab="note_print" class="notes-tab px-3 py-1.5 text-xs font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">For printing</button>
+                    @if($lead->pancake_page_id && $lead->pancake_conversation_id)
+                    <button type="button" data-notes-tab="conversation" class="notes-tab px-3 py-1.5 text-xs font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer">Conversation</button>
+                    @endif
                 </div>
                 <div class="space-y-3">
                     <div data-notes-block="note">
@@ -266,6 +269,28 @@
                         <textarea data-notes-field="note_print" rows="3" placeholder="Printed on order documents…"
                                   class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"></textarea>
                     </div>
+                    {{-- Read-only view of the real Messenger thread (explicit
+                         follow-up request, 2026-08-25: "add in Pancake Notes
+                         CONVERSATION") — reuses the exact same read-only fetch
+                         (LeadController::conversation() -> PancakeConversationApi::
+                         getMessages()) the separate "View" button's own
+                         #conversationModal already uses, just rendered inline
+                         here instead of in a popup. Fetched once on
+                         initPancakeNotesPanel() (loadPancakeConversationThread()
+                         in calls.js), not on the notes' own 8s poll — a full
+                         message thread is heavier than the two note fields and
+                         doesn't need sub-10-second freshness for a read-only
+                         reference view. Sending a NEW message from here isn't
+                         built — that's a real write to the customer's live
+                         conversation, a materially bigger undertaking than what
+                         was asked for here. --}}
+                    @if($lead->pancake_page_id && $lead->pancake_conversation_id)
+                    <div data-notes-block="conversation">
+                        <div id="pancakeConversationThread" class="space-y-2 max-h-72 overflow-y-auto bg-slate-50 dark:bg-slate-950 rounded-lg p-3">
+                            <p class="text-slate-400 text-center text-xs py-6">Loading conversation…</p>
+                        </div>
+                    </div>
+                    @endif
                 </div>
                 <button type="button" onclick="savePancakeNotes(this)"
                         class="mt-3 bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
@@ -275,20 +300,44 @@
             @endif
 
             @if($lead->status !== 'called' && $lead->tsa_id && $canManage)
+            @php
+                // Real outcome tags this shop's own reporting already recognizes
+                // (SyncTodayOrders::extractDisposition()'s own keyword list) — a
+                // small fixed set of one-click buttons instead of the old full
+                // free-text/search picker (explicit follow-up request,
+                // 2026-08-25: "remove this log outcome because there is now POS
+                // tag and also now it has Pancake Notes too" — simplified per
+                // the chosen scope: keep marking the lead called/scheduling
+                // callbacks since Overdue/Callbacks/Dashboard/TSA Performance
+                // depend on it, but drop the redundant catalog-search UI since
+                // POS Tags' own "+ Add tag" already covers picking any OTHER
+                // real tag). Excludes DOUBLE ORDER (confirmed against the real
+                // catalog to not exist) and UNCATERED LEADS (a system bulk-
+                // sweep tag, never one a TSA manually picks). A TSA who submits
+                // with nothing picked still falls through to the full-catalog
+                // #outcomeTagModal (see calls.js' existing submit guard on
+                // .disposition-form) as an escape hatch for anything not listed
+                // here — that modal/its endpoints are untouched.
+                $quickOutcomes = [
+                    'CONFIRMED VIA CALL', 'CALL BACK', 'NOT ANSWERING', 'UNATTENDED',
+                    'CALL DROPPED', 'REPEAT ORDER', 'RELATIVES CONFIRMATION',
+                    'RUDE CUSTOMER', 'INVALID NUMBER', 'DFR', 'FSD UNCLEARED ORDER',
+                ];
+            @endphp
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Log outcome</p>
                 <form method="POST" action="{{ route('calls.leads.disposition', $lead) }}" class="space-y-3 disposition-form">
                     @csrf
                     <div class="disposition-picker" data-lead-id="{{ $lead->id }}">
-                        <div class="disposition-selected-chips flex flex-wrap gap-1 empty:hidden mb-1"></div>
+                        <div class="disposition-selected-chips flex flex-wrap gap-1 empty:hidden mb-2"></div>
                         <input type="hidden" name="disposition" class="disposition-hidden-input">
-                        <button type="button" onclick="openOutcomeTagModal(this.closest('.disposition-picker'))"
-                                class="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-primary-dark border border-dashed border-slate-300 dark:border-slate-600 hover:border-primary rounded-lg px-3 py-2 cursor-pointer">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-                            </svg>
-                            Add tag
-                        </button>
+                        <div class="flex flex-wrap gap-1.5">
+                            @foreach($quickOutcomes as $outcome)
+                            <button type="button" class="disposition-quick-tag text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-primary-dark border border-slate-200 dark:border-slate-600 hover:border-primary rounded-full px-2.5 py-1 cursor-pointer" data-text="{{ $outcome }}">
+                                {{ $outcome }}
+                            </button>
+                            @endforeach
+                        </div>
                     </div>
                     <input type="datetime-local" name="callback_at"
                            class="callback-at-input hidden w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
