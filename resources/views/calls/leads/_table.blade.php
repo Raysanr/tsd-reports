@@ -58,7 +58,12 @@
                 </td>
                 <td class="px-4 py-3 text-slate-500 dark:text-slate-400 tabular-nums">#{{ $lead->pancake_order_id }}</td>
                 <td class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">
-                    <a href="{{ route('calls.leads.show', $lead) }}" class="hover:text-primary hover:underline">{{ $lead->customer_name ?: '—' }}</a>
+                    {{-- Modal by default (explicit request, 2026-08-25: "same
+                         UI as in the POS ... pop up like a modal"), real href
+                         underneath so right-click/open-in-new-tab/direct-link
+                         still work — see openLeadModalFromLink() in calls.js. --}}
+                    <a href="{{ route('calls.leads.show', $lead) }}" onclick="return openLeadModalFromLink(event, {{ $lead->id }})"
+                       class="hover:text-primary hover:underline">{{ $lead->customer_name ?: '—' }}</a>
                 </td>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-2">

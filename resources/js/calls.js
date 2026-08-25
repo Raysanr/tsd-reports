@@ -818,6 +818,68 @@ function renderMessage(msg) {
     </div>`;
 }
 
+// Lead detail modal (explicit request, 2026-08-25: "same UI as in the POS
+// ... pop up like a modal") — fetches the same content the full-page
+// calls/leads/{lead} route renders (X-Table-Refresh header, same
+// AJAX-partial convention TSA Management's own table already uses) and
+// injects it as raw HTML rather than JSON-driven rendering, since the
+// content itself is a full interactive Blade partial (disposition picker,
+// Pancake Notes, Upsell button) — re-implementing that in JS would mean
+// duplicating a lot of already-working Blade logic. initPancakeNotesPanel()
+// must be re-run after injecting (see that function's own comment for why —
+// it can't just be captured once at page load the way it used to be).
+window.openLeadModal = function (leadId) {
+    const modal = document.getElementById('leadDetailModal');
+    const body = document.getElementById('leadDetailModalBody');
+    if (!modal || !body) return;
+
+    showModal(modal);
+    body.innerHTML = `
+        <div class="flex items-center justify-center py-24">
+            <svg class="w-6 h-6 text-slate-300 dark:text-slate-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+        </div>`;
+
+    fetch(`/calls/leads/${leadId}`, { headers: { 'X-Table-Refresh': '1' } })
+        .then((res) => (res.ok ? res.text() : Promise.reject()))
+        .then((html) => {
+            body.innerHTML = html;
+            initPancakeNotesPanel();
+        })
+        .catch(() => {
+            body.innerHTML = '<p class="text-red-500 text-center py-24">Could not load this lead — try again.</p>';
+        });
+};
+
+// Same "plain click opens the modal, ctrl/cmd/middle-click still opens the
+// real link in a new tab" pattern already used elsewhere in this app
+// (Round-Robin Setup's own team pills) — the href under a lead's name stays
+// a real link the whole time, this only intercepts the plain-click case.
+window.openLeadModalFromLink = function (event, leadId) {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return true;
+    event.preventDefault();
+    window.openLeadModal(leadId);
+    return false;
+};
+
+window.closeLeadModal = function () {
+    if (pancakeNotesInterval) {
+        clearInterval(pancakeNotesInterval);
+        pancakeNotesInterval = null;
+    }
+    hideModal(document.getElementById('leadDetailModal'));
+};
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') window.closeLeadModal();
+});
+
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'leadDetailModal') window.closeLeadModal();
+});
+
 window.openConversationModal = function (leadId) {
     const modal = document.getElementById('conversationModal');
     const body = document.getElementById('conversationModalBody');
@@ -1236,17 +1298,26 @@ document.addEventListener('click', (e) => {
 // Pancake (LeadController::notes()/updateNotes() -> PancakeOrderTagApi), not
 // through this app's own `orders` table — the same "always reflect Pancake's
 // real current state" contract Add Upsell's product search already follows.
-const pancakeNotesPanel = document.getElementById('pancakeNotesPanel');
+// Refactored into initPancakeNotesPanel() (2026-08-25, explicit request:
+// the lead detail page now also opens as a modal, see openLeadModal() below)
+// — the panel no longer only exists once at page load, so it can't be
+// captured in a module-level const the way it used to be; this re-queries
+// the DOM and re-binds fresh every time it's called. pancakeNotesInterval
+// is tracked so opening the modal a second time (or navigating the full
+// page then opening the modal) never leaves a stale poll loop running
+// against a panel that's no longer in the DOM.
+let pancakeNotesInterval = null;
 
 function pancakeNotesLeadId() {
-    return pancakeNotesPanel?.dataset.leadId;
+    return document.getElementById('pancakeNotesPanel')?.dataset.leadId;
 }
 
 // Skips a field currently focused — a TSA mid-edit shouldn't have their own
 // unsaved typing overwritten by a poll response that raced it.
 function applyPancakeNotes(data) {
-    if (!pancakeNotesPanel || !data) return;
-    pancakeNotesPanel.querySelectorAll('[data-notes-field]').forEach((el) => {
+    const panel = document.getElementById('pancakeNotesPanel');
+    if (!panel || !data) return;
+    panel.querySelectorAll('[data-notes-field]').forEach((el) => {
         if (document.activeElement === el) return;
         const key = el.dataset.notesField;
         if (key in data) el.value = data[key] ?? '';
@@ -1265,11 +1336,12 @@ function loadPancakeNotes() {
 
 window.savePancakeNotes = async function (btn) {
     const leadId = pancakeNotesLeadId();
-    if (!leadId || !pancakeNotesPanel) return;
+    const panel = document.getElementById('pancakeNotesPanel');
+    if (!leadId || !panel) return;
 
     const statusEl = document.getElementById('pancakeNotesStatus');
-    const note      = pancakeNotesPanel.querySelector('[data-notes-field="note"]')?.value ?? '';
-    const notePrint = pancakeNotesPanel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
+    const note      = panel.querySelector('[data-notes-field="note"]')?.value ?? '';
+    const notePrint = panel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
 
     btn.disabled = true;
     const originalLabel = btn.textContent;
@@ -1303,15 +1375,19 @@ window.savePancakeNotes = async function (btn) {
     }
 };
 
-if (pancakeNotesPanel) {
-    loadPancakeNotes();
-    setInterval(loadPancakeNotes, 8000);
+function initPancakeNotesPanel() {
+    const panel = document.getElementById('pancakeNotesPanel');
+    if (!panel) return;
 
-    pancakeNotesPanel.querySelectorAll('.notes-tab').forEach((tabBtn) => {
+    if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
+    loadPancakeNotes();
+    pancakeNotesInterval = setInterval(loadPancakeNotes, 8000);
+
+    panel.querySelectorAll('.notes-tab').forEach((tabBtn) => {
         tabBtn.addEventListener('click', () => {
             const which = tabBtn.dataset.notesTab;
 
-            pancakeNotesPanel.querySelectorAll('.notes-tab').forEach((t) => {
+            panel.querySelectorAll('.notes-tab').forEach((t) => {
                 const active = t === tabBtn;
                 t.classList.toggle('text-primary', active);
                 t.classList.toggle('border-primary', active);
@@ -1319,12 +1395,14 @@ if (pancakeNotesPanel) {
                 t.classList.toggle('border-transparent', !active);
             });
 
-            pancakeNotesPanel.querySelectorAll('[data-notes-block]').forEach((block) => {
+            panel.querySelectorAll('[data-notes-block]').forEach((block) => {
                 block.classList.toggle('hidden', which !== 'all' && block.dataset.notesBlock !== which);
             });
         });
     });
 }
+
+initPancakeNotesPanel();
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

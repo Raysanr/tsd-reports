@@ -196,7 +196,20 @@ class LeadController extends Controller
         return view('calls.leads.index', $data);
     }
 
-    public function show(Lead $lead)
+    /** Explicit request (2026-08-25): "same UI as in the POS ... pop up like
+     *  a modal" — the Leads table now opens this content in a modal
+     *  (openLeadModal(), see calls.js) via a fetch with an X-Table-Refresh
+     *  header, same AJAX-partial convention TSA Management's own table already
+     *  uses. A plain GET (no header — direct link, bookmark, right-click-open-
+     *  in-new-tab) still renders the full page, unchanged.
+     *
+     *  $order — the matching row in the separate `orders` table (same
+     *  pancake_order_id, a different local sync pipeline than Leads — Lead
+     *  itself never stores an amount/bundle description) — feeds the
+     *  product/price card in calls/leads/_detail.blade.php. Null when that
+     *  order hasn't synced locally yet; the view falls back to the Product
+     *  catalog name alone. */
+    public function show(Request $request, Lead $lead)
     {
         $user = Auth::user();
 
@@ -205,8 +218,13 @@ class LeadController extends Controller
         }
 
         $lead->load(['product', 'tsa', 'calledBy', 'activities.user']);
+        $order = $lead->pancake_order_id ? Order::where('pancake_order_id', $lead->pancake_order_id)->first() : null;
 
-        return view('calls.leads.show', ['lead' => $lead]);
+        if ($request->header('X-Table-Refresh')) {
+            return view('calls.leads._detail', ['lead' => $lead, 'order' => $order]);
+        }
+
+        return view('calls.leads.show', ['lead' => $lead, 'order' => $order]);
     }
 
     /** Pin/unpin — same ownership guard as show() (a TSA only manages their

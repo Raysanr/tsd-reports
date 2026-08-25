@@ -9,6 +9,36 @@
     etc.) is the same regardless of which page included this markup.
 --}}
 
+{{-- Lead detail modal (explicit request, 2026-08-25: "same UI as in the POS
+     ... pop up like a modal") — clicking a lead in the Leads table opens this
+     instead of navigating to the full calls/leads/{lead} page. Body fetched
+     fresh each open (LeadController::show(), X-Table-Refresh header) and
+     injected as raw HTML — calls.leads._detail.blade.php is shared with the
+     full-page fallback (right-click/open-in-new-tab, direct links, bookmarks
+     all still work — the link under a lead's name is a real href, JS only
+     intercepts a plain click). Wide/two-column, closer to Pancake's own
+     order popup than this app's other (narrower, single-purpose) modals.
+     Opened via openLeadModal(leadId) in calls.js. --}}
+<div id="leadDetailModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
+        <button type="button" onclick="closeLeadModal()" aria-label="Close"
+                class="absolute top-4 right-4 z-10 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>
+        <div id="leadDetailModalBody" class="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            {{-- Populated by openLeadModal() in calls.js --}}
+            <div class="flex items-center justify-center py-24">
+                <svg class="w-6 h-6 text-slate-300 dark:text-slate-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+            </div>
+        </div>
+    </div>
+</div>
+
 {{-- Conversation modal — real Pancake messages rendered here (fetched
      server-side via /calls/leads/{lead}/conversation), NOT an iframe:
      Pancake's own CSP (frame-ancestors) blocks embedding its page on any
