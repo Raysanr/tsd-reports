@@ -1677,7 +1677,15 @@ function loadPancakeConversationThread() {
             }
             // API returns newest-first; render oldest-first like a normal chat thread.
             container.innerHTML = data.messages.slice().reverse().map(renderMessage).join('');
-            container.scrollTop = container.scrollHeight;
+            // Scrolls to the START of the last message (its sender label),
+            // not container.scrollHeight (the very bottom) — a real message
+            // here can run 700-1400+ characters, so scrolling to the
+            // absolute bottom landed mid-paragraph with the sender/timestamp
+            // scrolled off above the visible area, reading as a random
+            // floating blob of text instead of an actual conversation
+            // (confirmed live, 2026-08-25, against a real thread).
+            const lastMessage = container.lastElementChild;
+            if (lastMessage) container.scrollTop = lastMessage.offsetTop;
         })
         .catch(() => {
             container.innerHTML = '<p class="text-red-500 text-center text-xs py-6">Something went wrong loading this conversation.</p>';

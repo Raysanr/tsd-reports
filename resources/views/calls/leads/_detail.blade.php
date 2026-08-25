@@ -286,7 +286,14 @@
                          was asked for here. --}}
                     @if($lead->pancake_page_id && $lead->pancake_conversation_id)
                     <div data-notes-block="conversation">
-                        <div id="pancakeConversationThread" class="space-y-2 max-h-72 overflow-y-auto bg-slate-50 dark:bg-slate-950 rounded-lg p-3">
+                        {{-- max-h-72 (288px) was too short for this shop's real
+                             message lengths (some run 700-1400+ characters) —
+                             confirmed live, 2026-08-25, that scrolling to the
+                             very bottom of a thread that short landed
+                             mid-message, hiding the sender label/timestamp
+                             entirely. Widened now that the whole modal itself
+                             is much bigger (see modals.blade.php). --}}
+                        <div id="pancakeConversationThread" class="space-y-2 max-h-112 overflow-y-auto bg-slate-50 dark:bg-slate-950 rounded-lg p-3">
                             <p class="text-slate-400 text-center text-xs py-6">Loading conversation…</p>
                         </div>
                     </div>
