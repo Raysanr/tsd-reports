@@ -168,15 +168,26 @@
                  submit='form'+autoSubmit=false: picking a range only updates
                  the hidden date_from/date_to fields, same "Fix Now" button
                  below stays the deliberate trigger (mirrors "Retry a Date"
-                 above). Default is just today (explicit request, 2026-08-11)
-                 — a 30-day default was the dominant cost in that same day's
-                 incident (see SyncHealthController's MAX_RECONCILE_DAYS doc
-                 comment): defaulting to the widest useful range instead of
-                 the narrowest meant every click ran near the newly-added cap
-                 unless someone remembered to shrink it first. --}}
+                 above).
+
+                 Default is today + yesterday, not just today (explicit
+                 follow-up request, 2026-08-25 — was narrowed to just today
+                 on 2026-08-11, see below for why). Root-caused a real case
+                 the "just today" default silently couldn't catch: order
+                 #1356481's upsell was canceled in Pancake the day before it
+                 was noticed — a plain, un-adjusted "Fix Now" click could
+                 NEVER have found it, since the picker's own default range
+                 excluded yesterday entirely, no matter how many times it was
+                 clicked. Deliberately the smallest possible widening (2 days,
+                 not the full MAX_RECONCILE_DAYS=9 the 2026-08-11 incident
+                 originally guarded against) — every extra day in this range
+                 means a longer synchronous run, and this app has zero request
+                 concurrency (see SyncHealthController::MAX_RECONCILE_DAYS'
+                 own doc comment: a wide run doesn't just take longer, it
+                 freezes the whole app for every user until it finishes). --}}
             @include('partials.date-picker', [
                 'mode' => 'range', 'id' => 'reconcileDrp',
-                'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->toDateString())),
+                'dateFrom' => \Illuminate\Support\Carbon::parse(old('date_from', now()->subDay()->toDateString())),
                 'dateTo'   => \Illuminate\Support\Carbon::parse(old('date_to', now()->toDateString())),
                 'submit' => 'form', 'autoSubmit' => false, 'showLabel' => true,
                 'rangeMonths' => 1,

@@ -140,17 +140,25 @@ class SyncHealthTest extends TestCase
      * prior showLabel trigger was single-date), which exposed a spot in
      * the shared partial that had never needed to handle a range before.
      */
-    public function test_fix_now_pickers_initial_label_defaults_to_just_today(): void
+    /** Widened from "just today" to "today + yesterday" (explicit follow-up
+     *  request, 2026-08-25) — a plain, un-adjusted "Fix Now" click on the old
+     *  default could never catch an upsell canceled the day before it was
+     *  noticed, since the picker's own range excluded yesterday entirely no
+     *  matter how many times it was clicked. Deliberately still the smallest
+     *  widening that fixes that gap, not the full MAX_RECONCILE_DAYS=9 the
+     *  2026-08-11 incident originally capped against — every extra default
+     *  day means a longer synchronous run on this app's single, no-
+     *  concurrency process (see MAX_RECONCILE_DAYS' own doc comment). */
+    public function test_fix_now_pickers_initial_label_defaults_to_today_and_yesterday(): void
     {
         $this->actingAs(User::factory()->create());
 
         $response = $this->get(route('sync-health'));
 
         $response->assertOk();
-        $today = now()->format('M d, Y');
-        // Single day, not a range — date-picker.blade.php only renders the
-        // " – " dash when from !== to, and both default to today now.
-        $response->assertSee("id=\"reconcileDrpLabel\">{$today}<", false);
+        $yesterday = now()->subDay()->format('M d, Y');
+        $today     = now()->format('M d, Y');
+        $response->assertSee("id=\"reconcileDrpLabel\">{$yesterday} – {$today}<", false);
     }
 
     public function test_reconcile_statuses_corrects_stale_orders_and_reports_the_count(): void
