@@ -361,15 +361,20 @@
                          different picker UI over it. --}}
                     <div class="flex gap-2">
                         <div class="relative flex-1 min-w-0" id="deliveryAddressPicker">
-                            <div class="relative">
+                            <div class="relative" id="deliveryAddressSearchWrap">
                                 <input type="text" id="deliveryAddressSearch" placeholder="Select address" autocomplete="off"
                                        class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg pl-3 pr-8 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                                 <svg class="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
                                 </svg>
                             </div>
+                            {{-- The whole chip reopens the picker (click anywhere
+                                 except ×, which clears instead) — matches
+                                 Pancake's own populated address field, which is
+                                 clickable to change the selection, not just an
+                                 inert display + separate clear button. --}}
                             <button type="button" id="deliveryAddressChip"
-                                    class="hidden w-full items-center justify-between text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-left cursor-default">
+                                    class="hidden w-full items-center justify-between text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-left cursor-pointer hover:border-primary">
                                 <span id="deliveryAddressChipText" class="truncate"></span>
                                 <span id="deliveryAddressChipClear" role="button" title="Clear address" class="text-slate-400 hover:text-red-600 cursor-pointer shrink-0 ml-2">×</span>
                             </button>

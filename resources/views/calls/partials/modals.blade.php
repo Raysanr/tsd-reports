@@ -19,8 +19,12 @@
      intercepts a plain click). Wide/two-column, closer to Pancake's own
      order popup than this app's other (narrower, single-purpose) modals.
      Opened via openLeadModal(leadId) in calls.js. --}}
-<div id="leadDetailModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
-    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
+{{-- Sized much closer to Pancake's own near-full-screen order popup
+     (explicit follow-up request, 2026-08-25: "make the modal much bigger
+     like in the pos") — was max-w-4xl/85vh, cramped enough that the
+     Delivery card's address chip was truncating ("Zambales…"). --}}
+<div id="leadDetailModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-4 opacity-0 transition-opacity duration-200">
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[95vw] xl:max-w-7xl max-h-[95vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
         <button type="button" onclick="closeLeadModal()" aria-label="Close"
                 class="absolute top-4 right-4 z-10 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

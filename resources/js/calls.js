@@ -1754,10 +1754,15 @@ function closeDeliveryAddressDropdown() {
 }
 
 function updateDeliveryAddressChip() {
-    const search = document.getElementById('deliveryAddressSearch');
+    // Toggles the whole #deliveryAddressSearchWrap (input + its search icon
+    // together), not just the bare <input> — hiding only the input left the
+    // icon floating on its own above the collapsed chip (confirmed live,
+    // 2026-08-25: a real screenshot showed a stray magnifying glass over an
+    // already-picked "Zambales…" chip).
+    const searchWrap = document.getElementById('deliveryAddressSearchWrap');
     const chip = document.getElementById('deliveryAddressChip');
     const chipText = document.getElementById('deliveryAddressChipText');
-    if (!search || !chip || !chipText) return;
+    if (!searchWrap || !chip || !chipText) return;
 
     const { province, district, commune } = deliveryAddressState;
     // Collapses to the chip once province + district are picked (commune is
@@ -1767,13 +1772,35 @@ function updateDeliveryAddressChip() {
         chipText.textContent = [province.name, district.name, commune?.name].filter(Boolean).join(', ');
         chip.classList.remove('hidden');
         chip.classList.add('flex');
-        search.classList.add('hidden');
+        searchWrap.classList.add('hidden');
         closeDeliveryAddressDropdown();
     } else {
         chip.classList.add('hidden');
         chip.classList.remove('flex');
-        search.classList.remove('hidden');
+        searchWrap.classList.remove('hidden');
     }
+}
+
+/** Reopens the picker from an already-collapsed chip (explicit follow-up
+ *  request, 2026-08-25: "still cant click" — the chip itself had no click
+ *  handler, only its small × did, so a lead that already had a full address
+ *  on open gave no obvious way back into the picker at all). Doesn't touch
+ *  the current selection — closing without picking anything new just
+ *  re-collapses back to the same chip (see the outside-click handler in
+ *  initDeliveryPanel()). */
+function reopenDeliveryAddressDropdown() {
+    const search = document.getElementById('deliveryAddressSearch');
+    const searchWrap = document.getElementById('deliveryAddressSearchWrap');
+    const chip = document.getElementById('deliveryAddressChip');
+    if (!search || !searchWrap || !chip) return;
+
+    chip.classList.add('hidden');
+    chip.classList.remove('flex');
+    searchWrap.classList.remove('hidden');
+    search.value = '';
+    search.focus();
+    deliveryAddressState.activeLevel = 'province';
+    openDeliveryAddressDropdown();
 }
 
 function setDeliveryAddressLevel(level) {
@@ -1864,6 +1891,7 @@ function initDeliveryPanel() {
     const search = document.getElementById('deliveryAddressSearch');
     const dropdown = document.getElementById('deliveryAddressDropdown');
     const picker = document.getElementById('deliveryAddressPicker');
+    const chip = document.getElementById('deliveryAddressChip');
     const chipClear = document.getElementById('deliveryAddressChipClear');
 
     deliveryAddressState = {
@@ -1904,13 +1932,20 @@ function initDeliveryPanel() {
         selectDeliveryAddressItem(deliveryAddressState.activeLevel, item.dataset.id, item.dataset.name);
     });
 
+    chip?.addEventListener('click', reopenDeliveryAddressDropdown);
+
     chipClear?.addEventListener('click', (e) => {
         e.stopPropagation();
         clearDeliveryAddress();
     });
 
     document.addEventListener('click', (e) => {
-        if (!picker.contains(e.target)) closeDeliveryAddressDropdown();
+        if (!picker.contains(e.target)) {
+            closeDeliveryAddressDropdown();
+            // Re-collapses to the chip if a reopen (see chip's own click
+            // handler above) gets abandoned without picking anything new.
+            updateDeliveryAddressChip();
+        }
     });
 }
 
