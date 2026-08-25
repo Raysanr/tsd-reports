@@ -33,6 +33,11 @@ class PancakeOrderTagApi
 {
     private const BASE_URL = 'https://pos.pages.fm/api/v1';
 
+    /** Every real shipping_address this shop's own synced orders have ever
+     *  carried uses country_code "63" (confirmed live) — the Philippines.
+     *  Hardcoded, not a Setting, since a single shop never changes country. */
+    private const GEO_COUNTRY_CODE = '63';
+
     /**
      * The shop's real order-tag catalog — [{id, name, color, is_system_tag,
      * groups}]. Cached for 5 minutes: rarely changes, but this gets hit on
@@ -212,6 +217,136 @@ class PancakeOrderTagApi
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
             return null;
+        }
+    }
+
+    /**
+     * The real province catalog feeding the Delivery card's editable
+     * cascading picker (explicit follow-up request, 2026-08-25: "make it
+     * editable like in the POS") — confirmed against the real OpenAPI spec:
+     * GET /geo/provinces?country_code=63, unauthenticated (no api_key
+     * required, confirmed live) and shop-agnostic, so this doesn't need
+     * $shopId at all. Cached an hour: provinces essentially never change.
+     */
+    public function listProvinces(): array
+    {
+        if (empty(Setting::get('pancake_api_key', ''))) {
+            return [];
+        }
+
+        return Cache::remember('pancake_geo_provinces', 3600, function () {
+            try {
+                $response = Http::timeout(10)->get(self::BASE_URL . '/geo/provinces', [
+                    'country_code' => self::GEO_COUNTRY_CODE,
+                ]);
+
+                return $response->successful() ? ($response->json('data') ?? $response->json() ?? []) : [];
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: listProvinces threw', ['message' => $e->getMessage()]);
+                return [];
+            }
+        });
+    }
+
+    /** Districts within one province — GET /geo/districts?province_id=. */
+    public function listDistricts(string $provinceId): array
+    {
+        if (empty(Setting::get('pancake_api_key', ''))) {
+            return [];
+        }
+
+        return Cache::remember("pancake_geo_districts_{$provinceId}", 3600, function () use ($provinceId) {
+            try {
+                $response = Http::timeout(10)->get(self::BASE_URL . '/geo/districts', [
+                    'province_id' => $provinceId,
+                ]);
+
+                return $response->successful() ? ($response->json('data') ?? $response->json() ?? []) : [];
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: listDistricts threw', ['province_id' => $provinceId, 'message' => $e->getMessage()]);
+                return [];
+            }
+        });
+    }
+
+    /** Communes (barangays) within one district — GET /geo/communes?province_id=&district_id=.
+     *  Each commune carries its own `postcode` array, which the Delivery
+     *  form uses to auto-fill the Postcode field once one is picked. */
+    public function listCommunes(string $provinceId, string $districtId): array
+    {
+        if (empty(Setting::get('pancake_api_key', ''))) {
+            return [];
+        }
+
+        return Cache::remember("pancake_geo_communes_{$districtId}", 3600, function () use ($provinceId, $districtId) {
+            try {
+                $response = Http::timeout(10)->get(self::BASE_URL . '/geo/communes', [
+                    'province_id' => $provinceId,
+                    'district_id' => $districtId,
+                ]);
+
+                return $response->successful() ? ($response->json('data') ?? $response->json() ?? []) : [];
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: listCommunes threw', ['district_id' => $districtId, 'message' => $e->getMessage()]);
+                return [];
+            }
+        });
+    }
+
+    /**
+     * Writes the order's shipping address (and, optionally, its estimated
+     * delivery date) back to the real order — the write side of the lead
+     * detail modal's own editable Delivery card. Same GET-then-PUT-whole-
+     * order pattern as every other write above (see addTagsToOrder()'s own
+     * doc comment for why echoing back every GET'd field matters here too).
+     *
+     * $shippingAddress is merged onto the order's EXISTING shipping_address
+     * rather than replacing it outright, so a field this app's own form
+     * never collects (e.g. `render_type`, `marketplace_address`) survives
+     * untouched. The caller (LeadController::updateDelivery()) is
+     * responsible for resolving real {id, name} pairs for province/
+     * district/commune against listProvinces()/listDistricts()/
+     * listCommunes() first — this method just writes whatever it's handed.
+     */
+    public function updateShippingAddress(string $orderId, array $shippingAddress, ?string $estimateDeliveryDate): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating shipping address failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            $order['shipping_address'] = array_merge($order['shipping_address'] ?? [], $shippingAddress);
+            if ($estimateDeliveryDate !== null) {
+                $order['estimate_delivery_date'] = $estimateDeliveryDate;
+            }
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateShippingAddress PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateShippingAddress threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
         }
     }
 

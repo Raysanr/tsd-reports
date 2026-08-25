@@ -309,15 +309,82 @@
                 <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ $lead->phone_number ?: '—' }}</p>
             </div>
 
-            @if($liveOrder && $liveOrder['shipping_address'])
+@if($liveOrder && $liveOrder['shipping_address'] && $canManage)
             {{-- Delivery (explicit follow-up request, 2026-08-25: "add
-                 delivery to this like in the POS") — live from the same
-                 order fetch as Products/POS Tags above
-                 (PancakeOrderTagApi::getOrderDetail()). Read-only display:
-                 Pancake's own Delivery panel is a real editable form
-                 backed by a full province/city/barangay address-cascading
-                 picker — building an equivalent editor is a materially
-                 bigger undertaking than what was asked for here. --}}
+                 delivery to this like in the POS", then "make it editable
+                 like in the POS") — a real editable form backed by the same
+                 province -> district -> commune cascading picker Pancake's
+                 own Delivery panel uses (PancakeOrderTagApi::listProvinces()/
+                 listDistricts()/listCommunes(), confirmed live against the
+                 real /geo/* endpoints -- country_code "63", the Philippines,
+                 is every real order this shop has ever synced). Courier/
+                 tracking/shipping fee stay read-only: those are set by
+                 Pancake/the courier once a shipment is actually booked, not
+                 something this form collects (see updateDelivery()'s own
+                 doc comment). initDeliveryPanel() (calls.js) re-binds this
+                 on every modal open, same reason initPancakeNotesPanel()
+                 does. --}}
+            @php $shipping = $liveOrder['shipping_address']; @endphp
+            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4"
+                 id="deliveryPanel" data-lead-id="{{ $lead->id }}"
+                 data-province-id="{{ $shipping['province_id'] ?? '' }}"
+                 data-district-id="{{ $shipping['district_id'] ?? '' }}"
+                 data-commune-id="{{ $shipping['commune_id'] ?? '' }}">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Delivery</p>
+                    <span id="deliveryStatus" class="text-[11px] font-mono text-slate-400"></span>
+                </div>
+                <div class="space-y-2.5">
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" id="deliveryFullName" placeholder="Recipient name" value="{{ $shipping['full_name'] ?? '' }}"
+                               class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        <input type="text" id="deliveryPhone" placeholder="Phone number" value="{{ $shipping['phone_number'] ?? '' }}"
+                               class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </div>
+                    <textarea id="deliveryAddress" rows="2" placeholder="Street / landmark"
+                              class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">{{ $shipping['address'] ?? '' }}</textarea>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="deliveryProvince"
+                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                            <option value="">Province…</option>
+                        </select>
+                        <select id="deliveryDistrict" disabled
+                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 disabled:opacity-50">
+                            <option value="">District/City…</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <select id="deliveryCommune" disabled
+                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 disabled:opacity-50">
+                            <option value="">Barangay…</option>
+                        </select>
+                        <input type="text" id="deliveryPostcode" placeholder="Postcode" value="{{ $shipping['post_code'] ?? '' }}"
+                               class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400 block mb-1">Estimated delivery date</label>
+                        <input type="date" id="deliveryEstimateDate"
+                               value="{{ $liveOrder['estimate_delivery_date'] ? \Illuminate\Support\Carbon::parse($liveOrder['estimate_delivery_date'])->format('Y-m-d') : '' }}"
+                               class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </div>
+                    <div class="flex items-center justify-between pt-1">
+                        <div class="text-xs text-slate-400">
+                            <span>Courier: {{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</span>
+                            @if($liveOrder['tracking_link'] && $liveOrder['courier_name'])
+                            <a href="{{ $liveOrder['tracking_link'] }}" target="_blank" rel="noopener" class="text-blue-600 dark:text-blue-400 hover:underline ml-2">Track ↗</a>
+                            @endif
+                        </div>
+                        <button type="button" onclick="saveDeliveryDetails(this)"
+                                class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
+                            Save
+                        </button>
+                    </div>
+                </div>
+            </div>
+            @elseif($liveOrder && $liveOrder['shipping_address'])
+            {{-- Read-only fallback for a viewer who can see this lead but
+                 can't manage it (no $canManage) — same access split every
+                 other write-capable card on this page already draws. --}}
             @php $shipping = $liveOrder['shipping_address']; @endphp
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Delivery</p>
@@ -331,29 +398,9 @@
                         <dt class="text-slate-400 text-xs">Address</dt>
                         <dd class="text-slate-700 dark:text-slate-200">{{ $shipping['full_address'] ?? '—' }}</dd>
                     </div>
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <dt class="text-slate-400 text-xs">Courier</dt>
-                            <dd class="text-slate-700 dark:text-slate-200">{{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</dd>
-                        </div>
-                        {{-- Pancake returns a tracking_link even before a courier is
-                             assigned (a placeholder page) — only show "Track" once
-                             there's an actual courier to track with. --}}
-                        @if($liveOrder['tracking_link'] && $liveOrder['courier_name'])
-                        <a href="{{ $liveOrder['tracking_link'] }}" target="_blank" rel="noopener" class="text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0">Track ↗</a>
-                        @endif
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <dt class="text-slate-400 text-xs">Shipping fee</dt>
-                            <dd class="text-slate-700 dark:text-slate-200">₱{{ number_format($liveOrder['shipping_fee'] ?? 0, 2) }}</dd>
-                        </div>
-                        @if($liveOrder['estimate_delivery_date'])
-                        <div class="text-right">
-                            <dt class="text-slate-400 text-xs">Est. delivery</dt>
-                            <dd class="text-slate-700 dark:text-slate-200">{{ \Illuminate\Support\Carbon::parse($liveOrder['estimate_delivery_date'])->format('M j, Y') }}</dd>
-                        </div>
-                        @endif
+                    <div>
+                        <dt class="text-slate-400 text-xs">Courier</dt>
+                        <dd class="text-slate-700 dark:text-slate-200">{{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</dd>
                     </div>
                 </dl>
             </div>

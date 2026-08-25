@@ -203,9 +203,10 @@ class LeadShowTest extends TestCase
         $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
     }
 
-    /** Explicit follow-up request (2026-08-25): "add delivery to this like
-     *  in the POS" — live from the same order fetch as Products/POS Tags,
-     *  read-only display of recipient/address/courier/fee. */
+    /** Explicit follow-up requests (2026-08-25): "add delivery to this like
+     *  in the POS", then "make it editable like in the POS" — an editable
+     *  form pre-filled from the same order fetch as Products/POS Tags,
+     *  courier/tracking stay read-only display. */
     public function test_shows_the_real_delivery_info_from_pancake(): void
     {
         Setting::set('pancake_api_key', 'test-key');
@@ -220,7 +221,11 @@ class LeadShowTest extends TestCase
                 'items' => [], 'tags' => [],
                 'shipping_address' => [
                     'full_name' => 'Victoriano Brugada', 'phone_number' => '09163774053',
+                    'address' => 'Landmark: Malapit sa Tower ng Globe Padulo',
                     'full_address' => 'Landmark: Malapit sa Tower ng Globe Padulo, Poblacion ibaba, Angono, Rizal',
+                    'province_id' => '63_753', 'province_name' => 'Rizal',
+                    'district_id' => '63_75326', 'district_name' => 'Angono',
+                    'commune_id' => null, 'commune_name' => null, 'post_code' => '1930',
                 ],
                 'shipping_fee' => 150,
                 'estimate_delivery_date' => '2026-08-28',
@@ -233,12 +238,12 @@ class LeadShowTest extends TestCase
         $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
 
         $response->assertOk();
-        $response->assertSee('Victoriano Brugada');
-        $response->assertSee('09163774053');
-        $response->assertSee('Angono, Rizal');
+        $response->assertSee('value="Victoriano Brugada"', false);
+        $response->assertSee('value="09163774053"', false);
+        $response->assertSee('Malapit sa Tower ng Globe Padulo');
+        $response->assertSee('value="1930"', false);
         $response->assertSee('J&amp;T Philippines', false);
-        $response->assertSee('₱150.00', false);
-        $response->assertSee('Aug 28, 2026');
+        $response->assertSee('value="2026-08-28"', false);
     }
 
     /** No shipping_address at all (Pancake unreachable, or a genuinely

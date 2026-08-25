@@ -842,6 +842,7 @@ function loadLeadDetailInto(leadId, body) {
             initPancakeNotesPanel();
             initInlineUpsellSearch();
             initInlineTagsPanel();
+            initDeliveryPanel();
         });
 }
 
@@ -1680,6 +1681,182 @@ window.savePancakeNotes = async function (btn) {
     }
 };
 
+// Delivery card's editable province -> district -> commune cascading picker
+// (explicit follow-up request, 2026-08-25: "make it editable like in the
+// POS") — mirrors Pancake's own Delivery form: picking a province fetches
+// its real districts, picking a district fetches its real communes, picking
+// a commune auto-fills Postcode from that commune's own real postcode list.
+// Re-queries the DOM fresh every call (not a module-level const) for the
+// same reason initPancakeNotesPanel() does: the panel only exists once this
+// HTML is actually injected into the modal, not at page load.
+function deliveryLeadId() {
+    return document.getElementById('deliveryPanel')?.dataset.leadId;
+}
+
+function populateSelect(select, items, valueKey, labelKey, selectedValue, placeholder) {
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    items.forEach((item) => {
+        const opt = document.createElement('option');
+        opt.value = item[valueKey];
+        opt.textContent = item[labelKey] || item[valueKey];
+        if (String(item[valueKey]) === String(selectedValue)) opt.selected = true;
+        select.appendChild(opt);
+    });
+}
+
+function loadDeliveryDistricts(leadId, provinceId, selectedDistrictId) {
+    const districtSelect = document.getElementById('deliveryDistrict');
+    const communeSelect  = document.getElementById('deliveryCommune');
+    if (!districtSelect || !communeSelect) return;
+
+    communeSelect.innerHTML = '<option value="">Barangay…</option>';
+    communeSelect.disabled = true;
+
+    if (!provinceId) {
+        districtSelect.innerHTML = '<option value="">District/City…</option>';
+        districtSelect.disabled = true;
+        return;
+    }
+
+    districtSelect.disabled = true;
+    fetch(`/calls/leads/${leadId}/delivery/districts?province_id=${encodeURIComponent(provinceId)}`, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : { districts: [] }))
+        .then((data) => {
+            populateSelect(districtSelect, data.districts || [], 'id', 'name', selectedDistrictId, 'District/City…');
+            districtSelect.disabled = false;
+            if (selectedDistrictId) loadDeliveryCommunes(leadId, provinceId, selectedDistrictId, document.getElementById('deliveryPanel')?.dataset.communeId);
+        })
+        .catch(() => { districtSelect.disabled = false; });
+}
+
+function loadDeliveryCommunes(leadId, provinceId, districtId, selectedCommuneId) {
+    const communeSelect = document.getElementById('deliveryCommune');
+    if (!communeSelect) return;
+
+    if (!districtId) {
+        communeSelect.innerHTML = '<option value="">Barangay…</option>';
+        communeSelect.disabled = true;
+        return;
+    }
+
+    communeSelect.disabled = true;
+    fetch(`/calls/leads/${leadId}/delivery/communes?province_id=${encodeURIComponent(provinceId)}&district_id=${encodeURIComponent(districtId)}`, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : { communes: [] }))
+        .then((data) => {
+            const communes = data.communes || [];
+            populateSelect(communeSelect, communes, 'id', 'name', selectedCommuneId, 'Barangay…');
+            communeSelect.disabled = false;
+            communeSelect.dataset.communes = JSON.stringify(communes);
+        })
+        .catch(() => { communeSelect.disabled = false; });
+}
+
+function initDeliveryPanel() {
+    const panel = document.getElementById('deliveryPanel');
+    if (!panel) return;
+
+    const leadId = panel.dataset.leadId;
+    const provinceSelect = document.getElementById('deliveryProvince');
+    const districtSelect = document.getElementById('deliveryDistrict');
+    const communeSelect  = document.getElementById('deliveryCommune');
+    const postcodeInput  = document.getElementById('deliveryPostcode');
+
+    fetch(`/calls/leads/${leadId}/delivery/provinces`, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : { provinces: [] }))
+        .then((data) => {
+            populateSelect(provinceSelect, data.provinces || [], 'id', 'name', panel.dataset.provinceId, 'Province…');
+            if (panel.dataset.provinceId) {
+                loadDeliveryDistricts(leadId, panel.dataset.provinceId, panel.dataset.districtId);
+            }
+        })
+        .catch(() => {});
+
+    provinceSelect.addEventListener('change', () => {
+        loadDeliveryDistricts(leadId, provinceSelect.value, null);
+    });
+
+    districtSelect.addEventListener('change', () => {
+        loadDeliveryCommunes(leadId, provinceSelect.value, districtSelect.value, null);
+    });
+
+    // Auto-fills Postcode from the picked commune's own real postcode list
+    // (stashed on the select as JSON by loadDeliveryCommunes() above) — only
+    // when the field is still empty, so this never clobbers a value someone
+    // already typed in by hand.
+    communeSelect.addEventListener('change', () => {
+        if (postcodeInput.value.trim() !== '') return;
+        const communes = JSON.parse(communeSelect.dataset.communes || '[]');
+        const picked = communes.find((c) => String(c.id) === communeSelect.value);
+        const postcode = picked?.postcode?.[0];
+        if (postcode) postcodeInput.value = postcode;
+    });
+}
+
+window.saveDeliveryDetails = async function (btn) {
+    const panel = document.getElementById('deliveryPanel');
+    if (!panel) return;
+    const leadId = panel.dataset.leadId;
+
+    const provinceSelect = document.getElementById('deliveryProvince');
+    const districtSelect = document.getElementById('deliveryDistrict');
+    const communeSelect  = document.getElementById('deliveryCommune');
+    const statusEl = document.getElementById('deliveryStatus');
+
+    if (!provinceSelect.value || !districtSelect.value) {
+        if (statusEl) {
+            statusEl.textContent = 'Pick a province and district first.';
+            statusEl.className = 'text-[11px] font-mono text-red-500';
+        }
+        return;
+    }
+
+    const payload = {
+        full_name:    document.getElementById('deliveryFullName').value,
+        phone_number: document.getElementById('deliveryPhone').value,
+        address:      document.getElementById('deliveryAddress').value,
+        province_id:   provinceSelect.value,
+        province_name: provinceSelect.options[provinceSelect.selectedIndex]?.textContent || '',
+        district_id:   districtSelect.value,
+        district_name: districtSelect.options[districtSelect.selectedIndex]?.textContent || '',
+        commune_id:    communeSelect.value || null,
+        commune_name:  communeSelect.value ? (communeSelect.options[communeSelect.selectedIndex]?.textContent || '') : null,
+        post_code:     document.getElementById('deliveryPostcode').value,
+        estimate_delivery_date: document.getElementById('deliveryEstimateDate').value || null,
+    };
+
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Saving…';
+    if (statusEl) statusEl.textContent = '';
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/delivery`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (statusEl) {
+            statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
+            statusEl.className = `text-[11px] font-mono ${data.success ? 'text-emerald-500' : 'text-red-500'}`;
+        }
+        if (data.success) window.showToast?.('Delivery details updated.', 'success');
+    } catch (e) {
+        if (statusEl) {
+            statusEl.textContent = 'Could not reach the server — try again.';
+            statusEl.className = 'text-[11px] font-mono text-red-500';
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+    }
+};
+
 function initPancakeNotesPanel() {
     const panel = document.getElementById('pancakeNotesPanel');
     if (!panel) return;
@@ -1714,6 +1891,7 @@ initPancakeNotesPanel();
 // initPancakeNotesPanel() just did on the line above.
 initInlineUpsellSearch();
 initInlineTagsPanel();
+initDeliveryPanel();
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

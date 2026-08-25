@@ -789,6 +789,126 @@ class LeadController extends Controller
     }
 
     /**
+     * Feeds the Delivery card's real province → district → commune cascading
+     * picker (explicit follow-up request, 2026-08-25: "make it editable like
+     * in the POS") — the same real Pancake geo catalog its own Delivery form
+     * uses (PancakeOrderTagApi::listProvinces()/listDistricts()/
+     * listCommunes()). Scoped under /leads/{lead}/... and guarded the same
+     * way as searchTags()/searchProducts() above even though the geo data
+     * itself isn't lead-specific, so only someone who can already see this
+     * lead can query it.
+     */
+    public function deliveryProvinces(Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        return response()->json(['success' => true, 'provinces' => $api->listProvinces()]);
+    }
+
+    public function deliveryDistricts(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $data = $request->validate(['province_id' => ['required', 'string']]);
+
+        return response()->json(['success' => true, 'districts' => $api->listDistricts($data['province_id'])]);
+    }
+
+    public function deliveryCommunes(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'province_id' => ['required', 'string'],
+            'district_id' => ['required', 'string'],
+        ]);
+
+        return response()->json(['success' => true, 'communes' => $api->listCommunes($data['province_id'], $data['district_id'])]);
+    }
+
+    /**
+     * Writes the recipient/address/estimated-delivery-date fields back to
+     * the real Pancake order — the write side of the Delivery card's own
+     * editable form. Courier/tracking/shipping fee stay read-only (those are
+     * set by Pancake/the courier itself once a shipment is actually booked,
+     * not something this form collects). full_address is computed here the
+     * same way Pancake's own real orders build it (confirmed live: "{street
+     * line}, {commune}, {district}, {province}") rather than trusting the
+     * client to send a pre-built string.
+     */
+    public function updateDelivery(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'full_name'              => ['required', 'string', 'max:255'],
+            'phone_number'           => ['required', 'string', 'max:50'],
+            'address'                => ['nullable', 'string', 'max:500'],
+            'province_id'            => ['required', 'string'],
+            'province_name'          => ['required', 'string'],
+            'district_id'            => ['required', 'string'],
+            'district_name'          => ['required', 'string'],
+            'commune_id'             => ['nullable', 'string'],
+            'commune_name'           => ['nullable', 'string'],
+            'post_code'              => ['nullable', 'string', 'max:20'],
+            'estimate_delivery_date' => ['nullable', 'date'],
+        ]);
+
+        $addressLine = trim($data['address'] ?? '');
+        $fullAddress = collect([$addressLine, $data['commune_name'] ?? null, $data['district_name'], $data['province_name']])
+            ->filter()->implode(', ');
+
+        $shippingAddress = [
+            'full_name'     => $data['full_name'],
+            'phone_number'  => $data['phone_number'],
+            'address'       => $addressLine,
+            'full_address'  => $fullAddress,
+            'province_id'   => $data['province_id'],
+            'province_name' => $data['province_name'],
+            'district_id'   => $data['district_id'],
+            'district_name' => $data['district_name'],
+            'commune_id'    => $data['commune_id'] ?? null,
+            'commune_name'  => $data['commune_name'] ?? null,
+            'post_code'     => $data['post_code'] ?? '',
+            'country_code'  => '63',
+        ];
+
+        $success = $api->updateShippingAddress($lead->pancake_order_id, $shippingAddress, $data['estimate_delivery_date'] ?? null);
+
+        LeadActivity::log(
+            $lead, 'delivery_updated',
+            "Updated delivery details by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
+            $user
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not update delivery info in Pancake — try again or edit it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
      * Explicit request: clicking a customer's phone number in My Leads/the
      * lead detail page should show up on TSA Logs, not just status changes.
      * Fire-and-forget from calls.js's existing tel: click handler — this

@@ -152,6 +152,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/leads/{lead}/recordings/{fileId}/stream', [\App\Http\Controllers\CallTracker\LeadController::class, 'streamRecording'])->name('leads.recordings.stream');
         Route::get('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'notes'])->name('leads.notes');
         Route::post('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateNotes'])->name('leads.notes.update');
+        Route::get('/leads/{lead}/delivery/provinces', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryProvinces'])->name('leads.delivery.provinces');
+        Route::get('/leads/{lead}/delivery/districts', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryDistricts'])->name('leads.delivery.districts');
+        Route::get('/leads/{lead}/delivery/communes', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryCommunes'])->name('leads.delivery.communes');
+        Route::post('/leads/{lead}/delivery', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateDelivery'])->name('leads.delivery.update');
 
         Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
