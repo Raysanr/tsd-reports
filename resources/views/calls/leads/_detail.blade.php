@@ -328,8 +328,11 @@
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4"
                  id="deliveryPanel" data-lead-id="{{ $lead->id }}"
                  data-province-id="{{ $shipping['province_id'] ?? '' }}"
+                 data-province-name="{{ $shipping['province_name'] ?? '' }}"
                  data-district-id="{{ $shipping['district_id'] ?? '' }}"
-                 data-commune-id="{{ $shipping['commune_id'] ?? '' }}">
+                 data-district-name="{{ $shipping['district_name'] ?? '' }}"
+                 data-commune-id="{{ $shipping['commune_id'] ?? '' }}"
+                 data-commune-name="{{ $shipping['commune_name'] ?? '' }}">
                 <div class="flex items-center justify-between mb-3">
                     <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Delivery</p>
                     <span id="deliveryStatus" class="text-[11px] font-mono text-slate-400"></span>
@@ -343,30 +346,46 @@
                     </div>
                     <textarea id="deliveryAddress" rows="2" placeholder="Street / landmark"
                               class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">{{ $shipping['address'] ?? '' }}</textarea>
-                    <div class="grid grid-cols-2 gap-2">
-                        <select id="deliveryProvince"
-                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                            <option value="">Province…</option>
-                        </select>
-                        <select id="deliveryDistrict" disabled
-                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 disabled:opacity-50">
-                            <option value="">District/City…</option>
-                        </select>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <select id="deliveryCommune" disabled
-                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 disabled:opacity-50">
-                            <option value="">Barangay…</option>
-                        </select>
+
+                    {{-- Real province -> district -> commune picker, redesigned
+                         2026-08-25 (explicit follow-up: the previous 3 native
+                         <select> elements didn't match Pancake's own "Select
+                         address" combobox and read as broken/unclickable) to
+                         match Pancake's own widget exactly: a single search
+                         box that opens a tabbed dropdown (Province/City ->
+                         Choose district -> Choose commune, each tab's list
+                         client-filterable by typing), collapsing into a single
+                         "{province}, {district}, {commune}" chip with a ×
+                         once all three are picked — same real geo catalog as
+                         before (initDeliveryPanel() in calls.js), just a
+                         different picker UI over it. --}}
+                    <div class="flex gap-2">
+                        <div class="relative flex-1 min-w-0" id="deliveryAddressPicker">
+                            <div class="relative">
+                                <input type="text" id="deliveryAddressSearch" placeholder="Select address" autocomplete="off"
+                                       class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg pl-3 pr-8 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                <svg class="w-4 h-4 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
+                                </svg>
+                            </div>
+                            <button type="button" id="deliveryAddressChip"
+                                    class="hidden w-full items-center justify-between text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-left cursor-default">
+                                <span id="deliveryAddressChipText" class="truncate"></span>
+                                <span id="deliveryAddressChipClear" role="button" title="Clear address" class="text-slate-400 hover:text-red-600 cursor-pointer shrink-0 ml-2">×</span>
+                            </button>
+                            <div id="deliveryAddressDropdown" class="hidden absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
+                                <div class="flex border-b border-slate-100 dark:border-slate-700 text-xs">
+                                    <button type="button" data-address-level="province" class="delivery-address-tab flex-1 px-2 py-2 font-semibold cursor-pointer">Province/City</button>
+                                    <button type="button" data-address-level="district" class="delivery-address-tab flex-1 px-2 py-2 font-semibold cursor-pointer" disabled>Choose district</button>
+                                    <button type="button" data-address-level="commune" class="delivery-address-tab flex-1 px-2 py-2 font-semibold cursor-pointer" disabled>Choose commune</button>
+                                </div>
+                                <div id="deliveryAddressList" class="max-h-56 overflow-y-auto text-sm"></div>
+                            </div>
+                        </div>
                         <input type="text" id="deliveryPostcode" placeholder="Postcode" value="{{ $shipping['post_code'] ?? '' }}"
-                               class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                               class="w-28 shrink-0 text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     </div>
-                    <div>
-                        <label class="text-xs text-slate-400 block mb-1">Estimated delivery date</label>
-                        <input type="date" id="deliveryEstimateDate"
-                               value="{{ $liveOrder['estimate_delivery_date'] ? \Illuminate\Support\Carbon::parse($liveOrder['estimate_delivery_date'])->format('Y-m-d') : '' }}"
-                               class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    </div>
+
                     <div class="flex items-center justify-between pt-1">
                         <div class="text-xs text-slate-400">
                             <span>Courier: {{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</span>

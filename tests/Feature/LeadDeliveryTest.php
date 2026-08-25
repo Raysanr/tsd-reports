@@ -138,7 +138,6 @@ class LeadDeliveryTest extends TestCase
             'commune_id'    => '63_7532601',
             'commune_name'  => 'Poblacion-ibaba',
             'post_code'     => '1930',
-            'estimate_delivery_date' => '2026-08-28',
         ]);
 
         $response->assertOk()->assertJson(['success' => true]);
@@ -153,8 +152,7 @@ class LeadDeliveryTest extends TestCase
                 && $addr['full_address'] === 'Landmark: Malapit sa Tower ng Globe Padulo, Poblacion-ibaba, Angono, Rizal'
                 // render_type wasn't part of this app's form — it must survive
                 // the merge untouched (array_merge onto the existing address).
-                && $addr['render_type'] === 'old'
-                && $r['estimate_delivery_date'] === '2026-08-28';
+                && $addr['render_type'] === 'old';
         });
 
         $this->assertNotNull(LeadActivity::where('lead_id', $lead->id)->where('type', 'delivery_updated')->first());

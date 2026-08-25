@@ -839,14 +839,14 @@ class LeadController extends Controller
     }
 
     /**
-     * Writes the recipient/address/estimated-delivery-date fields back to
-     * the real Pancake order — the write side of the Delivery card's own
-     * editable form. Courier/tracking/shipping fee stay read-only (those are
-     * set by Pancake/the courier itself once a shipment is actually booked,
-     * not something this form collects). full_address is computed here the
-     * same way Pancake's own real orders build it (confirmed live: "{street
-     * line}, {commune}, {district}, {province}") rather than trusting the
-     * client to send a pre-built string.
+     * Writes the recipient/address fields back to the real Pancake order —
+     * the write side of the Delivery card's own editable form. Courier/
+     * tracking/shipping fee stay read-only (those are set by Pancake/the
+     * courier itself once a shipment is actually booked, not something this
+     * form collects). full_address is computed here the same way Pancake's
+     * own real orders build it (confirmed live: "{street line}, {commune},
+     * {district}, {province}") rather than trusting the client to send a
+     * pre-built string.
      */
     public function updateDelivery(Request $request, Lead $lead, PancakeOrderTagApi $api)
     {
@@ -861,17 +861,16 @@ class LeadController extends Controller
         }
 
         $data = $request->validate([
-            'full_name'              => ['required', 'string', 'max:255'],
-            'phone_number'           => ['required', 'string', 'max:50'],
-            'address'                => ['nullable', 'string', 'max:500'],
-            'province_id'            => ['required', 'string'],
-            'province_name'          => ['required', 'string'],
-            'district_id'            => ['required', 'string'],
-            'district_name'          => ['required', 'string'],
-            'commune_id'             => ['nullable', 'string'],
-            'commune_name'           => ['nullable', 'string'],
-            'post_code'              => ['nullable', 'string', 'max:20'],
-            'estimate_delivery_date' => ['nullable', 'date'],
+            'full_name'     => ['required', 'string', 'max:255'],
+            'phone_number'  => ['required', 'string', 'max:50'],
+            'address'       => ['nullable', 'string', 'max:500'],
+            'province_id'   => ['required', 'string'],
+            'province_name' => ['required', 'string'],
+            'district_id'   => ['required', 'string'],
+            'district_name' => ['required', 'string'],
+            'commune_id'    => ['nullable', 'string'],
+            'commune_name'  => ['nullable', 'string'],
+            'post_code'     => ['nullable', 'string', 'max:20'],
         ]);
 
         $addressLine = trim($data['address'] ?? '');
@@ -893,7 +892,7 @@ class LeadController extends Controller
             'country_code'  => '63',
         ];
 
-        $success = $api->updateShippingAddress($lead->pancake_order_id, $shippingAddress, $data['estimate_delivery_date'] ?? null);
+        $success = $api->updateShippingAddress($lead->pancake_order_id, $shippingAddress);
 
         LeadActivity::log(
             $lead, 'delivery_updated',

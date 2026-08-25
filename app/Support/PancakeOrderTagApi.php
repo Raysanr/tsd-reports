@@ -294,11 +294,11 @@ class PancakeOrderTagApi
     }
 
     /**
-     * Writes the order's shipping address (and, optionally, its estimated
-     * delivery date) back to the real order — the write side of the lead
-     * detail modal's own editable Delivery card. Same GET-then-PUT-whole-
-     * order pattern as every other write above (see addTagsToOrder()'s own
-     * doc comment for why echoing back every GET'd field matters here too).
+     * Writes the order's shipping address back to the real order — the
+     * write side of the lead detail modal's own editable Delivery card.
+     * Same GET-then-PUT-whole-order pattern as every other write above (see
+     * addTagsToOrder()'s own doc comment for why echoing back every GET'd
+     * field matters here too).
      *
      * $shippingAddress is merged onto the order's EXISTING shipping_address
      * rather than replacing it outright, so a field this app's own form
@@ -308,7 +308,7 @@ class PancakeOrderTagApi
      * district/commune against listProvinces()/listDistricts()/
      * listCommunes() first — this method just writes whatever it's handed.
      */
-    public function updateShippingAddress(string $orderId, array $shippingAddress, ?string $estimateDeliveryDate): bool
+    public function updateShippingAddress(string $orderId, array $shippingAddress): bool
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
@@ -329,9 +329,6 @@ class PancakeOrderTagApi
             $order = $getResponse->json('data') ?? $getResponse->json();
 
             $order['shipping_address'] = array_merge($order['shipping_address'] ?? [], $shippingAddress);
-            if ($estimateDeliveryDate !== null) {
-                $order['estimate_delivery_date'] = $estimateDeliveryDate;
-            }
 
             $putResponse = Http::timeout(15)
                 ->withOptions(['query' => ['api_key' => $apiKey]])

@@ -243,7 +243,8 @@ class LeadShowTest extends TestCase
         $response->assertSee('Malapit sa Tower ng Globe Padulo');
         $response->assertSee('value="1930"', false);
         $response->assertSee('J&amp;T Philippines', false);
-        $response->assertSee('value="2026-08-28"', false);
+        $response->assertSee('data-province-id="63_753"', false);
+        $response->assertSee('data-district-name="Angono"', false);
     }
 
     /** No shipping_address at all (Pancake unreachable, or a genuinely

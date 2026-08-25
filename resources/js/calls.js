@@ -1693,116 +1693,235 @@ function deliveryLeadId() {
     return document.getElementById('deliveryPanel')?.dataset.leadId;
 }
 
-function populateSelect(select, items, valueKey, labelKey, selectedValue, placeholder) {
-    select.innerHTML = `<option value="">${placeholder}</option>`;
-    items.forEach((item) => {
-        const opt = document.createElement('option');
-        opt.value = item[valueKey];
-        opt.textContent = item[labelKey] || item[valueKey];
-        if (String(item[valueKey]) === String(selectedValue)) opt.selected = true;
-        select.appendChild(opt);
+// Picked province/district/commune + each level's own fetched catalog —
+// reset fresh on every initDeliveryPanel() call (see that function's own
+// comment for why this can't be a one-time module load).
+let deliveryAddressState = null;
+
+function deliveryAddressTabClasses(active) {
+    return active
+        ? 'delivery-address-tab flex-1 px-2 py-2 font-semibold cursor-pointer text-primary border-b-2 border-primary'
+        : 'delivery-address-tab flex-1 px-2 py-2 font-semibold cursor-pointer text-slate-400 border-b-2 border-transparent hover:text-slate-600 dark:hover:text-slate-300';
+}
+
+function renderDeliveryAddressTabs() {
+    const panel = document.getElementById('deliveryAddressDropdown');
+    if (!panel) return;
+    panel.querySelectorAll('.delivery-address-tab').forEach((tab) => {
+        const level = tab.dataset.addressLevel;
+        tab.className = deliveryAddressTabClasses(level === deliveryAddressState.activeLevel);
+        tab.disabled = (level === 'district' && !deliveryAddressState.province)
+            || (level === 'commune' && !deliveryAddressState.district);
+        tab.classList.toggle('opacity-40', tab.disabled);
+        tab.classList.toggle('cursor-not-allowed', tab.disabled);
     });
 }
 
-function loadDeliveryDistricts(leadId, provinceId, selectedDistrictId) {
-    const districtSelect = document.getElementById('deliveryDistrict');
-    const communeSelect  = document.getElementById('deliveryCommune');
-    if (!districtSelect || !communeSelect) return;
+function deliveryAddressCatalogFor(level) {
+    if (level === 'province') return deliveryAddressState.provinces;
+    if (level === 'district') return deliveryAddressState.districts;
+    return deliveryAddressState.communes;
+}
 
-    communeSelect.innerHTML = '<option value="">Barangay…</option>';
-    communeSelect.disabled = true;
+function renderDeliveryAddressList(filterText = '') {
+    const list = document.getElementById('deliveryAddressList');
+    if (!list) return;
 
-    if (!provinceId) {
-        districtSelect.innerHTML = '<option value="">District/City…</option>';
-        districtSelect.disabled = true;
+    const items = deliveryAddressCatalogFor(deliveryAddressState.activeLevel)
+        .filter((item) => !filterText || (item.name || '').toLowerCase().includes(filterText.toLowerCase()));
+
+    if (items.length === 0) {
+        list.innerHTML = '<p class="text-xs text-slate-400 px-3 py-4 text-center">No matches.</p>';
         return;
     }
 
-    districtSelect.disabled = true;
-    fetch(`/calls/leads/${leadId}/delivery/districts?province_id=${encodeURIComponent(provinceId)}`, { headers: { Accept: 'application/json' } })
+    list.innerHTML = items.map((item) => `
+        <button type="button" class="delivery-address-item block w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer"
+                data-id="${item.id}" data-name="${(item.name || '').replace(/"/g, '&quot;')}">
+            ${item.name || item.id}
+        </button>
+    `).join('');
+}
+
+function openDeliveryAddressDropdown() {
+    document.getElementById('deliveryAddressDropdown')?.classList.remove('hidden');
+    renderDeliveryAddressTabs();
+    renderDeliveryAddressList(document.getElementById('deliveryAddressSearch')?.value || '');
+}
+
+function closeDeliveryAddressDropdown() {
+    document.getElementById('deliveryAddressDropdown')?.classList.add('hidden');
+}
+
+function updateDeliveryAddressChip() {
+    const search = document.getElementById('deliveryAddressSearch');
+    const chip = document.getElementById('deliveryAddressChip');
+    const chipText = document.getElementById('deliveryAddressChipText');
+    if (!search || !chip || !chipText) return;
+
+    const { province, district, commune } = deliveryAddressState;
+    // Collapses to the chip once province + district are picked (commune is
+    // optional — updateDelivery()'s own validation agrees) rather than
+    // waiting on all three, matching Pancake's own form.
+    if (province && district) {
+        chipText.textContent = [province.name, district.name, commune?.name].filter(Boolean).join(', ');
+        chip.classList.remove('hidden');
+        chip.classList.add('flex');
+        search.classList.add('hidden');
+        closeDeliveryAddressDropdown();
+    } else {
+        chip.classList.add('hidden');
+        chip.classList.remove('flex');
+        search.classList.remove('hidden');
+    }
+}
+
+function setDeliveryAddressLevel(level) {
+    if (level === 'district' && !deliveryAddressState.province) return;
+    if (level === 'commune' && !deliveryAddressState.district) return;
+    deliveryAddressState.activeLevel = level;
+    renderDeliveryAddressTabs();
+    renderDeliveryAddressList();
+}
+
+function fetchDeliveryDistricts(leadId, provinceId) {
+    return fetch(`/calls/leads/${leadId}/delivery/districts?province_id=${encodeURIComponent(provinceId)}`, { headers: { Accept: 'application/json' } })
         .then((res) => (res.ok ? res.json() : { districts: [] }))
-        .then((data) => {
-            populateSelect(districtSelect, data.districts || [], 'id', 'name', selectedDistrictId, 'District/City…');
-            districtSelect.disabled = false;
-            if (selectedDistrictId) loadDeliveryCommunes(leadId, provinceId, selectedDistrictId, document.getElementById('deliveryPanel')?.dataset.communeId);
-        })
-        .catch(() => { districtSelect.disabled = false; });
+        .then((data) => data.districts || [])
+        .catch(() => []);
 }
 
-function loadDeliveryCommunes(leadId, provinceId, districtId, selectedCommuneId) {
-    const communeSelect = document.getElementById('deliveryCommune');
-    if (!communeSelect) return;
-
-    if (!districtId) {
-        communeSelect.innerHTML = '<option value="">Barangay…</option>';
-        communeSelect.disabled = true;
-        return;
-    }
-
-    communeSelect.disabled = true;
-    fetch(`/calls/leads/${leadId}/delivery/communes?province_id=${encodeURIComponent(provinceId)}&district_id=${encodeURIComponent(districtId)}`, { headers: { Accept: 'application/json' } })
+function fetchDeliveryCommunes(leadId, provinceId, districtId) {
+    return fetch(`/calls/leads/${leadId}/delivery/communes?province_id=${encodeURIComponent(provinceId)}&district_id=${encodeURIComponent(districtId)}`, { headers: { Accept: 'application/json' } })
         .then((res) => (res.ok ? res.json() : { communes: [] }))
-        .then((data) => {
-            const communes = data.communes || [];
-            populateSelect(communeSelect, communes, 'id', 'name', selectedCommuneId, 'Barangay…');
-            communeSelect.disabled = false;
-            communeSelect.dataset.communes = JSON.stringify(communes);
-        })
-        .catch(() => { communeSelect.disabled = false; });
+        .then((data) => data.communes || [])
+        .catch(() => []);
 }
 
+async function selectDeliveryAddressItem(level, id, name) {
+    const leadId = deliveryLeadId();
+    const search = document.getElementById('deliveryAddressSearch');
+    if (search) search.value = '';
+
+    if (level === 'province') {
+        deliveryAddressState.province = { id, name };
+        deliveryAddressState.district = null;
+        deliveryAddressState.commune = null;
+        deliveryAddressState.districts = [];
+        deliveryAddressState.communes = [];
+        updateDeliveryAddressChip();
+        deliveryAddressState.districts = await fetchDeliveryDistricts(leadId, id);
+        setDeliveryAddressLevel('district');
+    } else if (level === 'district') {
+        deliveryAddressState.district = { id, name };
+        deliveryAddressState.commune = null;
+        deliveryAddressState.communes = [];
+        updateDeliveryAddressChip();
+        deliveryAddressState.communes = await fetchDeliveryCommunes(leadId, deliveryAddressState.province.id, id);
+        setDeliveryAddressLevel('commune');
+    } else {
+        deliveryAddressState.commune = { id, name };
+        // Auto-fills Postcode from the picked commune's own real postcode
+        // list — only when the field is still empty, so this never clobbers
+        // a value someone already typed in by hand.
+        const postcodeInput = document.getElementById('deliveryPostcode');
+        const picked = deliveryAddressState.communes.find((c) => String(c.id) === String(id));
+        const postcode = picked?.postcode?.[0];
+        if (postcodeInput && postcodeInput.value.trim() === '' && postcode) postcodeInput.value = postcode;
+        updateDeliveryAddressChip();
+    }
+}
+
+/** Re-opens the picker from scratch — the only way to change an address once
+ *  it's collapsed into the chip (mirrors Pancake's own single × on its
+ *  address chip). */
+function clearDeliveryAddress() {
+    deliveryAddressState.province = null;
+    deliveryAddressState.district = null;
+    deliveryAddressState.commune = null;
+    deliveryAddressState.districts = [];
+    deliveryAddressState.communes = [];
+    deliveryAddressState.activeLevel = 'province';
+    updateDeliveryAddressChip();
+    const search = document.getElementById('deliveryAddressSearch');
+    if (search) search.focus();
+}
+
+/** Real province -> district -> commune picker (explicit follow-up request,
+ *  2026-08-25: "make it editable like in the POS", then "why is it like
+ *  when i click it there's no dropdown ... like in the POS" — the previous
+ *  3 native <select> elements didn't match Pancake's own combobox and read
+ *  as unclickable/broken) — a single "Select address" search box opening a
+ *  tabbed dropdown, same shape as Pancake's own widget. Re-queries the DOM
+ *  and rebuilds deliveryAddressState fresh every call (not a module-level
+ *  const captured once), same reason initPancakeNotesPanel() does: this
+ *  panel only exists once its HTML is actually injected into the modal. */
 function initDeliveryPanel() {
     const panel = document.getElementById('deliveryPanel');
     if (!panel) return;
 
     const leadId = panel.dataset.leadId;
-    const provinceSelect = document.getElementById('deliveryProvince');
-    const districtSelect = document.getElementById('deliveryDistrict');
-    const communeSelect  = document.getElementById('deliveryCommune');
-    const postcodeInput  = document.getElementById('deliveryPostcode');
+    const search = document.getElementById('deliveryAddressSearch');
+    const dropdown = document.getElementById('deliveryAddressDropdown');
+    const picker = document.getElementById('deliveryAddressPicker');
+    const chipClear = document.getElementById('deliveryAddressChipClear');
+
+    deliveryAddressState = {
+        province: panel.dataset.provinceId ? { id: panel.dataset.provinceId, name: panel.dataset.provinceName } : null,
+        district: panel.dataset.districtId ? { id: panel.dataset.districtId, name: panel.dataset.districtName } : null,
+        commune: panel.dataset.communeId ? { id: panel.dataset.communeId, name: panel.dataset.communeName } : null,
+        provinces: [],
+        districts: [],
+        communes: [],
+        activeLevel: 'province',
+    };
+    updateDeliveryAddressChip();
 
     fetch(`/calls/leads/${leadId}/delivery/provinces`, { headers: { Accept: 'application/json' } })
         .then((res) => (res.ok ? res.json() : { provinces: [] }))
-        .then((data) => {
-            populateSelect(provinceSelect, data.provinces || [], 'id', 'name', panel.dataset.provinceId, 'Province…');
-            if (panel.dataset.provinceId) {
-                loadDeliveryDistricts(leadId, panel.dataset.provinceId, panel.dataset.districtId);
+        .then(async (data) => {
+            deliveryAddressState.provinces = data.provinces || [];
+            if (deliveryAddressState.province) {
+                deliveryAddressState.districts = await fetchDeliveryDistricts(leadId, deliveryAddressState.province.id);
+            }
+            if (deliveryAddressState.district) {
+                deliveryAddressState.communes = await fetchDeliveryCommunes(leadId, deliveryAddressState.province.id, deliveryAddressState.district.id);
             }
         })
         .catch(() => {});
 
-    provinceSelect.addEventListener('change', () => {
-        loadDeliveryDistricts(leadId, provinceSelect.value, null);
+    search.addEventListener('focus', openDeliveryAddressDropdown);
+    search.addEventListener('click', openDeliveryAddressDropdown);
+    search.addEventListener('input', () => renderDeliveryAddressList(search.value));
+
+    dropdown.querySelectorAll('.delivery-address-tab').forEach((tab) => {
+        tab.addEventListener('click', () => setDeliveryAddressLevel(tab.dataset.addressLevel));
     });
 
-    districtSelect.addEventListener('change', () => {
-        loadDeliveryCommunes(leadId, provinceSelect.value, districtSelect.value, null);
+    dropdown.addEventListener('click', (e) => {
+        const item = e.target.closest('.delivery-address-item');
+        if (!item) return;
+        selectDeliveryAddressItem(deliveryAddressState.activeLevel, item.dataset.id, item.dataset.name);
     });
 
-    // Auto-fills Postcode from the picked commune's own real postcode list
-    // (stashed on the select as JSON by loadDeliveryCommunes() above) — only
-    // when the field is still empty, so this never clobbers a value someone
-    // already typed in by hand.
-    communeSelect.addEventListener('change', () => {
-        if (postcodeInput.value.trim() !== '') return;
-        const communes = JSON.parse(communeSelect.dataset.communes || '[]');
-        const picked = communes.find((c) => String(c.id) === communeSelect.value);
-        const postcode = picked?.postcode?.[0];
-        if (postcode) postcodeInput.value = postcode;
+    chipClear?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearDeliveryAddress();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!picker.contains(e.target)) closeDeliveryAddressDropdown();
     });
 }
 
 window.saveDeliveryDetails = async function (btn) {
     const panel = document.getElementById('deliveryPanel');
-    if (!panel) return;
+    if (!panel || !deliveryAddressState) return;
     const leadId = panel.dataset.leadId;
-
-    const provinceSelect = document.getElementById('deliveryProvince');
-    const districtSelect = document.getElementById('deliveryDistrict');
-    const communeSelect  = document.getElementById('deliveryCommune');
     const statusEl = document.getElementById('deliveryStatus');
 
-    if (!provinceSelect.value || !districtSelect.value) {
+    const { province, district, commune } = deliveryAddressState;
+    if (!province || !district) {
         if (statusEl) {
             statusEl.textContent = 'Pick a province and district first.';
             statusEl.className = 'text-[11px] font-mono text-red-500';
@@ -1814,14 +1933,13 @@ window.saveDeliveryDetails = async function (btn) {
         full_name:    document.getElementById('deliveryFullName').value,
         phone_number: document.getElementById('deliveryPhone').value,
         address:      document.getElementById('deliveryAddress').value,
-        province_id:   provinceSelect.value,
-        province_name: provinceSelect.options[provinceSelect.selectedIndex]?.textContent || '',
-        district_id:   districtSelect.value,
-        district_name: districtSelect.options[districtSelect.selectedIndex]?.textContent || '',
-        commune_id:    communeSelect.value || null,
-        commune_name:  communeSelect.value ? (communeSelect.options[communeSelect.selectedIndex]?.textContent || '') : null,
+        province_id:   province.id,
+        province_name: province.name,
+        district_id:   district.id,
+        district_name: district.name,
+        commune_id:    commune?.id || null,
+        commune_name:  commune?.name || null,
         post_code:     document.getElementById('deliveryPostcode').value,
-        estimate_delivery_date: document.getElementById('deliveryEstimateDate').value || null,
     };
 
     btn.disabled = true;
