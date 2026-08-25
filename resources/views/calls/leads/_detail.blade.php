@@ -423,8 +423,32 @@
      if only one does. shrink-0, a root-level sibling of the header above
      and the scrollable content — pins to the bottom of the modal the
      same way the header pins to the top, rather than scrolling away with
-     the rest of the content. --}}
-<div class="shrink-0 flex justify-end px-6 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+     the rest of the content.
+
+     Order Status pill trigger on the left (follow-up request,
+     2026-08-25: "when my pointer is in the save button there will be
+     popup like this in the POS" — Pancake's own bottom bar pairs a
+     Status dropdown with Save/Print). Not a new control — reuses the
+     exact same #orderStatusPanel floating dropdown/openOrderStatusPill()
+     the Leads table's own per-row Status pill already opens
+     (leads/_table.blade.php), just triggered from here too; picking an
+     option there already updates every element sharing this lead's
+     .order-status-pill-{id} class, table row and this trigger alike. --}}
+<div class="shrink-0 flex items-center justify-between px-6 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+    @php $orderStatusCode = $order?->status_code; @endphp
+    @if($lead->pancake_order_id && $canManage && $orderStatusCode !== null && (\App\Models\Order::STATUS_PILL[$orderStatusCode] ?? null))
+    @php $pill = \App\Models\Order::STATUS_PILL[$orderStatusCode]; @endphp
+    <button type="button"
+            onclick="openOrderStatusPill(event, {{ $lead->id }}, {{ $orderStatusCode }})"
+            class="order-status-pill-trigger order-status-pill-{{ $lead->id }} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer hover:opacity-80 bg-{{ $pill['color'] }}-100 dark:bg-{{ $pill['color'] }}-900/40 text-{{ $pill['color'] }}-700 dark:text-{{ $pill['color'] }}-400">
+        <span class="order-status-pill-label">{{ $pill['label'] }}</span>
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </button>
+    @else
+    <span></span>
+    @endif
     <button type="button" onclick="saveLeadModal(this)"
             class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-5 py-2 rounded-lg cursor-pointer">
         Save

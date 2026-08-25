@@ -120,6 +120,33 @@ class LeadShowTest extends TestCase
      *  the separate `orders` table by the same pancake_order_id (a
      *  different local sync pipeline than Leads, see
      *  LeadController::show()'s own comment) for real bundle/amount data. */
+    /** Explicit follow-up request (2026-08-25): "when my pointer is in the
+     *  save button there will be popup like this in the POS" — the modal's
+     *  footer Save bar also carries the same real order-status pill trigger
+     *  the Leads table's own row already has (openOrderStatusPill(), the
+     *  shared #orderStatusPanel dropdown) — reused, not duplicated. */
+    public function test_the_footer_shows_the_real_order_status_pill(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's9', 'customer_name' => 'Status Pill Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::create([
+            'pancake_order_id'   => 's9',
+            'team'                => 'SH Naturals',
+            'status_code'         => 8, // Packing
+            'pancake_created_at'  => now(),
+            'pancake_inserted_at' => now(),
+            'synced_at'           => now(),
+        ]);
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('Packing');
+        $response->assertSee("openOrderStatusPill(event, {$lead->id}, 8)", false);
+    }
+
     public function test_the_product_card_shows_real_price_from_the_matching_order(): void
     {
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
