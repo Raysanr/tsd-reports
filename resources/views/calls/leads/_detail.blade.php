@@ -440,6 +440,7 @@
     @php $pill = \App\Models\Order::STATUS_PILL[$orderStatusCode]; @endphp
     <button type="button"
             onclick="openOrderStatusPill(event, {{ $lead->id }}, {{ $orderStatusCode }})"
+            data-lead-id="{{ $lead->id }}" data-status-code="{{ $orderStatusCode }}"
             class="order-status-pill-trigger order-status-pill-{{ $lead->id }} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide cursor-pointer hover:opacity-80 bg-{{ $pill['color'] }}-100 dark:bg-{{ $pill['color'] }}-900/40 text-{{ $pill['color'] }}-700 dark:text-{{ $pill['color'] }}-400">
         <span class="order-status-pill-label">{{ $pill['label'] }}</span>
         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">

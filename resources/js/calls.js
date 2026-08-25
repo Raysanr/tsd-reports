@@ -396,33 +396,94 @@ document.addEventListener('keydown', (e) => {
 // am I changing" context an anchored dropdown keeps). Mirrors Pancake POS's
 // own Status control.
 let activeOrderStatusLeadId = null;
+let orderStatusPanelCloseTimer = null;
 
-window.openOrderStatusPill = function (e, leadId, currentCode) {
-    e.stopPropagation();
+/** Always opens/repositions the panel under $trigger — no toggle-closed
+ *  logic (that's openOrderStatusPill()'s own job, below, for a real
+ *  click). Hovering the same trigger repeatedly must never close it, so
+ *  this is the one place both the click handler and the hover-open
+ *  listener funnel through. */
+function positionAndShowOrderStatusPanel(trigger, leadId, currentCode) {
     const panel = document.getElementById('orderStatusPanel');
     if (!panel) return;
+    clearTimeout(orderStatusPanelCloseTimer);
 
     // Close every other floating panel/dropdown first — only one should
     // ever be open, same convention as toggleStatusPanel()/the TSA filter.
     document.querySelectorAll('[data-status-panel], [data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
-
-    const alreadyOpenForThisLead = !panel.classList.contains('hidden') && activeOrderStatusLeadId === leadId;
-    panel.classList.add('hidden');
-    if (alreadyOpenForThisLead) {
-        activeOrderStatusLeadId = null;
-        return;
-    }
 
     activeOrderStatusLeadId = leadId;
     panel.querySelectorAll('.order-status-panel-option').forEach((opt) => {
         opt.querySelector('.order-status-panel-check')?.classList.toggle('hidden', Number(opt.dataset.code) !== Number(currentCode));
     });
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = trigger.getBoundingClientRect();
     panel.style.top  = `${rect.bottom + 6}px`;
     panel.style.left = `${rect.left}px`;
     panel.classList.remove('hidden');
+}
+
+window.openOrderStatusPill = function (e, leadId, currentCode) {
+    e.stopPropagation();
+    const panel = document.getElementById('orderStatusPanel');
+    if (!panel) return;
+
+    const alreadyOpenForThisLead = !panel.classList.contains('hidden') && activeOrderStatusLeadId === leadId;
+    if (alreadyOpenForThisLead) {
+        panel.classList.add('hidden');
+        activeOrderStatusLeadId = null;
+        return;
+    }
+
+    positionAndShowOrderStatusPanel(e.currentTarget, leadId, currentCode);
 };
+
+function scheduleOrderStatusPanelClose() {
+    clearTimeout(orderStatusPanelCloseTimer);
+    orderStatusPanelCloseTimer = setTimeout(() => {
+        document.getElementById('orderStatusPanel')?.classList.add('hidden');
+        activeOrderStatusLeadId = null;
+    }, 250);
+}
+
+// Hover-to-open (explicit follow-up request, 2026-08-25: "why when my
+// cursor is in the save it cant automatically pop up this" — wants the
+// status dropdown to open on hover, not just a click). Delegated via
+// mouseover/mouseout (which bubble, unlike mouseenter/mouseleave) since
+// triggers get replaced wholesale on every table poll and can't hold
+// their own bound listeners. The 250ms close delay (scheduleOrderStatus-
+// PanelClose above) is what lets the cursor travel from the trigger down
+// into the panel itself without it disappearing first.
+document.addEventListener('mouseover', (e) => {
+    const trigger = e.target.closest('.order-status-pill-trigger');
+    if (trigger) {
+        clearTimeout(orderStatusPanelCloseTimer);
+        const leadId = Number(trigger.dataset.leadId);
+        const code   = Number(trigger.dataset.statusCode);
+        const alreadyOpenForThisLead = activeOrderStatusLeadId === leadId
+            && !document.getElementById('orderStatusPanel')?.classList.contains('hidden');
+        if (!alreadyOpenForThisLead) positionAndShowOrderStatusPanel(trigger, leadId, code);
+        return;
+    }
+    if (e.target.closest('[data-order-status-panel]')) {
+        clearTimeout(orderStatusPanelCloseTimer);
+    }
+});
+
+document.addEventListener('mouseout', (e) => {
+    const leavingTrigger = e.target.closest('.order-status-pill-trigger');
+    const leavingPanel   = e.target.closest('[data-order-status-panel]');
+    if (!leavingTrigger && !leavingPanel) return;
+
+    // Moving from the trigger straight into the panel (or vice versa)
+    // isn't a real "leave" — only schedule the close if the cursor is
+    // headed somewhere else entirely.
+    const goingTo = e.relatedTarget;
+    if (goingTo?.closest?.('.order-status-pill-trigger') || goingTo?.closest?.('[data-order-status-panel]')) {
+        return;
+    }
+    scheduleOrderStatusPanelClose();
+});
 
 document.addEventListener('click', (e) => {
     const option = e.target.closest('.order-status-panel-option');
