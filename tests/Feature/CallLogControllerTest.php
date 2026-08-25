@@ -133,4 +133,52 @@ class CallLogControllerTest extends TestCase
         $events = $response->viewData('events');
         $this->assertTrue($events->every(fn ($e) => $e->tsa_id === $gemma->id));
     }
+
+    /** Explicit request (2026-08-25): "make this table has filter of
+     *  TSA'S" — narrows both the per-TSA totals table and the Recent
+     *  calls list down to one TSA, same convention as the team filter
+     *  above. */
+    public function test_a_tsa_filter_scopes_both_the_totals_and_the_recent_calls_list(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $mariel->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'tsa' => $gemma->id, 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $response->assertOk();
+        // Only Gemma's row remains — a picked TSA narrows the totals table
+        // down to just them, not a zero'd-out row for everyone else.
+        $rows = collect($response->viewData('rows'));
+        $this->assertCount(1, $rows);
+        $this->assertSame($gemma->id, $rows->first()['tsa']->id);
+
+        $events = $response->viewData('events');
+        $this->assertTrue($events->every(fn ($e) => $e->tsa_id === $gemma->id));
+
+        // The dropdown's own option list ($teamTsas) stays every TSA on the
+        // team, not narrowed down to just the one currently picked.
+        $this->assertGreaterThan(1, $response->viewData('teamTsas')->count());
+    }
+
+    /** An explicit "tsa=" (empty) clears the remembered filter back to
+     *  every TSA — same has()-based-empty-clear convention
+     *  PersistsCallTrackerFilters documents for every other filter here. */
+    public function test_an_empty_tsa_param_clears_the_filter(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        $this->actingAs($admin)->get(route('calls.call-log', ['tsa' => $gemma->id]));
+        $response = $this->actingAs($admin)->get(route('calls.call-log', ['tsa' => '']));
+
+        $response->assertOk();
+        $this->assertNull($response->viewData('selectedTsa'));
+    }
 }

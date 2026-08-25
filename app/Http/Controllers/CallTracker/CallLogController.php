@@ -42,9 +42,19 @@ class CallLogController extends Controller
         }
         $orderTeam = $selectedTeam !== 'all' ? $teamsConfig[$selectedTeam]['order_team'] : null;
 
+        // TSA filter (explicit request, 2026-08-25: "make this table has
+        // filter of TSA'S") — same rememberedFilter()/has()-based-empty-
+        // clear convention as every other filter on this page, narrowing
+        // down FROM whatever team's already picked (options list built off
+        // $rows below, which is already team-scoped) rather than a
+        // separate, independent TSA universe.
+        $tsaFilterInput = $this->rememberedFilter($request, 'call-log', 'tsa');
+        $selectedTsa    = $tsaFilterInput ? (int) $tsaFilterInput : null;
+
         $events = CallEvent::with(['tsa', 'lead'])
             ->whereBetween('occurred_at', [$from, $to])
             ->when($orderTeam, fn ($q) => $q->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
+            ->when($selectedTsa, fn ($q) => $q->where('tsa_id', $selectedTsa))
             ->orderByDesc('occurred_at')
             ->get();
 
@@ -88,9 +98,16 @@ class CallLogController extends Controller
         // "tracked, made no calls". Team-scoped explicitly here (not just
         // relying on $events already being team-filtered above) since a
         // zero-call TSA has no events to filter through in the first place.
-        $rows = TsaShift::where('active', true)
+        // $teamTsas itself stays TSA-filter-agnostic — it's also the TSA
+        // dropdown's own option list, which should keep listing every TSA
+        // on the picked team regardless of which one (if any) is currently
+        // selected, not narrow down to just the one already picked.
+        $teamTsas = TsaShift::where('active', true)
             ->when($orderTeam, fn ($q) => $q->where('team', $orderTeam))
-            ->orderBy('sort_order')->get()
+            ->orderBy('sort_order')->get();
+
+        $rows = $teamTsas
+            ->when($selectedTsa, fn ($tsas) => $tsas->where('id', $selectedTsa))
             ->map(function (TsaShift $tsa) use ($events, $tsaGapStats) {
                 $mine = $events->where('tsa_id', $tsa->id);
 
@@ -104,6 +121,8 @@ class CallLogController extends Controller
 
         return view('calls.call-log', [
             'rows'             => $rows,
+            'teamTsas'         => $teamTsas,
+            'selectedTsa'      => $selectedTsa,
             'events'           => $events->take(200), // recent-first raw list, capped same reasoning as other reports
             'gapBeforeSeconds' => $gapBeforeSeconds,
             'dateFrom'         => $dateFrom,
