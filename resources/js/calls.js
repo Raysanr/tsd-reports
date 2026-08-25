@@ -417,10 +417,25 @@ function positionAndShowOrderStatusPanel(trigger, leadId, currentCode) {
         opt.querySelector('.order-status-panel-check')?.classList.toggle('hidden', Number(opt.dataset.code) !== Number(currentCode));
     });
 
-    const rect = trigger.getBoundingClientRect();
-    panel.style.top  = `${rect.bottom + 6}px`;
-    panel.style.left = `${rect.left}px`;
+    // Revealed BEFORE measuring so panel.offsetHeight is real (a hidden,
+    // display:none element has no box to measure) — clamped against the
+    // viewport rather than always placing it at rect.bottom+6, since the
+    // lead modal's own footer trigger sits right at the bottom of the
+    // screen by definition, which previously pushed the panel mostly/
+    // fully below the visible viewport (confirmed live, 2026-08-25: a
+    // console-dispatched mouseover DID open it — panel.hidden went false
+    // — but nothing was visible on screen, because position:fixed doesn't
+    // scroll into view and there was never a check for "is there actually
+    // room below"). Flips to render ABOVE the trigger instead when there
+    // isn't; also clamps horizontally against the right edge.
     panel.classList.remove('hidden');
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const top = spaceBelow >= panel.offsetHeight + 6
+        ? rect.bottom + 6
+        : Math.max(6, rect.top - panel.offsetHeight - 6);
+    panel.style.top  = `${top}px`;
+    panel.style.left = `${Math.min(rect.left, window.innerWidth - panel.offsetWidth - 6)}px`;
 }
 
 window.openOrderStatusPill = function (e, leadId, currentCode) {
