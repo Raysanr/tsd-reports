@@ -152,6 +152,53 @@ class PancakeOrderTagApi
      * PancakeProductApi::search() already follows for the exact same
      * "must reflect Pancake's real current state" requirement.
      */
+    /**
+     * The order's full current line-item list and tag catalog, straight
+     * from Pancake — explicit request (2026-08-25): the lead detail
+     * modal's Product card was showing only ONE summarized line (this
+     * app's own `orders` table stores just a computed base_product/
+     * bundle_description/amount per order — for an upsell order that's
+     * deliberately the isolated addon's own info, not the base item, per
+     * extractUpsellProduct()/extractUpsellAmount() — so a genuine
+     * multi-item order rendered as if the upsell WAS the only product,
+     * with no way to show the base item's own line or its own price
+     * alongside it). Pancake's raw items[]/tags[] were never persisted
+     * locally at sync time (only the computed summary was), so unlike
+     * getNotes() above this can't fall back to anything local — a failed
+     * fetch here just means the modal falls back to the local summary
+     * card instead (see calls/leads/_detail.blade.php). Same
+     * live-fetch-every-time reasoning as getNotes(): must reflect
+     * Pancake's real current state, not a synced snapshot.
+     */
+    public function getOrderDetail(string $orderId): ?array
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$response->successful()) {
+                return null;
+            }
+
+            $order = $response->json('data') ?? $response->json();
+
+            return [
+                'items' => $order['items'] ?? [],
+                'tags'  => $order['tags'] ?? [],
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return null;
+        }
+    }
+
     public function getNotes(string $orderId): array
     {
         $empty = ['note' => null, 'note_print' => null];

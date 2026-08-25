@@ -6,9 +6,11 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /** Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift, routes -> calls.*. */
@@ -156,5 +158,74 @@ class LeadShowTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('SINUXYL');
+    }
+
+    /** Explicit follow-up request (2026-08-25): "see too the current upsell
+     *  in the pos and also the current pos tags" — $order's own single
+     *  summarized line is deliberately just the isolated upsell's own info
+     *  for an upsell order (see PancakeOrderTagApi::getOrderDetail()'s own
+     *  doc comment), so a genuine multi-item order needs Pancake's real
+     *  items[] to show the base product's own line/price too, matching
+     *  what Pancake's own order popup shows. */
+    public function test_a_multi_item_order_shows_every_real_line_from_pancake(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's9', 'customer_name' => 'Multi Item', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s9*' => Http::response(['data' => [
+                'items' => [
+                    ['variation_info' => ['name' => 'Clear Sight 3.0', 'retail_price' => 800], 'quantity' => 1],
+                    ['variation_info' => ['name' => '1 Lumicare Oil + 1 Haplunas Healing Eye Cream', 'retail_price' => 1000], 'quantity' => 1],
+                ],
+                'tags' => [
+                    ['id' => 1, 'name' => 'LIKA'],
+                    ['id' => 2, 'name' => 'CLEARSIGHT'],
+                    ['id' => 3, 'name' => 'UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS'],
+                ],
+            ]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('Clear Sight 3.0');
+        $response->assertSee('1 Lumicare Oil + 1 Haplunas Healing Eye Cream');
+        $response->assertSee('₱800.00', false);
+        $response->assertSee('₱1,000.00', false);
+        $response->assertSee('LIKA');
+        $response->assertSee('CLEARSIGHT');
+        $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
+    }
+
+    /** Pancake unreachable (timeout, not configured, etc.) — must fall back
+     *  to the local summarized card cleanly, never error the whole modal. */
+    public function test_falls_back_to_the_local_summary_when_pancake_is_unreachable(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's10', 'customer_name' => 'Fallback Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::create([
+            'pancake_order_id'   => 's10', 'team' => 'SH Naturals',
+            'bundle_description' => 'Fallback Bundle', 'amount' => 750, 'status_code' => 3,
+            'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now(),
+        ]);
+
+        Http::fake(['pos.pages.fm/api/v1/shops/*/orders/s10*' => Http::response([], 500)]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('Fallback Bundle');
+        $response->assertSee('₱750.00', false);
     }
 }

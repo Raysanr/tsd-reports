@@ -208,8 +208,20 @@ class LeadController extends Controller
      *  itself never stores an amount/bundle description) — feeds the
      *  product/price card in calls/leads/_detail.blade.php. Null when that
      *  order hasn't synced locally yet; the view falls back to the Product
-     *  catalog name alone. */
-    public function show(Request $request, Lead $lead)
+     *  catalog name alone.
+     *
+     *  $liveOrder — Pancake's real current items[]/tags[] for this order
+     *  (PancakeOrderTagApi::getOrderDetail(), explicit follow-up request,
+     *  2026-08-25: "see too the current upsell in the pos and also the
+     *  current pos tags") — $order above only ever has ONE computed
+     *  summary line (deliberately the isolated upsell's own info for an
+     *  upsell order, not the base item — see extractUpsellProduct()'s own
+     *  comment), so a genuine multi-item order had no way to show the base
+     *  item's own line/price alongside it, and raw tags were never
+     *  persisted locally at all. Null when Pancake isn't reachable (not
+     *  configured, timeout, etc.) — the view falls back to $order's single
+     *  summarized line same as before this fetch existed. */
+    public function show(Request $request, Lead $lead, PancakeOrderTagApi $api)
     {
         $user = Auth::user();
 
@@ -219,12 +231,13 @@ class LeadController extends Controller
 
         $lead->load(['product', 'tsa', 'calledBy', 'activities.user']);
         $order = $lead->pancake_order_id ? Order::where('pancake_order_id', $lead->pancake_order_id)->first() : null;
+        $liveOrder = $lead->pancake_order_id ? $api->getOrderDetail($lead->pancake_order_id) : null;
 
         if ($request->header('X-Table-Refresh')) {
-            return view('calls.leads._detail', ['lead' => $lead, 'order' => $order]);
+            return view('calls.leads._detail', ['lead' => $lead, 'order' => $order, 'liveOrder' => $liveOrder]);
         }
 
-        return view('calls.leads.show', ['lead' => $lead, 'order' => $order]);
+        return view('calls.leads.show', ['lead' => $lead, 'order' => $order, 'liveOrder' => $liveOrder]);
     }
 
     /** Pin/unpin — same ownership guard as show() (a TSA only manages their
