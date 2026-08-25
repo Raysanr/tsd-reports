@@ -267,10 +267,6 @@
                                   class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"></textarea>
                     </div>
                 </div>
-                <button type="button" onclick="savePancakeNotes(this)"
-                        class="mt-3 bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
-                    Save
-                </button>
             </div>
             @endif
 
@@ -365,17 +361,11 @@
                                class="w-28 shrink-0 text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     </div>
 
-                    <div class="flex items-center justify-between pt-1">
-                        <div class="text-xs text-slate-400">
-                            <span>Courier: {{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</span>
-                            @if($liveOrder['tracking_link'] && $liveOrder['courier_name'])
-                            <a href="{{ $liveOrder['tracking_link'] }}" target="_blank" rel="noopener" class="text-blue-600 dark:text-blue-400 hover:underline ml-2">Track ↗</a>
-                            @endif
-                        </div>
-                        <button type="button" onclick="saveDeliveryDetails(this)"
-                                class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-4 py-2 rounded-lg cursor-pointer">
-                            Save
-                        </button>
+                    <div class="text-xs text-slate-400 pt-1">
+                        <span>Courier: {{ $liveOrder['courier_name'] ?? 'Not yet assigned' }}</span>
+                        @if($liveOrder['tracking_link'] && $liveOrder['courier_name'])
+                        <a href="{{ $liveOrder['tracking_link'] }}" target="_blank" rel="noopener" class="text-blue-600 dark:text-blue-400 hover:underline ml-2">Track ↗</a>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -422,3 +412,22 @@
         </div>
     </div>
 </div>
+
+@if(($lead->pancake_order_id && $canManage) || ($liveOrder && $liveOrder['shipping_address'] && $canManage))
+{{-- One shared footer Save button for the whole modal (explicit request,
+     2026-08-25: "make it only 1 save button like in the POS" — Pancake's
+     own order popup has a single bottom-bar Save covering every card,
+     not one per section). Saves whichever of Delivery/Pancake Notes is
+     actually present on this lead (window.saveLeadModal() in calls.js) —
+     each card's own status text still shows which part succeeded/failed
+     if only one does. shrink-0, a root-level sibling of the header above
+     and the scrollable content — pins to the bottom of the modal the
+     same way the header pins to the top, rather than scrolling away with
+     the rest of the content. --}}
+<div class="shrink-0 flex justify-end px-6 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/40">
+    <button type="button" onclick="saveLeadModal(this)"
+            class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-5 py-2 rounded-lg cursor-pointer">
+        Save
+    </button>
+</div>
+@endif

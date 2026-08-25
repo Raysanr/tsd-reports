@@ -1640,18 +1640,21 @@ function loadPancakeNotes() {
         .catch(() => {});
 }
 
-window.savePancakeNotes = async function (btn) {
+/** Saves the Pancake Notes card's own fields — no longer has its own
+ *  button (see saveLeadModal() below: one shared footer Save button now
+ *  covers every card, matching Pancake's own single bottom-bar Save,
+ *  explicit request 2026-08-25). Returns null when there's nothing to
+ *  save on this lead (no linked order), or {success} otherwise, so the
+ *  orchestrator can tell "nothing to do" apart from "this part failed". */
+async function savePancakeNotesInner() {
     const leadId = pancakeNotesLeadId();
     const panel = document.getElementById('pancakeNotesPanel');
-    if (!leadId || !panel) return;
+    if (!leadId || !panel) return null;
 
     const statusEl = document.getElementById('pancakeNotesStatus');
     const note      = panel.querySelector('[data-notes-field="note"]')?.value ?? '';
     const notePrint = panel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
 
-    btn.disabled = true;
-    const originalLabel = btn.textContent;
-    btn.textContent = 'Saving…';
     if (statusEl) statusEl.textContent = '';
 
     try {
@@ -1670,16 +1673,15 @@ window.savePancakeNotes = async function (btn) {
             statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
             statusEl.className = `text-[11px] font-mono ${data.success ? 'text-emerald-500' : 'text-red-500'}`;
         }
+        return { success: data.success };
     } catch (e) {
         if (statusEl) {
             statusEl.textContent = 'Could not reach the server — try again.';
             statusEl.className = 'text-[11px] font-mono text-red-500';
         }
-    } finally {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
+        return { success: false };
     }
-};
+}
 
 // Delivery card's editable province -> district -> commune cascading picker
 // (explicit follow-up request, 2026-08-25: "make it editable like in the
@@ -1949,9 +1951,12 @@ function initDeliveryPanel() {
     });
 }
 
-window.saveDeliveryDetails = async function (btn) {
+/** Saves the Delivery card's own fields — no longer has its own button
+ *  (see saveLeadModal() below). Same null-vs-{success} contract as
+ *  savePancakeNotesInner() above. */
+async function saveDeliveryDetailsInner() {
     const panel = document.getElementById('deliveryPanel');
-    if (!panel || !deliveryAddressState) return;
+    if (!panel || !deliveryAddressState) return null;
     const leadId = panel.dataset.leadId;
     const statusEl = document.getElementById('deliveryStatus');
 
@@ -1961,7 +1966,7 @@ window.saveDeliveryDetails = async function (btn) {
             statusEl.textContent = 'Pick a province and district first.';
             statusEl.className = 'text-[11px] font-mono text-red-500';
         }
-        return;
+        return { success: false };
     }
 
     const payload = {
@@ -1977,9 +1982,6 @@ window.saveDeliveryDetails = async function (btn) {
         post_code:     document.getElementById('deliveryPostcode').value,
     };
 
-    btn.disabled = true;
-    const originalLabel = btn.textContent;
-    btn.textContent = 'Saving…';
     if (statusEl) statusEl.textContent = '';
 
     try {
@@ -1998,12 +2000,36 @@ window.saveDeliveryDetails = async function (btn) {
             statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
             statusEl.className = `text-[11px] font-mono ${data.success ? 'text-emerald-500' : 'text-red-500'}`;
         }
-        if (data.success) window.showToast?.('Delivery details updated.', 'success');
+        return { success: data.success };
     } catch (e) {
         if (statusEl) {
             statusEl.textContent = 'Could not reach the server — try again.';
             statusEl.className = 'text-[11px] font-mono text-red-500';
         }
+        return { success: false };
+    }
+}
+
+/** One shared footer Save button for the whole lead modal (explicit
+ *  request, 2026-08-25: "make it only 1 save button like in the POS" —
+ *  Pancake's own order popup has a single bottom-bar Save covering every
+ *  card, not one per section). Runs every card's own save in parallel and
+ *  reports one combined result — each card's own status text still shows
+ *  which part succeeded/failed if only one does. */
+window.saveLeadModal = async function (btn) {
+    btn.disabled = true;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Saving…';
+
+    try {
+        const results = (await Promise.all([
+            saveDeliveryDetailsInner(),
+            savePancakeNotesInner(),
+        ])).filter((r) => r !== null);
+
+        if (results.length === 0) return; // nothing on this lead to save
+        const failed = results.some((r) => !r.success);
+        window.showToast?.(failed ? 'Some changes could not be saved — check the errors above.' : 'Saved.', failed ? 'error' : 'success');
     } finally {
         btn.disabled = false;
         btn.textContent = originalLabel;
