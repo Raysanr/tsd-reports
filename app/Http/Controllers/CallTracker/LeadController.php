@@ -338,6 +338,86 @@ class LeadController extends Controller
     }
 
     /**
+     * Bulk version of togglePin() — explicit request, 2026-08-26, "like
+     * that for the example" (Product Management's own checkbox + bulk-bar
+     * pattern). Same ownership guard as the single-row version: a TSA can
+     * only touch their own leads, so this scopes the query to tsa_id
+     * rather than trusting the client-supplied id list — a TSA can't pin
+     * someone else's lead just by including its id in the request body.
+     * No LeadActivity entries, matching togglePin() itself, which never
+     * logged pin/unpin either.
+     */
+    public function bulkPin(Request $request)
+    {
+        $user = Auth::user();
+
+        $data = $request->validate([
+            'lead_ids'   => ['required', 'array', 'min:1'],
+            'lead_ids.*' => ['integer'],
+            'pin'        => ['required', 'boolean'],
+        ]);
+
+        $query = Lead::whereIn('id', $data['lead_ids']);
+        if (!$user->isAtLeastAdmin()) {
+            $query->where('tsa_id', $user->tsa_id);
+        }
+
+        $count = $query->count();
+        $query->update(['pinned_at' => $data['pin'] ? now() : null]);
+
+        $verb = $data['pin'] ? 'Pinned' : 'Unpinned';
+        $noun = \Illuminate\Support\Str::plural('lead', $count);
+        return response()->json(['success' => true, 'message' => "{$verb} {$count} {$noun}."]);
+    }
+
+    /**
+     * Bulk version of transfer() above — explicit request, 2026-08-26,
+     * "like that for the example." Admin-only, same as the single-row
+     * version (the TSA column itself is already admin-only). Logs one
+     * LeadActivity per lead, same as the single-row version, so each
+     * lead's own activity trail still shows the real transfer — a single
+     * combined log entry would lose that per-lead history.
+     */
+    public function bulkTransfer(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin()) {
+            abort(403);
+        }
+
+        $data = $request->validate([
+            'lead_ids'   => ['required', 'array', 'min:1'],
+            'lead_ids.*' => ['integer'],
+            'tsa_id'     => ['required', 'integer', 'exists:tsa_shifts,id'],
+        ]);
+
+        $newTsa = TsaShift::findOrFail($data['tsa_id']);
+        $leads = Lead::whereIn('id', $data['lead_ids'])->get();
+
+        $moved = 0;
+        foreach ($leads as $lead) {
+            if ($lead->tsa_id === $newTsa->id) {
+                continue;
+            }
+
+            $fromLabel = $lead->tsa?->display_name ?? 'Unassigned';
+
+            $lead->update([
+                'tsa_id'      => $newTsa->id,
+                'assigned_at' => now(),
+                'status'      => $lead->status === 'unassigned' ? 'assigned' : $lead->status,
+            ]);
+
+            LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
+            $moved++;
+        }
+
+        $noun = \Illuminate\Support\Str::plural('lead', $moved);
+        return response()->json(['success' => true, 'message' => "Transferred {$moved} {$noun} to {$newTsa->display_name}."]);
+    }
+
+    /**
      * JSON feed for the "listen to recording" popup (explicit request,
      * 2026-08-19) — lists every Drive recording matching this lead's phone
      * number in its assigned TSA's own Drive folder (see

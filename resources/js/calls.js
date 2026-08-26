@@ -715,12 +715,127 @@ function pollLeadsTable() {
                     tr.style.transform = '';
                 });
             });
+
+            // The poll just replaced every row wholesale, so any checked
+            // .leadCheckbox from before this refresh is gone — re-apply
+            // whatever's still selected (see the bulk-select block below).
+            syncBulkLeadCheckboxes();
         })
         .catch(() => {});
 }
 
 if (document.getElementById('leads-table-container')) {
     setInterval(pollLeadsTable, 15000);
+}
+
+// Bulk select + actions (explicit request, 2026-08-26 — "like that for the
+// example", Product Management's own checkbox + bulk-bar pattern, adapted for
+// a table that live-polls every 15s instead of reloading the page per action).
+// Selection state lives in this Set, not in checkbox.checked — pollLeadsTable()
+// above wholesale-replaces the table's HTML on every cycle, which would wipe
+// any checked attribute a plain DOM read relied on. Every listener below is
+// delegated on document for the same reason: checkboxes bound directly at
+// page-load wouldn't exist anymore after the first poll.
+const bulkLeadIds = new Set();
+
+function updateBulkLeadsBar() {
+    const bar = document.getElementById('bulkLeadsBar');
+    if (!bar) return;
+    const count = document.getElementById('bulkLeadsCount');
+    if (bulkLeadIds.size > 0) {
+        bar.classList.remove('hidden');
+        count.textContent = `${bulkLeadIds.size} selected`;
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+// Re-applies bulkLeadIds onto whatever checkboxes exist right now — called
+// once at page load and again after every poll refresh. Prunes ids that no
+// longer have a matching row (reassigned off this filtered view, paginated
+// away, etc.) rather than leaving the count silently overcounting them.
+function syncBulkLeadCheckboxes() {
+    const checkboxes = document.querySelectorAll('.leadCheckbox');
+    if (!checkboxes.length && !document.getElementById('bulkLeadsBar')) return;
+
+    const present = new Set();
+    checkboxes.forEach((cb) => {
+        present.add(cb.dataset.id);
+        cb.checked = bulkLeadIds.has(cb.dataset.id);
+    });
+    Array.from(bulkLeadIds).forEach((id) => { if (!present.has(id)) bulkLeadIds.delete(id); });
+
+    const selectAll = document.getElementById('selectAllLeadsCheckbox');
+    if (selectAll) selectAll.checked = checkboxes.length > 0 && Array.from(checkboxes).every((cb) => cb.checked);
+
+    updateBulkLeadsBar();
+}
+
+document.addEventListener('change', (e) => {
+    if (!e.target.matches('.leadCheckbox')) return;
+    const id = e.target.dataset.id;
+    if (e.target.checked) bulkLeadIds.add(id); else bulkLeadIds.delete(id);
+    syncBulkLeadCheckboxes();
+});
+
+document.addEventListener('change', (e) => {
+    if (!e.target.matches('#selectAllLeadsCheckbox')) return;
+    document.querySelectorAll('.leadCheckbox').forEach((cb) => {
+        if (e.target.checked) bulkLeadIds.add(cb.dataset.id); else bulkLeadIds.delete(cb.dataset.id);
+    });
+    syncBulkLeadCheckboxes();
+});
+
+document.addEventListener('click', (e) => {
+    if (!e.target.matches('#bulkLeadsClear')) return;
+    bulkLeadIds.clear();
+    syncBulkLeadCheckboxes();
+});
+
+function bulkLeadsFetch(url, extraBody) {
+    return fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({ lead_ids: Array.from(bulkLeadIds), ...extraBody }),
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data) => {
+            window.showToast?.(data.message || 'Done.', 'success');
+            bulkLeadIds.clear();
+        })
+        .catch(async (res) => {
+            let message = 'Could not complete that action — try again.';
+            if (res?.json) {
+                try {
+                    const data = await res.json();
+                    message = Object.values(data.errors || {})[0]?.[0] || data.message || message;
+                } catch (e) { /* not JSON — keep the generic message */ }
+            }
+            window.showToast?.(message, 'error');
+        })
+        .finally(() => pollLeadsTable());
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.matches('#bulkLeadsPin, #bulkLeadsUnpin')) return;
+    if (bulkLeadIds.size === 0) return;
+    bulkLeadsFetch('/calls/leads/bulk/pin', { pin: e.target.id === 'bulkLeadsPin' });
+});
+
+document.addEventListener('click', (e) => {
+    if (!e.target.matches('#bulkLeadsTransfer')) return;
+    if (bulkLeadIds.size === 0) return;
+    const select = document.getElementById('bulkLeadsTsaSelect');
+    if (!select || !select.value) return;
+    bulkLeadsFetch('/calls/leads/bulk/transfer', { tsa_id: select.value });
+});
+
+if (document.getElementById('leads-table-container')) {
+    syncBulkLeadCheckboxes();
 }
 
 // Pin/unpin (explicit request, 2026-08-17) — submits in the background and

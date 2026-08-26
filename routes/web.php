@@ -150,6 +150,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/tags/add', [\App\Http\Controllers\CallTracker\LeadController::class, 'addTag'])->name('leads.tags.add');
         Route::post('/leads/{lead}/call-click', [\App\Http\Controllers\CallTracker\LeadController::class, 'logCallClick'])->name('leads.call-click');
         Route::post('/leads/{lead}/end-call', [\App\Http\Controllers\CallTracker\LeadController::class, 'endCall'])->name('leads.end-call');
+        // Registered BEFORE the {lead}-parameterized routes below — otherwise
+        // POST /leads/bulk/pin would match /leads/{lead}/pin first (with
+        // {lead} implicitly bound to the literal string "bulk") and 404 on
+        // route-model-binding instead of ever reaching bulkPin().
+        Route::post('/leads/bulk/pin', [\App\Http\Controllers\CallTracker\LeadController::class, 'bulkPin'])->name('leads.bulk-pin');
+        Route::post('/leads/bulk/transfer', [\App\Http\Controllers\CallTracker\LeadController::class, 'bulkTransfer'])->name('leads.bulk-transfer');
         Route::post('/leads/{lead}/pin', [\App\Http\Controllers\CallTracker\LeadController::class, 'togglePin'])->name('leads.pin');
         Route::post('/leads/{lead}/transfer', [\App\Http\Controllers\CallTracker\LeadController::class, 'transfer'])->name('leads.transfer');
         Route::get('/leads/{lead}/recordings', [\App\Http\Controllers\CallTracker\LeadController::class, 'recordings'])->name('leads.recordings');

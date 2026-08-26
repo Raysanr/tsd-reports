@@ -19,6 +19,14 @@
     <table class="w-full text-sm font-mono">
         <thead class="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
             <tr>
+                {{-- Bulk select (explicit request, 2026-08-26 — "like that for the
+                     example", Product Management's own checkbox + bulk-bar pattern).
+                     selectAllLeadsCheckbox is wired in calls.js, delegated (not bound
+                     here) since this whole table gets replaced wholesale on every 15s
+                     poll — see pollLeadsTable()'s own comment. --}}
+                <th class="w-9 px-1 py-3">
+                    <input type="checkbox" id="selectAllLeadsCheckbox" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer">
+                </th>
                 <th class="w-11 px-1 py-3"></th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Order ID</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Customer</th>
@@ -39,6 +47,9 @@
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($leads as $lead)
             <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }}">
+                <td class="px-1 py-3">
+                    <input type="checkbox" class="leadCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer" data-id="{{ $lead->id }}">
+                </td>
                 <td class="px-1 py-3">
                     {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
                          to the top (see LeadController::index()'s orderByRaw). Submits
