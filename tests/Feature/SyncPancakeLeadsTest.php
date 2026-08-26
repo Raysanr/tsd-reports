@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Lead;
+use App\Models\LeadActivity;
+use App\Models\Product;
 use App\Models\Setting;
+use App\Models\TsaShift;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -191,5 +194,125 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->assertSame(1, Lead::where('pancake_order_id', '9005')->count());
         $this->assertSame($firstTsa, Lead::where('pancake_order_id', '9005')->first()->tsa->tsa_key);
+    }
+
+    /**
+     * Explicit request (2026-08-26): Pancake sometimes creates two separate
+     * orders for what's really the same customer inquiry — confirmed live,
+     * orders #1357483/#1357480, same phone, same product, both landing on
+     * the same TSA purely by round-robin coincidence. Same phone (last 9
+     * digits) + same matched product + same calendar day (Asia/Manila) now
+     * auto-routes to whoever already has the first one, instead of spending
+     * a fresh round-robin slot on what's probably not a genuinely new lead.
+     */
+    public function test_a_same_day_same_phone_same_product_order_routes_to_the_existing_tsa_not_a_fresh_round_robin_pick(): void
+    {
+        // All three in ONE batch, same shape a real sync page fetch already
+        // returns — Http::fake() re-registering the same URL pattern mid-test
+        // doesn't reliably override the prior stub, so every case in this
+        // file that needs multiple orders present at once uses one fake
+        // response instead of re-faking between separate Artisan::call()s.
+        $this->fakePancake([
+            ['id' => 9101, 'bill_full_name' => 'M Jr Barbarona', 'bill_phone_number' => '09850050211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]], 'inserted_at' => now()->toIso8601String()],
+            // A differently-formatted but same real number, same product, same day.
+            ['id' => 9102, 'bill_full_name' => 'M Jr barbarona', 'bill_phone_number' => '(0985) 005-0211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]], 'inserted_at' => now()->toIso8601String()],
+            // A genuinely new lead (different phone) — must still get the
+            // SECOND rotation slot (Mariel), proving the duplicate never
+            // consumed one of its own.
+            ['id' => 9103, 'bill_full_name' => 'Someone Else', 'bill_phone_number' => '09991112222',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]], 'inserted_at' => now()->toIso8601String()],
+        ]);
+        Artisan::call('pancake:sync-leads');
+
+        $first  = Lead::where('pancake_order_id', '9101')->first();
+        $second = Lead::where('pancake_order_id', '9102')->first();
+        $third  = Lead::where('pancake_order_id', '9103')->first();
+
+        $this->assertSame('Gemma', $first->tsa->tsa_key); // first in SINUXYL's rotation
+        $this->assertSame('assigned', $second->status);
+        $this->assertSame('Gemma', $second->tsa->tsa_key); // same TSA, not the next in rotation
+        $this->assertSame('Mariel', $third->tsa->tsa_key); // the SECOND rotation slot, untouched by the duplicate
+
+        $activity = LeadActivity::where('lead_id', $second->id)->where('type', 'assigned')->first();
+        $this->assertStringContainsString('Likely duplicate of order #9101', $activity->description);
+    }
+
+    public function test_a_different_product_on_the_same_day_and_phone_is_not_treated_as_a_duplicate(): void
+    {
+        $this->fakePancake([
+            ['id' => 9201, 'bill_full_name' => 'First Order', 'bill_phone_number' => '09850050211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]], 'inserted_at' => now()->toIso8601String()],
+            ['id' => 9202, 'bill_full_name' => 'Second Order', 'bill_phone_number' => '09850050211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'AudiCure']]], 'inserted_at' => now()->toIso8601String()],
+        ]);
+        Artisan::call('pancake:sync-leads');
+
+        $second = Lead::where('pancake_order_id', '9202')->first();
+        $this->assertNotNull($second);
+        // AudiCure's own rotation starts fresh at Gemma too — the point is
+        // this ISN'T logged as a duplicate, not which TSA it lands on.
+        $activity = LeadActivity::where('lead_id', $second->id)->where('type', 'assigned')->first();
+        $this->assertStringNotContainsString('Likely duplicate', $activity->description);
+    }
+
+    public function test_a_same_phone_same_product_order_from_a_different_day_is_not_treated_as_a_duplicate(): void
+    {
+        $this->fakePancake([
+            ['id' => 9301, 'bill_full_name' => 'Yesterday Order', 'bill_phone_number' => '09850050211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at' => now('Asia/Manila')->subDay()->toIso8601String()],
+            ['id' => 9302, 'bill_full_name' => 'Today Order', 'bill_phone_number' => '09850050211',
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at' => now('Asia/Manila')->toIso8601String()],
+        ]);
+        Artisan::call('pancake:sync-leads', ['--hours' => 48]);
+
+        $second = Lead::where('pancake_order_id', '9302')->first();
+        $this->assertNotNull($second);
+        $activity = LeadActivity::where('lead_id', $second->id)->where('type', 'assigned')->first();
+        $this->assertStringNotContainsString('Likely duplicate', $activity->description);
+    }
+
+    /** An "original" that's still itself unassigned has nothing to route a
+     *  duplicate to — the new order falls through to a normal round-robin
+     *  pick instead, same as if no duplicate existed at all. Genuinely needs
+     *  two separate Artisan::call()s (the roster changes in between), so
+     *  this uses Http::sequence() instead of re-faking the same URL pattern
+     *  mid-test — see the main duplicate test's own comment on why a plain
+     *  second fakePancake() call doesn't reliably override the first. */
+    public function test_a_duplicate_of_a_still_unassigned_lead_falls_through_to_normal_round_robin(): void
+    {
+        // No product_tsa roster for AudiCure in this test, so the first
+        // order lands unassigned — nothing for the second to inherit.
+        Product::where('display_name', 'AUDICURE')->first()->tsas()->detach();
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::sequence()
+                ->push(['data' => [
+                    ['id' => 9401, 'bill_full_name' => 'Unassigned Original', 'bill_phone_number' => '09850050211',
+                        'tags' => [], 'items' => [['variation_info' => ['name' => 'AudiCure']]], 'inserted_at' => now()->toIso8601String()],
+                ]], 200)
+                ->push(['data' => [
+                    ['id' => 9402, 'bill_full_name' => 'Second Order Same Phone', 'bill_phone_number' => '09850050211',
+                        'tags' => [], 'items' => [['variation_info' => ['name' => 'AudiCure']]], 'inserted_at' => now()->toIso8601String()],
+                ]], 200),
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+        $first = Lead::where('pancake_order_id', '9401')->first();
+        $this->assertSame('unassigned', $first->status);
+
+        Product::where('display_name', 'AUDICURE')->first()->tsas()->attach(
+            TsaShift::where('tsa_key', 'Gemma')->first()->id
+        );
+
+        Artisan::call('pancake:sync-leads');
+        $second = Lead::where('pancake_order_id', '9402')->first();
+
+        $this->assertSame('assigned', $second->status);
+        $activity = LeadActivity::where('lead_id', $second->id)->where('type', 'assigned')->first();
+        $this->assertStringNotContainsString('Likely duplicate', $activity->description);
     }
 }

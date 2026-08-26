@@ -117,7 +117,21 @@ class SyncPancakeLeads extends Command
                     'synced_at'          => now(),
                 ]);
 
-                if ($product) {
+                // Likely-duplicate check (explicit request, 2026-08-26) — see
+                // findLikelyDuplicateLead()'s own doc comment for why. Only
+                // matters when there's an existing lead to route to AND that
+                // lead already has a TSA — an unassigned "original" has
+                // nothing to inherit, so this one just falls through to a
+                // normal round-robin pick same as before.
+                $duplicateOf = ($product && $lead->phone_number && $lead->pancake_created_at)
+                    ? $this->findLikelyDuplicateLead($lead->phone_number, $product->id, $lead->pancake_created_at)
+                    : null;
+
+                if ($duplicateOf && $duplicateOf->tsa_id) {
+                    $lead->tsa_id      = $duplicateOf->tsa_id;
+                    $lead->assigned_at = now();
+                    $lead->status      = 'assigned';
+                } elseif ($product) {
                     $tsa = RoundRobinAssigner::next($product);
                     if ($tsa) {
                         $lead->tsa_id      = $tsa->id;
@@ -138,7 +152,13 @@ class SyncPancakeLeads extends Command
 
                 LeadActivity::log($lead, 'created', "Lead pulled in from Pancake order #{$id}.");
 
-                if ($lead->tsa) {
+                if ($duplicateOf && $duplicateOf->tsa_id) {
+                    LeadActivity::log(
+                        $lead, 'assigned',
+                        "Likely duplicate of order #{$duplicateOf->pancake_order_id} (same phone, product, and day) — "
+                            . "auto-routed to {$lead->tsa->display_name} instead of a fresh round-robin pick."
+                    );
+                } elseif ($lead->tsa) {
                     LeadActivity::log($lead, 'assigned', "Round-robin assigned to {$lead->tsa->display_name}.");
                 }
             }
@@ -161,6 +181,46 @@ class SyncPancakeLeads extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A likely duplicate of the order about to become a brand-new,
+     * independently round-robin-assigned lead — explicit request,
+     * 2026-08-26: Pancake sometimes creates two separate orders for what's
+     * really the same customer inquiry (confirmed live: orders #1357483 and
+     * #1357480, same phone number, same SINUXYL product, both landing on
+     * Gemma De Guzman purely by round-robin coincidence, not because they
+     * were meant to go together). Today nothing catches this until a TSA
+     * notices and manually tags the call "DFR" (Duplicate) after the fact —
+     * by which point a round-robin slot, and possibly a second TSA's time,
+     * is already spent.
+     *
+     * Matched on last-9-digits phone number (same "different formatting,
+     * same real PH mobile number" reasoning CallTracker\LeadController::
+     * matchingRecordingFiles() already uses) + same matched product + same
+     * calendar day in Asia/Manila. Filters candidates by product/day in the
+     * query first (normally a small set), then compares phone numbers in
+     * PHP rather than a DB-specific regex function — this app runs on
+     * different SQL drivers locally vs. in production, so a raw SQL regex
+     * expression risks silently behaving differently (or erroring outright)
+     * between them.
+     */
+    private function findLikelyDuplicateLead(string $phoneNumber, int $productId, Carbon $createdAt): ?Lead
+    {
+        $digits = preg_replace('/[^0-9]/', '', $phoneNumber);
+        $last9  = substr($digits, -9);
+        if (strlen($last9) < 9) {
+            return null;
+        }
+
+        $dayStart = $createdAt->copy()->timezone('Asia/Manila')->startOfDay();
+        $dayEnd   = $createdAt->copy()->timezone('Asia/Manila')->endOfDay();
+
+        return Lead::where('product_id', $productId)
+            ->whereBetween('pancake_created_at', [$dayStart, $dayEnd])
+            ->whereNotNull('phone_number')
+            ->get()
+            ->first(fn (Lead $existing) => substr(preg_replace('/[^0-9]/', '', $existing->phone_number), -9) === $last9);
     }
 
     /**
