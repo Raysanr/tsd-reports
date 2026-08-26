@@ -180,6 +180,20 @@
             'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom ?: now()),
             'dateTo'   => \Illuminate\Support\Carbon::parse($dateTo ?: now()),
         ])
+        @elseif(auth()->user()->tsa)
+        {{-- A logged-in TSA sees their own name here, same avatar+name shape
+             as the admin dropdown above minus the chevron/click handler —
+             explicit request, 2026-08-26: "the one tsa can only see their
+             name and has no dropdown." Everything else in the @if branch
+             above (TSA filter, status filter, search, date range) stays
+             admin-only exactly as it already was — this whole block was
+             already entirely admin-gated before this change, so a TSA saw
+             nothing here at all; this just adds a static name label instead
+             of leaving that space empty. --}}
+        <div class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
+            <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr(auth()->user()->tsa->display_name, 0, 2)) }}</span>
+            <span>{{ auth()->user()->tsa->display_name }}</span>
+        </div>
         @endif
     </form>
 </div>

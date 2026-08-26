@@ -157,6 +157,47 @@
                                 </button>
                             </form>
 
+                            {{-- Login access — explicit request, 2026-08-26: "is it possible
+                                 that every TSA login to the system... admins only [have]
+                                 dropdown in that... and the one tsa can only see their name
+                                 and has no dropdown." Confirmed live that no TSA had a login
+                                 before this (all 7 rows, zero linked User accounts) — this is
+                                 the one place that gets created (TsaManagementController::
+                                 linkLogin()), since User Management's own "Add User" form has
+                                 no tsa_id field to link one. Once linked, everything else
+                                 already just works with no further changes: LeadController::
+                                 index() already scopes a non-admin to tsa_id === their own,
+                                 and the Leads page's TSA filter dropdown + transfer control
+                                 are already gated on isAtLeastAdmin() — a TSA signing in this
+                                 way sees only their own leads, own name, no dropdown. --}}
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
+                                <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Login access</h3>
+                                @if($tsa->user)
+                                <div class="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p class="text-sm text-slate-700 dark:text-slate-200">{{ $tsa->user->email }}</p>
+                                        <p class="text-[11px] text-slate-400 mt-0.5">Signs in with "Continue with Google" using this email — {{ $tsa->user->is_active ? 'can sign in now.' : 'deactivated, cannot sign in.' }}</p>
+                                    </div>
+                                    <form method="POST" action="{{ route('calls.tsa-management.login.toggle', $tsa) }}">
+                                        @csrf
+                                        <button type="submit" class="text-xs font-semibold {{ $tsa->user->is_active ? 'text-red-600 dark:text-red-400 hover:text-red-700 border-red-200 dark:border-red-900 hover:border-red-400' : 'text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 border-emerald-200 dark:border-emerald-900 hover:border-emerald-400' }} border rounded-lg px-3 py-1.5 cursor-pointer whitespace-nowrap">
+                                            {{ $tsa->user->is_active ? 'Deactivate login' : 'Reactivate login' }}
+                                        </button>
+                                    </form>
+                                </div>
+                                @else
+                                <form method="POST" action="{{ route('calls.tsa-management.login.link', $tsa) }}" class="flex items-center gap-2">
+                                    @csrf
+                                    <input type="email" name="email" required placeholder="{{ strtolower($tsa->tsa_key) }}@gmail.com"
+                                           class="flex-1 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                    <button type="submit" class="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-3 py-2 cursor-pointer whitespace-nowrap">
+                                        Give login access
+                                    </button>
+                                </form>
+                                <p class="text-[11px] text-slate-400 mt-2">Their real Google account email — they'll sign in with "Continue with Google" on the login page, no password needed. They'll only ever see their own leads, never this page or any other TSA's.</p>
+                                @endif
+                            </div>
+
                             {{-- Call automation setup — separate card/form from the one above:
                                  regenerating a token is a deliberate action (see
                                  TsaManagementController::regenerateApiToken()'s own doc

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TsaShift extends Model
@@ -126,6 +127,20 @@ class TsaShift extends Model
     public function leads(): HasMany
     {
         return $this->hasMany(Lead::class, 'tsa_id');
+    }
+
+    /** The login account that lets this TSA sign into the system themselves
+     *  (role='tsa', Google sign-in only — same account-creation convention
+     *  as UserManagementController::store()) — explicit request, 2026-08-26.
+     *  Null until an admin gives them one via TsaManagementController::
+     *  linkLogin(). Deliberately a real login, not the admin filtering/
+     *  transferring leads on their behalf: once linked, that TSA's own
+     *  Leads view already scopes to tsa_id === auth()->user()->tsa_id
+     *  (LeadController::index()) and never shows the admin-only TSA filter
+     *  dropdown or transfer control (both gated on isAtLeastAdmin()). */
+    public function user(): HasOne
+    {
+        return $this->hasOne(User::class, 'tsa_id');
     }
 
     /** How many leads round-robin has assigned this TSA today — computed

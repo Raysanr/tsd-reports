@@ -150,6 +150,25 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Old Overdue');
     }
 
+    /**
+     * Explicit request, 2026-08-26: "the one tsa can only see their name
+     * and has no dropdown." The whole TSA filter bar (dropdown, status
+     * filter, search, date range) was already entirely admin-only before
+     * this — a TSA gets a plain, non-interactive name badge instead of
+     * that empty space, not the real filter dropdown.
+     */
+    public function test_a_tsa_sees_their_own_name_with_no_dropdown_on_the_leads_page(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma-name@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Gemma De Guzman');
+        $response->assertDontSee('data-tsa-filter-trigger', false);
+    }
+
     public function test_an_admin_sees_every_tsas_leads(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

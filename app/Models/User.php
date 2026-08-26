@@ -21,6 +21,14 @@ class User extends Authenticatable
         'admin'       => 'Admin',
         'normal'      => 'Normal User',
         'guest'       => 'Guest',
+        // Not in ROLES/assignableRoles() — deliberately never created via
+        // User Management's general "Add User" form, which has no tsa_id
+        // field to link. Only ever created via TsaManagementController::
+        // linkLogin() (explicit request, 2026-08-26), which sets tsa_id in
+        // the same write. Kept here only so this role still gets a proper
+        // label instead of a raw "tsa" string if one of these accounts ever
+        // shows up in User Management's own account list.
+        'tsa'         => 'TSA',
     ];
 
     /**

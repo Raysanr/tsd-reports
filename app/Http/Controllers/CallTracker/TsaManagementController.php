@@ -7,12 +7,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Models\User;
 use App\Support\ActivityLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12) as "Call
@@ -40,7 +43,7 @@ class TsaManagementController extends Controller
         // existing "falsy = no filter applied" default.
         $team = $this->rememberedFilter($request, 'tsa-management', 'team', '') ?? '';
 
-        $query = TsaShift::orderBy('sort_order');
+        $query = TsaShift::with('user')->orderBy('sort_order');
         if ($team) {
             $query->where('team', $team);
         }
@@ -188,6 +191,75 @@ class TsaManagementController extends Controller
         ActivityLogger::log('tsa.token_regenerated', $tsaShift, "Regenerated {$tsaShift->display_name}'s call-automation token.");
 
         return redirect()->route('calls.tsa-management')->with('success', "New token generated for {$tsaShift->display_name} — update it in their phone's automation app.");
+    }
+
+    /**
+     * Gives a TSA their own login — explicit request, 2026-08-26: "is it
+     * possible that every TSA login to the system... i want to make it
+     * [so] admins only [have] dropdown in that... and can transfer leads
+     * too to another TSA... and the one tsa can only see their name and
+     * has no dropdown." Confirmed no TSA had ever had a login before this
+     * (all 7 rows checked live, zero linked User accounts) — the general
+     * "Add User" form on User Management has no path to this at all
+     * (no tsa_id field, and 'tsa' isn't in assignableRoles()), so this is
+     * the one place that gap actually gets closed.
+     *
+     * Same account-creation convention as UserManagementController::
+     * store() — random unusable password, Google-sign-in-only (see that
+     * method's own comment) — with role='tsa' and tsa_id set so
+     * AuthController::handleGoogleCallback() and every existing tsa_id
+     * scope (LeadController::index(), the admin-only TSA filter dropdown
+     * and transfer control, etc.) already do the right thing with zero
+     * further changes: a TSA signing in this way sees only their own
+     * leads, and never sees the dropdown or transfer control at all —
+     * both are already gated on isAtLeastAdmin().
+     */
+    public function linkLogin(Request $request, TsaShift $tsaShift)
+    {
+        abort_if($tsaShift->user, 409, "{$tsaShift->display_name} already has a login.");
+
+        $data = $request->validate([
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+        ]);
+
+        User::create([
+            'name'      => $tsaShift->display_name,
+            'email'     => $data['email'],
+            'role'      => 'tsa',
+            'tsa_id'    => $tsaShift->id,
+            'is_active' => true,
+            'password'  => Hash::make(Str::random(40)),
+        ]);
+
+        $message = "Gave {$tsaShift->display_name} login access ({$data['email']}).";
+        ActivityLogger::log('tsa.login_linked', $tsaShift, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /**
+     * Deactivate/reactivate a TSA's login without deleting the account —
+     * same is_active toggle convention as UserManagementController::
+     * toggleActive(), so history (ActivityLogger rows, past LeadActivity
+     * attribution, etc.) referencing this User row stays intact either way.
+     */
+    public function toggleLoginActive(TsaShift $tsaShift)
+    {
+        $user = $tsaShift->user;
+        abort_unless($user, 404);
+
+        $user->is_active = !$user->is_active;
+        $user->save();
+
+        $verb = $user->is_active ? 'Reactivated' : 'Deactivated';
+        $message = "{$verb} {$tsaShift->display_name}'s login.";
+        ActivityLogger::log('tsa.login_toggled', $tsaShift, $message);
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
     }
 
     /** AJAX — search the real Pancake POS user list for the Add TSA picker. */

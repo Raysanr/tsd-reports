@@ -195,6 +195,84 @@ class CallTrackerTsaManagementTest extends TestCase
         $this->actingAs($user)->post(route('calls.tsa-management.regenerate-token', $gemma))->assertForbidden();
     }
 
+    /**
+     * Explicit request (2026-08-26): "is it possible that every TSA login
+     * to the system... i want to make it [so] admins only [have] dropdown
+     * in that... and can transfer leads too to another TSA... and the one
+     * tsa can only see their name and has no dropdown." Confirmed live no
+     * TSA had ever had a login before this — this is the one place that
+     * gap gets closed.
+     */
+    public function test_an_admin_can_give_a_tsa_a_login(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $this->assertNull($gemma->user);
+
+        $response = $this->post(route('calls.tsa-management.login.link', $gemma), [
+            'email' => 'gemma.deguzman@gmail.com',
+        ]);
+
+        $response->assertRedirect(route('calls.tsa-management'));
+        $gemma->refresh();
+        $this->assertNotNull($gemma->user);
+        $this->assertSame('gemma.deguzman@gmail.com', $gemma->user->email);
+        $this->assertSame('tsa', $gemma->user->role);
+        $this->assertTrue($gemma->user->is_active);
+    }
+
+    public function test_a_tsa_cannot_give_anyone_a_login(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)
+            ->post(route('calls.tsa-management.login.link', $gemma), ['email' => 'x@gmail.com'])
+            ->assertForbidden();
+    }
+
+    public function test_giving_a_login_to_a_tsa_who_already_has_one_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id, 'email' => 'existing@gmail.com']);
+
+        $this->post(route('calls.tsa-management.login.link', $gemma), ['email' => 'new@gmail.com'])
+            ->assertStatus(409);
+
+        $this->assertSame('existing@gmail.com', $gemma->fresh()->user->email);
+    }
+
+    public function test_a_tsas_login_can_be_deactivated_and_reactivated(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id, 'is_active' => true]);
+
+        $this->post(route('calls.tsa-management.login.toggle', $gemma));
+        $this->assertFalse($user->fresh()->is_active);
+
+        $this->post(route('calls.tsa-management.login.toggle', $gemma));
+        $this->assertTrue($user->fresh()->is_active);
+    }
+
+    public function test_a_deactivated_tsa_login_cannot_sign_in(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create([
+            'role' => 'tsa', 'tsa_id' => $gemma->id, 'is_active' => false,
+            'password' => bcrypt('password'),
+        ]);
+
+        $response = $this->post(route('login'), ['email' => $user->email, 'password' => 'password']);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertGuest();
+    }
+
     /** Explicit request (2026-08-24): the manual Active checkbox is gone —
      *  the table shows each TSA's real live status instead, which already
      *  conveys whether they're actually working. A save here must never be
