@@ -340,16 +340,20 @@ class LeadController extends Controller
     /**
      * Bulk version of togglePin() — explicit request, 2026-08-26, "like
      * that for the example" (Product Management's own checkbox + bulk-bar
-     * pattern). Same ownership guard as the single-row version: a TSA can
-     * only touch their own leads, so this scopes the query to tsa_id
-     * rather than trusting the client-supplied id list — a TSA can't pin
-     * someone else's lead just by including its id in the request body.
-     * No LeadActivity entries, matching togglePin() itself, which never
-     * logged pin/unpin either.
+     * pattern). Admin-only (explicit correction, same day: bulk actions in
+     * general are admin-only, not just Transfer) — unlike the single-row
+     * pin button, which a TSA can still use on their own leads via
+     * togglePin() itself, untouched by this change. No LeadActivity
+     * entries, matching togglePin() itself, which never logged pin/unpin
+     * either.
      */
     public function bulkPin(Request $request)
     {
         $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin()) {
+            abort(403);
+        }
 
         $data = $request->validate([
             'lead_ids'   => ['required', 'array', 'min:1'],
@@ -357,13 +361,8 @@ class LeadController extends Controller
             'pin'        => ['required', 'boolean'],
         ]);
 
-        $query = Lead::whereIn('id', $data['lead_ids']);
-        if (!$user->isAtLeastAdmin()) {
-            $query->where('tsa_id', $user->tsa_id);
-        }
-
-        $count = $query->count();
-        $query->update(['pinned_at' => $data['pin'] ? now() : null]);
+        $count = Lead::whereIn('id', $data['lead_ids'])->count();
+        Lead::whereIn('id', $data['lead_ids'])->update(['pinned_at' => $data['pin'] ? now() : null]);
 
         $verb = $data['pin'] ? 'Pinned' : 'Unpinned';
         $noun = \Illuminate\Support\Str::plural('lead', $count);

@@ -19,15 +19,21 @@
     <table class="w-full text-sm font-mono">
         <thead class="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
             <tr>
-                {{-- Bulk select (explicit request, 2026-08-26 — "like that for the
-                     example", Product Management's own checkbox + bulk-bar pattern).
-                     selectAllLeadsCheckbox is wired in calls.js, delegated (not bound
-                     here) since this whole table gets replaced wholesale on every 15s
-                     poll — see pollLeadsTable()'s own comment. --}}
-                <th class="w-9 px-1 py-3">
-                    <input type="checkbox" id="selectAllLeadsCheckbox" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer">
+                {{-- Bulk select — admin-only (explicit request, 2026-08-26): the two
+                     actions it drives (bulk Transfer, bulk Pin/Unpin) are both
+                     admin-only now, so the checkbox itself has nothing to do for a
+                     TSA. Shares one cell with the pin-toggle column instead of its
+                     own (previously two narrow columns crowded side by side) —
+                     tighter, and reads as one "row controls" cluster rather than
+                     two unrelated icon columns. selectAllLeadsCheckbox is wired in
+                     calls.js, delegated (not bound here) since this whole table
+                     gets replaced wholesale on every 15s poll — see
+                     pollLeadsTable()'s own comment. --}}
+                <th class="w-16 px-2 py-3">
+                    @if(auth()->user()->isAtLeastAdmin())
+                    <input type="checkbox" id="selectAllLeadsCheckbox" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer">
+                    @endif
                 </th>
-                <th class="w-11 px-1 py-3"></th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Order ID</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Customer</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Phone</th>
@@ -46,33 +52,42 @@
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
             @foreach($leads as $lead)
-            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }}">
-                <td class="px-1 py-3">
-                    <input type="checkbox" class="leadCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer" data-id="{{ $lead->id }}">
-                </td>
-                <td class="px-1 py-3">
-                    {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
-                         to the top (see LeadController::index()'s orderByRaw). Submits
-                         via fetch (see calls.js) and re-polls the table immediately so
-                         the reorder is visible right away instead of waiting out the
-                         normal 15s poll. Button sized/colored for an easy hit target
-                         (revised: the first pass was 24x24 and very faint when
-                         unpinned — hard to see or click precisely) — w-9 h-9 with a
-                         visible hover background, same convention as the sidebar's
-                         own icon buttons elsewhere in this app. --}}
-                    <form method="POST" action="{{ route('calls.leads.pin', $lead) }}" class="pin-form">
-                        @csrf
-                        <button type="submit" title="{{ $lead->pinned_at ? 'Unpin' : 'Pin to top' }}"
-                                class="w-9 h-9 flex items-center justify-center rounded-lg cursor-pointer transition-colors {{ $lead->pinned_at ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' }}">
-                            {{-- Bookmark-ribbon glyph (explicit request, 2026-08-19) —
-                                 replaces the earlier thumbtack shape. Same fill/stroke
-                                 toggle as before: filled amber when pinned, outline
-                                 gray otherwise (the button's own classes above). --}}
-                            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.32 2.577a49.255 49.255 0 0111.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 01-1.085.67L12 18.089l-7.165 3.583A.75.75 0 013.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93z"/>
-                            </svg>
-                        </button>
-                    </form>
+            {{-- has-[.leadCheckbox:checked]: (Tailwind 4's native :has() variant) tints
+                 a selected row the same primary color the bulk bar itself uses, so
+                 which rows are queued for a bulk action is obvious at a glance
+                 instead of only visible in the tiny checkbox square — explicit
+                 request, 2026-08-26, "make it clean in the eyes of the users." Takes
+                 priority over the existing pinned-row tint via source order (a
+                 pinned AND selected row reads as selected while checked). --}}
+            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }} {{ auth()->user()->isAtLeastAdmin() ? 'has-[.leadCheckbox:checked]:bg-primary/10 dark:has-[.leadCheckbox:checked]:bg-primary/15' : '' }}">
+                <td class="px-2 py-3">
+                    <div class="flex items-center gap-1">
+                        @if(auth()->user()->isAtLeastAdmin())
+                        <input type="checkbox" class="leadCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer" data-id="{{ $lead->id }}">
+                        @endif
+                        {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
+                             to the top (see LeadController::index()'s orderByRaw). Submits
+                             via fetch (see calls.js) and re-polls the table immediately so
+                             the reorder is visible right away instead of waiting out the
+                             normal 15s poll. Button sized/colored for an easy hit target
+                             (revised: the first pass was 24x24 and very faint when
+                             unpinned — hard to see or click precisely) — w-9 h-9 with a
+                             visible hover background, same convention as the sidebar's
+                             own icon buttons elsewhere in this app. --}}
+                        <form method="POST" action="{{ route('calls.leads.pin', $lead) }}" class="pin-form">
+                            @csrf
+                            <button type="submit" title="{{ $lead->pinned_at ? 'Unpin' : 'Pin to top' }}"
+                                    class="w-9 h-9 flex items-center justify-center rounded-lg cursor-pointer transition-colors {{ $lead->pinned_at ? 'text-yellow-600 bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/40' : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800' }}">
+                                {{-- Bookmark-ribbon glyph (explicit request, 2026-08-19) —
+                                     replaces the earlier thumbtack shape. Same fill/stroke
+                                     toggle as before: filled amber when pinned, outline
+                                     gray otherwise (the button's own classes above). --}}
+                                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="{{ $lead->pinned_at ? 'currentColor' : 'none' }}" stroke="currentColor" stroke-width="1.8">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.32 2.577a49.255 49.255 0 0111.36 0c1.497.174 2.57 1.46 2.57 2.93V21a.75.75 0 01-1.085.67L12 18.089l-7.165 3.583A.75.75 0 013.75 21V5.507c0-1.47 1.073-2.756 2.57-2.93z"/>
+                                </svg>
+                            </button>
+                        </form>
+                    </div>
                 </td>
                 <td class="px-4 py-3 text-slate-500 dark:text-slate-400 tabular-nums">#{{ $lead->pancake_order_id }}</td>
                 <td class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">

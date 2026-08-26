@@ -37,6 +37,35 @@ class LeadBulkActionsTest extends TestCase
         ]);
     }
 
+    public function test_an_admin_sees_the_bulk_select_checkboxes_on_the_leads_page(): void
+    {
+        $this->actingAs($this->admin());
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $this->leadFor($gemma);
+
+        $response = $this->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('leadCheckbox', false);
+        $response->assertSee('selectAllLeadsCheckbox', false);
+        $response->assertSee('bulkLeadsBar', false);
+    }
+
+    public function test_a_tsa_never_sees_the_bulk_select_checkboxes(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $this->actingAs($user);
+        $this->leadFor($gemma);
+
+        $response = $this->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertDontSee('leadCheckbox', false);
+        $response->assertDontSee('selectAllLeadsCheckbox', false);
+        $response->assertDontSee('bulkLeadsBar', false);
+    }
+
     public function test_an_admin_can_bulk_pin_leads(): void
     {
         $this->actingAs($this->admin());
@@ -70,27 +99,26 @@ class LeadBulkActionsTest extends TestCase
         $this->assertNull($lead->fresh()->pinned_at);
     }
 
-    public function test_a_tsa_can_bulk_pin_only_their_own_leads(): void
+    /**
+     * Explicit correction, 2026-08-26 (same day): bulk actions are
+     * admin-only across the board now, not just Transfer — a TSA keeps
+     * the single-row pin button (togglePin(), untouched) but never sees
+     * a checkbox to bulk-select with in the first place.
+     */
+    public function test_a_tsa_cannot_bulk_pin_even_their_own_leads(): void
     {
-        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
-        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
         $this->actingAs($user);
 
-        $ownLead   = $this->leadFor($gemma);
-        $otherLead = $this->leadFor($mariel);
+        $ownLead = $this->leadFor($gemma);
 
-        $response = $this->postJson(route('calls.leads.bulk-pin'), [
-            'lead_ids' => [$ownLead->id, $otherLead->id],
+        $this->postJson(route('calls.leads.bulk-pin'), [
+            'lead_ids' => [$ownLead->id],
             'pin'      => true,
-        ]);
+        ])->assertForbidden();
 
-        $response->assertOk();
-        // The query is scoped to tsa_id server-side — including someone
-        // else's lead id in the request just silently excludes it, rather
-        // than 403ing the whole batch over one bad id.
-        $this->assertNotNull($ownLead->fresh()->pinned_at);
-        $this->assertNull($otherLead->fresh()->pinned_at);
+        $this->assertNull($ownLead->fresh()->pinned_at);
     }
 
     public function test_bulk_pin_requires_at_least_one_lead_id(): void

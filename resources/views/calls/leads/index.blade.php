@@ -208,16 +208,17 @@
     @include('calls.leads._table')
 </div>
 
-{{-- Bulk actions (explicit request, 2026-08-26 — "like that for the example",
-     matching Product Management's own checkbox + bulk-bar pattern). Pin/Unpin
-     mirror the existing per-row pin-form's own ownership rule (a TSA can bulk-
-     pin only their own leads — LeadController::bulkPin() enforces this
-     server-side regardless of what this markup shows); Transfer is admin-only,
-     same as the per-row TSA column it's a bulk version of. Hidden forms +
-     sticky bottom bar, same shape as product-management.blade.php's own —
-     but submitted via fetch (calls.js), not a full-page POST, since this
-     table live-polls every 15s and a full-page reload would be a jarring
-     step backward from that. --}}
+{{-- Bulk actions — admin-only (explicit request, 2026-08-26): matching
+     Product Management's own checkbox + bulk-bar pattern, but restricted
+     entirely to admins — both Pin/Unpin and Transfer require isAtLeastAdmin()
+     server-side now (LeadController::bulkPin()/bulkTransfer()), so a TSA
+     never sees a checkbox to select with in the first place (see
+     _table.blade.php's own guard on the checkbox column). Sticky bottom bar,
+     same shape as product-management.blade.php's own — but submitted via
+     fetch (calls.js), not a full-page POST, since this table live-polls
+     every 15s and a full-page reload would be a jarring step backward
+     from that. --}}
+@if(auth()->user()->isAtLeastAdmin())
 <div id="bulkLeadsBar" class="hidden fixed bottom-0 left-0 right-0 md:left-64 z-30 px-4 py-3">
     <div class="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3">
         <span id="bulkLeadsCount" class="text-xs font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap">0 selected</span>
@@ -226,17 +227,16 @@
         <div class="flex flex-wrap items-center gap-2">
             <button type="button" id="bulkLeadsPin" class="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Pin</button>
             <button type="button" id="bulkLeadsUnpin" class="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Unpin</button>
-            @if(auth()->user()->isAtLeastAdmin())
             <select id="bulkLeadsTsaSelect" class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                 @foreach($tsas as $tsa)
                 <option value="{{ $tsa->id }}">{{ $tsa->display_name }}</option>
                 @endforeach
             </select>
             <button type="button" id="bulkLeadsTransfer" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">Transfer</button>
-            @endif
         </div>
     </div>
 </div>
+@endif
 
 @include('calls.partials.modals')
 
