@@ -84,19 +84,49 @@ class LeadControllerTest extends TestCase
         $response->assertDontSee('Out Of Range');
     }
 
-    public function test_no_date_range_shows_every_lead_same_as_before(): void
+    /**
+     * Explicit request, 2026-08-26: "all of the newly created order in the
+     * POS should be only in today" — real examples (#1347599 and others,
+     * created days earlier) were sitting in today's queue purely because
+     * this view had no default cutoff. No date range picked now defaults
+     * to today, same as Overdue/Callbacks already do.
+     */
+    public function test_no_date_range_defaults_to_today_only_same_as_overdue_and_callbacks(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
         Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Old Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => '2020-01-01 10:00:00']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Created Today', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
 
         $admin = User::create(['name' => 'Admin', 'email' => 'admin-date2@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
 
         $response = $this->actingAs($admin)->get(route('calls.leads.index'));
 
         $response->assertOk();
-        $response->assertSee('Old Lead');
+        $response->assertDontSee('Old Lead');
+        $response->assertSee('Created Today');
+    }
+
+    /**
+     * A TSA changing an order's status after a call (Ordered, Awaiting
+     * Stock, Confirmed, etc.) must never make the lead disappear from
+     * their own queue — explicit correction, 2026-08-26, of an earlier
+     * (reverted) attempt that hid leads by order status_code instead of
+     * creation date. Only the date matters here, never status.
+     */
+    public function test_a_leads_order_status_never_affects_whether_it_shows_in_the_queue(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Confirmed Today', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
+        Order::create(['pancake_order_id' => '1', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Confirmed Today');
     }
 
     public function test_a_date_range_does_not_apply_to_the_overdue_view(): void
@@ -118,68 +148,6 @@ class LeadControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Old Overdue');
-    }
-
-    /**
-     * Explicit request, 2026-08-26: "the only leads should be is all new
-     * status" — a lead stays in the active queue only while its underlying
-     * Pancake order is still New (status_code 0). Real examples reported:
-     * orders that had gone Returned/Received days earlier were still
-     * cluttering today's queue.
-     */
-    public function test_a_lead_whose_order_is_still_new_stays_in_the_queue(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Still New', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-        Order::create(['pancake_order_id' => '1', 'status_code' => 0, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
-
-        $response->assertOk();
-        $response->assertSee('Still New');
-    }
-
-    public function test_a_lead_whose_order_has_moved_past_new_is_hidden_from_the_queue(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Already Returned', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-        Order::create(['pancake_order_id' => '1', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
-
-        $response->assertOk();
-        $response->assertDontSee('Already Returned');
-    }
-
-    public function test_a_lead_with_no_matching_order_row_yet_still_shows(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => '999', 'customer_name' => 'Not Synced Yet', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
-
-        $response->assertOk();
-        $response->assertSee('Not Synced Yet');
-    }
-
-    public function test_an_already_called_lead_stays_visible_regardless_of_its_orders_current_status(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Already Called', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called']);
-        Order::create(['pancake_order_id' => '1', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'called']));
-
-        $response->assertOk();
-        $response->assertSee('Already Called');
     }
 
     public function test_an_admin_sees_every_tsas_leads(): void

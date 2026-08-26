@@ -75,31 +75,6 @@ class LeadController extends Controller
             $query->where('tsa_id', $request->integer('tsa'));
         }
 
-        // Only a lead whose underlying Pancake order is still New (0) —
-        // explicit request, 2026-08-26, from real examples (#1347599 and
-        // others) still sitting in the queue as Received/Returned/Returning
-        // long after they'd stopped being anything a TSA still needed to
-        // call: once an order has moved past New, whatever it's going to
-        // become already happened without this tool, so it has no more
-        // business cluttering the active queue. NOT EXISTS (not a plain
-        // join on status_code=0) so a lead whose order hasn't synced into
-        // the local `orders` table yet — or was never matched to a product
-        // at all — still shows: no data one way or the other is never
-        // treated the same as "confirmed no longer relevant". Scoped to
-        // NOT status='called' — a lead a TSA already worked stays visible
-        // under the Status filter as a historical record regardless of what
-        // its order later became, this is about hygiene for the
-        // still-actionable queue, not rewriting history.
-        $query->where(function ($q) {
-            $q->where('status', 'called')
-                ->orWhereNotExists(function ($sub) {
-                    $sub->selectRaw('1')
-                        ->from('orders')
-                        ->whereColumn('orders.pancake_order_id', 'leads.pancake_order_id')
-                        ->where('orders.status_code', '!=', 0);
-                });
-        });
-
         // One shared date window for every view (explicit request,
         // 2026-08-15) — whatever's picked via date_from/date_to, defaulting
         // to today when nothing's picked. Mirrors TSD Reports' own "Excess"
@@ -156,20 +131,35 @@ class LeadController extends Controller
             });
         }
 
-        // The default view only applies the window when a range was
-        // actually picked — an empty date_from/date_to (the normal,
-        // un-filtered state) shows every lead exactly as before, unlike
-        // Overdue/Callbacks above which always have a window (defaulting to
-        // today). Filters on COALESCE(assigned_at, pancake_created_at)
-        // rather than plain pancake_created_at (root-caused 2026-08-15: the
-        // sidebar badge and Leads Setup both count "assigned today"
-        // via assigned_at, but this list was filtering by creation date — a
-        // lead created yesterday and picked up by round-robin TODAY showed
-        // in the badge's "17" but not in this filtered list's "7"). Falls
-        // back to pancake_created_at for a still-unassigned lead, which has
-        // no assigned_at yet.
-        if (!$view && $dateFromInput && $dateToInput) {
-            $query->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [$rangeFrom, $rangeTo]);
+        // The default view now always has a window too — defaulting to
+        // today, same as Overdue/Callbacks above, rather than "every lead
+        // ever" when nothing's explicitly picked. Explicit request,
+        // 2026-08-26: "all of the newly created order in the POS should be
+        // only in today" — real examples (#1347599 and others, created days
+        // earlier) were sitting in today's queue purely because this view
+        // never had a default cutoff. Deliberately keyed off *creation*
+        // date, NOT order status: a TSA changing an order's status after a
+        // call — Ordered, Awaiting Stock, Confirmed, whatever it becomes —
+        // must never make the lead disappear from their own queue, only its
+        // date does. An explicit date_from/date_to pick still overrides this
+        // and can widen the window to any past day on purpose.
+        //
+        // Filters on COALESCE(assigned_at, pancake_created_at) rather than
+        // plain pancake_created_at (root-caused 2026-08-15: the sidebar
+        // badge and Leads Setup both count "assigned today" via assigned_at,
+        // but this list was filtering by creation date — a lead created
+        // yesterday and picked up by round-robin TODAY showed in the
+        // badge's "17" but not in this filtered list's "7"). A lead with
+        // neither set at all (no real sync data) still shows — fail-open,
+        // same convention used elsewhere in this method, rather than hiding
+        // something we can't actually judge.
+        if (!$view) {
+            $query->where(function ($q) use ($rangeFrom, $rangeTo) {
+                $q->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [$rangeFrom, $rangeTo])
+                    ->orWhere(function ($q2) {
+                        $q2->whereNull('assigned_at')->whereNull('pancake_created_at');
+                    });
+            });
         }
 
         $leads = $query->paginate(30)->withQueryString();
