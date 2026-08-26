@@ -157,6 +157,54 @@
                                 </button>
                             </form>
 
+                            {{-- Account link — explicit request, 2026-08-26: confirmed live
+                                 that every TSA already has a real account in User Management
+                                 (added the normal way, role 'normal', real Gmail addresses
+                                 already in daily use) — this connects that EXISTING account to
+                                 this TSA's row rather than creating a new one (a "give login"
+                                 flow was tried and reverted the same day for exactly this
+                                 reason: real accounts already existed, a second flow would
+                                 only make duplicates). A plain <select>, not a search combobox
+                                 — $linkableUsers is normally small (unlinked 'normal'-role
+                                 accounts only), and showing every candidate's email inline
+                                 matters here: User Management confirmed two real accounts both
+                                 named "Julie Francisco" with different emails, so the admin
+                                 needs to see both to pick the right one, not just a name. --}}
+                            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
+                                <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-3">Account link</h3>
+                                @if($tsa->user)
+                                <div class="flex items-center justify-between gap-4">
+                                    <div>
+                                        <p class="text-sm text-slate-700 dark:text-slate-200">{{ $tsa->user->name }}</p>
+                                        <p class="text-[11px] text-slate-400 mt-0.5">{{ $tsa->user->email }} — signs in as {{ $tsa->display_name }}, sees only their own leads.</p>
+                                    </div>
+                                    <form method="POST" action="{{ route('calls.tsa-management.unlink-user', $tsa) }}"
+                                          onsubmit="return confirm('This only removes the link — {{ $tsa->user->name }}\'s account itself (role, login) is untouched. Continue?');">
+                                        @csrf
+                                        <button type="submit" class="text-xs font-semibold text-red-600 dark:text-red-400 hover:text-red-700 border border-red-200 dark:border-red-900 hover:border-red-400 rounded-lg px-3 py-1.5 cursor-pointer whitespace-nowrap">
+                                            Unlink
+                                        </button>
+                                    </form>
+                                </div>
+                                @elseif($linkableUsers->isEmpty())
+                                <p class="text-xs font-mono text-slate-400">No unlinked accounts to connect — add {{ $tsa->display_name }} in User Management first (role: Normal User).</p>
+                                @else
+                                <form method="POST" action="{{ route('calls.tsa-management.link-user', $tsa) }}" class="flex items-center gap-2">
+                                    @csrf
+                                    <select name="user_id" required
+                                            class="flex-1 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                        <option value="" disabled selected>Select {{ $tsa->display_name }}'s account…</option>
+                                        @foreach($linkableUsers as $candidate)
+                                        <option value="{{ $candidate->id }}">{{ $candidate->name }} ({{ $candidate->email }})</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="submit" class="text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-3 py-2 cursor-pointer whitespace-nowrap">
+                                        Link
+                                    </button>
+                                </form>
+                                @endif
+                            </div>
+
                             {{-- Call automation setup — separate card/form from the one above:
                                  regenerating a token is a deliberate action (see
                                  TsaManagementController::regenerateApiToken()'s own doc

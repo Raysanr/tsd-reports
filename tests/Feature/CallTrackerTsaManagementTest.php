@@ -195,6 +195,107 @@ class CallTrackerTsaManagementTest extends TestCase
         $this->actingAs($user)->post(route('calls.tsa-management.regenerate-token', $gemma))->assertForbidden();
     }
 
+    /**
+     * Explicit request (2026-08-26), a follow-up to the "give a TSA a
+     * login" attempt reverted earlier the same day: confirmed live (User
+     * Management screenshot) every TSA already has a real account, role
+     * 'normal', just never linked to their tsa_shifts row. This connects
+     * an EXISTING account rather than creating a new one.
+     */
+    public function test_an_admin_can_link_an_existing_account_to_a_tsa(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $account = User::factory()->create(['name' => 'Gemma De Guzman', 'role' => 'normal', 'tsa_id' => null]);
+
+        $response = $this->post(route('calls.tsa-management.link-user', $gemma), ['user_id' => $account->id]);
+
+        $response->assertRedirect(route('calls.tsa-management'));
+        $this->assertSame($gemma->id, $account->fresh()->tsa_id);
+    }
+
+    public function test_a_tsa_cannot_link_an_account(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $tsaUser = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $account = User::factory()->create(['role' => 'normal', 'tsa_id' => null]);
+
+        $this->actingAs($tsaUser)
+            ->post(route('calls.tsa-management.link-user', $gemma), ['user_id' => $account->id])
+            ->assertForbidden();
+    }
+
+    public function test_linking_an_already_linked_tsa_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        User::factory()->create(['role' => 'normal', 'tsa_id' => $gemma->id]);
+        $another = User::factory()->create(['role' => 'normal', 'tsa_id' => null]);
+
+        $this->post(route('calls.tsa-management.link-user', $gemma), ['user_id' => $another->id])
+            ->assertStatus(409);
+
+        $this->assertNull($another->fresh()->tsa_id);
+    }
+
+    public function test_linking_an_admin_account_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $anAdmin = User::factory()->create(['role' => 'admin', 'tsa_id' => null]);
+
+        // 404, not a silent link — the eligible-account query itself
+        // excludes anything that isn't role='normal', so an admin's id
+        // simply doesn't resolve, same as any other invalid id would.
+        $this->post(route('calls.tsa-management.link-user', $gemma), ['user_id' => $anAdmin->id])
+            ->assertStatus(404);
+
+        $this->assertNull($anAdmin->fresh()->tsa_id);
+    }
+
+    public function test_linking_an_already_linked_account_to_a_second_tsa_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $account = User::factory()->create(['role' => 'normal', 'tsa_id' => $mariel->id]);
+
+        $this->post(route('calls.tsa-management.link-user', $gemma), ['user_id' => $account->id])
+            ->assertStatus(404);
+
+        $this->assertSame($mariel->id, $account->fresh()->tsa_id);
+    }
+
+    public function test_unlinking_clears_the_tsa_id_but_leaves_the_account_otherwise_untouched(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $account = User::factory()->create(['role' => 'normal', 'tsa_id' => $gemma->id, 'is_active' => true]);
+
+        $this->post(route('calls.tsa-management.unlink-user', $gemma));
+
+        $account->refresh();
+        $this->assertNull($account->tsa_id);
+        $this->assertSame('normal', $account->role);
+        $this->assertTrue($account->is_active);
+    }
+
+    public function test_a_tsa_cannot_unlink_an_account(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $tsaUser = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        User::factory()->create(['role' => 'normal', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($tsaUser)
+            ->post(route('calls.tsa-management.unlink-user', $gemma))
+            ->assertForbidden();
+    }
+
     public function test_a_deactivated_tsa_login_cannot_sign_in(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

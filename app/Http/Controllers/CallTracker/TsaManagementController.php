@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Models\User;
 use App\Support\ActivityLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ class TsaManagementController extends Controller
         // existing "falsy = no filter applied" default.
         $team = $this->rememberedFilter($request, 'tsa-management', 'team', '') ?? '';
 
-        $query = TsaShift::orderBy('sort_order');
+        $query = TsaShift::with('user')->orderBy('sort_order');
         if ($team) {
             $query->where('team', $team);
         }
@@ -60,6 +61,17 @@ class TsaManagementController extends Controller
             'assignments'  => $assignments,
             'teams'        => collect(config('teams'))->pluck('order_team')->all(),
             'selectedTeam' => $team,
+            // Candidates for "Link to an existing account" below — explicit
+            // request, 2026-08-26: TSAs already have real accounts (role=
+            // 'normal', added via User Management the normal way) that were
+            // just never connected to a tsa_shifts row. 'normal' only, not
+            // 'admin'/'super_admin'/'guest' — an admin account showing up in
+            // this picker and getting linked as a TSA would be a real
+            // privilege mix-up, not a convenience. Already-linked users
+            // excluded so a name that's ambiguous in User Management (two
+            // real "Julie Francisco" accounts, confirmed live) narrows down
+            // to just the one still unclaimed once the other's picked.
+            'linkableUsers' => User::where('role', 'normal')->whereNull('tsa_id')->orderBy('name')->get(),
             // Explicit request (2026-08-24): the table's old "Active" column
             // (a manual admin toggle) is replaced with the TSA's real live
             // status (Login/Break/Logout/etc.) — status already tells you
@@ -188,6 +200,56 @@ class TsaManagementController extends Controller
         ActivityLogger::log('tsa.token_regenerated', $tsaShift, "Regenerated {$tsaShift->display_name}'s call-automation token.");
 
         return redirect()->route('calls.tsa-management')->with('success', "New token generated for {$tsaShift->display_name} — update it in their phone's automation app.");
+    }
+
+    /**
+     * Connects an EXISTING account to this TSA — explicit request,
+     * 2026-08-26: confirmed live (User Management screenshot) that every
+     * TSA already has a real account, added the normal way, that just was
+     * never linked to their tsa_shifts row. Deliberately not account
+     * creation (that path was tried and reverted the same day — real
+     * accounts already existed, a second "give login" flow would only
+     * have created duplicates). role/is_active/password on the User row
+     * are untouched — only tsa_id changes, so whatever main-app reporting
+     * access a 'normal' role already carries is unaffected either way.
+     *
+     * $request->user_id is constrained to the exact same eligible set the
+     * dropdown was built from (see index()'s own comment) — a plain
+     * TsaShift-side foreign key check would let someone submit an admin's
+     * id by hand.
+     */
+    public function linkUser(Request $request, TsaShift $tsaShift)
+    {
+        abort_if($tsaShift->user, 409, "{$tsaShift->display_name} is already linked to an account.");
+
+        $data = $request->validate([
+            'user_id' => ['required', 'integer'],
+        ]);
+
+        $user = User::where('role', 'normal')->whereNull('tsa_id')->findOrFail($data['user_id']);
+        $user->update(['tsa_id' => $tsaShift->id]);
+
+        $message = "Linked {$user->name} ({$user->email}) to {$tsaShift->display_name}.";
+        ActivityLogger::log('tsa.user_linked', $tsaShift, $message);
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** Clears the link without touching the account itself (role, is_active,
+     *  password, etc. all untouched) — a safety valve for the wrong account
+     *  getting picked, e.g. one of the two real "Julie Francisco" accounts
+     *  confirmed live in User Management. */
+    public function unlinkUser(TsaShift $tsaShift)
+    {
+        $user = $tsaShift->user;
+        abort_unless($user, 404);
+
+        $user->update(['tsa_id' => null]);
+
+        $message = "Unlinked {$user->name} from {$tsaShift->display_name}.";
+        ActivityLogger::log('tsa.user_unlinked', $tsaShift, $message);
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
     }
 
     /** AJAX — search the real Pancake POS user list for the Add TSA picker. */

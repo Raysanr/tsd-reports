@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class TsaShift extends Model
@@ -126,6 +127,20 @@ class TsaShift extends Model
     public function leads(): HasMany
     {
         return $this->hasMany(Lead::class, 'tsa_id');
+    }
+
+    /** The existing account this TSA signs in with, if an admin has linked
+     *  one — explicit request, 2026-08-26: confirmed live that TSAs already
+     *  have real accounts in User Management (added the normal way, role=
+     *  'normal', real Gmail addresses already in daily use) that just were
+     *  never connected to their tsa_shifts row. Once linked (Tsa
+     *  ManagementController::linkUser()), LeadController::index() already
+     *  scopes them to their own leads and the Leads page already shows
+     *  their own name with no dropdown (both keyed off auth()->user()->
+     *  tsa_id, not off role) — nothing else needed once tsa_id is set. */
+    public function user(): HasOne
+    {
+        return $this->hasOne(User::class, 'tsa_id');
     }
 
     /** How many leads round-robin has assigned this TSA today — computed
