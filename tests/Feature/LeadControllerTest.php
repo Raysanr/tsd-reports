@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Lead;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
@@ -117,6 +118,68 @@ class LeadControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Old Overdue');
+    }
+
+    /**
+     * Explicit request, 2026-08-26: "the only leads should be is all new
+     * status" — a lead stays in the active queue only while its underlying
+     * Pancake order is still New (status_code 0). Real examples reported:
+     * orders that had gone Returned/Received days earlier were still
+     * cluttering today's queue.
+     */
+    public function test_a_lead_whose_order_is_still_new_stays_in_the_queue(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Still New', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::create(['pancake_order_id' => '1', 'status_code' => 0, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Still New');
+    }
+
+    public function test_a_lead_whose_order_has_moved_past_new_is_hidden_from_the_queue(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Already Returned', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::create(['pancake_order_id' => '1', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertDontSee('Already Returned');
+    }
+
+    public function test_a_lead_with_no_matching_order_row_yet_still_shows(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '999', 'customer_name' => 'Not Synced Yet', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Not Synced Yet');
+    }
+
+    public function test_an_already_called_lead_stays_visible_regardless_of_its_orders_current_status(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Already Called', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called']);
+        Order::create(['pancake_order_id' => '1', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'called']));
+
+        $response->assertOk();
+        $response->assertSee('Already Called');
     }
 
     public function test_an_admin_sees_every_tsas_leads(): void

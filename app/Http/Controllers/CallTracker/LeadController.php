@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
@@ -73,6 +74,31 @@ class LeadController extends Controller
         } elseif ($request->filled('tsa')) {
             $query->where('tsa_id', $request->integer('tsa'));
         }
+
+        // Only a lead whose underlying Pancake order is still New (0) —
+        // explicit request, 2026-08-26, from real examples (#1347599 and
+        // others) still sitting in the queue as Received/Returned/Returning
+        // long after they'd stopped being anything a TSA still needed to
+        // call: once an order has moved past New, whatever it's going to
+        // become already happened without this tool, so it has no more
+        // business cluttering the active queue. NOT EXISTS (not a plain
+        // join on status_code=0) so a lead whose order hasn't synced into
+        // the local `orders` table yet — or was never matched to a product
+        // at all — still shows: no data one way or the other is never
+        // treated the same as "confirmed no longer relevant". Scoped to
+        // NOT status='called' — a lead a TSA already worked stays visible
+        // under the Status filter as a historical record regardless of what
+        // its order later became, this is about hygiene for the
+        // still-actionable queue, not rewriting history.
+        $query->where(function ($q) {
+            $q->where('status', 'called')
+                ->orWhereNotExists(function ($sub) {
+                    $sub->selectRaw('1')
+                        ->from('orders')
+                        ->whereColumn('orders.pancake_order_id', 'leads.pancake_order_id')
+                        ->where('orders.status_code', '!=', 0);
+                });
+        });
 
         // One shared date window for every view (explicit request,
         // 2026-08-15) — whatever's picked via date_from/date_to, defaulting
