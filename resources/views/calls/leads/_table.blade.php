@@ -8,9 +8,16 @@
         <p class="text-xs font-mono text-slate-300 dark:text-slate-600">New leads round-robin in automatically as Pancake orders come in.</p>
     </div>
     @else
-    <div class="overflow-x-auto">
+    {{-- Scrollable table body (explicit request, 2026-08-26) — a full day's
+         worth of leads made this table grow taller than the viewport, pushing
+         the filter bar/pagination out of reach without scrolling the whole
+         page. max-h-[calc(100vh-260px)]+overflow-y-auto mirrors User
+         Management's own scrollable list (resources/views/user-management.
+         blade.php), and the header row is sticky so column labels stay
+         visible while scrolling instead of scrolling away with row 1. --}}
+    <div class="overflow-x-auto max-h-[calc(100vh-260px)] overflow-y-auto">
     <table class="w-full text-sm font-mono">
-        <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
+        <thead class="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
             <tr>
                 <th class="w-11 px-1 py-3"></th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Order ID</th>
