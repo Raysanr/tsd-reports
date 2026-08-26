@@ -167,8 +167,6 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/tsa-management/pos-users', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
             Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
-            Route::post('/tsa-management/{tsaShift}/login', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'linkLogin'])->name('tsa-management.login.link');
-            Route::post('/tsa-management/{tsaShift}/login/toggle', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleLoginActive'])->name('tsa-management.login.toggle');
 
             Route::get('/round-robin-setup', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'index'])->name('round-robin-setup');
             Route::post('/round-robin-setup/{tsaShift}', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'update'])->name('round-robin-setup.update');
