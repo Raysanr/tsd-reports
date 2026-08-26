@@ -39,7 +39,7 @@
                          explicitly for the same reason — this one was just missed
                          when the column was added. --}}
                     @if(auth()->user()->isAtLeastAdmin())
-                    <input type="checkbox" id="selectAllLeadsCheckbox" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer">
+                    <input type="checkbox" id="selectAllLeadsCheckbox" class="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer">
                     @endif
                 </th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Order ID</th>
@@ -71,7 +71,7 @@
                 <td class="px-2 py-3">
                     <div class="flex items-center gap-1">
                         @if(auth()->user()->isAtLeastAdmin())
-                        <input type="checkbox" class="leadCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer" data-id="{{ $lead->id }}">
+                        <input type="checkbox" class="leadCheckbox w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer" data-id="{{ $lead->id }}">
                         @endif
                         {{-- Pin toggle (explicit request, 2026-08-17) — pinned leads sort
                              to the top (see LeadController::index()'s orderByRaw). Submits
