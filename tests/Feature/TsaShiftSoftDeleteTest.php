@@ -75,4 +75,26 @@ class TsaShiftSoftDeleteTest extends TestCase
 
         $this->post(route('tsa-management.restore', $shift->id))->assertNotFound();
     }
+
+    /** Explicit request, 2026-08-26: a genuinely permanent delete for an
+     *  already-removed TSA, distinct from destroy() above (soft-delete
+     *  only, restorable). */
+    public function test_force_deleting_a_removed_tsa_shift_removes_it_from_the_table_entirely(): void
+    {
+        $shift = TsaShift::create(['tsa_key' => 'Widget', 'display_name' => 'Widget Agent', 'team' => 'SH Naturals', 'sort_order' => 1]);
+        $shift->delete();
+
+        $response = $this->delete(route('tsa-management.force-delete', $shift->id));
+
+        $response->assertRedirect(route('tsa-management'));
+        $this->assertDatabaseMissing('tsa_shifts', ['id' => $shift->id]);
+    }
+
+    public function test_force_delete_route_404s_for_a_tsa_shift_that_isnt_removed_yet(): void
+    {
+        $shift = TsaShift::create(['tsa_key' => 'Widget', 'display_name' => 'Widget Agent', 'team' => 'SH Naturals', 'sort_order' => 1]);
+
+        $this->delete(route('tsa-management.force-delete', $shift->id))->assertNotFound();
+        $this->assertDatabaseHas('tsa_shifts', ['id' => $shift->id]);
+    }
 }

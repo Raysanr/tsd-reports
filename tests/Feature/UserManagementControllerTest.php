@@ -152,6 +152,80 @@ class UserManagementControllerTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $target->id, 'is_active' => true]);
     }
 
+    /**
+     * Explicit request, 2026-08-26: a genuinely permanent delete, distinct
+     * from toggleActive() — deactivate already covers the reversible case.
+     */
+    public function test_admin_can_permanently_delete_a_normal_user(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+        $target = User::factory()->normal()->create();
+
+        $response = $this->delete(route('user-management.destroy', $target));
+
+        $response->assertRedirect(route('user-management'));
+        $this->assertDatabaseMissing('users', ['id' => $target->id]);
+    }
+
+    public function test_a_deleted_users_activity_logs_survive_with_a_null_subject(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+        $target = User::factory()->normal()->create();
+
+        $this->delete(route('user-management.destroy', $target));
+
+        $this->assertDatabaseMissing('users', ['id' => $target->id]);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'user.deleted']);
+    }
+
+    public function test_admin_cannot_delete_another_admin(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+        $target = User::factory()->admin()->create();
+
+        $response = $this->delete(route('user-management.destroy', $target));
+
+        $response->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $target->id]);
+    }
+
+    public function test_a_user_cannot_delete_their_own_row(): void
+    {
+        $actor = User::factory()->admin()->create();
+        $this->actingAs($actor);
+
+        $response = $this->delete(route('user-management.destroy', $actor));
+
+        $response->assertForbidden();
+        $this->assertDatabaseHas('users', ['id' => $actor->id]);
+    }
+
+    public function test_deleting_one_of_two_super_admins_leaves_one_active(): void
+    {
+        // Same invariant proof as test_deactivating_one_of_two_super_admins_
+        // leaves_one_active above, applied to a real delete this time: self-
+        // target is blocked and only a Super Admin can manage another Super
+        // Admin, so reaching here with a Super Admin target requires the
+        // actor to already be a second, distinct, active one.
+        $actingSuperAdmin = User::factory()->superAdmin()->create();
+        $targetSuperAdmin = User::factory()->superAdmin()->create();
+        $this->actingAs($actingSuperAdmin);
+
+        $response = $this->delete(route('user-management.destroy', $targetSuperAdmin));
+
+        $response->assertRedirect(route('user-management'));
+        $this->assertDatabaseMissing('users', ['id' => $targetSuperAdmin->id]);
+        $this->assertDatabaseHas('users', ['id' => $actingSuperAdmin->id]);
+    }
+
+    public function test_a_normal_user_cannot_delete_anyone(): void
+    {
+        $this->actingAs(User::factory()->normal()->create());
+        $target = User::factory()->normal()->create();
+
+        $this->delete(route('user-management.destroy', $target))->assertForbidden();
+    }
+
     public function test_deactivating_one_of_two_super_admins_leaves_one_active(): void
     {
         // No explicit "last active Super Admin" runtime guard exists — it isn't

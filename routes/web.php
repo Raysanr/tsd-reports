@@ -72,6 +72,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
         Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
         Route::post('/tsa-management/{id}/restore', [TsaManagementController::class, 'restore'])->name('tsa-management.restore');
+        Route::delete('/tsa-management/{id}/force', [TsaManagementController::class, 'forceDelete'])->name('tsa-management.force-delete');
         Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 
         Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
@@ -81,6 +82,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::put('/product-management/{product}',      [ProductManagementController::class, 'update'])->name('product-management.update');
         Route::delete('/product-management/{product}',   [ProductManagementController::class, 'destroy'])->name('product-management.destroy');
         Route::post('/product-management/{id}/restore', [ProductManagementController::class, 'restore'])->name('product-management.restore');
+        Route::delete('/product-management/{id}/force', [ProductManagementController::class, 'forceDelete'])->name('product-management.force-delete');
         Route::patch('/product-management/{product}/toggle-hidden', [ProductManagementController::class, 'toggleHidden'])->name('product-management.toggle-hidden');
 
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
@@ -111,6 +113,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/user-management',                    [UserManagementController::class, 'store'])->name('user-management.store');
         Route::put('/user-management/{user}',               [UserManagementController::class, 'update'])->name('user-management.update');
         Route::patch('/user-management/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('user-management.toggle-active');
+        Route::delete('/user-management/{user}',            [UserManagementController::class, 'destroy'])->name('user-management.destroy');
 
         // Hub-styled entry point to the SAME controller/data/rules as
         // /user-management above (explicit request, 2026-08-12) — a
@@ -120,6 +123,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/hub/users',                    [UserManagementController::class, 'store'])->name('hub.users.store');
         Route::put('/hub/users/{user}',               [UserManagementController::class, 'update'])->name('hub.users.update');
         Route::patch('/hub/users/{user}/toggle-active', [UserManagementController::class, 'toggleActive'])->name('hub.users.toggle-active');
+        Route::delete('/hub/users/{user}',            [UserManagementController::class, 'destroy'])->name('hub.users.destroy');
     });
 
     // Call Tracker — ported from the standalone call-tracker app (merged into

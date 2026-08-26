@@ -104,12 +104,21 @@
                     <p class="text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $product->display_name }}</p>
                     <p class="text-[10px] text-slate-400 font-mono">removed {{ $product->deleted_at->diffForHumans() }}</p>
                 </div>
-                <form method="POST" action="{{ route('product-management.restore', $product->id) }}">
-                    @csrf
-                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
-                        Restore
+                <div class="flex items-center gap-2">
+                    <form method="POST" action="{{ route('product-management.restore', $product->id) }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
+                            Restore
+                        </button>
+                    </form>
+                    {{-- Explicit request, 2026-08-26 — a genuinely permanent delete,
+                         distinct from the Remove above (which only ever soft-deletes,
+                         restorable right here). Nothing left to restore after this. --}}
+                    <button type="button" class="forceDeleteProductBtn px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                            data-id="{{ $product->id }}" data-name="{{ $product->display_name }}">
+                        Delete forever
                     </button>
-                </form>
+                </div>
             </div>
             @endforeach
         </div>
@@ -181,6 +190,11 @@
 </div>
 
 <form id="deleteProductForm" method="POST" style="display:none">
+    @csrf
+    @method('DELETE')
+</form>
+
+<form id="forceDeleteProductForm" method="POST" style="display:none">
     @csrf
     @method('DELETE')
 </form>
@@ -355,6 +369,16 @@
             if (!await window.showConfirm(`Remove "${name}"? You can restore it from the Removed list below.`, { confirmText: 'Remove' })) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
+        });
+    });
+
+    const forceDeleteForm = document.getElementById('forceDeleteProductForm');
+    document.querySelectorAll('.forceDeleteProductBtn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const name = btn.dataset.name || 'this product';
+            if (!await window.showConfirm(`Permanently delete "${name}"? This cannot be undone — there is no way to restore it after this.`, { confirmText: 'Delete forever' })) return;
+            forceDeleteForm.action = storeUrl + '/' + btn.dataset.id + '/force';
+            forceDeleteForm.submit();
         });
     });
 

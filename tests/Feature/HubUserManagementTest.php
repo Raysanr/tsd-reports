@@ -93,6 +93,19 @@ class HubUserManagementTest extends TestCase
         $this->assertFalse($target->refresh()->is_active);
     }
 
+    public function test_deleting_a_user_from_the_hub_page_redirects_back_to_the_hub_page(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $target = User::factory()->create(['role' => 'normal']);
+
+        $response = $this->delete(route('hub.users.destroy', $target), [
+            '_redirect_route' => 'hub.users',
+        ]);
+
+        $response->assertRedirect(route('hub.users'));
+        $this->assertDatabaseMissing('users', ['id' => $target->id]);
+    }
+
     public function test_hub_page_shows_a_user_management_link_for_an_admin(): void
     {
         $this->actingAs(User::factory()->create(['role' => 'admin']));

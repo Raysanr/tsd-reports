@@ -75,4 +75,26 @@ class ProductSoftDeleteTest extends TestCase
 
         $this->post(route('product-management.restore', $product->id))->assertNotFound();
     }
+
+    /** Explicit request, 2026-08-26: a genuinely permanent delete for an
+     *  already-removed product, distinct from destroy() above (soft-delete
+     *  only, restorable). */
+    public function test_force_deleting_a_removed_product_removes_it_from_the_table_entirely(): void
+    {
+        $product = Product::create(['display_name' => 'Widget', 'team' => 'SH Naturals', 'sort_order' => 1]);
+        $product->delete();
+
+        $response = $this->delete(route('product-management.force-delete', $product->id));
+
+        $response->assertRedirect(route('product-management'));
+        $this->assertDatabaseMissing('products', ['id' => $product->id]);
+    }
+
+    public function test_force_delete_route_404s_for_a_product_that_isnt_removed_yet(): void
+    {
+        $product = Product::create(['display_name' => 'Widget', 'team' => 'SH Naturals', 'sort_order' => 1]);
+
+        $this->delete(route('product-management.force-delete', $product->id))->assertNotFound();
+        $this->assertDatabaseHas('products', ['id' => $product->id]);
+    }
 }

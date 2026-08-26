@@ -70,6 +70,20 @@
                         </svg>
                         @endif
                     </button>
+                    {{-- Explicit request, 2026-08-26 — genuinely permanent, distinct
+                         from the toggle above (which is already the reversible
+                         "can't sign in anymore" action). No Removed/restore list for
+                         users — User has no SoftDeletes, so this really is a hard
+                         delete once confirmed. --}}
+                    <button type="button"
+                        class="deleteUserBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                        title="Delete permanently"
+                        data-id="{{ $user->id }}"
+                        data-name="{{ $user->name }}">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                    </button>
                 </div>
                 @endif
             </div>
@@ -129,6 +143,12 @@
     <input type="hidden" name="_redirect_route" value="user-management">
 </form>
 
+<form id="deleteUserForm" method="POST" style="display:none">
+    @csrf
+    @method('DELETE')
+    <input type="hidden" name="_redirect_route" value="user-management">
+</form>
+
 @push('scripts')
 <script>
 (function () {
@@ -143,6 +163,7 @@
     const submitBtn     = document.getElementById('userSubmitBtn');
     const storeUrl      = form.action;
     const toggleActiveForm = document.getElementById('toggleActiveUserForm');
+    const deleteForm    = document.getElementById('deleteUserForm');
 
     function openModal() { modal.classList.remove('hidden'); }
     function closeModal() { modal.classList.add('hidden'); }
@@ -182,6 +203,15 @@
         btn.addEventListener('click', () => {
             toggleActiveForm.action = storeUrl + '/' + btn.dataset.id + '/toggle-active';
             toggleActiveForm.submit();
+        });
+    });
+
+    document.querySelectorAll('.deleteUserBtn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const name = btn.dataset.name || 'this user';
+            if (!await window.showConfirm(`Permanently delete "${name}"? This cannot be undone — there is no way to restore this account after this.`, { confirmText: 'Delete forever' })) return;
+            deleteForm.action = storeUrl + '/' + btn.dataset.id;
+            deleteForm.submit();
         });
     });
 })();

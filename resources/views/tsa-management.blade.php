@@ -178,12 +178,22 @@
                 <div class="flex-1">
                     <p class="text-xs text-slate-400 font-mono">{{ $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</p>
                 </div>
-                <form method="POST" action="{{ route('tsa-management.restore', $shift->id) }}">
-                    @csrf
-                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
-                        Restore
+                <div class="flex items-center gap-2">
+                    <form method="POST" action="{{ route('tsa-management.restore', $shift->id) }}">
+                        @csrf
+                        <button type="submit" class="px-3 py-1.5 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer">
+                            Restore
+                        </button>
+                    </form>
+                    {{-- Explicit request, 2026-08-26 — a genuinely permanent delete,
+                         distinct from the Remove above (which only ever soft-deletes,
+                         restorable right here). Their call-recording/status-log
+                         history goes with them too (see forceDelete()'s own comment). --}}
+                    <button type="button" class="forceDeleteTsaBtn px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                            data-id="{{ $shift->id }}" data-name="{{ $shift->display_name }}">
+                        Delete forever
                     </button>
-                </form>
+                </div>
             </div>
             @endforeach
         </div>
@@ -310,6 +320,11 @@
 
 {{-- Standalone delete form — kept outside the bulk-save <form> above --}}
 <form id="deleteTsaForm" method="POST" style="display:none">
+    @csrf
+    @method('DELETE')
+</form>
+
+<form id="forceDeleteTsaForm" method="POST" style="display:none">
     @csrf
     @method('DELETE')
 </form>
@@ -489,6 +504,16 @@
             if (!await window.showConfirm(`Remove "${name}" from the roster? You can restore it from the Removed list below.`, { confirmText: 'Remove' })) return;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
+        });
+    });
+
+    const forceDeleteForm = document.getElementById('forceDeleteTsaForm');
+    document.querySelectorAll('.forceDeleteTsaBtn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const name = btn.dataset.name || 'this TSA';
+            if (!await window.showConfirm(`Permanently delete "${name}"? This cannot be undone — their call recordings and status history go with them, and there is no way to restore any of it after this.`, { confirmText: 'Delete forever' })) return;
+            forceDeleteForm.action = storeUrl + '/' + btn.dataset.id + '/force';
+            forceDeleteForm.submit();
         });
     });
 

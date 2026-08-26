@@ -164,6 +164,32 @@ class TsaManagementController extends Controller
             ->with('success', $message);
     }
 
+    /**
+     * Permanently deletes an already-removed TSA — explicit request,
+     * 2026-08-26: a "delete forever" action distinct from destroy() above,
+     * which only ever soft-deletes. Plain {id} (not {tsaShift}), same
+     * reasoning as restore() — implicit binding excludes trashed rows.
+     *
+     * Real consequence worth knowing before calling this: call_recordings,
+     * tsa_status_logs, and call_events all cascade-delete with this TSA
+     * (checked live in the migrations) — their entire call-automation
+     * history goes with them, not just the roster row. leads.tsa_id and
+     * round_robin_states.last_tsa_id null out instead of erroring, so
+     * leads they once handled keep existing, just unassigned.
+     */
+    public function forceDelete(int $id)
+    {
+        $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
+        $name = $tsaShift->display_name;
+        $tsaShift->forceDelete();
+
+        $message = "Permanently deleted \"{$name}\".";
+        ActivityLogger::log('tsa.force_deleted', null, $message);
+
+        return redirect()->route('tsa-management')
+            ->with('success', $message);
+    }
+
     public function bulk(Request $request)
     {
         $teamsConfig = config('teams', []);

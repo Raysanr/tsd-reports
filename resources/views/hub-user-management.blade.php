@@ -183,6 +183,12 @@
         padding: 9px 16px; cursor: pointer;
     }
     .btn-ghost:hover { background: #f8fafc; }
+    .btn-danger {
+        font-family: 'Fira Sans', sans-serif; font-size: 13.5px; font-weight: 700;
+        color: #fff; background: #dc2626; border: none; border-radius: 10px;
+        padding: 9px 18px; cursor: pointer; transition: background 150ms ease;
+    }
+    .btn-danger:hover { background: #b91c1c; }
 
     @media (max-width: 640px) {
         header { padding: 24px 20px 0; }
@@ -251,6 +257,12 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1.5m5.5 0h-1.5M3 12a9 9 0 1118 0 9 9 0 01-18 0z"/></svg>
                     @endif
                 </button>
+                {{-- Explicit request, 2026-08-26 — genuinely permanent, distinct
+                     from the toggle above (already the reversible "can't sign in
+                     anymore" action). No Removed/restore list for users. --}}
+                <button type="button" class="icon-btn danger deleteUserBtn" title="Delete permanently" data-id="{{ $user->id }}" data-name="{{ $user->name }}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
             </div>
             @endif
         </div>
@@ -304,6 +316,31 @@
     <input type="hidden" name="_redirect_route" value="hub.users">
 </form>
 
+{{-- This page has no shared window.showConfirm (it deliberately doesn't pull
+     in app.js/layouts.app — see hub.blade.php's own doc comment) — a bespoke
+     modal in this page's own vocabulary instead, same .modal-backdrop/.modal
+     shape as the Add/Edit User modal above. --}}
+<div id="deleteUserModal" class="modal-backdrop">
+    <div class="modal">
+        <div class="modal-head">
+            <h3>Delete this account?</h3>
+            <p id="deleteUserModalMessage"></p>
+        </div>
+        <div class="modal-body">
+            <div class="modal-actions">
+                <button type="button" id="cancelDeleteUserModal" class="btn-ghost">Cancel</button>
+                <button type="button" id="confirmDeleteUserBtn" class="btn-danger">Delete forever</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form id="deleteUserForm" method="POST" style="display:none">
+    @csrf
+    @method('DELETE')
+    <input type="hidden" name="_redirect_route" value="hub.users">
+</form>
+
 <script>
 (function () {
     const modal        = document.getElementById('userModal');
@@ -335,7 +372,11 @@
     document.getElementById('addUserBtn').addEventListener('click', () => { resetForm(); openModal(); });
     document.getElementById('cancelUserModal').addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        closeModal();
+        closeDeleteModal();
+    });
 
     document.querySelectorAll('.editUserBtn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -358,6 +399,32 @@
             toggleActiveForm.action = storeUrl + '/' + btn.dataset.id + '/toggle-active';
             toggleActiveForm.submit();
         });
+    });
+
+    const deleteModal        = document.getElementById('deleteUserModal');
+    const deleteModalMessage = document.getElementById('deleteUserModalMessage');
+    const deleteForm         = document.getElementById('deleteUserForm');
+    const confirmDeleteBtn   = document.getElementById('confirmDeleteUserBtn');
+    let pendingDeleteId = null;
+
+    function closeDeleteModal() { deleteModal.classList.remove('open'); pendingDeleteId = null; }
+
+    document.querySelectorAll('.deleteUserBtn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            pendingDeleteId = btn.dataset.id;
+            const name = btn.dataset.name || 'this user';
+            deleteModalMessage.textContent = `Permanently delete "${name}"? This cannot be undone — there is no way to restore this account after this.`;
+            deleteModal.classList.add('open');
+        });
+    });
+
+    document.getElementById('cancelDeleteUserModal').addEventListener('click', closeDeleteModal);
+    deleteModal.addEventListener('click', (e) => { if (e.target === deleteModal) closeDeleteModal(); });
+
+    confirmDeleteBtn.addEventListener('click', () => {
+        if (!pendingDeleteId) return;
+        deleteForm.action = storeUrl + '/' + pendingDeleteId;
+        deleteForm.submit();
     });
 })();
 </script>

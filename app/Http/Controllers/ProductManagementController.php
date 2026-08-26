@@ -104,6 +104,29 @@ class ProductManagementController extends Controller
             ->with('success', $message);
     }
 
+    /**
+     * Permanently deletes an already-removed product — explicit request,
+     * 2026-08-26: a "delete forever" action distinct from destroy() above,
+     * which only ever soft-deletes. Plain {id} (not {product}), same
+     * reasoning as restore() — implicit binding excludes trashed rows.
+     * product_tsa/round_robin_states rows cascade-delete with it (checked
+     * live in the migrations); leads.product_id already nulls out rather
+     * than erroring, so a lead that once matched this product keeps
+     * existing, just with no product link anymore.
+     */
+    public function forceDelete(int $id)
+    {
+        $product = Product::onlyTrashed()->findOrFail($id);
+        $name = $product->display_name;
+        $product->forceDelete();
+
+        $message = "Permanently deleted \"{$name}\".";
+        ActivityLogger::log('product.force_deleted', null, $message);
+
+        return redirect()->route('product-management')
+            ->with('success', $message);
+    }
+
     public function toggleHidden(Product $product)
     {
         $product->is_hidden = !$product->is_hidden;

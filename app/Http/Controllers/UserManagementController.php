@@ -124,6 +124,41 @@ class UserManagementController extends Controller
         return $this->redirectToCaller($request)->with('success', $message);
     }
 
+    /**
+     * Explicit request, 2026-08-26: a genuinely permanent delete, distinct
+     * from toggleActive() above — deactivating already covers "this
+     * person shouldn't be able to sign in anymore" reversibly, so this is
+     * for actually removing the row, not a second way to do the same
+     * thing. User has no SoftDeletes trait, so $user->delete() here really
+     * is a hard delete — no restore, no Removed list, matching the
+     * confirm-modal wording ("delete permanently").
+     *
+     * Every foreign key referencing users.id (activity_logs.user_id,
+     * lead_activities.user_id, leads.called_by_user_id, tsa_shifts.
+     * status_locked_by, tag_conflict_reviews.reviewed_by) is nullOnDelete
+     * (checked live in the migrations) specifically so history survives a
+     * deleted account rather than erroring — same reasoning ActivityLogger
+     * itself already documents for its own user_id column.
+     *
+     * Same "last active Super Admin" safety proof as toggleActive() above:
+     * canManage() blocks self-target, and only a Super Admin can manage
+     * another Super Admin, so reaching here with a Super Admin $user
+     * requires the actor to already be a second, distinct, active one.
+     */
+    public function destroy(Request $request, User $user)
+    {
+        $actor = $request->user();
+        abort_unless($actor->canManage($user), 403);
+
+        $name = $user->name;
+        $user->delete();
+
+        $message = "Deleted \"{$name}\" permanently.";
+        ActivityLogger::log('user.deleted', null, $message);
+
+        return $this->redirectToCaller($request)->with('success', $message);
+    }
+
     /** Which page (old /user-management or the Hub's own) a mutating action
      *  sends the browser back to — explicit request (2026-08-12): a User
      *  Management entry point in the Hub, reusing this same controller
