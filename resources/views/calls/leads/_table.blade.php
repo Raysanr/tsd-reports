@@ -29,7 +29,15 @@
                      calls.js, delegated (not bound here) since this whole table
                      gets replaced wholesale on every 15s poll — see
                      pollLeadsTable()'s own comment. --}}
-                <th class="w-16 px-2 py-3">
+                <th class="w-16 px-2 py-3 text-left">
+                    {{-- text-left is load-bearing here, not decorative — a bare
+                         table header cell defaults to center-aligned text in every
+                         browser (a plain data cell defaults left), so without this
+                         the checkbox centers in its 16-unit column while the row
+                         checkboxes below stay flush left, visibly misaligned. Every
+                         other header cell in this table already declares text-left
+                         explicitly for the same reason — this one was just missed
+                         when the column was added. --}}
                     @if(auth()->user()->isAtLeastAdmin())
                     <input type="checkbox" id="selectAllLeadsCheckbox" class="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-2 focus:ring-primary/40 focus:ring-offset-0 bg-white dark:bg-slate-800 cursor-pointer">
                     @endif
