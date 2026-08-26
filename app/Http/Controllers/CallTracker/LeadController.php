@@ -117,9 +117,31 @@ class LeadController extends Controller
         // meaning (Overdue is always status=assigned; a callback can be due
         // on a lead of any status), so a second, independent status filter
         // there would just be confusing, not useful.
+        //
+        // Catered/Uncatered added (explicit request, 2026-08-26) — same
+        // "Catered" language this app already uses on the Call Tracker
+        // Dashboard KPI (DashboardController::index(), Lead::where('status',
+        // 'called')) rather than TSD Reports' own stricter Order-based
+        // Catered/Excess definition (ProductPerformance::tally()), which
+        // needs a recognized disposition keyword match, not just any
+        // logged outcome — those are two different metrics on two
+        // different models, and this filter is scoped to Lead, not Order.
+        // 'called' and 'catered' end up doing the exact same where() on
+        // this model (LeadController::updateDisposition() always writes
+        // status and disposition together — a Lead can never be 'called'
+        // with a null disposition or vice versa), so this is a second,
+        // more-familiar label for a value the dropdown already offered,
+        // plus the one genuinely new option: Uncatered, which the old
+        // three-way Unassigned/Assigned/Called split had no single value
+        // for (previously required picking Unassigned OR Assigned
+        // separately, or eyeballing "All Statuses" minus Called by hand).
         $status = $request->string('status')->toString();
         if (!$view && in_array($status, self::STATUS_FILTER_VALUES, true)) {
             $query->where('status', $status);
+        } elseif (!$view && $status === 'catered') {
+            $query->where('status', 'called');
+        } elseif (!$view && $status === 'uncatered') {
+            $query->where('status', '!=', 'called');
         }
 
         if ($user->isAtLeastAdmin() && $request->filled('q')) {

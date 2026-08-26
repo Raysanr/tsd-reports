@@ -135,7 +135,16 @@
              &lt;select&gt;-submits-on-change pattern Monitor TSA's own status
              filter already uses, rather than the TSA filter's fancier
              custom dropdown above — this one's a short, fixed 3-value list
-             with no avatar/icon per option, so a native select is enough. --}}
+             with no avatar/icon per option, so a native select is enough.
+             Catered/Uncatered added (explicit request, 2026-08-26) — same
+             "Catered" language the Call Tracker Dashboard KPI already uses
+             (see LeadController::index()'s own comment on this), offered
+             alongside the original three rather than replacing them:
+             Catered is the same underlying filter as Called, just under
+             the label this app already trains admins on elsewhere;
+             Uncatered is the one genuinely new option — everything not yet
+             called, without having to pick Unassigned or Assigned one at a
+             time. --}}
         @if(!$view)
         <select name="status" onchange="this.form.submit()"
                 class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
@@ -143,6 +152,8 @@
             <option value="unassigned" {{ $selectedStatus === 'unassigned' ? 'selected' : '' }}>Unassigned</option>
             <option value="assigned" {{ $selectedStatus === 'assigned' ? 'selected' : '' }}>Assigned</option>
             <option value="called" {{ $selectedStatus === 'called' ? 'selected' : '' }}>Called</option>
+            <option value="catered" {{ $selectedStatus === 'catered' ? 'selected' : '' }}>Catered</option>
+            <option value="uncatered" {{ $selectedStatus === 'uncatered' ? 'selected' : '' }}>Uncatered</option>
         </select>
         @endif
 

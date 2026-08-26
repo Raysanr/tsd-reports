@@ -169,6 +169,45 @@ class LeadControllerTest extends TestCase
         $response->assertDontSee('data-tsa-filter-trigger', false);
     }
 
+    /**
+     * Explicit request, 2026-08-26: "can you make this can filter catered
+     * leads or uncatered leads" — same "Catered" language the Call Tracker
+     * Dashboard KPI already uses (Lead::where('status', 'called')), added
+     * alongside the original Unassigned/Assigned/Called values rather than
+     * replacing them.
+     */
+    public function test_status_filter_catered_shows_only_called_leads(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Called Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Assigned Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'catered']));
+
+        $response->assertOk();
+        $response->assertSee('Called Lead');
+        $response->assertDontSee('Assigned Lead');
+    }
+
+    public function test_status_filter_uncatered_shows_everything_not_yet_called(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Called Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Assigned Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Lead::create(['pancake_order_id' => '3', 'customer_name' => 'Unassigned Lead', 'product_id' => $product->id, 'status' => 'unassigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'uncatered']));
+
+        $response->assertOk();
+        $response->assertDontSee('Called Lead');
+        $response->assertSee('Assigned Lead');
+        $response->assertSee('Unassigned Lead');
+    }
+
     public function test_an_admin_sees_every_tsas_leads(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
