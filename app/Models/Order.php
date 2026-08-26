@@ -97,6 +97,21 @@ class Order extends Model
      *  ProductPerformance::tally(), which excludes these before counting anything. */
     public const DELETED_STATUSES = [6, 7];
 
+    /** Statuses where the order has already reached its final real-world outcome —
+     *  delivered, returned, or canceled — so there's nothing left for a TSA to call
+     *  about. Root-caused 2026-08-26: LogoutLeadRedistributor was handing a logged-
+     *  out TSA's ENTIRE uncalled backlog to teammates, including leads whose real
+     *  Pancake order had already resolved on its own days earlier (e.g. #1347621,
+     *  #1347619 — RECEIVED/RETURNED/RETURNING/CANCELED) — the redistribution reset
+     *  their assigned_at to "now," which made them reappear at the top of the
+     *  receiving TSA's Overdue queue looking urgent, even though calling them back
+     *  would accomplish nothing. Deliberately NOT the same set as VOID_STATUSES:
+     *  that one is scoped to revenue counting and includes Awaiting stock (11),
+     *  which is still very much worth a TSA's call — this one is scoped to "is
+     *  there any reason left to hand this lead to someone," which Awaiting stock
+     *  still has and Received/Returned/Canceled/etc. don't. */
+    public const RESOLVED_STATUSES = [3, 4, 15, 5, 6, 7, 16];
+
     /** Legacy disposition value for a swept, never-claimed lead — the tag Pancake's
      *  nightly sweep applied through 2026-07-17. The team stopped applying any
      *  replacement tag starting 2026-07-21 (confirmed with the supervisor): an

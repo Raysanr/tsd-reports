@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\TsaShift;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -132,6 +133,58 @@ class LogoutLeadRedistributorTest extends TestCase
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
         $this->assertNotNull($activity);
         $this->assertStringContainsString('logged out', $activity->description);
+    }
+
+    /**
+     * Root-caused 2026-08-26 from real examples (#1347621, #1347619, and
+     * others): redistributing a lead whose order already resolved on its
+     * own (Received/Returned/Returning/Partial return/Canceled/Collected
+     * money) reset assigned_at to now() for a dead lead, which made it
+     * reappear at the top of the receiving TSA's Overdue queue looking
+     * urgent even though there's nothing left to call about.
+     */
+    public function test_a_lead_whose_order_already_resolved_is_left_with_the_logged_out_tsa(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma, 'assigned', '1347621');
+        Order::create(['pancake_order_id' => '1347621', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+        $originalAssignedAt = $lead->assigned_at;
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $lead->refresh();
+        $this->assertSame($gemma->id, $lead->tsa_id);
+        $this->assertTrue($lead->assigned_at?->eq($originalAssignedAt) ?? $originalAssignedAt === null);
+    }
+
+    public function test_a_lead_whose_order_is_still_live_still_redistributes_normally(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma, 'assigned', '1357999');
+        Order::create(['pancake_order_id' => '1357999', 'status_code' => 1, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+    }
+
+    public function test_a_lead_with_no_synced_order_yet_still_redistributes_normally(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
     }
 
     public function test_inactive_teammates_are_not_eligible_recipients(): void

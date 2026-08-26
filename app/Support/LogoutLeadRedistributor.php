@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\Order;
 use App\Models\TsaShift;
 
 /**
@@ -39,7 +40,25 @@ class LogoutLeadRedistributor
      */
     public static function redistribute(TsaShift $tsa): int
     {
-        $backlog = Lead::where('tsa_id', $tsa->id)->where('status', 'assigned')->get();
+        // Root-caused 2026-08-26 (real examples #1347621, #1347619, and
+        // others): a lead whose real Pancake order already resolved on its
+        // own — Received/Returned/Returning/Partial return/Canceled/
+        // Collected money — has nothing left for anyone to call about.
+        // Redistributing it anyway just resets assigned_at to now() for a
+        // dead lead, which made it reappear at the top of the receiving
+        // TSA's Overdue queue looking urgent. whereNotExists (not a status
+        // join) so a lead whose order hasn't synced locally yet still
+        // redistributes normally — same fail-open convention used
+        // elsewhere in this app.
+        $backlog = Lead::where('tsa_id', $tsa->id)
+            ->where('status', 'assigned')
+            ->whereNotExists(function ($sub) {
+                $sub->selectRaw('1')
+                    ->from('orders')
+                    ->whereColumn('orders.pancake_order_id', 'leads.pancake_order_id')
+                    ->whereIn('orders.status_code', Order::RESOLVED_STATUSES);
+            })
+            ->get();
         if ($backlog->isEmpty()) {
             return 0;
         }
