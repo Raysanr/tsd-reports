@@ -923,6 +923,70 @@ document.addEventListener('submit', (e) => {
         });
 });
 
+// MacroDroid token (re)generate (explicit request, 2026-08-27: "i want when
+// in every generate token it is not resetting the whole page ... a small pop
+// up") — same fetch/FormData/wantsJson() convention as the Save handler
+// above, except the response also carries a freshly re-rendered copy of the
+// whole token card (calls/tsa-management/_token-card.blade.php) as HTML:
+// generating a token changes which BLOCK of markup shows (the "No token yet"
+// line vs. the webhook/api_token fields + 4-macro guide), not just one
+// field's text, so swapping the card's own container is simpler and less
+// error-prone than hand-patching each part in JS. data-confirm replaces the
+// old inline onsubmit="confirm(...)" — that only ever ran once, off the
+// server's initial render; reading it here means the same "you're about to
+// invalidate the current token" prompt still fires after this card has
+// already been swapped in by a PREVIOUS regenerate, not just on first load.
+document.addEventListener('submit', (e) => {
+    if (!e.target.matches('.tsa-regenerate-token-form')) return;
+    const form = e.target;
+
+    if (form.dataset.confirm && !confirm(form.dataset.confirm)) {
+        e.preventDefault();
+        return;
+    }
+    e.preventDefault();
+
+    const btn = form.querySelector('button[type="submit"]');
+    const originalLabel = btn?.textContent;
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generating…';
+    }
+
+    fetch(form.action, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest', Accept: 'application/json' },
+        body: new FormData(form),
+    })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data) => {
+            const card = form.closest('[id^="token-card-"]');
+            if (card && data.html) {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = data.html.trim();
+                card.replaceWith(wrapper.firstElementChild);
+            }
+            window.showToast?.(data.message || 'Token generated.', 'success');
+        })
+        .catch(async (res) => {
+            let message = 'Could not generate a token — try again.';
+            if (res?.json) {
+                try {
+                    const data = await res.json();
+                    message = data.message || message;
+                } catch (e) { /* not JSON — keep the generic message */ }
+            }
+            window.showToast?.(message, 'error');
+            // Only reachable if the card was NOT swapped (the fetch itself
+            // failed) — restore the button so the admin can retry, mirroring
+            // the Save handler's own re-enable above.
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = originalLabel;
+            }
+        });
+});
+
 // Transfer to another TSA (explicit request, 2026-08-19) — picking a new TSA
 // from the dropdown auto-submits immediately (no separate Save click), same
 // "act on change" feel as the round-robin assignment it's overriding.

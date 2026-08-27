@@ -187,6 +187,35 @@ class CallTrackerTsaManagementTest extends TestCase
         $this->assertNotSame($firstToken, $gemma->fresh()->api_token);
     }
 
+    public function test_regenerating_a_token_via_ajax_returns_the_rendered_token_card(): void
+    {
+        // Explicit request, 2026-08-27: "i want when in every generate
+        // token it is not resetting the whole page ... a small pop up" —
+        // postJson() sends Accept: application/json, taking the same
+        // wantsJson() branch the "Save" form's own AJAX handler already
+        // uses, instead of the old full-page redirect.
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $this->assertNull($gemma->api_token);
+
+        $response = $this->postJson(route('calls.tsa-management.regenerate-token', $gemma));
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $gemma->refresh();
+
+        // The returned HTML fragment reflects the NEW state (token fields +
+        // setup guide), not the pre-regeneration "No token yet" line — the
+        // whole reason this returns re-rendered HTML instead of just the
+        // bare token string is that generating a token swaps which BLOCK of
+        // markup shows, not just one field's text.
+        $html = $response->json('html');
+        $this->assertStringContainsString($gemma->api_token, $html);
+        $this->assertStringContainsString('MacroDroid setup guide', $html);
+        $this->assertStringNotContainsString('No token yet', $html);
+    }
+
     public function test_a_tsa_cannot_regenerate_an_api_token(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

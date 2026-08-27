@@ -193,13 +193,30 @@ class TsaManagementController extends Controller
      * already pasted into their phone and would break call logging without
      * anyone noticing until reimbursement numbers looked wrong.
      */
-    public function regenerateApiToken(TsaShift $tsaShift)
+    public function regenerateApiToken(Request $request, TsaShift $tsaShift)
     {
         $tsaShift->update(['api_token' => TsaShift::generateApiToken()]);
 
         ActivityLogger::log('tsa.token_regenerated', $tsaShift, "Regenerated {$tsaShift->display_name}'s call-automation token.");
 
-        return redirect()->route('calls.tsa-management')->with('success', "New token generated for {$tsaShift->display_name} — update it in their phone's automation app.");
+        $message = "New token generated for {$tsaShift->display_name} — update it in their phone's automation app.";
+
+        // AJAX regenerate (explicit request, 2026-08-27: "i want when in
+        // every generate token it is not resetting the whole page ... a
+        // small pop up") — same convention as update() above: re-render
+        // just the token card (now showing the fresh api_token/webhook
+        // fields and setup guide) and hand it back as HTML for calls.js to
+        // swap in, confirmed with a toast instead of the old full-page
+        // redirect that collapsed the expanded row panel every time.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => $message,
+                'html' => view('calls.tsa-management._token-card', ['tsa' => $tsaShift])->render(),
+            ]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
     }
 
     /**
