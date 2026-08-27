@@ -16,6 +16,7 @@ use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\UnmatchedOrdersController;
+use App\Http\Controllers\InsightsController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -64,6 +65,15 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
 
     // CONFIG — Super Admin and Admin only.
     Route::middleware('role:super_admin,admin')->group(function () {
+        // Insights — explicit request, 2026-08-26: "that tab is make it
+        // visible only to the admins." Grouped here (not with Analytics/
+        // Charts above, which every signed-in user can already reach) even
+        // though it's a MAIN-nav item, not a Config one — the sidebar link
+        // itself is separately wrapped in an isAtLeastAdmin() check (see
+        // layouts/app.blade.php), same two-layer belt-and-suspenders
+        // pattern every other admin-only page in this app already uses.
+        Route::get('/insights', [InsightsController::class, 'index'])->name('insights');
+
         Route::get('/tsa-management',             [TsaManagementController::class, 'index'])->name('tsa-management');
         Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
         Route::get('/tsa-management/tags',        [TsaManagementController::class, 'searchTags'])->name('tsa-management.tags');

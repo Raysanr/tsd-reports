@@ -492,6 +492,23 @@
             <span class="sidebar-label">RTS / Delivered</span>
         </a>
 
+        {{-- Admin-only (explicit request, 2026-08-26) — the only conditionally-
+             gated single item inside Main; every other Main link is visible to
+             everyone. Route itself is also gated (role:super_admin,admin in
+             routes/web.php, same group Settings/User Management sit in) — this
+             hides the link, the route middleware is what actually enforces it. --}}
+        @if(auth()->user()?->isAtLeastAdmin())
+        <a href="{{ route('insights') }}" title="Insights"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
+                  {{ request()->routeIs('insights') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z"/>
+            </svg>
+            <span class="sidebar-label">Insights</span>
+        </a>
+        @endif
+
         @if(auth()->user()?->isAtLeastAdmin())
         <div class="my-3 border-t border-white/10"></div>
         <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
