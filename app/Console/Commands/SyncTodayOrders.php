@@ -679,14 +679,39 @@ class SyncTodayOrders extends Command
                     'base_name'   => $baseIndex !== null ? $itemName($items[$baseIndex]) : null,
                 ];
             }
+
+            // No parens hint — try the "UPSELL TSD - Base + Addon" dash form,
+            // which names the BASE instead (Fix #9, order #1358116, Katherine
+            // Chua: array position had the ₱1,000 Lumicare+Haplunas addon at
+            // index 0, so the old positional fallback below reported it as
+            // 'base_name' and the ₱800 Pterygium base as the upsell product —
+            // backwards. Order::findBaseItemIndexByDashTag() reads the tag's
+            // own named base before ever trusting position, same as
+            // extractUpsellAmount() now does.
+            $baseIndex = Order::findBaseItemIndexByDashTag($raw);
+            if ($baseIndex !== null && count($items) >= 2) {
+                $upsellIndex = null;
+                foreach ($items as $i => $item) {
+                    if ($i !== $baseIndex) { $upsellIndex = $i; break; }
+                }
+                if ($upsellIndex !== null) {
+                    $vi = $items[$upsellIndex]['variation_info'] ?? [];
+                    return [
+                        'name'       => $vi['name'] ?? $items[$upsellIndex]['product_name'] ?? null,
+                        'display_id' => $vi['display_id'] ?? null,
+                        'base_name'  => $itemName($items[$baseIndex]),
+                    ];
+                }
+            }
         }
 
         $index = ($isUpsell && count($items) >= 2) ? 1 : 0;
         $vi    = $items[$index]['variation_info'] ?? [];
-        // No tag hint (or not an upsell at all) — same positional convention
-        // already used elsewhere in this file (extractUpsellAmount's fallback,
-        // Fix #8): item 0 is always the ORIGINAL/base product, so it doubles as
-        // 'base_name' whether or not this order turns out to be an upsell.
+        // No tag hint of either shape (or not an upsell at all) — last-resort
+        // positional convention already used elsewhere in this file
+        // (extractUpsellAmount's own final fallback, Fix #8): item 0 is
+        // always the ORIGINAL/base product, so it doubles as 'base_name'
+        // whether or not this order turns out to be an upsell.
         return [
             'name'       => $vi['name'] ?? $items[$index]['product_name'] ?? null,
             'display_id' => $vi['display_id'] ?? null,

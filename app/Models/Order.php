@@ -432,9 +432,12 @@ class Order extends Model
      * add-on itself was removed, leaving the original — see that method's
      * own docblock, Fix #8). Multiple items: a "(Product Name)" tag names
      * the exact add-on by name (Fix #7 — Pancake doesn't guarantee the
-     * add-on is listed last); otherwise every item after index 0 is summed,
-     * assuming positional order (see findItemIndexByTagHint()'s own
-     * docblock for when this positional fallback is genuinely ambiguous).
+     * add-on is listed last); failing that, a "UPSELL TSD - Base + Addon..."
+     * tag names the BASE instead (Fix #9, see findBaseItemIndexByDashTag()),
+     * so every OTHER item is summed as the upsell; only when neither tag
+     * shape is present does it fall back to assuming positional order
+     * (item 0 = base) — see findItemIndexByTagHint()'s own docblock for when
+     * that last-resort fallback is genuinely ambiguous.
      *
      * Explicit request (2026-08-12), confirmed live on order #1347336
      * (Joana): remainingItemIsJustTheBase() is deliberately skipped here
@@ -445,6 +448,16 @@ class Order extends Model
      * (per the "moved here" note above), so fixing it here alone keeps a
      * split-parcel order's amount from being zeroed at sync, or from
      * drifting back to 0 on the next amount-reconcile pass.
+     *
+     * Fix #9 (2026-08-27, order #1358116, Katherine Chua): a 2-item order
+     * tagged "UPSELL TSD - PTERYGIUM + LUMICARE + HAPLUNAS" — dash format,
+     * no parens — named PTERYGIUM (₱800) as the base and the Lumicare +
+     * Haplunas bundle (₱1,000) as the addon. findItemIndexByTagHint() only
+     * recognizes the parens form, so it returned null and the code fell
+     * back to raw array position, which happened to list the ₱1,000 bundle
+     * at index 0 — recording it as "the base" and the ₱800 Pterygium item as
+     * "the upsell," undercounting by ₱200. findBaseItemIndexByDashTag() below
+     * now reads the dash tag's own named base before ever trusting position.
      */
     public static function extractUpsellAmount(array $raw): float
     {
@@ -469,8 +482,16 @@ class Order extends Model
             return $price * $qty;
         }
 
+        $baseIndex = self::findBaseItemIndexByDashTag($raw);
+
         $upsellAmount = 0.0;
-        foreach (\array_slice($items, 1) as $item) {
+        foreach ($items as $i => $item) {
+            if ($baseIndex !== null) {
+                if ($i === $baseIndex) continue;
+            } elseif ($i === 0) {
+                continue;
+            }
+
             $vi    = $item['variation_info'] ?? [];
             $price = (float) ($vi['retail_price'] ?? 0);
             $qty   = (int) ($item['quantity'] ?? 1);
@@ -489,7 +510,8 @@ class Order extends Model
      * (order #1325787 had the customer's original repeat item listed AFTER
      * the actual TSA upsell, which a bare index-1 assumption records
      * backwards). Returns null when no such tag exists, in which case
-     * extractUpsellAmount() falls back to its positional assumption.
+     * extractUpsellAmount() falls back to findBaseItemIndexByDashTag(), then
+     * finally its positional assumption.
      */
     public static function findItemIndexByTagHint(array $raw): ?int
     {
@@ -513,6 +535,53 @@ class Order extends Model
             $name     = $vi['name'] ?? $item['product_name'] ?? '';
             $nameNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $name));
             if ($nameNorm !== '' && str_contains($nameNorm, $hintNorm)) {
+                return $i;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * "UPSELL TSD - Base + Addon" (and "- Base + Addon1 + Addon2 + ...") tags
+     * name the BASE product first, unlike the parens form findItemIndexByTagHint()
+     * handles (which names the addon). Used by extractUpsellAmount() as its
+     * second-choice hint — before ever trusting raw array position — so a
+     * multi-item order isn't silently mis-split just because Pancake happened
+     * to list the addon before the base (Fix #9, order #1358116). Mirrors
+     * remainingItemIsJustTheBase()'s own dash-tag parsing, which already
+     * treats parts[0] as the base name for the exact same tag shape.
+     *
+     * Deliberately ignores the single-name dash form ("UPSELL TSD - Addon",
+     * no "+") — there the dash name IS the addon, not a base, so it carries
+     * no information about which of 2+ items is the base; positional
+     * fallback is the only option left for that shape.
+     */
+    public static function findBaseItemIndexByDashTag(array $raw): ?int
+    {
+        $tags     = $raw['tags'] ?? [];
+        $tagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $tags);
+
+        $baseName = null;
+        foreach ($tagNames as $tag) {
+            if (preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', $tag, $m)) {
+                $parts = array_map('trim', explode('+', $m[1]));
+                if (count($parts) >= 2 && $parts[0] !== '') {
+                    $baseName = $parts[0];
+                    break;
+                }
+            }
+        }
+        if ($baseName === null) return null;
+
+        $items        = $raw['items'] ?? [];
+        $baseNameNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $baseName));
+
+        foreach ($items as $i => $item) {
+            $vi       = $item['variation_info'] ?? [];
+            $name     = $vi['name'] ?? $item['product_name'] ?? '';
+            $nameNorm = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $name));
+            if ($nameNorm !== '' && str_contains($nameNorm, $baseNameNorm)) {
                 return $i;
             }
         }
