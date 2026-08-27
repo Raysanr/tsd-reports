@@ -57,7 +57,25 @@ import './bootstrap';
 // scripts stack would double-bind header controls that were never replaced.
 // Re-run scripts are taken from the freshly fetched document, so any @json
 // data baked into them is current, not stale.
+// Explicit request, 2026-08-27, root-caused on Insights: a slow response
+// (real production data can take several seconds to compute) plus a form
+// whose hidden fields carry the CURRENT filter state meant that clicking a
+// second filter/tab before the first request finished sent the OLD, still-
+// on-page hidden value — a fast double-click silently discarded the first
+// click's choice, looking like "the filter resets." abortController lets a
+// NEW call cancel whatever's still in flight; requestGeneration is the
+// belt-and-suspenders check for the rare case a stale request's .then()
+// still fires after abort (or on a browser that ignores the abort) — either
+// way, only the MOST RECENTLY STARTED call is ever allowed to swap <main> or
+// pushState, so the last click always wins regardless of response order.
+let softRefreshAbortController = null;
+let softRefreshGeneration = 0;
+
 window.softRefresh = async function (url = window.location.href, { pushUrl = false, showLoading = false } = {}) {
+    softRefreshAbortController?.abort();
+    const abortController = (softRefreshAbortController = new AbortController());
+    const generation = ++softRefreshGeneration;
+
     // showLoading is opt-in: the silent 2-minute background refresh (below)
     // deliberately stays invisible, but a user-initiated filter change (team,
     // product, date range) should never look frozen for the length of the
@@ -70,7 +88,16 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         const res = await fetch(url, {
             headers: { 'X-Soft-Refresh': '1' },
             credentials: 'same-origin',
+            signal: abortController.signal,
         });
+
+        // A newer call already started (and possibly already applied its own
+        // swap) while this one was in flight — this response is stale no
+        // matter what it contains. Report success (true) rather than false:
+        // this wasn't a real failure, and the caller's own fallback
+        // (window.location.href = url) would otherwise incorrectly navigate
+        // to THIS call's now-outdated url.
+        if (generation !== softRefreshGeneration) return true;
 
         // A redirect to another page (e.g. session expired → /login) can't be
         // swapped in place — report failure so callers fall back to a real
@@ -219,10 +246,21 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         if (!reduceMotion) main.style.opacity = '1';
         document.dispatchEvent(new CustomEvent('page:refreshed'));
         return true;
-    } catch {
+    } catch (err) {
+        // A newer call aborted THIS fetch (see abortController above) —
+        // that's a deliberate supersession, not a real failure. Returning
+        // false here would make the caller's own fallback (window.location.
+        // href = url) navigate to this call's now-stale url, undoing
+        // whatever the newer call already did. true = "nothing more to do,"
+        // same as the generation check above.
+        if (err?.name === 'AbortError') return true;
         return false;
     } finally {
-        overlay?.classList.add('hidden');
+        // Only the CURRENT generation's overlay/button state is this call's
+        // to clean up — an aborted older call's finally would otherwise hide
+        // the overlay (and, via the submit handler's own finally, re-enable
+        // filter buttons) while a newer call is still genuinely in flight.
+        if (generation === softRefreshGeneration) overlay?.classList.add('hidden');
     }
 };
 
@@ -280,9 +318,42 @@ document.addEventListener('submit', (e) => {
     const query  = params.toString();
     const url    = form.action.split('?')[0] + (query ? '?' + query : '');
 
+    // Disable every filter control on the page (not just this form's) for
+    // the duration of this request — explicit request, 2026-08-27, root-
+    // caused on Insights: with real production data a filter response can
+    // take several seconds, and clicking a SECOND filter/tab before the
+    // first one landed captured that second submit's hidden fields (team,
+    // date, ...) straight off the still-stale, not-yet-synced DOM — sending
+    // the OLD value and silently discarding the first click. Looked exactly
+    // like "the filter resets." Disabling closes that window entirely: a
+    // second click physically can't submit until this one's result (or its
+    // fallback navigation) is fully applied and hidden fields are current
+    // again. softRefresh's own last-click-wins guard (abort + generation
+    // check) is the second layer, for the rare case a click still lands in
+    // the gap between the fetch settling and this handler re-enabling.
+    const filterBtns = document.querySelectorAll('[data-filter-btn]');
+    filterBtns.forEach((btn) => { btn.disabled = true; btn.classList.add('opacity-60', 'cursor-wait'); });
+
     e.preventDefault();
-    window.softRefresh(url, { pushUrl: true, showLoading: true }).then((ok) => {
+    const pending = window.softRefresh(url, { pushUrl: true, showLoading: true });
+    // Captured AFTER calling softRefresh (not before): its generation counter
+    // increments synchronously before its first await, so by the time the
+    // call above returns a pending promise, softRefreshGeneration already
+    // reflects THIS click. If a NEWER click starts before this one settles,
+    // softRefreshGeneration will have moved on again by the time this
+    // .finally() runs — skipping the re-enable here defers it to whichever
+    // click is actually last, so buttons never flip back to clickable while
+    // a genuinely newer request is still in flight (which would reopen the
+    // exact stale-hidden-field race this disabling exists to close).
+    const mySubmitGeneration = softRefreshGeneration;
+    pending.then((ok) => {
         if (!ok) window.location.href = url;
+    }).finally(() => {
+        if (mySubmitGeneration !== softRefreshGeneration) return;
+        document.querySelectorAll('[data-filter-btn]').forEach((btn) => {
+            btn.disabled = false;
+            btn.classList.remove('opacity-60', 'cursor-wait');
+        });
     });
 });
 

@@ -563,6 +563,39 @@ class InsightsTest extends TestCase
         $this->get(route('insights', ['date_from' => today()->addWeek()->toDateString()]))->assertOk();
     }
 
+    public function test_the_selected_date_persists_across_requests_via_session(): void
+    {
+        // Explicit request, 2026-08-27: "why the date picker is still
+        // resetting when i click other tab and get back to insights" —
+        // unlike team/view, date had NO session fallback at all until this
+        // fix; navigating away (a bare URL, no date_from) and back always
+        // silently reset it to today.
+        $this->actingAs($this->admin());
+        $yesterday = today()->subDay()->toDateString();
+
+        $this->get(route('insights', ['date_from' => $yesterday]))->assertOk();
+
+        // No ?date_from= this time — should remember yesterday from session,
+        // same as the team/view filters' own persistence.
+        $this->get(route('insights'))->assertOk();
+
+        $this->assertSame($yesterday, session('filters.insights.date'));
+    }
+
+    public function test_a_future_date_does_not_poison_the_session(): void
+    {
+        // The clamp (today's own test above) must happen BEFORE the value
+        // is written to session — otherwise a single hand-edited future-
+        // date URL would silently reset every LATER visit to that (already
+        // wrong) future date via the session fallback, instead of just
+        // that one request.
+        $this->actingAs($this->admin());
+
+        $this->get(route('insights', ['date_from' => today()->addWeek()->toDateString()]))->assertOk();
+
+        $this->assertSame(today()->toDateString(), session('filters.insights.date'));
+    }
+
     // ---- Day-over-day trend ------------------------------------------------
 
     public function test_flags_a_day_over_day_new_leads_volume_jump(): void

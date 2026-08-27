@@ -188,10 +188,23 @@ class InsightsGenerator
             $cards = $cards->merge($this->zeroSalesProductCards($orderTeam, $teamOrders, $referenceDate));
         }
 
-        if ($card = $this->topPerformerCard($attributionOrders, $referenceDate)) {
+        // Computed ONCE here and threaded through to every card that needs
+        // them — explicit request, 2026-08-27, root-caused against real
+        // production data (177k+ orders): topPerformerCard()/
+        // bottomPerformerCard()/dailyNarrativeCard() all used to call
+        // rankedConversionCandidates() independently (3 full re-groupings of
+        // the day's orders), and dailyRecapCard()/dailyNarrativeCard() both
+        // called dayVsPrevFacts() independently (2 full re-filterings) —
+        // redundant work that measurably slowed every request and made the
+        // topbar filter buttons' race-condition window (see app.js's
+        // softRefresh/submit-handler comments) wider than it needed to be.
+        $candidates = $this->rankedConversionCandidates($attributionOrders, $referenceDate);
+        $dayVsPrevFacts = $this->dayVsPrevFacts($attributionOrders, $referenceDate);
+
+        if ($card = $this->topPerformerCard($candidates, $referenceDate)) {
             $cards->push($card);
         }
-        if ($card = $this->bottomPerformerCard($attributionOrders, $referenceDate)) {
+        if ($card = $this->bottomPerformerCard($candidates, $referenceDate)) {
             $cards->push($card);
         }
         if ($card = $this->peakExcessHourCard($activityOrders)) {
@@ -203,7 +216,7 @@ class InsightsGenerator
 
         $cards = $cards->merge($this->dayOverDayCards($attributionOrders, $referenceDate));
         $cards = $cards->merge($this->weekOverWeekCards($attributionOrders, $referenceDate));
-        if ($card = $this->dailyRecapCard($attributionOrders, $referenceDate)) {
+        if ($card = $this->dailyRecapCard($dayVsPrevFacts, $referenceDate)) {
             $cards->push($card);
         }
 
@@ -211,7 +224,7 @@ class InsightsGenerator
         // narrative's "how many TSAs missed a target" / "is there a
         // cancellations issue" signals read directly off $cards (by
         // category, never by parsing another card's message text).
-        if ($card = $this->dailyNarrativeCard($attributionOrders, $referenceDate, $cards, $team)) {
+        if ($card = $this->dailyNarrativeCard($dayVsPrevFacts, $candidates, $referenceDate, $cards, $team)) {
             $cards->push($card);
         }
 
@@ -463,10 +476,10 @@ class InsightsGenerator
 
     /** The selected day's single best conversion rate across every TSA on
      *  every team, among those with enough answered calls to trust the
-     *  number. */
-    private function topPerformerCard(Collection $attributionOrders, Carbon $referenceDate): ?array
+     *  number. $candidates comes from generate()'s own single shared call
+     *  to rankedConversionCandidates() — see that method's own doc comment. */
+    private function topPerformerCard(array $candidates, Carbon $referenceDate): ?array
     {
-        $candidates = $this->rankedConversionCandidates($attributionOrders, $referenceDate);
         if (count($candidates) < 2) {
             return null;
         }
@@ -495,9 +508,8 @@ class InsightsGenerator
      *  (below BOTTOM_PERFORMER_MAX_RATE), not just "worst of a strong
      *  field" — comparing everyone only to each other would flag someone at
      *  70% just because a peer hit 95%. */
-    private function bottomPerformerCard(Collection $attributionOrders, Carbon $referenceDate): ?array
+    private function bottomPerformerCard(array $candidates, Carbon $referenceDate): ?array
     {
-        $candidates = $this->rankedConversionCandidates($attributionOrders, $referenceDate);
         if (count($candidates) < 2) {
             return null;
         }
@@ -915,10 +927,11 @@ class InsightsGenerator
      *  "kulang na manpower" — 3 TSAs working vs. 4 the day before). Severity/
      *  action are the only threshold-gated parts — decided from Orders/
      *  Pick-up Rate/Upselling Rate specifically, the 3 numbers a supervisor
-     *  would call "the result." */
-    private function dailyRecapCard(Collection $attributionOrders, Carbon $referenceDate): ?array
+     *  would call "the result." $facts comes from generate()'s own single
+     *  shared call to dayVsPrevFacts() (also fed to dailyNarrativeCard()) —
+     *  null means either day was below MIN_DAY_VOLUME. */
+    private function dailyRecapCard(?array $facts, Carbon $referenceDate): ?array
     {
-        $facts = $this->dayVsPrevFacts($attributionOrders, $referenceDate);
         if ($facts === null) {
             return null;
         }
@@ -1022,10 +1035,12 @@ class InsightsGenerator
      *  day always reads identically on every reload (no flicker), but a
      *  different day reads differently even given a similar mix of
      *  signals. Rendered as its own full-width prose block in insights.
-     *  blade.php (category 'Overview'), not the card grid. */
-    private function dailyNarrativeCard(Collection $attributionOrders, Carbon $referenceDate, Collection $cards, ?string $team): ?array
+     *  blade.php (category 'Overview'), not the card grid. $facts and
+     *  $candidates both come from generate()'s own single shared calls to
+     *  dayVsPrevFacts()/rankedConversionCandidates() — see those methods'
+     *  own doc comments. */
+    private function dailyNarrativeCard(?array $facts, array $candidates, Carbon $referenceDate, Collection $cards, ?string $team): ?array
     {
-        $facts = $this->dayVsPrevFacts($attributionOrders, $referenceDate);
         if ($facts === null) {
             return null;
         }
@@ -1091,7 +1106,6 @@ class InsightsGenerator
             ], 'manpower');
         }
 
-        $candidates = $this->rankedConversionCandidates($attributionOrders, $referenceDate);
         if (count($candidates) >= 2) {
             $best = $candidates[0];
             $worst = $candidates[count($candidates) - 1];
