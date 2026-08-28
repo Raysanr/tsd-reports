@@ -78,6 +78,11 @@ class TsaManagementController extends Controller
             // whether someone's actually working, making the separate
             // active flag redundant to manage by hand.
             'statuses'     => TsaShift::STATUSES,
+            // Global POS name tag auto-tagging switch — explicit request,
+            // 2026-08-28. OFF doesn't stop leads assigning or showing up in
+            // the Leads tab; it only stops LeadController::tagOutcomeInPancake()
+            // from pushing each TSA's own tag onto the Pancake order.
+            'autoTaggingEnabled' => (bool) Setting::get('pos_auto_tagging_enabled', true),
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -265,6 +270,30 @@ class TsaManagementController extends Controller
 
         $message = "Unlinked {$user->name} from {$tsaShift->display_name}.";
         ActivityLogger::log('tsa.user_unlinked', $tsaShift, $message);
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /**
+     * Global switch (one toggle for every TSA, not per-row) — explicit
+     * request, 2026-08-28. Only gates the TSA name tag half of
+     * LeadController::tagOutcomeInPancake(); lead assignment and the Leads
+     * tab are unaffected either way.
+     */
+    public function toggleAutoTagging(Request $request)
+    {
+        $enabled = $request->boolean('enabled');
+        Setting::set('pos_auto_tagging_enabled', $enabled);
+
+        $message = $enabled
+            ? 'POS name tag auto-tagging turned on — each TSA\'s tag will be pushed to Pancake POS again.'
+            : 'POS name tag auto-tagging turned off — leads still assign and show up in the Leads tab as normal; only the Pancake POS tag push is paused.';
+
+        ActivityLogger::log('tsa.auto_tagging_toggled', null, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled]);
+        }
 
         return redirect()->route('calls.tsa-management')->with('success', $message);
     }

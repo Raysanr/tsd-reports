@@ -347,44 +347,62 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Leads tab's TSA filter dropdown (explicit request, 2026-08-20) — same
-// trigger+floating-panel shape/behavior as every other custom dropdown on
-// this page: picking a row sets the hidden `tsa` input and submits the
-// surrounding GET form, instead of the browser's native <select> styling.
+// Leads tab's custom filter dropdowns — TSA filter (explicit request,
+// 2026-08-20), Team/Product/Status upgraded to the same design (explicit
+// request, 2026-08-28). One shared trigger+floating-panel behavior for every
+// custom <select> replacement on this page: picking a row sets that wrap's
+// own hidden input and submits the surrounding GET form, instead of the
+// browser's native <select> styling. Kept generic (data-filter-*, not
+// data-tsa-filter-*) — a new filter just needs to follow the same HTML
+// shape (data-filter-wrap > [data-filter-trigger, data-filter-input,
+// data-filter-panel > .filter-option]), not new JS.
 document.addEventListener('click', (e) => {
-    const trigger = e.target.closest('[data-tsa-filter-trigger]');
+    const trigger = e.target.closest('[data-filter-trigger]');
     if (trigger) {
-        const wrap  = trigger.closest('[data-tsa-filter-wrap]');
-        const panel = wrap?.querySelector('[data-tsa-filter-panel]');
+        const wrap  = trigger.closest('[data-filter-wrap]');
+        const panel = wrap?.querySelector('[data-filter-panel]');
         if (!panel) return;
 
-        if (panel.classList.contains('hidden')) {
+        const wasOpen = !panel.classList.contains('hidden');
+        // Only one of these dropdowns open at a time — simplest way to
+        // guarantee that is closing every panel first (this one included)
+        // then reopening just this one if it wasn't already showing,
+        // rather than separately tracking "every panel but this one".
+        document.querySelectorAll('[data-filter-panel]').forEach((p) => p.classList.add('hidden'));
+        if (!wasOpen) {
             const rect = trigger.getBoundingClientRect();
             panel.style.top = `${rect.bottom + 8}px`;
             panel.style.left = `${rect.left}px`;
             panel.classList.remove('hidden');
-        } else {
-            panel.classList.add('hidden');
         }
         return;
     }
 
-    const option = e.target.closest('.tsa-filter-option');
+    const option = e.target.closest('.filter-option');
     if (option) {
-        const wrap = option.closest('[data-tsa-filter-wrap]');
-        wrap.querySelector('[data-tsa-filter-input]').value = option.dataset.value;
-        wrap.closest('form')?.submit();
+        const wrap = option.closest('[data-filter-wrap]');
+        const form = wrap.closest('form');
+        wrap.querySelector('[data-filter-input]').value = option.dataset.value;
+        // Team filter declares data-clears="product" (leads/index.blade.php)
+        // — picking a team must drop any already-picked product, otherwise
+        // one left over from the OTHER team stays in the URL and silently
+        // produces zero results instead of just widening back out.
+        if (wrap.dataset.clears) {
+            const target = form?.querySelector(`[name="${wrap.dataset.clears}"]`);
+            if (target) target.value = '';
+        }
+        form?.submit();
         return;
     }
 
-    if (!e.target.closest('[data-tsa-filter-wrap]')) {
-        document.querySelectorAll('[data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    if (!e.target.closest('[data-filter-wrap]')) {
+        document.querySelectorAll('[data-filter-panel]').forEach((p) => p.classList.add('hidden'));
     }
 });
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        document.querySelectorAll('[data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+        document.querySelectorAll('[data-filter-panel]').forEach((p) => p.classList.add('hidden'));
     }
 });
 
@@ -410,7 +428,7 @@ function positionAndShowOrderStatusPanel(trigger, leadId, currentCode) {
 
     // Close every other floating panel/dropdown first — only one should
     // ever be open, same convention as toggleStatusPanel()/the TSA filter.
-    document.querySelectorAll('[data-status-panel], [data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    document.querySelectorAll('[data-status-panel], [data-filter-panel]').forEach((p) => p.classList.add('hidden'));
 
     activeOrderStatusLeadId = leadId;
     panel.querySelectorAll('.order-status-panel-option').forEach((opt) => {
@@ -567,7 +585,7 @@ window.openRealTagsPanel = function (e, trigger) {
     const panel = document.getElementById('realTagsPanel');
     if (!panel) return;
 
-    document.querySelectorAll('[data-status-panel], [data-tsa-filter-panel]').forEach((p) => p.classList.add('hidden'));
+    document.querySelectorAll('[data-status-panel], [data-filter-panel]').forEach((p) => p.classList.add('hidden'));
     document.getElementById('orderStatusPanel')?.classList.add('hidden');
 
     const leadId = trigger.dataset.leadId;

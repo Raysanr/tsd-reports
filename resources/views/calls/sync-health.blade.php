@@ -14,9 +14,9 @@
         <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Runs appear here automatically once the scheduler starts pulling leads.</p>
     </div>
     @else
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto overflow-y-auto max-h-[70vh]">
     <table class="w-full text-sm font-mono">
-        <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
+        <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
             <tr>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Ran At</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Fetched</th>

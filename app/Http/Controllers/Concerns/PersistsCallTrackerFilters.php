@@ -19,9 +19,25 @@ use Illuminate\Http\Request;
  */
 trait PersistsCallTrackerFilters
 {
+    /** date_from/date_to are the only remembered params whose default
+     *  ("today") silently goes stale as soon as the calendar day rolls
+     *  over — a team pill picked last week is still exactly as valid
+     *  today, but a date range picked last week is not. Confirmed live,
+     *  2026-08-28: Leads Setup's "Assigned" column comparing a many-day-old
+     *  remembered range against each TSA's DAILY cap (329/75), reading like
+     *  a blown cap on a day nobody had logged in yet — the range just never
+     *  expired. */
+    private const DATE_PARAMS = ['date_from', 'date_to'];
+
     protected function rememberedFilter(Request $request, string $pageKey, string $param, ?string $fallback = null): ?string
     {
         $sessionKey = "calltracker_filters.{$pageKey}.{$param}";
+        $isDateParam = in_array($param, self::DATE_PARAMS, true);
+        // A SIBLING key, not "{$sessionKey}.remembered_on" — session storage
+        // resolves dots as nested-array paths (Arr::set/Arr::get), so an
+        // extension of $sessionKey's own dotted path collided with $sessionKey
+        // itself and silently corrupted the remembered value into an array.
+        $rememberedOnKey = "calltracker_filters.{$pageKey}.{$param}_remembered_on";
 
         // has(), not filled() — some pages' "clear this filter" link
         // explicitly sends an EMPTY value (e.g. TSA Management/Leads
@@ -33,7 +49,22 @@ trait PersistsCallTrackerFilters
             $value = $request->input($param);
             $value = $value !== '' ? $value : $fallback;
             session([$sessionKey => $value]);
+            if ($isDateParam) {
+                session([$rememberedOnKey => today('Asia/Manila')->toDateString()]);
+            }
             return $value;
+        }
+
+        // A stored value with no matching remembered_on stamp counts as
+        // stale too, not just a mismatched one — a session that had a date
+        // filter saved before this staleness check existed would otherwise
+        // never self-heal (no stamp to compare, so it'd pass silently
+        // forever instead of just until the next actual day change).
+        if ($isDateParam && session()->has($sessionKey)) {
+            if (session($rememberedOnKey) !== today('Asia/Manila')->toDateString()) {
+                session()->forget([$sessionKey, $rememberedOnKey]);
+                return $fallback;
+            }
         }
 
         return session($sessionKey, $fallback);

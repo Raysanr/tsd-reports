@@ -28,13 +28,32 @@
         @endforeach
     </div>
 
-    <button type="button" id="addTsaBtn"
-            class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-        </svg>
-        Add TSA
-    </button>
+    <div class="flex items-center gap-4 shrink-0">
+        {{-- Global POS name tag auto-tagging switch — explicit request,
+             2026-08-28. One toggle for every TSA (not per-row): OFF just
+             stops each TSA's own tag being pushed to their Pancake POS
+             order when a call outcome is logged — leads still assign and
+             show up in the Leads tab exactly the same either way. --}}
+        <div class="flex items-center gap-2" title="Controls only the TSA name tag pushed to Pancake POS — lead assignment and the Leads tab are unaffected.">
+            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">POS name tag</span>
+            <button type="button" id="autoTaggingToggle"
+                    data-action="{{ route('calls.tsa-management.toggle-auto-tagging') }}"
+                    data-enabled="{{ $autoTaggingEnabled ? '1' : '0' }}"
+                    aria-pressed="{{ $autoTaggingEnabled ? 'true' : 'false' }}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoTaggingEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
+                <span id="autoTaggingKnob"
+                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoTaggingEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
+            </button>
+        </div>
+
+        <button type="button" id="addTsaBtn"
+                class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+            </svg>
+            Add TSA
+        </button>
+    </div>
 </div>
 
 <div id="tsaMgmtTableContainer" class="transition-opacity duration-150">
@@ -139,6 +158,58 @@
         });
 
         window.addEventListener('popstate', () => window.location.reload());
+    }
+
+    // Global POS name tag auto-tagging switch — single AJAX toggle, same
+    // CSRF-header fetch convention as calls.js's other AJAX actions
+    // (regenerate-token, etc.). Flips the button's visual state right away
+    // and rolls it back if the request fails, so an admin never sees a
+    // switch that silently didn't take.
+    const autoTaggingToggle = document.getElementById('autoTaggingToggle');
+    const autoTaggingKnob   = document.getElementById('autoTaggingKnob');
+    if (autoTaggingToggle && autoTaggingKnob) {
+        function paintAutoTagging(enabled) {
+            autoTaggingToggle.dataset.enabled = enabled ? '1' : '0';
+            autoTaggingToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoTaggingToggle.classList.toggle('bg-primary', enabled);
+            autoTaggingToggle.classList.toggle('bg-slate-300', !enabled);
+            autoTaggingToggle.classList.toggle('dark:bg-slate-600', !enabled);
+            autoTaggingKnob.classList.toggle('translate-x-6', enabled);
+            autoTaggingKnob.classList.toggle('translate-x-1', !enabled);
+        }
+
+        autoTaggingToggle.addEventListener('click', () => {
+            const next = autoTaggingToggle.dataset.enabled !== '1';
+            paintAutoTagging(next);
+            autoTaggingToggle.disabled = true;
+
+            fetch(autoTaggingToggle.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: `enabled=${next ? '1' : '0'}`,
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => {
+                    window.showToast?.(data.message || 'Saved.', 'success');
+                })
+                .catch(async (res) => {
+                    paintAutoTagging(!next);
+                    let message = 'Could not save — try again.';
+                    if (res?.json) {
+                        try {
+                            const data = await res.json();
+                            message = data.message || message;
+                        } catch (e) { /* not JSON — keep the generic message */ }
+                    }
+                    window.showToast?.(message, 'error');
+                })
+                .finally(() => { autoTaggingToggle.disabled = false; });
+        });
     }
 
     // Add TSA modal

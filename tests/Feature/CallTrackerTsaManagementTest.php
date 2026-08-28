@@ -225,6 +225,51 @@ class CallTrackerTsaManagementTest extends TestCase
     }
 
     /**
+     * Explicit request (2026-08-28): one global switch (not per-TSA) that
+     * gates only the TSA name tag half of LeadController::tagOutcomeInPancake()
+     * — lead assignment and Leads-tab visibility are untouched either way.
+     */
+    public function test_the_index_page_reports_auto_tagging_as_on_by_default(): void
+    {
+        $this->actingAs($this->admin());
+
+        $response = $this->get(route('calls.tsa-management'));
+
+        $response->assertOk();
+        $response->assertViewHas('autoTaggingEnabled', true);
+    }
+
+    public function test_an_admin_can_turn_auto_tagging_off(): void
+    {
+        $this->actingAs($this->admin());
+
+        $response = $this->postJson(route('calls.tsa-management.toggle-auto-tagging'), ['enabled' => '0']);
+
+        $response->assertOk()->assertJson(['success' => true, 'enabled' => false]);
+        $this->assertFalse((bool) Setting::get('pos_auto_tagging_enabled'));
+    }
+
+    public function test_an_admin_can_turn_auto_tagging_back_on(): void
+    {
+        Setting::set('pos_auto_tagging_enabled', false);
+        $this->actingAs($this->admin());
+
+        $response = $this->postJson(route('calls.tsa-management.toggle-auto-tagging'), ['enabled' => '1']);
+
+        $response->assertOk()->assertJson(['success' => true, 'enabled' => true]);
+        $this->assertTrue((bool) Setting::get('pos_auto_tagging_enabled'));
+    }
+
+    public function test_a_tsa_cannot_toggle_auto_tagging(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.tsa-management.toggle-auto-tagging'), ['enabled' => '0'])
+            ->assertForbidden();
+    }
+
+    /**
      * Explicit request (2026-08-26), a follow-up to the "give a TSA a
      * login" attempt reverted earlier the same day: confirmed live (User
      * Management screenshot) every TSA already has a real account, role

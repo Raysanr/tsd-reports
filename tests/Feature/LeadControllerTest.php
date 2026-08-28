@@ -166,7 +166,7 @@ class LeadControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Gemma De Guzman');
-        $response->assertDontSee('data-tsa-filter-trigger', false);
+        $response->assertDontSee('data-filter-trigger', false);
     }
 
     /**
@@ -224,6 +224,67 @@ class LeadControllerTest extends TestCase
         $response->assertOk();
         $response->assertSee('Gemma Lead');
         $response->assertSee('Mariel Lead');
+    }
+
+    /**
+     * Explicit request, 2026-08-28: a per-product filter on the Leads tab
+     * that's scoped by team — Product::team is the same literal order_team
+     * string TsaShift::team already uses (config('teams')'s own doc
+     * comment), so "which products does this team's TSAs handle" is a
+     * direct Product::where('team', ...), no product_tsa join needed.
+     */
+    public function test_the_product_filter_narrows_to_only_that_products_leads(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
+        $scarCream = Product::where('display_name', 'SCAR CREAM')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Sinuxyl Lead', 'product_id' => $sinuxyl->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Scar Cream Lead', 'product_id' => $scarCream->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['product' => $sinuxyl->id]));
+
+        $response->assertOk();
+        $response->assertSee('Sinuxyl Lead');
+        $response->assertDontSee('Scar Cream Lead');
+    }
+
+    public function test_the_team_filter_narrows_to_only_that_teams_products(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $shNaturalsProduct = Product::where('display_name', 'SINUXYL')->first();
+        $eyecareProduct = Product::where('display_name', 'CLEARSIGHT')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'SH Naturals Lead', 'product_id' => $shNaturalsProduct->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Eyecare Lead', 'product_id' => $eyecareProduct->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['team' => 'SH Naturals']));
+
+        $response->assertOk();
+        $response->assertSee('SH Naturals Lead');
+        $response->assertDontSee('Eyecare Lead');
+        // The dropdown itself must not offer the other team's products either.
+        $products = collect($response->viewData('products'));
+        $this->assertTrue($products->contains('id', $shNaturalsProduct->id));
+        $this->assertFalse($products->contains('id', $eyecareProduct->id));
+    }
+
+    /** A specific product implies its own team already — it must win
+     *  outright over a stale/mismatched team param rather than ANDing both
+     *  and silently returning zero rows. */
+    public function test_a_specific_product_wins_over_a_mismatched_team_param(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $eyecareProduct = Product::where('display_name', 'CLEARSIGHT')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Eyecare Lead', 'product_id' => $eyecareProduct->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', [
+            'team' => 'SH Naturals', 'product' => $eyecareProduct->id,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Eyecare Lead');
     }
 
     public function test_a_tsa_can_log_an_outcome_on_their_own_lead(): void
@@ -323,6 +384,32 @@ class LeadControllerTest extends TestCase
             if ($r->method() !== 'PUT') return false;
             $tagIds = collect($r['tags'])->pluck('id')->all();
             return in_array(10, $tagIds, true) && in_array(11, $tagIds, true); // Confirmed + Gemma
+        });
+    }
+
+    /** Explicit request, 2026-08-28: the TSA Management tab's global switch
+     *  gates only the TSA name tag half of this write — the disposition tag
+     *  itself must still reach Pancake with the toggle off. */
+    public function test_logging_an_outcome_with_auto_tagging_disabled_still_tags_the_disposition_but_skips_the_tsa(): void
+    {
+        Setting::set('pos_auto_tagging_enabled', false);
+
+        $this->fakePosTags([
+            ['id' => 10, 'name' => 'Confirmed'],
+            ['id' => 11, 'name' => 'Gemma'],
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma9@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Confirmed']);
+
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT') return false;
+            $tagIds = collect($r['tags'])->pluck('id')->all();
+            return in_array(10, $tagIds, true) && !in_array(11, $tagIds, true); // Confirmed only, no Gemma
         });
     }
 

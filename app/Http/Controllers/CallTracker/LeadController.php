@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\GoogleDriveClient;
@@ -73,6 +74,22 @@ class LeadController extends Controller
             $query->where('tsa_id', $user->tsa_id);
         } elseif ($request->filled('tsa')) {
             $query->where('tsa_id', $request->integer('tsa'));
+        }
+
+        // Product filter, scoped by team (explicit request, 2026-08-28) —
+        // Product::team is the same literal order_team string TsaShift::team
+        // already uses (see config('teams')'s own doc comment), so "which
+        // products does this team's TSAs handle" is just Product::where(
+        // 'team', ...), no join through product_tsa needed. A specific
+        // product implies its own team already, so it wins outright over a
+        // (possibly stale/mismatched, e.g. leftover in the URL after
+        // switching teams) team param rather than ANDing both and risking a
+        // silently-empty result.
+        $selectedTeam = $request->string('team')->toString();
+        if ($request->filled('product')) {
+            $query->where('product_id', $request->integer('product'));
+        } elseif ($selectedTeam) {
+            $query->whereHas('product', fn ($q) => $q->where('team', $selectedTeam));
         }
 
         // One shared date window for every view (explicit request,
@@ -215,6 +232,16 @@ class LeadController extends Controller
             'tagColors'             => $tagColors,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
+            'teams'                 => collect(config('teams'))->pluck('order_team')->all(),
+            'selectedTeam'          => $selectedTeam,
+            // Options narrow to the picked team (all products when no team
+            // is picked) — same "the dropdown can never offer something the
+            // query itself would reject" guarantee STATUS_FILTER_VALUES
+            // already gives the status filter above.
+            'products'              => $user->isAtLeastAdmin()
+                ? Product::orderBy('sort_order')->when($selectedTeam, fn ($q) => $q->where('team', $selectedTeam))->get()
+                : collect(),
+            'selectedProduct'       => $request->integer('product'),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
             'selectedStatus'        => $status,
@@ -1224,14 +1251,15 @@ class LeadController extends Controller
      * (re-)confirmed TSA tag — the real POS order-tags API (PancakeOrderTagApi
      * — see its own doc comment for why this, not the conversation-scoped
      * tags API, is the one that actually shows up in Pancake POS and reaches
-     * TSD Reports' own sync). This and removeTag() above are the only things
-     * that write a tag to Pancake now — round-robin assignment itself
-     * (SyncPancakeLeads) is a local-only signal, no automatic tag on a new
-     * lead. Silently no-ops
-     * (with a logged warning) per-tag when there's no linked order or a tag
-     * doesn't exist in the real catalog — same "feature unavailable, not
-     * fatal" convention as elsewhere; a TSA's outcome is still saved
-     * locally either way.
+     * TSD Reports' own sync). The TSA tag is gated by the
+     * 'pos_auto_tagging_enabled' Setting (toggle lives on the TSA Management
+     * tab) — off skips just that one tag, not the whole call. This and
+     * removeTag() above are the only things that write a tag to Pancake now
+     * — round-robin assignment itself (SyncPancakeLeads) is a local-only
+     * signal, no automatic tag on a new lead. Silently no-ops (with a logged
+     * warning) per-tag when there's no linked order or a tag doesn't exist
+     * in the real catalog — same "feature unavailable, not fatal" convention
+     * as elsewhere; a TSA's outcome is still saved locally either way.
      */
     private function tagOutcomeInPancake(Lead $lead, string $disposition, PancakeOrderTagApi $api): void
     {
@@ -1239,7 +1267,14 @@ class LeadController extends Controller
             return;
         }
 
-        $tagNames = self::splitTags($disposition)->push($lead->tsa?->tsa_key)->filter()->unique()->values()->all();
+        // Global on/off switch (TSA Management tab) — explicit request,
+        // 2026-08-28: OFF only withholds the TSA's own POS name tag; the
+        // disposition/outcome tags ("Confirmed", "Call Back", etc.) still go
+        // through either way, and lead assignment + visibility in the Leads
+        // tab is untouched by this setting entirely.
+        $tsaTag = Setting::get('pos_auto_tagging_enabled', true) ? $lead->tsa?->tsa_key : null;
+
+        $tagNames = self::splitTags($disposition)->push($tsaTag)->filter()->unique()->values()->all();
         $results  = $api->addTagsToOrder($lead->pancake_order_id, $tagNames);
 
         foreach ($results as $tagName => $success) {

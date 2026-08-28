@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
@@ -138,5 +139,75 @@ class CallTrackerFilterPersistenceTest extends TestCase
         $this->assertSame($gemma->id, $response->viewData('selectedTsa'));
         $this->assertSame('2026-08-01', $response->viewData('dateFrom'));
         $this->assertSame('2026-08-02', $response->viewData('dateTo'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    /**
+     * Explicit request, 2026-08-28: "why even today it is exceed 329/75
+     * even the tsa is not yet clicked in login today" — traced to a date
+     * range picked on a previous day never expiring, so Leads Setup kept
+     * comparing a stale multi-day sum against each TSA's DAILY cap. Unlike
+     * team (meant to persist indefinitely, see the pill test above), a
+     * remembered date range must fall back to today the moment the
+     * calendar day actually changes.
+     */
+    public function test_leads_setup_date_range_auto_resets_to_today_on_a_new_calendar_day(): void
+    {
+        $admin = $this->actingAs($this->admin());
+
+        $admin->get(route('calls.round-robin-setup', ['date_from' => '2026-08-01', 'date_to' => '2026-08-27']))
+            ->assertOk();
+
+        // Same-day bare revisit — the picked range is still honored.
+        $sameDay = $admin->get(route('calls.round-robin-setup'));
+        $this->assertSame('2026-08-01', $sameDay->viewData('dateFrom')->toDateString());
+        $this->assertSame('2026-08-27', $sameDay->viewData('dateTo')->toDateString());
+
+        // Roll the clock to the next calendar day — a bare revisit must now
+        // fall back to today, not keep showing the stale range.
+        Carbon::setTestNow(now('Asia/Manila')->addDay());
+        $nextDay = $admin->get(route('calls.round-robin-setup'));
+
+        $nextDay->assertOk();
+        $this->assertTrue($nextDay->viewData('dateFrom')->isToday());
+        $this->assertTrue($nextDay->viewData('dateTo')->isToday());
+    }
+
+    /** Same staleness rule, different page — Dashboard's own date range must
+     *  reset the same way (this bug was latent everywhere the trait's date
+     *  params are used, not just Leads Setup). */
+    public function test_dashboard_date_range_auto_resets_to_default_on_a_new_calendar_day(): void
+    {
+        $admin = $this->actingAs($this->admin());
+
+        $admin->get(route('calls.dashboard', ['date_from' => '2026-08-01', 'date_to' => '2026-08-05']))
+            ->assertOk();
+
+        Carbon::setTestNow(now('Asia/Manila')->addDay());
+        $nextDay = $admin->get(route('calls.dashboard'));
+
+        $nextDay->assertOk();
+        $this->assertTrue($nextDay->viewData('isToday'));
+    }
+
+    /** A date filter saved in session by the OLD code (before the staleness
+     *  stamp existed) has no remembered_on to compare — must still be
+     *  treated as stale on the very next request, not trusted forever just
+     *  because there's nothing to compare against. */
+    public function test_a_date_filter_remembered_before_this_fix_existed_still_self_heals(): void
+    {
+        $admin = $this->actingAs($this->admin());
+        $this->withSession(['calltracker_filters.leads-setup.date_from' => '2026-08-01', 'calltracker_filters.leads-setup.date_to' => '2026-08-27']);
+
+        $response = $admin->get(route('calls.round-robin-setup'));
+
+        $response->assertOk();
+        $this->assertTrue($response->viewData('dateFrom')->isToday());
+        $this->assertTrue($response->viewData('dateTo')->isToday());
     }
 }

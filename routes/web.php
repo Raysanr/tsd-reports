@@ -185,6 +185,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');
             Route::post('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'store'])->name('tsa-management.store');
             Route::get('/tsa-management/pos-users', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
+            // Declared before the {tsaShift} wildcard route below so
+            // "toggle-auto-tagging" isn't swallowed as a route-model-binding
+            // id — same reason pos-users above sits ahead of it too.
+            Route::post('/tsa-management/toggle-auto-tagging', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoTagging'])->name('tsa-management.toggle-auto-tagging');
             Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
             Route::post('/tsa-management/{tsaShift}/link-user', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'linkUser'])->name('tsa-management.link-user');
