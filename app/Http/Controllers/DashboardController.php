@@ -58,7 +58,7 @@ class DashboardController extends Controller
         $hasSyncedData         = false;
         $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
 
-        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
+        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
         $syncRuns       = collect();
         $tsaLeaderboard   = collect();
@@ -179,32 +179,15 @@ class DashboardController extends Controller
                 $grossSales  += (clone $restocking)->sum('restocking_upsell_amount');
             }
 
-            // Cancelled upsells — different from Restocking: the customer cancelled just
-            // the TSA's upsell add-on while their primary order kept going (is_upsell is
-            // already forced false for these by SyncTodayOrders, so they're automatically
-            // excluded from $grossSales/$totalOrders above with no separate subtraction
-            // needed here). cancelled_upsell_amount preserves what the add-on would have
-            // been worth, captured before Pancake's own data dropped that line item —
-            // but only when a prior sync had already seen the order as a live upsell.
-            // When that never happened, cancelled_upsell_amount is NULL (not 0): Pancake's
-            // own histories log never retains an items/price snapshot, so that value is
-            // genuinely unrecoverable, not just missing — SUM() below ignores those NULLs
-            // rather than silently treating them as a confirmed ₱0.
-            // Same COALESCE date basis as $upsells above, for consistency with the
-            // rest of this card's numbers.
-            $cancelledUpsells = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->where('is_cancelled_upsell', true);
-
-            // Real order-level cancellations (Pancake status_code 6, "Canceled") —
-            // a DIFFERENT bucket from $cancelledUpsells above, which only catches an
-            // upsell add-on being dropped while the primary order still ships.
-            // Root-caused 2026-08-28: Eyecare's dashboard showed 1 cancellation
-            // (₱799, an upsell-only cancellation) for a day with 4 fully canceled
-            // orders (#1358422, #1358314, #1358206, #1358187) — none of them had
-            // is_cancelled_upsell set, so the old query silently excluded all 4.
-            // Scoped by $orderTeams same as every other card, so this is correct
-            // for a single selected team AND for the ALL view across every team.
+            // Real order-level cancellations (Pancake status_code 6, "Canceled").
+            // Root-caused 2026-08-28: this card used to key off is_cancelled_upsell,
+            // which only catches an upsell add-on being dropped while the primary
+            // order still ships — Eyecare's dashboard showed 1 cancellation (₱799,
+            // an upsell-only cancellation) for a day with 4 fully canceled orders
+            // (#1358422, #1358314, #1358206, #1358187), none of which had
+            // is_cancelled_upsell set. Scoped by $orderTeams same as every other
+            // card, so this is correct for a single selected team AND for the ALL
+            // view across every team.
             $cancelledOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->where('status_code', 6);
@@ -221,9 +204,6 @@ class DashboardController extends Controller
                 'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
                 'cancelled_orders_count' => (clone $cancelledOrders)->count(),
                 'cancelled_orders_value' => (clone $cancelledOrders)->sum('amount'),
-                'cancelled_count'         => (clone $cancelledUpsells)->count(),
-                'cancelled_value'         => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
-                'cancelled_unknown_count' => (clone $cancelledUpsells)->whereNull('cancelled_upsell_amount')->count(),
                 'last_synced'      => $syncHealth['last_synced'],
                 'sync_interval'    => $syncHealth['sync_interval'],
                 'sync_stale'       => $syncHealth['sync_stale'],
