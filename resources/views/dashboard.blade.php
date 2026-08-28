@@ -134,13 +134,34 @@
         </div>
     </div>
 
-    {{-- Total Cancelled Orders — deliberately a different accent (rose) from Total
-         Restocking's yellow: these are NOT the same bucket. Restocking = a TSA
-         upsell/add-on awaiting stock. Cancelled = the customer cancelled just the
-         TSA's upsell add-on while their primary order still went through. Because is_upsell is
-         already forced false for these at sync time (SyncTodayOrders), the amount
-         is automatically excluded from Total Cross-Sell Sales above with no manual
-         subtraction — this card is purely visibility into that, not a deduction step.
+    {{-- Total Cancelled Orders — real order-level cancellations (Pancake
+         status_code 6, "Canceled"). Root-caused 2026-08-28: this card used to
+         reuse the upsell-cancellation query below, which only counts an upsell
+         add-on being dropped while the order itself still ships — a fully
+         canceled order with no upsell involved was invisible here. --}}
+    <div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-rose-200 dark:border-rose-800 p-3 sm:p-5 shadow-sm flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
+        <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 flex items-center justify-center shrink-0">
+            <svg class="w-4.5 h-4.5 sm:w-6 sm:h-6 text-rose-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <div class="min-w-0 w-full">
+            <p class="text-xs font-mono font-semibold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-1">Total Cancelled Orders</p>
+            <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                ₱{{ number_format($stats['cancelled_orders_value'], 2) }}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400 font-mono">
+                {{ $stats['cancelled_orders_count'] }} {{ \Illuminate\Support\Str::plural('order', $stats['cancelled_orders_count']) }} canceled
+            </p>
+        </div>
+    </div>
+
+    {{-- Cancelled Upsells — a DIFFERENT bucket from Total Cancelled Orders above:
+         the customer cancelled just the TSA's upsell add-on while their primary
+         order still went through. Because is_upsell is already forced false for
+         these at sync time (SyncTodayOrders), the amount is automatically
+         excluded from Total Cross-Sell Sales above with no manual subtraction —
+         this card is purely visibility into that, not a deduction step.
 
          cancelled_unknown_count: Pancake's own data never retains the removed add-on's
          price once it's gone (confirmed against its histories log, which only ever
@@ -150,14 +171,14 @@
     @php
         $cancelledKnownCount = $stats['cancelled_count'] - $stats['cancelled_unknown_count'];
     @endphp
-    <div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-rose-200 dark:border-rose-800 p-3 sm:p-5 shadow-sm flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
-        <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 flex items-center justify-center shrink-0">
-            <svg class="w-4.5 h-4.5 sm:w-6 sm:h-6 text-rose-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+    <div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-amber-200 dark:border-amber-800 p-3 sm:p-5 shadow-sm flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
+        <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-amber-50 dark:bg-amber-950/40 flex items-center justify-center shrink-0">
+            <svg class="w-4.5 h-4.5 sm:w-6 sm:h-6 text-amber-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
         </div>
         <div class="min-w-0 w-full">
-            <p class="text-xs font-mono font-semibold text-rose-500 dark:text-rose-400 uppercase tracking-wider mb-1">Total Cancelled Orders</p>
+            <p class="text-xs font-mono font-semibold text-amber-500 dark:text-amber-400 uppercase tracking-wider mb-1">Cancelled Upsells</p>
             @if($stats['cancelled_count'] > 0 && $cancelledKnownCount === 0)
             <p class="text-lg sm:text-2xl font-bold text-slate-300 dark:text-slate-600 font-mono leading-none">—</p>
             <p class="mt-1.5 text-xs text-slate-400 font-mono">{{ $stats['cancelled_count'] }} upsell {{ \Illuminate\Support\Str::plural('cancellation', $stats['cancelled_count']) }} · amount unavailable</p>

@@ -58,7 +58,7 @@ class DashboardController extends Controller
         $hasSyncedData         = false;
         $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
 
-        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
+        $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'cancelled_count' => 0, 'cancelled_value' => 0, 'cancelled_unknown_count' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
         $syncRuns       = collect();
         $tsaLeaderboard   = collect();
@@ -196,6 +196,19 @@ class DashboardController extends Controller
                 ->whereIn('team', $orderTeams)
                 ->where('is_cancelled_upsell', true);
 
+            // Real order-level cancellations (Pancake status_code 6, "Canceled") —
+            // a DIFFERENT bucket from $cancelledUpsells above, which only catches an
+            // upsell add-on being dropped while the primary order still ships.
+            // Root-caused 2026-08-28: Eyecare's dashboard showed 1 cancellation
+            // (₱799, an upsell-only cancellation) for a day with 4 fully canceled
+            // orders (#1358422, #1358314, #1358206, #1358187) — none of them had
+            // is_cancelled_upsell set, so the old query silently excluded all 4.
+            // Scoped by $orderTeams same as every other card, so this is correct
+            // for a single selected team AND for the ALL view across every team.
+            $cancelledOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->whereIn('team', $orderTeams)
+                ->where('status_code', 6);
+
             // Extracted into App\Support\SyncHealth so this page and the dedicated
             // Sync Health page (SyncHealthController) can never drift out of sync
             // on what counts as "stale".
@@ -206,6 +219,8 @@ class DashboardController extends Controller
                 'total_orders'     => $totalOrders,
                 'restocking_count' => (clone $restocking)->count(),
                 'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
+                'cancelled_orders_count' => (clone $cancelledOrders)->count(),
+                'cancelled_orders_value' => (clone $cancelledOrders)->sum('amount'),
                 'cancelled_count'         => (clone $cancelledUpsells)->count(),
                 'cancelled_value'         => (clone $cancelledUpsells)->sum('cancelled_upsell_amount'),
                 'cancelled_unknown_count' => (clone $cancelledUpsells)->whereNull('cancelled_upsell_amount')->count(),
