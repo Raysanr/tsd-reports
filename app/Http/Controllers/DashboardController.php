@@ -265,12 +265,41 @@ class DashboardController extends Controller
             $allProducts = $selectedTeam === 'all'
                 ? Product::orderBy('sort_order')->get()
                 : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
-            $matchPool = $selectedTeam === 'all'
-                ? $dayOrders
-                : Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                    ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
-            $productRows     = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $matchPool, $allProducts));
-            $leadsGrandTotal = ProductPerformance::sumRows($productRows);
+
+            // Grand Total computed one calendar day at a time, not the whole range's
+            // orders loaded and matched in a single pass. Root-caused 2026-08-28:
+            // a wide range (e.g. Eyecare, Aug 1-27) loaded every matching order
+            // across the WHOLE range into memory at once — on a single-team view,
+            // TWICE (this $matchPool used to also load a second, company-wide copy
+            // for cross-team combo matching) — then re-scanned that entire pool once
+            // per product, and again per product-order pair inside
+            // ProductPerformance::conflictingProduct()'s own O(products) scan. Fine
+            // for a single day; a 27-day range crashed the PHP process outright
+            // (confirmed live: every request 500'd with txBytes:0 in Railway's HTTP
+            // logs — the process dying before Laravel could even render an error
+            // page, not a catchable exception; APP_DEBUG=true showed no difference).
+            // Bucketing by day bounds how many orders are ever held/matched in
+            // memory at once to roughly one day's worth, no matter how wide a range
+            // gets selected — mathematically identical result, since sumRows()
+            // defines the Grand Total as literally "sum of the rows", and summing
+            // per-day sums equals summing everything at once (addition is
+            // associative). A single-day selection (the common case) still runs
+            // this loop exactly once, same as before.
+            $dailyTotals = collect();
+            for ($cursor = $dateFrom->copy()->startOfDay(); $cursor->lte($dateTo); $cursor->addDay()) {
+                $dayStart = $cursor->copy()->startOfDay();
+                $dayEnd   = $cursor->copy()->endOfDay();
+
+                $dayMatchPool = $selectedTeam === 'all'
+                    ? Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dayStart, $dayEnd])
+                        ->whereIn('team', $orderTeams)->get()
+                    : Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dayStart, $dayEnd])
+                        ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+
+                $dayProductRows = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $dayMatchPool, $allProducts));
+                $dailyTotals->push(ProductPerformance::sumRows($dayProductRows));
+            }
+            $leadsGrandTotal = ProductPerformance::sumRows($dailyTotals);
 
             $stats['total_leads']    = $leadsGrandTotal['total'];
             $stats['catered_leads']  = $leadsGrandTotal['catered'];
