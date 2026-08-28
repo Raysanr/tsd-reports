@@ -89,7 +89,7 @@
                         @else
                         <span class="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 rounded-full px-2.5 py-1">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            Open
+                            Available
                         </span>
                         @endif
                     </td>

@@ -48,13 +48,64 @@
     <input type="text" name="q" value="{{ $q }}" placeholder="Search TSA..." autocomplete="off"
            class="w-56 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
 
-    <select name="status" onchange="this.form.submit()"
-            class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-        <option value="">All Status</option>
-        @foreach(\App\Models\TsaShift::MONITOR_LEGEND_STATUSES as $s)
-        <option value="{{ $s }}" {{ $selectedStatus === $s ? 'selected' : '' }}>{{ strtoupper(\App\Models\TsaShift::STATUSES[$s]['label']) }}</option>
-        @endforeach
-    </select>
+    {{-- Custom dropdown, same trigger+floating-panel design as Leads' own
+         TSA/Team/Product/Status filters (leads/index.blade.php) — generic
+         data-filter-* JS in calls.js drives every instance of this pattern,
+         so no new JS needed here. Dot colors match _content.blade.php's own
+         $statusDotClass (duplicated here — that closure lives in _content's
+         scope, not this file's). --}}
+    @php
+        $monitorStatusDotClass = fn (string $s) => match ($s) {
+            \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+            \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
+            \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
+            \App\Models\TsaShift::STATUS_BREAK      => 'bg-yellow-400',
+            \App\Models\TsaShift::STATUS_LUNCH      => 'bg-amber-800',
+            \App\Models\TsaShift::STATUS_COACHING   => 'bg-blue-500',
+            \App\Models\TsaShift::STATUS_DNA_HUDDLE => 'bg-purple-500',
+            \App\Models\TsaShift::STATUS_HUDDLE     => 'bg-sky-400',
+            \App\Models\TsaShift::STATUS_OTHERS     => 'bg-slate-500',
+            \App\Models\TsaShift::STATUS_LOGOUT     => 'bg-slate-300 dark:bg-slate-600',
+            \App\Models\TsaShift::STATUS_LOCKED     => 'bg-red-700',
+            default => 'bg-slate-400',
+        };
+    @endphp
+    <div class="relative" data-filter-wrap>
+        <input type="hidden" name="status" value="{{ $selectedStatus ?: '' }}" data-filter-input>
+        <button type="button" data-filter-trigger
+                class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
+            @if($selectedStatus)
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 {{ $monitorStatusDotClass($selectedStatus) }}"></span>
+            @else
+            <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
+            @endif
+            <span>{{ $selectedStatus ? strtoupper(\App\Models\TsaShift::STATUSES[$selectedStatus]['label']) : 'All Status' }}</span>
+            <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </button>
+
+        <div class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-52 max-h-96 overflow-y-auto" data-filter-panel>
+            <div class="py-1">
+                <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="">
+                    <svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"/></svg>
+                    <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">All Status</span>
+                    @if(!$selectedStatus)
+                    <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    @endif
+                </div>
+                @foreach(\App\Models\TsaShift::MONITOR_LEGEND_STATUSES as $s)
+                <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $s }}">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0 {{ $monitorStatusDotClass($s) }}"></span>
+                    <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ strtoupper(\App\Models\TsaShift::STATUSES[$s]['label']) }}</span>
+                    @if($selectedStatus === $s)
+                    <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                    @endif
+                </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
 
     <button type="submit" class="text-sm font-semibold font-mono text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">
         Search
