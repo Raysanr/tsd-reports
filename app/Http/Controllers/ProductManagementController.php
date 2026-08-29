@@ -15,6 +15,21 @@ class ProductManagementController extends Controller
 {
     public function index()
     {
+        return view('product-management', $this->buildViewData());
+    }
+
+    /** Same data as index() above, rendered as a Hub-styled standalone page
+     *  instead of layouts.app's internal dashboard chrome — same pattern as
+     *  UserManagementController::hubIndex(). See RETURN_ROUTES/
+     *  redirectToCaller() for how the mutating actions below know which of
+     *  the two pages to send the browser back to. */
+    public function hubIndex()
+    {
+        return view('hub-product-management', $this->buildViewData());
+    }
+
+    private function buildViewData(): array
+    {
         $teamsConfig = config('teams', []);
         $products    = Product::orderBy('sort_order')->get();
 
@@ -29,7 +44,20 @@ class ProductManagementController extends Controller
 
         $trashedProducts = Product::onlyTrashed()->orderBy('display_name')->get();
 
-        return view('product-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'trashedProducts'));
+        return compact('teamGroups', 'teamsConfig', 'unassigned', 'trashedProducts');
+    }
+
+    /** Which named route store()/update()/etc. above send the browser back
+     *  to — same pattern as UserManagementController::RETURN_ROUTES /
+     *  redirectToCaller(). */
+    private const RETURN_ROUTES = ['product-management', 'hub.product-management'];
+
+    private function redirectToCaller(Request $request): \Illuminate\Http\RedirectResponse
+    {
+        $target = $request->input('_redirect_route');
+        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'product-management';
+
+        return redirect()->route($target);
     }
 
     public function store(Request $request)
@@ -52,8 +80,7 @@ class ProductManagementController extends Controller
         $message = "Added \"{$data['display_name']}\".";
         ActivityLogger::log('product.created', $product, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     public function update(Request $request, Product $product)
@@ -73,11 +100,10 @@ class ProductManagementController extends Controller
         $message = "Updated \"{$data['display_name']}\".";
         ActivityLogger::log('product.updated', $product, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
-    public function destroy(Product $product)
+    public function destroy(Request $request, Product $product)
     {
         $name = $product->display_name;
         $product->delete();
@@ -85,14 +111,13 @@ class ProductManagementController extends Controller
         $message = "Removed \"{$name}\".";
         ActivityLogger::log('product.deleted', $product, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     // Plain {id} param (not {product}) is deliberate — implicit route-model-binding
     // excludes soft-deleted rows by default, so a {product}-typed param would 404
     // on exactly the trashed records this route needs to find. Resolved manually.
-    public function restore(int $id)
+    public function restore(Request $request, int $id)
     {
         $product = Product::onlyTrashed()->findOrFail($id);
         $product->restore();
@@ -100,8 +125,7 @@ class ProductManagementController extends Controller
         $message = "Restored \"{$product->display_name}\".";
         ActivityLogger::log('product.restored', $product, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /**
@@ -114,7 +138,7 @@ class ProductManagementController extends Controller
      * than erroring, so a lead that once matched this product keeps
      * existing, just with no product link anymore.
      */
-    public function forceDelete(int $id)
+    public function forceDelete(Request $request, int $id)
     {
         $product = Product::onlyTrashed()->findOrFail($id);
         $name = $product->display_name;
@@ -123,11 +147,10 @@ class ProductManagementController extends Controller
         $message = "Permanently deleted \"{$name}\".";
         ActivityLogger::log('product.force_deleted', null, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
-    public function toggleHidden(Product $product)
+    public function toggleHidden(Request $request, Product $product)
     {
         $product->is_hidden = !$product->is_hidden;
         $product->save();
@@ -136,8 +159,7 @@ class ProductManagementController extends Controller
         $message = "{$verb} \"{$product->display_name}\".";
         ActivityLogger::log($product->is_hidden ? 'product.hidden' : 'product.unhidden', $product, $message);
 
-        return redirect()->route('product-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     public function bulk(Request $request)
@@ -182,7 +204,7 @@ class ProductManagementController extends Controller
         // No single subject (it affected multiple rows), so subject is null.
         ActivityLogger::log("product.bulk_{$data['action']}", null, $message);
 
-        return redirect()->route('product-management')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /** AJAX — search the real Pancake product catalog for the "Match keywords"

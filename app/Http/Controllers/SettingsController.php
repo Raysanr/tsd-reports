@@ -189,7 +189,13 @@ class SettingsController extends Controller
 
         ActivityLogger::log('settings.shifts_saved', null, 'Shift schedules saved.');
 
-        return redirect()->route('tsa-management')->with('success', 'Shift schedules saved.');
+        // Same _redirect_route allowlist pattern as UserManagementController/
+        // TsaManagementController — this form is shared by /tsa-management and
+        // the Hub-styled /hub/tsa-management page.
+        $target = $request->input('_redirect_route');
+        $target = in_array($target, ['tsa-management', 'hub.tsa-management'], true) ? $target : 'tsa-management';
+
+        return redirect()->route($target)->with('success', 'Shift schedules saved.');
     }
 
     public function clear(Request $request)

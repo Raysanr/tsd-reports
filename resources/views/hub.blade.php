@@ -62,6 +62,55 @@
         font-weight: 700;
     }
     .eyebrow .manage-users:hover { color: var(--primary-dark); }
+
+    /* Management dropdown — same eyebrow row, opens down on click since
+       this bar sits at the very top of the viewport (no room to hover-open
+       upward, and click keeps it usable on touch). */
+    .manage-dropdown { position: relative; display: inline-block; }
+    .manage-dropdown-toggle {
+        font-family: inherit;
+        font-size: inherit;
+        font-weight: 700;
+        letter-spacing: inherit;
+        text-transform: inherit;
+        background: none;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .manage-dropdown-toggle:hover { color: var(--primary-dark); }
+    .manage-dropdown-toggle svg { width: 11px; height: 11px; transition: transform 120ms ease; }
+    .manage-dropdown.open .manage-dropdown-toggle svg { transform: rotate(180deg); }
+    .manage-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        min-width: 200px;
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+        padding: 6px;
+        z-index: 10;
+    }
+    .manage-dropdown.open .manage-dropdown-menu { display: block; }
+    .manage-dropdown-menu a {
+        display: block;
+        padding: 9px 12px;
+        border-radius: 6px;
+        font-family: 'Fira Sans', ui-sans-serif, system-ui, sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        letter-spacing: normal;
+        text-transform: none;
+        color: #334155;
+        text-decoration: none;
+    }
+    .manage-dropdown-menu a:hover { background: var(--bg); color: var(--primary-dark); }
     .eyebrow form { margin: 0; }
     .eyebrow .signout {
         font-family: inherit;
@@ -238,7 +287,18 @@
         <span>Internal Tools</span>
         <span class="greeting">
             @if(auth()->user()->isAtLeastAdmin())
-            <a class="manage-users" href="{{ route('hub.users') }}">User Management</a> ·
+            <span class="manage-dropdown" data-manage-dropdown>
+                <button type="button" class="manage-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
+                    Management
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
+                </button>
+                <span class="manage-dropdown-menu">
+                    <a href="{{ route('hub.users') }}">User Management</a>
+                    <a href="{{ route('hub.tsa-management') }}">TSA Management</a>
+                    <a href="{{ route('hub.product-management') }}">Product Management</a>
+                </span>
+            </span>
+            ·
             @endif
             Signed in as {{ auth()->user()->name }} ·
             <form method="POST" action="{{ route('logout') }}" style="display:inline">@csrf<button type="submit" class="signout">Sign out</button></form>
@@ -301,5 +361,21 @@
 
     </div>
 </main>
+<script>
+    document.querySelectorAll('[data-manage-dropdown]').forEach(function (dropdown) {
+        var toggle = dropdown.querySelector('.manage-dropdown-toggle');
+        toggle.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var isOpen = dropdown.classList.toggle('open');
+            toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+    });
+    document.addEventListener('click', function () {
+        document.querySelectorAll('[data-manage-dropdown].open').forEach(function (dropdown) {
+            dropdown.classList.remove('open');
+            dropdown.querySelector('.manage-dropdown-toggle').setAttribute('aria-expanded', 'false');
+        });
+    });
+</script>
 </body>
 </html>

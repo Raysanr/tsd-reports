@@ -18,6 +18,21 @@ class TsaManagementController extends Controller
 {
     public function index()
     {
+        return view('tsa-management', $this->buildViewData());
+    }
+
+    /** Same data as index() above, rendered as a Hub-styled standalone page
+     *  instead of layouts.app's internal dashboard chrome — same pattern as
+     *  UserManagementController::hubIndex(). See RETURN_ROUTES/
+     *  redirectToCaller() for how the mutating actions below know which of
+     *  the two pages to send the browser back to. */
+    public function hubIndex()
+    {
+        return view('hub-tsa-management', $this->buildViewData());
+    }
+
+    private function buildViewData(): array
+    {
         $teamsConfig = config('teams', []);
         $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get();
 
@@ -37,7 +52,21 @@ class TsaManagementController extends Controller
 
         $trashedShifts = TsaShift::onlyTrashed()->orderBy('display_name')->get();
 
-        return view('tsa-management', compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts', 'trashedShifts'));
+        return compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts', 'trashedShifts');
+    }
+
+    /** Which named route store()/update()/etc. above send the browser back
+     *  to — same pattern as UserManagementController::RETURN_ROUTES /
+     *  redirectToCaller(): a hidden `_redirect_route` field (set per-form in
+     *  each view) allowlisted against this, rather than back()/Referer. */
+    private const RETURN_ROUTES = ['tsa-management', 'hub.tsa-management'];
+
+    private function redirectToCaller(Request $request, array $params = []): \Illuminate\Http\RedirectResponse
+    {
+        $target = $request->input('_redirect_route');
+        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'tsa-management';
+
+        return redirect()->route($target, $params);
     }
 
     /**
@@ -104,8 +133,7 @@ class TsaManagementController extends Controller
         $message = "Added \"{$data['display_name']}\" to {$data['team']}.";
         ActivityLogger::log('tsa.created', $tsaShift, $message);
 
-        return redirect()->route('tsa-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     public function update(Request $request, TsaShift $tsaShift)
@@ -133,11 +161,10 @@ class TsaManagementController extends Controller
         $message = "Updated \"{$data['display_name']}\".";
         ActivityLogger::log('tsa.updated', $tsaShift, $message);
 
-        return redirect()->route('tsa-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
-    public function destroy(TsaShift $tsaShift)
+    public function destroy(Request $request, TsaShift $tsaShift)
     {
         $name = $tsaShift->display_name;
         $tsaShift->delete();
@@ -145,14 +172,13 @@ class TsaManagementController extends Controller
         $message = "Removed \"{$name}\" from the roster.";
         ActivityLogger::log('tsa.deleted', $tsaShift, $message);
 
-        return redirect()->route('tsa-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     // Plain {id} param (not {tsaShift}) is deliberate — implicit route-model-binding
     // excludes soft-deleted rows by default, so a {tsaShift}-typed param would 404
     // on exactly the trashed records this route needs to find. Resolved manually.
-    public function restore(int $id)
+    public function restore(Request $request, int $id)
     {
         $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
         $tsaShift->restore();
@@ -160,8 +186,7 @@ class TsaManagementController extends Controller
         $message = "Restored \"{$tsaShift->display_name}\".";
         ActivityLogger::log('tsa.restored', $tsaShift, $message);
 
-        return redirect()->route('tsa-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /**
@@ -177,7 +202,7 @@ class TsaManagementController extends Controller
      * round_robin_states.last_tsa_id null out instead of erroring, so
      * leads they once handled keep existing, just unassigned.
      */
-    public function forceDelete(int $id)
+    public function forceDelete(Request $request, int $id)
     {
         $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
         $name = $tsaShift->display_name;
@@ -186,8 +211,7 @@ class TsaManagementController extends Controller
         $message = "Permanently deleted \"{$name}\".";
         ActivityLogger::log('tsa.force_deleted', null, $message);
 
-        return redirect()->route('tsa-management')
-            ->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     public function bulk(Request $request)
@@ -221,7 +245,7 @@ class TsaManagementController extends Controller
         // No single subject (it affected multiple rows), so subject is null.
         ActivityLogger::log("tsa.bulk_{$data['action']}", null, $message);
 
-        return redirect()->route('tsa-management')->with('success', $message);
+        return $this->redirectToCaller($request)->with('success', $message);
     }
 
     /**
@@ -261,7 +285,7 @@ class TsaManagementController extends Controller
         $message = "Updated rest days for {$parsedDate->format('M j, Y')}.";
         ActivityLogger::log('tsa.rest_days_updated', null, $message);
 
-        return redirect()->route('tsa-management', ['month' => $parsedDate->format('Y-m')])
+        return $this->redirectToCaller($request, ['month' => $parsedDate->format('Y-m')])
             ->with('success', $message);
     }
 

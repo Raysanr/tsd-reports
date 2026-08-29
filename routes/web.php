@@ -85,6 +85,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::delete('/tsa-management/{id}/force', [TsaManagementController::class, 'forceDelete'])->name('tsa-management.force-delete');
         Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 
+        // Hub-styled entry point to the SAME controller/data/rules as
+        // /tsa-management above — same pattern as hub.users below.
+        Route::get('/hub/tsa-management', [TsaManagementController::class, 'hubIndex'])->name('hub.tsa-management');
+
         Route::get('/product-management',               [ProductManagementController::class, 'index'])->name('product-management');
         Route::get('/product-management/search-pos-products', [ProductManagementController::class, 'searchPosProducts'])->name('product-management.search-pos-products');
         Route::post('/product-management/bulk',          [ProductManagementController::class, 'bulk'])->name('product-management.bulk');
@@ -94,6 +98,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/product-management/{id}/restore', [ProductManagementController::class, 'restore'])->name('product-management.restore');
         Route::delete('/product-management/{id}/force', [ProductManagementController::class, 'forceDelete'])->name('product-management.force-delete');
         Route::patch('/product-management/{product}/toggle-hidden', [ProductManagementController::class, 'toggleHidden'])->name('product-management.toggle-hidden');
+
+        // Hub-styled entry point to the SAME controller/data/rules as
+        // /product-management above — same pattern as hub.users below.
+        Route::get('/hub/product-management', [ProductManagementController::class, 'hubIndex'])->name('hub.product-management');
 
         Route::get('/sync-health',       [SyncHealthController::class, 'index'])->name('sync-health');
         Route::post('/sync-health/retry', [SyncHealthController::class, 'retry'])->name('sync-health.retry');
@@ -204,6 +212,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
             Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
             Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
+            Route::get('/call-recordings', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'index'])->name('call-recordings');
+            Route::get('/call-recordings/{recording}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
             Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');
 
             // Same shared SettingsController@index as TSD Reports' own
