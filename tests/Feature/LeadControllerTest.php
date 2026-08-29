@@ -129,7 +129,15 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Confirmed Today');
     }
 
-    public function test_a_date_range_does_not_apply_to_the_overdue_view(): void
+    /** Reversed 2026-08-15 (see commit c82cdb5, "Make Overdue/Callbacks
+     *  follow the picked date range, not hardcoded today") — Overdue used to
+     *  ignore date_from/date_to entirely; it now applies the same shared
+     *  date window as every other view, scoped to assigned_at (see
+     *  LeadController::index()'s own comment on the $view === 'overdue'
+     *  branch). Renamed and rewritten 2026-08-29 to assert the current,
+     *  intentional behavior instead of the pre-c82cdb5 one this test was
+     *  never updated for. */
+    public function test_the_overdue_view_is_scoped_to_the_picked_date_range(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -142,12 +150,17 @@ class LeadControllerTest extends TestCase
 
         $admin = User::create(['name' => 'Admin', 'email' => 'admin-date3@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
 
-        // A date range that would exclude this lead by creation date is
-        // irrelevant here — Overdue view ignores it entirely.
-        $response = $this->actingAs($admin)->get(route('calls.leads.index', ['view' => 'overdue', 'date_from' => '2026-08-01', 'date_to' => '2026-08-06']));
+        // A date range that doesn't cover assigned_at (10 hours ago, i.e.
+        // today) excludes the lead from Overdue now.
+        $excluded = $this->actingAs($admin)->get(route('calls.leads.index', ['view' => 'overdue', 'date_from' => '2026-08-01', 'date_to' => '2026-08-06']));
+        $excluded->assertOk();
+        $excluded->assertDontSee('Old Overdue');
 
-        $response->assertOk();
-        $response->assertSee('Old Overdue');
+        // A range that does cover assigned_at includes it.
+        $today = today()->toDateString();
+        $included = $this->actingAs($admin)->get(route('calls.leads.index', ['view' => 'overdue', 'date_from' => $today, 'date_to' => $today]));
+        $included->assertOk();
+        $included->assertSee('Old Overdue');
     }
 
     /**

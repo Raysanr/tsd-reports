@@ -1124,6 +1124,12 @@ window.openLeadModal = function (leadId) {
     const body = document.getElementById('leadDetailModalBody');
     if (!modal || !body) return;
 
+    // Tracked so a reload/crash while a lead is open can reopen the same one
+    // instead of dropping a TSA back at the top of the queue — cleared again
+    // in closeLeadModal() below since it should only survive an
+    // *unintentional* reload, not linger after a deliberate close.
+    localStorage.setItem('callsLastOpenLead', String(leadId));
+
     showModal(modal);
     body.innerHTML = `
         <div class="flex items-center justify-center py-24">
@@ -1173,6 +1179,7 @@ window.closeLeadModal = function () {
         clearInterval(pancakeNotesInterval);
         pancakeNotesInterval = null;
     }
+    localStorage.removeItem('callsLastOpenLead');
     hideModal(document.getElementById('leadDetailModal'));
 };
 
@@ -1183,6 +1190,17 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
     if (e.target && e.target.id === 'leadDetailModal') window.closeLeadModal();
 });
+
+// Resume-on-reload (explicit request, 2026-08-29): if the tab reloads/
+// crashes while a lead is open — closeLeadModal() never ran, so
+// callsLastOpenLead is still set — reopen the same lead instead of
+// dropping the TSA back at the top of the queue. Only meaningful on a page
+// that actually has the modal shell; guarded the same way openLeadModal()
+// itself is.
+if (document.getElementById('leadDetailModal')) {
+    const lastOpenLead = localStorage.getItem('callsLastOpenLead');
+    if (lastOpenLead) window.openLeadModal(lastOpenLead);
+}
 
 window.openConversationModal = function (leadId) {
     const modal = document.getElementById('conversationModal');
@@ -1886,9 +1904,75 @@ document.addEventListener('click', (e) => {
 // page then opening the modal) never leaves a stale poll loop running
 // against a panel that's no longer in the DOM.
 let pancakeNotesInterval = null;
+let pancakeNotesDraftDebounce = null;
+let pancakeNotesDraftRestoredFor = null;
 
 function pancakeNotesLeadId() {
     return document.getElementById('pancakeNotesPanel')?.dataset.leadId;
+}
+
+function pancakeNotesDraftKey(leadId) {
+    return `callsNotesDraft:${leadId}`;
+}
+
+// Draft safety net (explicit request, 2026-08-29) — the notes panel has no
+// save button of its own (one shared footer Save covers the whole modal,
+// see saveLeadModal() below), so unsaved typing here previously had nothing
+// protecting it from an accidental modal close, a reload, or a browser
+// crash. Debounced separately from the poll/save network calls — this only
+// ever touches localStorage, never the network.
+function savePancakeNotesDraft() {
+    const leadId = pancakeNotesLeadId();
+    const panel = document.getElementById('pancakeNotesPanel');
+    if (!leadId || !panel) return;
+
+    const note      = panel.querySelector('[data-notes-field="note"]')?.value ?? '';
+    const notePrint = panel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
+    localStorage.setItem(pancakeNotesDraftKey(leadId), JSON.stringify({ note, note_print: notePrint, savedAt: Date.now() }));
+}
+
+function clearPancakeNotesDraft(leadId) {
+    if (leadId) localStorage.removeItem(pancakeNotesDraftKey(leadId));
+}
+
+// Restores a leftover draft into the panel — called after the server's own
+// values are applied (loadPancakeNotes()/applyPancakeNotes()), so the draft
+// only overrides fields the server didn't just refresh with something
+// newer. Only runs once per lead per modal-open (applyPancakeNotes() re-runs
+// this every 8s poll, and re-stomping the same already-restored draft every
+// poll would just re-flash the "Draft restored" status for no reason).
+// Skips a field currently focused, same reason applyPancakeNotes() does.
+function restorePancakeNotesDraft() {
+    const leadId = pancakeNotesLeadId();
+    const panel = document.getElementById('pancakeNotesPanel');
+    if (!leadId || !panel) return;
+    if (pancakeNotesDraftRestoredFor === leadId) return;
+
+    let draft;
+    try {
+        draft = JSON.parse(localStorage.getItem(pancakeNotesDraftKey(leadId)) || 'null');
+    } catch (e) {
+        return;
+    }
+    if (!draft) return;
+
+    pancakeNotesDraftRestoredFor = leadId;
+
+    let restored = false;
+    panel.querySelectorAll('[data-notes-field]').forEach((el) => {
+        if (document.activeElement === el) return;
+        const key = el.dataset.notesField;
+        if (!(key in draft)) return;
+        if (el.value === draft[key]) return;
+        el.value = draft[key];
+        restored = true;
+    });
+
+    const statusEl = document.getElementById('pancakeNotesStatus');
+    if (restored && statusEl) {
+        statusEl.textContent = 'Draft restored — Save to keep it';
+        statusEl.className = 'text-[11px] font-mono text-amber-500';
+    }
 }
 
 // Skips a field currently focused — a TSA mid-edit shouldn't have their own
@@ -1901,6 +1985,7 @@ function applyPancakeNotes(data) {
         const key = el.dataset.notesField;
         if (key in data) el.value = data[key] ?? '';
     });
+    restorePancakeNotesDraft();
 }
 
 function loadPancakeNotes() {
@@ -1941,6 +2026,8 @@ async function savePancakeNotesInner() {
             body: JSON.stringify({ note, note_print: notePrint }),
         });
         const data = await res.json();
+
+        if (data.success) clearPancakeNotesDraft(leadId);
 
         if (statusEl) {
             statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
@@ -2314,8 +2401,19 @@ function initPancakeNotesPanel() {
     if (!panel) return;
 
     if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
+    pancakeNotesDraftRestoredFor = null;
     loadPancakeNotes();
     pancakeNotesInterval = setInterval(loadPancakeNotes, 8000);
+
+    // Debounced draft save — same 250ms convention as this file's other
+    // input debounces (search boxes above), just writing to localStorage
+    // instead of firing a request.
+    panel.querySelectorAll('[data-notes-field]').forEach((el) => {
+        el.addEventListener('input', () => {
+            clearTimeout(pancakeNotesDraftDebounce);
+            pancakeNotesDraftDebounce = setTimeout(savePancakeNotesDraft, 250);
+        });
+    });
 
     panel.querySelectorAll('.notes-tab').forEach((tabBtn) => {
         tabBtn.addEventListener('click', () => {

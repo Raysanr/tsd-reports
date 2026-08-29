@@ -15,10 +15,15 @@ use Tests\TestCase;
  * toward a product's total, so they can be checked order-by-order against
  * Pancake's live data — a known, previously-confirmed failure mode being an
  * order deleted/cancelled in Pancake whose local copy never got the memo
- * (see Order::DELETED_STATUSES's docblock). Deliberately does NOT exclude
- * those statuses here — showing every order that's actually being counted,
- * including one whose local status secretly disagrees with Pancake, is the
- * point.
+ * (see Order::DELETED_STATUSES's docblock).
+ *
+ * The plain (no-column) Total drilldown originally left those orders in on
+ * purpose, as a diagnostic — see this docblock's own history. Reversed
+ * 2026-08-18 (commit 6081df2, "Exclude deleted/canceled orders from the
+ * Leads Report drilldown too"; see drilldown()'s own docblock): a visibly
+ * excluded-looking row still read as a counting bug rather than a
+ * diagnostic, so the Total drilldown now applies the same DELETED_STATUSES
+ * exclusion the column-scoped path already did — both paths exclude now.
  */
 class LeadsReportDrilldownTest extends TestCase
 {
@@ -75,13 +80,16 @@ class LeadsReportDrilldownTest extends TestCase
     }
 
     /**
-     * The whole point of this drilldown: an order Pancake has since cancelled
-     * or deleted, whose local copy never got re-synced, must still show up
-     * here (with whatever stale status it has) — that's the row worth
-     * checking against Pancake directly, and hiding it would defeat the
-     * diagnostic entirely.
+     * Reversed 2026-08-18 (see commit 6081df2, "Exclude deleted/canceled
+     * orders from the Leads Report drilldown too", and drilldown()'s own
+     * docblock) — a deleted/canceled order used to still be listed here as a
+     * diagnostic aid, but that read as a counting bug rather than a
+     * diagnostic, so the Total-cell drilldown now applies the same
+     * DELETED_STATUSES exclusion every other column already did. Renamed and
+     * rewritten 2026-08-29 to assert the current, intentional behavior
+     * instead of the pre-6081df2 one this test was never updated for.
      */
-    public function test_does_not_exclude_orders_with_a_deleted_or_cancelled_local_status(): void
+    public function test_excludes_orders_with_a_deleted_or_cancelled_local_status(): void
     {
         $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
 
@@ -94,8 +102,8 @@ class LeadsReportDrilldownTest extends TestCase
 
         $response->assertOk();
         $ids = collect($response->json())->pluck('id');
-        $this->assertCount(2, $ids);
-        $this->assertTrue($ids->contains('dd-5'));
+        $this->assertCount(1, $ids);
+        $this->assertFalse($ids->contains('dd-5'));
     }
 
     /** Once a 'column' is passed, this narrows to just the orders that specific
@@ -116,11 +124,12 @@ class LeadsReportDrilldownTest extends TestCase
         $this->assertSame(['dd-6'], $ids->all());
     }
 
-    /** Unlike the plain (no-column) Total drilldown above, a column-scoped
-     *  request DOES exclude DELETED_STATUSES — matching what
-     *  ProductPerformance::tally() actually counted into that column's number,
-     *  since (unlike the Total diagnostic) this popover claims to show exactly
-     *  the orders behind a specific already-correct count. */
+    /** Column-scoped request excludes DELETED_STATUSES — matching what
+     *  ProductPerformance::tally() actually counted into that column's
+     *  number. The plain (no-column) Total drilldown above now applies the
+     *  same exclusion (see that test's own comment for the 2026-08-18
+     *  reversal) — this was originally the one path that did, before that
+     *  change; the two are no longer a deliberate contrast. */
     public function test_a_column_param_excludes_deleted_statuses(): void
     {
         $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);

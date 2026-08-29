@@ -7,6 +7,7 @@ use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\InsightsGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
@@ -849,6 +850,15 @@ class InsightsTest extends TestCase
 
     public function test_the_daily_narrative_mentions_target_misses(): void
     {
+        // dailyNarrativeCard() picks between phrasing variants via a hash of
+        // today's own date string (see its own doc comment — deterministic
+        // per day so the narrative doesn't flicker between reloads, but that
+        // also means WHICH variant this test sees depends on whatever the
+        // real calendar date happens to be when the suite runs). Freeze to a
+        // date whose hash lands on the "missed" phrasing this test checks
+        // for, so it isn't at the mercy of the day the suite is executed.
+        Carbon::setTestNow('2026-08-14 12:00:00');
+
         // Same missed-target shape used throughout this file.
         for ($i = 0; $i < 10; $i++) {
             $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
@@ -864,6 +874,8 @@ class InsightsTest extends TestCase
 
         $narrative = $cards->firstWhere('category', 'Overview');
         $this->assertMatchesRegularExpression('/1 TSA missed|missed .* by 1 TSA/', $narrative['message']);
+
+        Carbon::setTestNow();
     }
 
     public function test_the_daily_narrative_is_stable_across_repeated_calls_for_the_same_day(): void

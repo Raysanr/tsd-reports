@@ -4,11 +4,30 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class LinkSeparateParcelOrdersTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Every fixture below is hardcoded to 2026-08-11/13 — freeze "now" a
+        // couple days after that so the command's own --days=3 lookback (see
+        // LinkSeparateParcelOrders::handle()) still reaches them regardless
+        // of when the suite actually runs, instead of the window quietly
+        // drifting past these dates as real time moves on.
+        Carbon::setTestNow('2026-08-13 12:00:00');
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
 
     public function test_fills_in_a_missing_tsa_and_team_from_a_tagged_sibling_order(): void
     {

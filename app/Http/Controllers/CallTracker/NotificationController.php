@@ -39,7 +39,16 @@ class NotificationController extends Controller
 
         $assignedQuery   = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo]);
         $callbackQuery   = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo]);
-        $unassignedQuery = Lead::where('status', 'unassigned')->whereBetween('pancake_created_at', [$dateFrom, $dateTo]);
+        // A lead with no pancake_created_at at all (Pancake order missing/
+        // malformed inserted_at — see SyncPancakeLeads) still counts, same
+        // fail-open convention as LeadController::index()'s own COALESCE
+        // date filter (root-caused 2026-08-15) — otherwise it's excluded by
+        // whereBetween forever and never surfaces in the unassigned badge.
+        $unassignedQuery = Lead::where('status', 'unassigned')
+            ->where(function ($q) use ($dateFrom, $dateTo) {
+                $q->whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                    ->orWhereNull('pancake_created_at');
+            });
 
         if (!$user->isAtLeastAdmin()) {
             $assignedQuery->where('tsa_id', $user->tsa_id);

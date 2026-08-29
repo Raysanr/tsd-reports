@@ -4,10 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\CallRecordingHour;
 use App\Models\Lead;
-use App\Models\LeadActivity;
 use App\Models\Product;
 use App\Models\TsaShift;
-use App\Models\TsaStatusLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -77,35 +75,41 @@ class CallTrackerDashboardControllerTest extends TestCase
         $response->assertViewIs('calls.leads.index');
     }
 
-    public function test_a_tsa_only_sees_their_own_funnel_counts(): void
+    /** The Assigned/Called/Overdue/Callbacks/Unassigned/Upsells funnel row
+     *  was replaced 2026-08-18 by the 5-card KPI set (see index()'s own doc
+     *  comment) — 'funnel' was never a view key on the new layout. Total
+     *  Leads/Total Catered Leads are the closest surviving equivalents and
+     *  are still scoped to "just me" for a non-admin viewer, same as the old
+     *  funnel counts were. */
+    public function test_a_tsa_only_sees_their_own_lead_counts(): void
     {
         $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
-        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
-        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
+        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
 
         $user = $this->tsaUser('Gemma');
         $response = $this->actingAs($user)->get(route('calls.dashboard'));
 
         $response->assertOk();
-        $this->assertSame(1, $response->viewData('funnel')['assigned']);
+        $this->assertSame(1, $response->viewData('totalLeads'));
     }
 
-    public function test_an_admin_sees_every_tsas_funnel_counts(): void
+    public function test_an_admin_sees_every_tsas_lead_counts(): void
     {
         $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
-        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
-        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
+        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
 
         $response->assertOk();
-        $this->assertSame(2, $response->viewData('funnel')['assigned']);
+        $this->assertSame(2, $response->viewData('totalLeads'));
     }
 
     /** Mirrors RoundRobinAssigner's own eligibility rule (active + status
@@ -224,68 +228,45 @@ class CallTrackerDashboardControllerTest extends TestCase
     }
 
     /** 2026-08-10: explicit request — every KPI card must move with the
-     *  topbar date-range picker, not just Called/Upsells. Assigned/Overdue/
-     *  Unassigned/Callbacks each get scoped by their own natural timestamp
-     *  (assigned_at, assigned_at, pancake_created_at, callback_at). */
+     *  topbar date-range picker, not just Called/Upsells. Total Leads is
+     *  anchored on pancake_created_at (see index()'s own comment: it counts
+     *  everything that entered the system in range, assigned or not) —
+     *  updated 2026-08-29 to assert on 'totalLeads' instead of the removed
+     *  'funnel' key (replaced by the 5-card KPI set on 2026-08-18, see
+     *  index()'s own doc comment; the assigned/unassigned split this test
+     *  originally checked no longer has a single combined view key). */
     public function test_kpi_cards_are_scoped_to_the_picked_date_range_not_just_today(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
-        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subDays(5)]);
-        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()->subDays(5)]);
+        Lead::create(['pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
         Lead::create(['pancake_order_id' => '3', 'product_id' => $product->id, 'status' => 'unassigned', 'pancake_created_at' => now()->subDays(5)]);
         Lead::create(['pancake_order_id' => '4', 'product_id' => $product->id, 'status' => 'unassigned', 'pancake_created_at' => now()]);
 
         // Default (no date params) — only today's leads count.
         $today = $this->actingAs($this->admin())->get(route('calls.dashboard'));
-        $this->assertSame(1, $today->viewData('funnel')['assigned']);
-        $this->assertSame(1, $today->viewData('funnel')['unassigned']);
+        $this->assertSame(2, $today->viewData('totalLeads'));
 
-        // Picking the range covering 5 days ago pulls in the older lead instead.
+        // Picking the range covering 5 days ago pulls in the older leads instead.
         $pastDay = now()->subDays(5)->toDateString();
         $ranged = $this->actingAs($this->admin())->get(route('calls.dashboard', ['date_from' => $pastDay, 'date_to' => $pastDay]));
-        $this->assertSame(1, $ranged->viewData('funnel')['assigned']);
-        $this->assertSame(1, $ranged->viewData('funnel')['unassigned']);
+        $this->assertSame(2, $ranged->viewData('totalLeads'));
 
-        // A range spanning both picks up both.
+        // A range spanning both picks up all four.
         $wide = $this->actingAs($this->admin())->get(route('calls.dashboard', ['date_from' => $pastDay, 'date_to' => now()->toDateString()]));
-        $this->assertSame(2, $wide->viewData('funnel')['assigned']);
-        $this->assertSame(2, $wide->viewData('funnel')['unassigned']);
+        $this->assertSame(4, $wide->viewData('totalLeads'));
     }
 
-    public function test_todays_upsells_are_counted_and_summed(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        $lead = Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
-        LeadActivity::log($lead, 'upsell_added', 'Added upsell "Haplunas Balm" (₱499.00 × 1).', null, 499.0);
-        LeadActivity::log($lead, 'upsell_added', 'Added upsell "Scar Cream" (₱700.00 × 1).', null, 700.0);
-        // A failed write is logged with no amount — must not count.
-        LeadActivity::log($lead, 'upsell_added', 'Added upsell "Ginseng" — Pancake write failed, verify in POS.', null, null);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
-
-        $response->assertOk();
-        $this->assertSame(2, $response->viewData('upsellStats')['count']);
-        $this->assertSame(1199.0, (float) $response->viewData('upsellStats')['amount']);
-    }
-
-    public function test_recent_activity_combines_lead_and_status_events_by_recency(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        $lead = Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
-        LeadActivity::create(['lead_id' => $lead->id, 'type' => 'assigned', 'description' => 'Round-robin assigned to Gemma.', 'created_at' => now()->subMinutes(10)]);
-        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()->subMinutes(5)]);
-
-        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
-
-        $activity = $response->viewData('recentActivity');
-        $this->assertCount(2, $activity);
-        // Most recent (the status change) first.
-        $this->assertStringContainsString('Break', $activity->first()['description']);
-    }
+    // NOTE (2026-08-29): test_todays_upsells_are_counted_and_summed and
+    // test_recent_activity_combines_lead_and_status_events_by_recency were
+    // removed here — both asserted on 'upsellStats'/'recentActivity' view
+    // keys that no longer exist. The 2026-08-18 KPI-row redesign (see
+    // index()'s own doc comment) replaced the old Assigned/Called/Overdue/
+    // Callbacks/Unassigned/Upsells funnel + two-panel TSA Status/Recent
+    // Activity row with the current 5-card KPI set + TSA Performance
+    // Overview table, and neither a dashboard-level upsell total nor a
+    // combined activity feed has a surviving equivalent on the current
+    // page — this wasn't a bug, the feature was deliberately dropped.
 }

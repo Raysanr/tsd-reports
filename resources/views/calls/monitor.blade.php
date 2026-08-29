@@ -45,7 +45,7 @@
     <input type="hidden" name="date_from" value="{{ $dateFrom->toDateString() }}">
     <input type="hidden" name="date_to" value="{{ $dateTo->copy()->startOfDay()->toDateString() }}">
 
-    <input type="text" name="q" value="{{ $q }}" placeholder="Search TSA..." autocomplete="off"
+    <input type="text" name="q" value="{{ $q }}" placeholder="Search TSA..." autocomplete="off" data-monitor-search-input
            class="w-56 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
 
     {{-- Custom dropdown, same trigger+floating-panel design as Leads' own
@@ -137,6 +137,15 @@
     const container = document.getElementById('monitorContent');
     if (!container) return;
 
+    // Both refresh() (15s poll) and refreshWithFade() (team-tab/search) fetch
+    // window.location.href independently, so two in-flight requests can
+    // resolve out of order — a poll started before a search/team switch can
+    // land after it and silently overwrite the newer content. A single
+    // monotonically-increasing token, bumped whenever either function starts
+    // a fetch, lets each .then() check it's still the most recent request
+    // before touching the DOM and drop the response otherwise.
+    let requestToken = 0;
+
     // Instant swap — used by the 15s auto-poll and after End Call. NOT
     // faded: a full-content crossfade on every routine poll would blink
     // every 15 seconds even when nothing changed, the exact complaint that
@@ -144,9 +153,13 @@
     // FLIP animation instead (2026-08-19). A team switch is a deliberate,
     // infrequent click, not a timer — see refreshWithFade() below for that.
     function refresh() {
+        const token = ++requestToken;
         fetch(window.location.href, { headers: { 'X-Table-Refresh': '1' } })
             .then((res) => (res.ok ? res.text() : Promise.reject()))
-            .then((html) => { container.innerHTML = html; })
+            .then((html) => {
+                if (token !== requestToken) return;
+                container.innerHTML = html;
+            })
             .catch(() => {});
     }
 
@@ -200,16 +213,37 @@
     // it's slower, the blank window is only ever the request's own actual
     // latency, never fade time on top of it.
     function refreshWithFade() {
+        const token = ++requestToken;
         container.classList.add('opacity-0');
         fetch(window.location.href, { headers: { 'X-Table-Refresh': '1' } })
             .then((res) => (res.ok ? res.text() : Promise.reject()))
             .then((html) => {
+                if (token !== requestToken) return;
                 container.innerHTML = html;
                 container.classList.remove('opacity-0');
             })
             .catch(() => {
+                if (token !== requestToken) return;
                 container.classList.remove('opacity-0');
             });
+    }
+
+    // Shared by the team-tab and search handlers below: updates the given
+    // URL param via pushState (so refresh()/the poll keep hitting the right
+    // filter and reloading the page lands on the same one) and keeps the
+    // Export CSV link's matching param in sync, since it lives outside
+    // #monitorContent and would otherwise go stale after an AJAX-only switch.
+    function syncMonitorParam(name, value) {
+        const url = new URL(window.location.href);
+        url.searchParams.set(name, value);
+        window.history.pushState({}, '', url);
+
+        const exportLink = document.querySelector('[data-monitor-export-link]');
+        if (exportLink) {
+            const exportUrl = new URL(exportLink.href);
+            exportUrl.searchParams.set(name, value);
+            exportLink.href = exportUrl.toString();
+        }
     }
 
     // Team tabs (explicit request, 2026-08-20) — intercepted so switching
@@ -235,23 +269,34 @@
                 btn.classList.toggle('dark:text-slate-400', !active);
             });
 
-            const url = new URL(window.location.href);
-            url.searchParams.set('team', team);
-            window.history.pushState({}, '', url);
+            syncMonitorParam('team', team);
 
             const searchTeamInput = document.querySelector('[data-monitor-search-team-input]');
             if (searchTeamInput) searchTeamInput.value = team;
 
-            const exportLink = document.querySelector('[data-monitor-export-link]');
-            if (exportLink) {
-                const exportUrl = new URL(exportLink.href);
-                exportUrl.searchParams.set('team', team);
-                exportLink.href = exportUrl.toString();
-            }
-
             refreshWithFade();
         });
     });
+
+    // Auto-search (explicit request, 2026-08-28) — typing in the TSA search
+    // box no longer needs the Search button clicked. Debounced 250ms (same
+    // delay as calls.js's own search-input debounces) so it doesn't fire a
+    // request per keystroke, then reuses refreshWithFade() (same crossfade
+    // as a team-tab switch) and syncMonitorParam() so the URL/poll/Export
+    // CSV link all stay in sync, exactly like the team-tab handler above.
+    // Trimmed before sending so whitespace-only input is treated as no
+    // filter, matching MonitorController::index()'s own trim().
+    const searchInput = document.querySelector('[data-monitor-search-input]');
+    if (searchInput) {
+        let searchDebounce;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchDebounce);
+            searchDebounce = setTimeout(() => {
+                syncMonitorParam('q', searchInput.value.trim());
+                refreshWithFade();
+            }, 250);
+        });
+    }
 
     // "End Call -> Auto Wrap Up" submits via fetch instead of a normal POST
     // (same reasoning as TSA Management's own Save button, 2026-08-18): a

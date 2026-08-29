@@ -28,12 +28,20 @@ Read `docs/ARCHITECTURE.md` for the full directory map, data model, and domain g
 ## Persistent memory (outside this repo)
 This user keeps a second-memory Obsidian vault synced via Claude Code hooks (global `~/.claude/CLAUDE.md` auto-loads it). The vault has a linked note graph for this project starting at `TSD Reports Hub` (path: `Desktop/Claude obsidian/Claude/Memory/Projects/TSD/TSD Reports Hub.md`). If asked to "check memory" or "update memory," that's where it lives — not in this repo.
 
-## Live status (check before starting work)
-In the Obsidian vault, also check:
+## Live status (check before starting non-trivial work)
+Before starting work that touches code, decisions, or project state — a
+change, a fix, a feature, planning — check the Obsidian vault:
 - `Memory/Projects/TSD/Current Status.md` — what's actively broken/in-progress right now
 - `Memory/Projects/TSD/Tasks.md` — open task list
 - `Memory/Projects/TSD/Decisions.md` — why past decisions were made, so you don't undo them unknowingly
-Update these when you finish meaningful work, not just the codebase docs above.
+
+Skip this check for quick, standalone questions that don't depend on
+project history (e.g. "what does this function do," a syntax question,
+a one-off lookup) — reading three files for a question that doesn't need
+them is pure overhead.
+
+Update the relevant file when you finish meaningful work, not just the
+codebase docs above.
 
 ## New task/objective protocol (do this automatically, don't wait to be asked)
 Whenever a new task or objective comes up in conversation — whether Raysan states it directly or it falls out of a discussion — log it without being asked each time:
@@ -191,3 +199,25 @@ rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 
 Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
+## Subagent discipline
+Do not spawn a subagent (Task tool, Explore, general-purpose) by default.
+Use a direct `grep`/`Read`/targeted search instead whenever the task is
+narrow — a specific file, function, or question. Only spawn a subagent
+when the task genuinely requires broad, multi-file exploration across
+an unclear codebase area, or when explicitly asked to "search" or
+"explore" broadly.
+
+## Code map (check before reading large files in full)
+`Memory/Projects/TSD/Code Map.md` in the Obsidian vault lists section/
+function pointers with line ranges for the project's largest files
+(calls.js, app.js, LeadController.php, InsightsGenerator.php,
+SyncTodayOrders.php, TsaPerformanceController.php, DashboardController.php,
+Order.php, PancakeOrderTagApi.php). Before reading one of these files in
+full, check the map first and read only the relevant range, or `grep` for
+the named function — unless the task genuinely needs the whole file (e.g.
+you're unfamiliar with it and need a first-pass overview, or doing a full
+refactor).
+
+If you edit a mapped file in a way that adds, removes, or moves a
+function, update that file's entry in Code Map.md as part of finishing
+the change — a stale map is worse than no map.
