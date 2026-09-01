@@ -96,13 +96,36 @@
 
 @if($narrativeCard)
 {{-- Full-width prose block, deliberately NOT a grid card — this is the
-     "why" narrative a supervisor's own EOD report leads with, not one more
-     discrete flag. Shown on both tabs since it's a summary of the whole
-     day, not specific to either lens. --}}
-<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
-    <p class="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Overview</p>
-    <p class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed">{{ $narrativeCard['message'] }}</p>
+     structured EOD report a supervisor's own report leads with (explicit
+     request, 2026-09-01: real multi-section format — Overall Performance/
+     TSA Performance/Lead Capacity/Conversion Analysis/Action Plan/Summary —
+     not one more discrete flag). Shown on both tabs since it's a summary of
+     the whole day, not specific to either lens. Rendered as real Markdown
+     (InsightsGenerator::eodReportCard() builds a Markdown string, not HTML)
+     via Str::markdown() — safe to output unescaped since every byte of it
+     is server-computed from this app's own data, never user input. The
+     .eod-report styles below are hand-rolled (no @tailwindcss/typography
+     plugin installed) to match this page's existing font-mono/slate
+     palette instead of that plugin's own default prose look. --}}
+<div class="eod-report bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    {!! \Illuminate\Support\Str::markdown($narrativeCard['message']) !!}
 </div>
+<style>
+    .eod-report { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .eod-report h1 { font-size: 1rem; font-weight: 700; color: rgb(51 65 85); margin-bottom: 0.25rem; }
+    .dark .eod-report h1 { color: rgb(226 232 240); }
+    .eod-report h3 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: rgb(100 116 139); margin-top: 1.25rem; margin-bottom: 0.5rem; }
+    .dark .eod-report h3 { color: rgb(148 163 184); }
+    .eod-report p { font-size: 0.8125rem; line-height: 1.6; color: rgb(51 65 85); margin-bottom: 0.5rem; }
+    .dark .eod-report p { color: rgb(226 232 240); }
+    .eod-report p:first-of-type { font-size: 0.75rem; color: rgb(100 116 139); font-weight: 600; }
+    .dark .eod-report p:first-of-type { color: rgb(148 163 184); }
+    .eod-report strong { font-weight: 700; color: rgb(30 41 59); }
+    .dark .eod-report strong { color: rgb(241 245 249); }
+    .eod-report ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
+    .eod-report li { font-size: 0.8125rem; line-height: 1.6; color: rgb(51 65 85); margin-bottom: 0.25rem; }
+    .dark .eod-report li { color: rgb(226 232 240); }
+</style>
 @endif
 
 @if($view === 'action-plan')

@@ -202,11 +202,13 @@ class InsightsGenerator
             : Product::orderBy('sort_order')->get();
 
         $cards = collect();
+        $allShifts = collect();
 
         foreach ($selectedTeams as $teamConfig) {
             $orderTeam = $teamConfig['order_team'];
             $shifts = TsaShift::where('team', $orderTeam)->orderBy('sort_order')->get();
             $teamOrders = $attributionOrders->where('team', $orderTeam);
+            $allShifts = $allShifts->merge($shifts);
 
             $cards = $cards->merge($this->tsaTrendCards($shifts, $teamOrders, $referenceDate));
             $cards = $cards->merge($this->rtsRateCards($shifts, $teamOrders));
@@ -244,11 +246,10 @@ class InsightsGenerator
             $cards->push($card);
         }
 
-        // Computed LAST, from the cards already built above — the
-        // narrative's "how many TSAs missed a target" / "is there a
-        // cancellations issue" signals read directly off $cards (by
-        // category, never by parsing another card's message text).
-        if ($card = $this->dailyNarrativeCard($dayVsPrevFacts, $candidates, $referenceDate, $cards, $team)) {
+        // Computed LAST — the EOD report's Action Plan section reads target-
+        // miss/cancellation signals directly off $cards already built above
+        // (by category, never by parsing another card's message text).
+        if ($card = $this->eodReportCard($matchPool, $products, $allShifts, $activityOrders, $referenceDate, $cards, $team, $teamsConfig)) {
             $cards->push($card);
         }
 
@@ -1023,157 +1024,216 @@ class InsightsGenerator
         return "{$label} {$this->fmt($ref)}% ({$dir} ng " . $this->fmt(abs($delta)) . "pts mula sa {$this->fmt($prev)}%)";
     }
 
-    /** Whole-shop, plain-language paragraph synthesizing the whole day —
-     *  explicit request, 2026-08-27: "overall insights... paragraph...
-     *  reasons behind of all data... i want to make it fully insights like
-     *  for AI... but i dont want to integrate any AI... everyday is
-     *  changing, not by format." No LLM call — every fact here is read
-     *  straight off the SAME computations the other cards already made
-     *  (dayVsPrevFacts()/rankedConversionCandidates()/$cards' own
-     *  categories), never invented and never a re-parse of another card's
-     *  message string. "Not by format" is handled two ways: (1) each
-     *  sentence only appears when its underlying signal is actually present
-     *  that day — a quiet day with no bottom performer just skips that
-     *  sentence rather than a limp "no concerns to report" filler, so the
-     *  PARAGRAPH'S SHAPE changes day to day, not just its numbers; (2) each
-     *  sentence that does appear is chosen from a small pool of equivalent
-     *  phrasings, picked by hashing the date (+ team, if scoped) — the same
-     *  day always reads identically on every reload (no flicker), but a
-     *  different day reads differently even given a similar mix of
-     *  signals. Rendered as its own full-width prose block in insights.
-     *  blade.php (category 'Overview'), not the card grid. $facts and
-     *  $candidates both come from generate()'s own single shared calls to
-     *  dayVsPrevFacts()/rankedConversionCandidates() — see those methods'
-     *  own doc comments. */
-    private function dailyNarrativeCard(?array $facts, array $candidates, Carbon $referenceDate, Collection $cards, ?string $team): ?array
+    /** Whole-shop (or single-team, if $team is scoped) structured EOD report
+     *  in Markdown — explicit request, 2026-09-01: replaces the old single-
+     *  paragraph dailyNarrativeCard() with a real supervisor-style EOD
+     *  report (Overall Performance / TSA Performance / Lead Capacity &
+     *  Distribution / Conversion Analysis / Action Plan / Summary), matching
+     *  the exact structure of a real EOD report supplied as an example.
+     *  Still no LLM call — every figure is read straight off
+     *  ProductPerformance's own formulas, never invented.
+     *
+     *  NI (Net Income) is deliberately OMITTED — explicit decision,
+     *  2026-09-01: this app has no cost/expense data anywhere, and Net
+     *  Income needs Revenue - Costs; fabricating a number would violate this
+     *  whole file's own "i want to make it all accurate" mandate (see class
+     *  doc comment). Add it once a real cost figure exists to compute from.
+     *
+     *  Opening (6am-3pm) / Closing (3pm-12mn) — explicit decision,
+     *  2026-09-01: a LEAD is classified by the HOUR it arrived in
+     *  (pancake_created_at), not by which TSA later worked it — TsaShift's
+     *  own shift_start times don't cleanly split into these two exact
+     *  windows (confirmed live: Katherine's 1pm-10pm start straddles both).
+     *  Capacity per window is (# TSAs whose OWN shift_start falls in that
+     *  window) × TARGET_CATERED_LEADS (75) — that's the one place a TSA's
+     *  shift actually matters here, purely for the capacity count, not for
+     *  bucketing leads.
+     *
+     *  $matchPool/$products: same product-matched sum-of-rows definition
+     *  dayVsPrevFacts() uses (see that method's own doc comment) — Total
+     *  Leads/Catered Leads/Orders here must never disagree with Leads
+     *  Report/TSA Performance's own numbers. $activityOrders is the
+     *  SELECTED DAY's orders only (generate()'s own fetch, by
+     *  pancake_created_at — the "when did this lead actually arrive" column,
+     *  same one the Opening/Closing hour split needs). $teamsConfig is
+     *  needed to resolve $team's display name for the report's own header
+     *  line. */
+    private function eodReportCard(Collection $matchPool, Collection $products, Collection $shifts, Collection $activityOrders, Carbon $referenceDate, Collection $cards, ?string $team, array $teamsConfig): ?array
     {
-        if ($facts === null) {
+        $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
+        $refKey = $referenceDate->toDateString();
+        $prevKey = $referenceDate->copy()->subDay()->toDateString();
+
+        $refOrders = $matchPool->filter(fn ($o) => $attributionDate($o) === $refKey);
+        $prevOrders = $matchPool->filter(fn ($o) => $attributionDate($o) === $prevKey);
+
+        if ($refOrders->count() < self::MIN_DAY_VOLUME || $prevOrders->count() < self::MIN_DAY_VOLUME) {
             return null;
         }
 
-        $refRow = $facts['refRow'];
-        $prevRow = $facts['prevRow'];
-        $dayWord = $referenceDate->isToday() ? 'Ngayong araw' : $referenceDate->format('M j');
+        $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
+        $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
+        $refAov = $refRow['upsell_confirmation'] > 0 ? $refRow['upsell_sales'] / $refRow['upsell_confirmation'] : 0.0;
 
-        // Deterministic per (date, team) — same seed every reload of the
-        // same day, different across days/teams.
-        $seedBase = $referenceDate->toDateString() . '|' . ($team ?? 'all');
-        $pick = fn (array $options, string $tag) => $options[hexdec(substr(md5($seedBase . '|' . $tag), 0, 8)) % count($options)];
+        $dateLabel = $referenceDate->format('F j, Y');
+        $teamLabel = ($team && array_key_exists($team, $teamsConfig)) ? $teamsConfig[$team]['name'] : null;
 
-        // Same 3-signal tone read as dailyRecapCard() — Orders/Pick-up
-        // Rate/Upselling Rate are "the result" a supervisor's own report
-        // actually leads with.
-        $signals = [
-            $refRow['upsell_confirmation'] <=> $prevRow['upsell_confirmation'],
-            ($refRow['pick_up_rate'] !== null && $prevRow['pick_up_rate'] !== null) ? ($refRow['pick_up_rate'] <=> $prevRow['pick_up_rate']) : 0,
-            ($refRow['upselling_rate'] !== null && $prevRow['upselling_rate'] !== null) ? ($refRow['upselling_rate'] <=> $prevRow['upselling_rate']) : 0,
-        ];
-        $downSignals = count(array_filter($signals, fn ($s) => $s < 0));
-        $upSignals = count(array_filter($signals, fn ($s) => $s > 0));
-        $tone = $downSignals >= 2 ? 'down' : (($upSignals >= 2 && $downSignals === 0) ? 'up' : 'mixed');
+        $md = [];
+        $md[] = $teamLabel
+            ? "# *TSA's Daily Sales Report – Team {$teamLabel}*"
+            : "# *TSA's Daily Sales Report*";
+        $md[] = "**{$dateLabel} | EOD Report Summary**";
 
-        $sentences = [];
-
-        $openings = [
-            'down' => [
-                "Mas mahina ang {$dayWord} kumpara sa araw bago nito.",
-                "Bumaba ang mga numero {$dayWord} kumpara kahapon.",
-                "Medyo nalugi ang team {$dayWord} kumpara sa nakaraang araw.",
-            ],
-            'up' => [
-                "Malakas talaga ang performance {$dayWord}.",
-                "Gumanda ang resulta {$dayWord} kumpara kahapon.",
-                "Tumaas ang mga numero ng team {$dayWord}.",
-            ],
-            'mixed' => [
-                "Halo-halo ang resulta {$dayWord} kumpara kahapon.",
-                "Sa gitna lang ang {$dayWord} kumpara sa mga numero kahapon — may tumaas, may bumaba.",
-                "Walang malaking galaw {$dayWord}, hati lang ang resulta.",
-            ],
-        ];
-        $sentences[] = $pick($openings[$tone], 'opening');
-
+        // ---- Overall Performance ------------------------------------
+        $md[] = '### *Overall Performance*';
         $orderDelta = $refRow['upsell_confirmation'] - $prevRow['upsell_confirmation'];
-        $orderWord = $orderDelta > 0 ? 'tumaas' : ($orderDelta < 0 ? 'bumaba' : 'flat');
-        $rateBits = array_filter([
-            $refRow['pick_up_rate'] !== null ? "Pick-up Rate na {$this->fmt($refRow['pick_up_rate'])}%" : null,
-            $refRow['upselling_rate'] !== null ? "Upselling Rate na {$this->fmt($refRow['upselling_rate'])}%" : null,
-        ]);
-        $sentences[] = "May {$refRow['total']} new leads na pumasok at {$refRow['upsell_confirmation']} orders ang na-confirm ({$orderWord} ng " . abs($orderDelta) . ' mula kahapon), may ' . implode(' at ', $rateBits) . '.';
-
-        // Manpower — only when working-TSA count actually DROPPED (matches
-        // the real report's own "kulang na manpower" framing; a rise in
-        // headcount isn't a concern worth narrating here).
-        if ($facts['refWorking'] < $facts['prevWorking']) {
-            $sentences[] = $pick([
-                "{$facts['refWorking']} TSA lang ang nag-work (vs. {$facts['prevWorking']} kahapon), na malamang bahagi ng dahilan ng kakulangan.",
-                "Kulang ang manpower ngayong araw — {$facts['refWorking']} vs. {$facts['prevWorking']} TSA kahapon.",
-                "Sa {$facts['refWorking']} sa dating {$facts['prevWorking']} TSA na karaniwang naka-duty, bumaba na ang capacity kahit wala pang performance factor.",
-            ], 'manpower');
+        $orderWord = $orderDelta > 0 ? 'improvement' : ($orderDelta < 0 ? 'pagbaba' : 'flat na resulta');
+        $cateredWord = $refRow['catered'] < $prevRow['catered'] ? 'bumaba' : ($refRow['catered'] > $prevRow['catered'] ? 'tumaas' : 'flat');
+        $pickUpWord = ($refRow['pick_up_rate'] ?? 0) >= ($prevRow['pick_up_rate'] ?? 0) ? 'Nag-improve din' : 'Bumaba naman';
+        $overall = "May **slight {$orderWord} sa orders**, from **{$prevRow['upsell_confirmation']} → {$refRow['upsell_confirmation']}**, kahit {$cateredWord} ang catered leads from **{$prevRow['catered']} → {$refRow['catered']}**.";
+        if ($refRow['pick_up_rate'] !== null && $prevRow['pick_up_rate'] !== null) {
+            $overall .= " {$pickUpWord} ang **pick-up rate from " . $this->fmt($prevRow['pick_up_rate']) . '% → ' . $this->fmt($refRow['pick_up_rate']) . '%**.';
         }
+        $md[] = $overall;
+        $md[] = "May **₱" . number_format($refAov, 2) . " AOV** ngayong araw base sa **{$refRow['upsell_confirmation']} orders** na **₱" . number_format($refRow['upsell_sales'], 0) . ' total sales**.';
 
-        if (count($candidates) >= 2) {
-            $best = $candidates[0];
-            $worst = $candidates[count($candidates) - 1];
-            if ($best['rate'] > 0) {
-                $sentences[] = $pick([
-                    "Si {$best['name']} ang nangunguna ngayong araw sa {$best['rate']}% conversion ({$best['upsells']} upsells).",
-                    "Sa magandang side, natapos si {$best['name']} sa {$best['rate']}% conversion.",
-                    "Ang {$best['rate']}% conversion rate ni {$best['name']} ang pinakamatingkad ngayong araw.",
-                ], 'top');
+        // ---- TSA Performance ------------------------------------------
+        if ($shifts->isNotEmpty()) {
+            $tsaRows = $shifts->map(function ($shift) use ($refOrders, $prevOrders, $products) {
+                $tsaRefOrders = $refOrders->where('tsa_name', $shift->tsa_key);
+                $tsaPrevOrders = $prevOrders->where('tsa_name', $shift->tsa_key);
+                $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaRefOrders, $products)));
+                $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaPrevOrders, $products)));
+                return ['shift' => $shift, 'ref' => $refRow, 'prev' => $prevRow];
+            })->filter(fn ($r) => $r['ref']['catered'] >= self::MIN_CATERED_FOR_TARGET_CHECK || $r['ref']['upsell_confirmation'] > 0);
+
+            if ($tsaRows->isNotEmpty()) {
+                $md[] = '### *TSA Performance*';
+                $topSales = $tsaRows->sortByDesc(fn ($r) => $r['ref']['upsell_sales'])->first();
+                foreach ($tsaRows as $r) {
+                    $shift = $r['shift'];
+                    $row = $r['ref'];
+                    $prev = $r['prev'];
+                    $bits = [];
+                    if ($row === $topSales['ref'] && $row['upsell_sales'] > 0) {
+                        $bits[] = 'strongest positive contributor sa sales';
+                    }
+                    if ($row['pick_up_rate'] !== null && $row['pick_up_rate'] < self::BOTTOM_PERFORMER_MAX_RATE) {
+                        $bits[] = 'main concern ang low **' . $this->fmt($row['pick_up_rate']) . '% pick-up rate**';
+                    }
+                    if ($prev['upsell_confirmation'] > 0 && $row['upsell_confirmation'] > $prev['upsell_confirmation']) {
+                        $bits[] = "nag-improve mula **{$prev['upsell_confirmation']} → {$row['upsell_confirmation']} orders**";
+                    }
+                    $note = $bits ? ' – ' . implode(', ', $bits) . '.' : '.';
+                    $md[] = "* **{$shift->display_name}:** ₱" . number_format($row['upsell_sales'], 0) . " sales | {$row['upsell_confirmation']} orders{$note}";
+                }
             }
-            if ($worst['rate'] <= self::BOTTOM_PERFORMER_MAX_RATE && $worst['name'] !== $best['name']) {
-                $sentences[] = $pick([
-                    "Nahirapan naman si {$worst['name']}, sa {$worst['rate']}% conversion lang — dapat i-check-in.",
-                    "Sa kabilang banda, kailangan ng atensyon ang {$worst['rate']}% conversion rate ni {$worst['name']}.",
-                    "Si {$worst['name']} ang dapat i-coach, nasa {$worst['rate']}% lang ngayong araw.",
-                ], 'bottom');
-            }
         }
 
-        // These 3 signals are read from $cards BY CATEGORY (a cheap,
-        // reliable structural check) — never by parsing another card's
-        // message text.
-        $targetMissCount = $cards->where('category', 'Target metrics')->count();
-        if ($targetMissCount > 0) {
-            $sentences[] = $pick([
-                "{$targetMissCount} TSA ang hindi na-achieve ang kahit isang daily target — tingnan ang Target Metrics sa baba para sa detalye.",
-                "Hindi na-achieve ng {$targetMissCount} TSA ang buong daily targets — detalye sa baba.",
-            ], 'targets');
+        // ---- Lead Capacity & Distribution ------------------------------
+        $md[] = '### *Lead Capacity & Distribution*';
+        $isOpeningShift = fn ($s) => $s->shift_start && (int) date('G', strtotime($s->shift_start)) < 15;
+        $openingCapacity = $shifts->filter($isOpeningShift)->count() * self::TARGET_CATERED_LEADS;
+        $closingCapacity = $shifts->filter(fn ($s) => !$isOpeningShift($s))->filter(fn ($s) => $s->shift_start)->count() * self::TARGET_CATERED_LEADS;
+        $totalCapacity = $openingCapacity + $closingCapacity;
+
+        // ProductPerformance::countedOrdersFor() — the exact distinct-order
+        // set $refRow['total'] was summed from (product-matched AND
+        // exclusion-applied, same as tally()'s own 'total'). Bucketing
+        // $refOrders directly (or intersecting the separately-team-scoped
+        // $activityOrders by ID) both under/over-counted in different ways
+        // and left Opening+Closing NOT summing back to the total stated
+        // above (confirmed live: 202+214=416 leads bucketed vs. 227 in the
+        // "incoming leads" line for the same day/team) — see that method's
+        // own doc comment for the full reasoning.
+        $countedOrders = ProductPerformance::countedOrdersFor($products, $refOrders);
+        $byHour = $countedOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
+        $openingLeads = $byHour->filter(fn ($orders, $h) => $h >= 6 && $h < 15)->flatten(1)->count();
+        $closingLeads = $byHour->filter(fn ($orders, $h) => $h >= 15 || $h < 6)->flatten(1)->count();
+        $openingOver = max(0, $openingLeads - $openingCapacity);
+        $closingOver = max(0, $closingLeads - $closingCapacity);
+
+        $md[] = "Umabot sa **{$refRow['total']} incoming leads** ang total for the day, habang **{$totalCapacity} leads lang ang theoretical capacity** ng team.";
+        $md[] = "* **Opening:** {$openingLeads} leads vs. {$openingCapacity} capacity = **{$openingOver} excess**";
+        $md[] = "* **Closing:** {$closingLeads} leads vs. {$closingCapacity} capacity = **{$closingOver} excess**";
+
+        $peakHour = null;
+        if ($byHour->isNotEmpty() && $byHour->sum(fn ($o) => $o->count()) > 0) {
+            $peakHour = $byHour->sortByDesc(fn ($o) => $o->count())->keys()->first();
+            $heavierShift = $closingLeads > $openingLeads ? 'Closing' : 'Opening';
+            $md[] = "Mas mataas ang lead pressure sa **{$heavierShift}**, especially during peak hours. Pinakamataas ang volume sa **{$this->formatHourRange($peakHour)} with {$byHour[$peakHour]->count()} leads**.";
         }
 
-        if ($cards->contains(fn ($c) => $c['category'] === 'Cancellations')) {
-            $sentences[] = $pick([
-                'Marami sa confirmed upsells ang na-cancel pa rin — dapat i-QA ang mga tawag na iyon.',
-                'May mga upsells na tila confirmed pero na-cancel din — kinain ng cancellations ang totoong bilang.',
-            ], 'cancellations');
+        // Per-product excess ranking — same product-matched buildRow() every
+        // other product-scoped card in this file already uses.
+        $productExcess = $products->map(fn ($p) => ['name' => $p->display_name, 'excess' => ProductPerformance::buildRow($p, $refOrders, $products)['excess']])
+            ->filter(fn ($p) => $p['excess'] > 0)
+            ->sortByDesc('excess')
+            ->values();
+        if ($productExcess->isNotEmpty()) {
+            $top = $productExcess->first();
+            $others = $productExcess->skip(1)->take(3)->map(fn ($p) => "{$p['name']} ({$p['excess']})")->implode(', ');
+            $md[] = "May **{$refRow['excess']} recorded excess leads**, at **{$top['name']} ang biggest contributor with {$top['excess']} excess**" . ($others ? ", followed by {$others}." : '.');
         }
 
-        if ($cards->contains(fn ($c) => $c['category'] === 'Timing' && $c['severity'] !== 'positive')) {
-            $sentences[] = $pick([
-                'Nakaconcentrate pa rin ang Excess leads sa specific na oras — dapat tingnan ulit ang coverage timing.',
-                'Malinaw ang peak-hour pattern ng Excess leads, dapat i-adjust ang staffing para umayon sa demand.',
-            ], 'timing');
+        $capacityGap = max(0, $refRow['total'] - $totalCapacity);
+        if ($capacityGap !== $refRow['excess']) {
+            $md[] = "**Note:** Magkaiba ang **{$capacityGap} theoretical capacity gap** at **{$refRow['excess']} recorded excess leads**. Ang {$capacityGap} ay based sa total capacity, habang ang {$refRow['excess']} ay actual excess na recorded sa lead data.";
         }
 
-        $closings = [
-            'down' => [
-                'Focus bukas: tapunan ang mga puwang sa itaas bago pa lumala.',
-                'Priority bukas ay ang mabawi ang nawala ngayong araw.',
-            ],
-            'up' => [
-                'Panatilihin ang momentum — ulitin ang nag-drive ngayong araw at bantayan kung tuloy-tuloy.',
-                'Ang goal ngayon ay gawing normal ang resulta ngayong araw, hindi one-time lang.',
-            ],
-            'mixed' => [
-                'Bukas, i-double down ang mga gumana at ayusin ang mga hindi.',
-                'Ang araw na ganito ay tungkol sa pag-ayos ng specific na puwang, hindi malaking pagbabago.',
-            ],
-        ];
-        $sentences[] = $pick($closings[$tone], 'closing');
+        // ---- Conversion Analysis ---------------------------------------
+        $md[] = '### *Conversion Analysis*';
+        $conversionPct = $refRow['catered'] > 0 ? round($refRow['upsell_confirmation'] / $refRow['catered'] * 100, 1) : 0.0;
+        $md[] = "From **{$refRow['catered']} catered leads, nakakuha ng {$refRow['upsell_confirmation']} orders**, equivalent to **" . $this->fmt($conversionPct) . '% conversion**.';
+        $neededPct = round(self::TARGET_QTY_ORDERS / self::TARGET_CATERED_LEADS * 100, 1);
+        $md[] = 'Para ma-hit ang **' . self::TARGET_QTY_ORDERS . ' orders from ' . self::TARGET_CATERED_LEADS . ' catered leads**, kailangan around **' . $this->fmt($neededPct) . '% conversion**.';
+        $md[] = 'So hindi lang volume ng leads ang kailangang tutukan. Kailangan ding ma-improve ang **pick-up, objection handling, product presentation, at closing**.';
 
-        $severity = $tone === 'down' ? 'warning' : ($tone === 'up' ? 'positive' : 'info');
-        return $this->card($severity, 'Overview', '📝', implode(' ', $sentences));
+        // ---- Main Finding & Action Plan ---------------------------------
+        $md[] = '### *Main Finding & Action Plan*';
+        $findingBits = [];
+        if ($openingOver > 0 || $closingOver > 0) {
+            $findingBits[] = 'limited manpower during peak lead hours';
+        }
+        if ($conversionPct < $neededPct) {
+            $findingBits[] = 'low conversion efficiency';
+        }
+        $md[] = 'Main issue today is **' . ($findingBits ? implode(' + ', $findingBits) : "keeping today's pace consistent") . '**.';
+        $md[] = 'Moving forward:';
+        $actionBits = ['Better **lead allocation per shift and peak hours**'];
+        if ($productExcess->isNotEmpty()) {
+            $actionBits[] = "Closely monitor **{$productExcess->first()['name']} excess leads**";
+        }
+        $actionBits[] = 'Focus on **conversion and pick-up**, hindi lang catered leads';
+        $actionBits[] = 'Improve **objection handling and closing**';
+        $actionBits[] = 'Identify TSAs na **mataas ang catered leads pero mababa ang conversion**';
+        $actionBits[] = 'Coordinate with **QA for targeted coaching**';
+        foreach ($actionBits as $bit) {
+            $md[] = "* {$bit}";
+        }
+
+        // ---- Summary -----------------------------------------------------
+        $md[] = '### *Summary*';
+        if ($openingOver > 0 || $closingOver > 0) {
+            $heavierShift = $closingOver > $openingOver ? 'Closing' : 'Opening';
+            $heavierExcess = max($openingOver, $closingOver);
+            $bothOver = $openingOver > 0 && $closingOver > 0;
+            $md[] = "**Mataas ang incoming lead volume pero limited ang team capacity**, kaya " . ($bothOver ? 'parehong shifts nagkaroon ng excess' : "ang {$heavierShift} shift ang nagkaroon ng excess") . ", with **{$heavierShift} having the heavier pressure at {$heavierExcess} excess leads**.";
+        } else {
+            $md[] = "**Nasa loob ng theoretical capacity** ang parehong shifts ngayong araw — ang excess leads na naitala ({$refRow['excess']}) ay galing sa ibang dahilan (hal. unmatched disposition), hindi sa kakulangan ng manpower.";
+        }
+        if ($productExcess->isNotEmpty()) {
+            $top = $productExcess->first();
+            $md[] = "**{$top['name']} ang biggest bottleneck with {$top['excess']} excess leads**" . ($peakHour !== null ? ", while **{$this->formatHourRange($peakHour)}** ang highest hourly volume with **{$byHour[$peakHour]->count()} leads**." : '.');
+        }
+        $orderVerb = $orderDelta > 0 ? 'Nag-improve' : ($orderDelta < 0 ? 'Bumaba' : 'Flat lang');
+        $md[] = "{$orderVerb} ang orders to **{$refRow['upsell_confirmation']}**" . ($refRow['pick_up_rate'] !== null ? ' at ang pick-up rate ay nasa **' . $this->fmt($refRow['pick_up_rate']) . '%**' : '') . ", pero priority pa rin ang mas mataas na **AOV** at **conversion** para sa mas magandang resulta.";
+        $md[] = '**Priority moving forward: better lead distribution during peak hours + stronger conversion and closing.**';
+
+        $downSignals = ($orderDelta < 0 ? 1 : 0) + (($refRow['pick_up_rate'] ?? 0) < ($prevRow['pick_up_rate'] ?? 0) ? 1 : 0);
+        $severity = $downSignals >= 2 ? 'warning' : 'info';
+
+        return $this->card($severity, 'Overview', '📝', implode("\n\n", $md));
     }
 
     /** @param string|null $action A concrete next step, in the SAME plain-

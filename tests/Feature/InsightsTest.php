@@ -832,9 +832,9 @@ class InsightsTest extends TestCase
         $this->assertFalse($cards->contains(fn ($c) => $c['category'] === 'Daily recap'));
     }
 
-    // ---- Daily narrative ---------------------------------------------
+    // ---- EOD report (Overview card) -----------------------------------
 
-    public function test_the_daily_narrative_appears_with_enough_volume(): void
+    public function test_the_eod_report_appears_with_enough_volume(): void
     {
         for ($i = 0; $i < 10; $i++) {
             $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
@@ -850,81 +850,109 @@ class InsightsTest extends TestCase
         $this->assertNotEmpty($narrative['message']);
     }
 
-    public function test_the_daily_narrative_mentions_a_manpower_drop(): void
+    public function test_eod_report_opening_and_closing_leads_sum_to_the_stated_total(): void
     {
-        // Same shape as the daily recap's own manpower test — Gemma +
-        // Mariel worked yesterday, only Gemma today.
+        // Real bug caught while building this report, 2026-09-01: Opening
+        // and Closing were bucketed from a differently-scoped/matched order
+        // collection than $refRow['total'] (the "X incoming leads" line
+        // above them), so 202+214 leads bucketed did not equal the 227
+        // stated total for the same day — an internally inconsistent
+        // report. ProductPerformance::countedOrdersFor() is what both
+        // numbers must now derive from. 12 SINUXYL-tagged leads at 10am
+        // (Opening) + 8 at 8pm (Closing) = 20 total; Opening + Closing in
+        // the message must sum to exactly that 20, and to $refRow['total'].
         for ($i = 0; $i < 10; $i++) {
-            $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
         }
         for ($i = 0; $i < 10; $i++) {
-            $this->order(['tsa_name' => 'Mariel', 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
-        }
-        for ($i = 0; $i < 20; $i++) {
-            $this->order();
-        }
-
-        $cards = (new InsightsGenerator())->generate();
-
-        $narrative = $cards->firstWhere('category', 'Overview');
-        $this->assertStringContainsString('1', $narrative['message']);
-        $this->assertMatchesRegularExpression('/vs\. 2 kahapon|vs\. 2 TSA kahapon|dating 2 TSA/', $narrative['message']);
-    }
-
-    public function test_the_daily_narrative_mentions_top_and_bottom_performer(): void
-    {
-        for ($i = 0; $i < 10; $i++) {
-            $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
-        }
-        // Gemma: 100% conversion today. Mariel: 0% today.
-        for ($i = 0; $i < 3; $i++) {
-            $this->order(['is_upsell' => true]);
-        }
-        for ($i = 0; $i < 3; $i++) {
-            $this->order(['tsa_name' => 'Mariel', 'disposition' => 'CONFIRMED VIA CALL']);
-        }
-        for ($i = 0; $i < 4; $i++) {
-            $this->order();
-        }
-
-        $cards = (new InsightsGenerator())->generate();
-
-        $narrative = $cards->firstWhere('category', 'Overview');
-        $this->assertStringContainsString('Gemma De Guzman', $narrative['message']);
-        $this->assertStringContainsString('Mariel Entanto', $narrative['message']);
-    }
-
-    public function test_the_daily_narrative_mentions_target_misses(): void
-    {
-        // dailyNarrativeCard() picks between phrasing variants via a hash of
-        // today's own date string (see its own doc comment — deterministic
-        // per day so the narrative doesn't flicker between reloads, but that
-        // also means WHICH variant this test sees depends on whatever the
-        // real calendar date happens to be when the suite runs). Freeze to a
-        // date whose hash lands on the "missed" phrasing this test checks
-        // for, so it isn't at the mercy of the day the suite is executed.
-        Carbon::setTestNow('2026-08-14 12:00:00');
-
-        // Same missed-target shape used throughout this file.
-        for ($i = 0; $i < 10; $i++) {
-            $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
-        }
-        for ($i = 0; $i < 8; $i++) {
-            $this->order(['disposition' => 'CONFIRMED VIA CALL']);
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
         }
         for ($i = 0; $i < 12; $i++) {
-            $this->order(['disposition' => 'NOT ANSWERING']);
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(10, 0), 'pancake_inserted_at' => today()->setTime(10, 0)]);
+        }
+        for ($i = 0; $i < 8; $i++) {
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(20, 0), 'pancake_inserted_at' => today()->setTime(20, 0)]);
         }
 
         $cards = (new InsightsGenerator())->generate();
 
-        $narrative = $cards->firstWhere('category', 'Overview');
-        $this->assertMatchesRegularExpression('/1 TSA ang hindi na-achieve|Hindi na-achieve ng 1 TSA/', $narrative['message']);
-
-        Carbon::setTestNow();
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        preg_match('/Opening:\*\* (\d+) leads/', $report['message'], $openingMatch);
+        preg_match('/Closing:\*\* (\d+) leads/', $report['message'], $closingMatch);
+        preg_match('/Umabot sa \*\*(\d+) incoming leads/', $report['message'], $totalMatch);
+        $this->assertNotEmpty($openingMatch);
+        $this->assertNotEmpty($closingMatch);
+        $this->assertNotEmpty($totalMatch);
+        $this->assertSame((int) $totalMatch[1], (int) $openingMatch[1] + (int) $closingMatch[1]);
     }
 
-    public function test_the_daily_narrative_is_stable_across_repeated_calls_for_the_same_day(): void
+    public function test_the_eod_report_names_the_limited_manpower_finding_when_a_shift_is_over_capacity(): void
+    {
+        // Explicit rewrite, 2026-09-01: dailyNarrativeCard()'s old "N TSA
+        // worked vs M yesterday" manpower sentence doesn't exist in the new
+        // eodReportCard() structure — the Opening/Closing capacity check in
+        // Lead Capacity & Distribution and the Main Finding line are the
+        // new report's own version of this same "not enough hands" signal.
+        // 30 SINUXYL-tagged leads at 10am (Opening window, 6am-3pm) with
+        // only 1 SH Naturals TSA (Gemma, capacity 75) on duty that hour —
+        // genuinely over the single-TSA Opening capacity.
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
+        }
+        for ($i = 0; $i < 80; $i++) {
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(10, 0), 'pancake_inserted_at' => today()->setTime(10, 0)]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        $this->assertStringContainsString('Opening', $report['message']);
+        $this->assertStringContainsString('limited manpower during peak lead hours', $report['message']);
+    }
+
+    public function test_the_eod_report_names_top_and_concern_tsas_in_the_tsa_performance_section(): void
+    {
+        // Explicit rewrite, 2026-09-01: the new TSA Performance section
+        // callouts are driven by sales amount (top) and Pick-up Rate below
+        // BOTTOM_PERFORMER_MAX_RATE (concern) — see eodReportCard()'s own
+        // doc comment for why NI-based callouts (the original example
+        // report's own basis) aren't possible without cost data. Gemma: 20
+        // catered, all upsells (high sales, no pick-up problem). Mariel: 20
+        // catered, only 2 answered (10% pick-up, well under the 40% bar).
+        for ($i = 0; $i < 20; $i++) {
+            $this->order(['is_upsell' => true, 'amount' => 1000, 'raw_tags' => ['SINUXYL']]);
+        }
+        for ($i = 0; $i < 2; $i++) {
+            $this->order(['tsa_name' => 'Mariel', 'disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
+        }
+        for ($i = 0; $i < 18; $i++) {
+            $this->order(['tsa_name' => 'Mariel', 'disposition' => 'NOT ANSWERING', 'raw_tags' => ['SINUXYL']]);
+        }
+        // Yesterday needs the same shape so the MIN_DAY_VOLUME gate passes.
+        for ($i = 0; $i < 20; $i++) {
+            $this->order(['is_upsell' => true, 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 20; $i++) {
+            $this->order(['tsa_name' => 'Mariel', 'disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        $this->assertStringContainsString('### *TSA Performance*', $report['message']);
+        $this->assertStringContainsString('Gemma De Guzman', $report['message']);
+        $this->assertStringContainsString('strongest positive contributor', $report['message']);
+        $this->assertStringContainsString('Mariel Entanto', $report['message']);
+        $this->assertStringContainsString('main concern ang low', $report['message']);
+    }
+
+    public function test_the_eod_report_is_stable_across_repeated_calls_for_the_same_day(): void
     {
         for ($i = 0; $i < 10; $i++) {
             $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
@@ -939,7 +967,7 @@ class InsightsTest extends TestCase
         $this->assertSame($first, $second);
     }
 
-    public function test_the_daily_narrative_is_skipped_below_the_minimum_volume_gate(): void
+    public function test_the_eod_report_is_skipped_below_the_minimum_volume_gate(): void
     {
         for ($i = 0; $i < 5; $i++) {
             $this->order(['pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);

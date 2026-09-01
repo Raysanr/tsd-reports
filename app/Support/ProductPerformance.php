@@ -62,6 +62,37 @@ class ProductPerformance
         return $row;
     }
 
+    /** The distinct orders that make up sumRows()'s own 'total' across every
+     *  product in $products — i.e. exactly the orders a Leads Report/TSA
+     *  Performance Grand Total counts, matched then reduced to unique IDs
+     *  (a cross-team combo order counted toward two products' rows is still
+     *  ONE real order here). Added 2026-09-01 for InsightsGenerator's own
+     *  EOD report — its Lead Capacity & Distribution section needs to
+     *  bucket the SAME set of counted orders by hour (Opening vs Closing),
+     *  and bucketing $orders directly (unmatched, exclusions un-applied)
+     *  would double-count cross-team combos and include Deleted/Canceled/
+     *  excluded-seller/duplicate orders tally() itself would drop — exactly
+     *  the mismatch confirmed live (202+214=416 hour-bucketed leads vs. 227
+     *  in sumRows()'s own total for the same day/team). Same exclusion
+     *  filter tally() applies, kept in sync by hand (matches that method's
+     *  own comment on why: Deleted (7) always dropped, Canceled (6) kept
+     *  only when it's a genuine pre-cancellation upsell, excluded-seller/
+     *  duplicated-by-logistics orders dropped). */
+    public static function countedOrdersFor(Collection $products, Collection $orders): Collection
+    {
+        $ids = collect();
+        foreach ($products as $product) {
+            $matching = self::matchingOrders($product, $orders, $products)
+                ->reject(fn ($o) => $o->status_code === 7
+                    || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
+                    || $o->excluded_upsell_seller
+                    || $o->is_duplicated_by_logistics);
+            $ids = $ids->merge($matching->pluck('id'));
+        }
+        $ids = $ids->unique();
+        return $orders->whereIn('id', $ids)->values();
+    }
+
     /** The order-matching filter buildRow() counts from, extracted so a drill-down
      *  (e.g. LeadsReportController::drilldown()) can list the exact orders behind a
      *  product's total instead of just the count — same matching, so the list can
