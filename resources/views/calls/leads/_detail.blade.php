@@ -90,18 +90,39 @@
                         $name = $vi['name'] ?? $item['product_name'] ?? '—';
                         $qty  = $item['quantity'] ?? 1;
                         $price = $vi['retail_price'] ?? 0;
+                        $variationId = $item['variation_id'] ?? '';
                     @endphp
-                    <div class="flex items-center gap-4">
+                    {{-- Delete + always-editable price/qty (explicit follow-
+                         up: "make it like this UI that can edit the price
+                         and also can delete", matching Pancake's own order-
+                         item row — live inline number inputs, not a click-
+                         to-edit toggle) — auto-saves on blur/Enter, no
+                         separate Save button, same as Pancake's row. Delete
+                         still confirms since it's a real write to the live
+                         Pancake order. Keyed by variation_id — see
+                         LeadController::removeItem()/updateItem()'s own doc
+                         comments for why that's the only reliable
+                         identifier here. initLineItemsPanel() (calls.js)
+                         re-binds this on every modal open, same reason
+                         initInlineUpsellSearch() does. --}}
+                    <div class="line-item-row flex items-center gap-3 flex-wrap" data-variation-id="{{ $variationId }}" data-name="{{ $name }}" data-price="{{ $price }}" data-qty="{{ $qty }}">
                         <div class="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
                             <svg class="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
                             </svg>
                         </div>
-                        <div class="min-w-0 flex-1">
-                            <p class="font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $name }}</p>
-                            <p class="text-xs text-slate-400 mt-0.5">₱{{ number_format($price, 2) }} × {{ $qty }}</p>
+                        <p class="font-semibold text-slate-800 dark:text-slate-100 min-w-[120px] flex-1 basis-40">{{ $name }}</p>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <input type="number" class="line-item-price-input w-20 text-sm text-right border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500" value="{{ $price }}" min="0" step="0.01" aria-label="Price">
+                            <span class="text-xs text-slate-400 shrink-0">₱ ×</span>
+                            <input type="number" class="line-item-qty-input w-14 text-sm text-right border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500" value="{{ $qty }}" min="1" max="99" aria-label="Quantity">
                         </div>
-                        <p class="text-base font-bold text-slate-800 dark:text-slate-100 shrink-0">₱{{ number_format($price * $qty, 2) }}</p>
+                        <p class="line-item-total text-base font-bold text-slate-800 dark:text-slate-100 shrink-0 w-24 text-right">₱{{ number_format($price * $qty, 2) }}</p>
+                        <button type="button" class="line-item-delete-btn p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0" title="Remove from order">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"/>
+                            </svg>
+                        </button>
                     </div>
                     @endforeach
                 </div>
@@ -314,7 +335,14 @@
                         <input type="text" id="deliveryPhone" placeholder="Phone number" value="{{ $shipping['phone_number'] ?? '' }}"
                                class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                     </div>
-                    <textarea id="deliveryAddress" rows="2" placeholder="Street / landmark"
+                    {{-- rows=3 + no-resize min-height (not the previous rows=2)
+                         so a long landmark/street line — the norm for this
+                         shop's addresses, per the "Landmark: ... (beside ...)"
+                         style seen live — wraps fully visible like Pancake's
+                         own full-address view, instead of clipping to a
+                         two-line box the admin then has to manually resize. --}}
+                    <textarea id="deliveryAddress" rows="3" placeholder="Street / landmark"
+                              style="min-height: 4.5rem;"
                               class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">{{ $shipping['address'] ?? '' }}</textarea>
 
                     {{-- Real province -> district -> commune picker, redesigned
@@ -343,9 +371,16 @@
                                  Pancake's own populated address field, which is
                                  clickable to change the selection, not just an
                                  inert display + separate clear button. --}}
+                            {{-- items-start (not items-center) + no truncate on the
+                                 text span (explicit follow-up: "still not displaying
+                                 the full address") — a full province/district/commune
+                                 string routinely runs longer than the chip's width
+                                 (e.g. "Ilocos Sur, Narvacan, Quinarayan"), so it needs
+                                 to wrap onto multiple lines like Pancake's own address
+                                 field does, not clip with an ellipsis. --}}
                             <button type="button" id="deliveryAddressChip"
-                                    class="hidden w-full items-center justify-between text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-left cursor-pointer hover:border-primary">
-                                <span id="deliveryAddressChipText" class="truncate"></span>
+                                    class="hidden w-full items-start justify-between gap-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-left cursor-pointer hover:border-primary">
+                                <span id="deliveryAddressChipText" class="whitespace-normal break-words"></span>
                                 <span id="deliveryAddressChipClear" role="button" title="Clear address" class="text-slate-400 hover:text-red-600 cursor-pointer shrink-0 ml-2">×</span>
                             </button>
                             <div id="deliveryAddressDropdown" class="hidden absolute z-20 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
@@ -394,21 +429,7 @@
             </div>
             @endif
 
-            <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
-                <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Activity</p>
-                @if($lead->activities->isEmpty())
-                <p class="text-xs text-slate-400">No activity recorded yet.</p>
-                @else
-                <ul class="space-y-3">
-                    @foreach($lead->activities as $activity)
-                    <li class="text-xs border-l-2 border-slate-200 dark:border-slate-700 pl-3">
-                        <p class="text-slate-700 dark:text-slate-200">{{ $activity->description }}</p>
-                        <p class="text-slate-400 mt-0.5">{{ $activity->created_at->format('M j, g:i A') }}</p>
-                    </li>
-                    @endforeach
-                </ul>
-                @endif
-            </div>
+            @include('calls.leads._history', ['lead' => $lead, 'liveOrder' => $liveOrder])
         </div>
     </div>
 </div>

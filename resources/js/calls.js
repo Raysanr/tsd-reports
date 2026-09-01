@@ -1116,6 +1116,8 @@ function loadLeadDetailInto(leadId, body) {
             initInlineUpsellSearch();
             initInlineTagsPanel();
             initDeliveryPanel();
+            initLineItemsPanel();
+            initHistoryPanel();
         });
 }
 
@@ -1178,6 +1180,10 @@ window.closeLeadModal = function () {
     if (pancakeNotesInterval) {
         clearInterval(pancakeNotesInterval);
         pancakeNotesInterval = null;
+    }
+    if (historyPanelInterval) {
+        clearInterval(historyPanelInterval);
+        historyPanelInterval = null;
     }
     localStorage.removeItem('callsLastOpenLead');
     hideModal(document.getElementById('leadDetailModal'));
@@ -1763,6 +1769,208 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Line-item delete + inline price/qty edit (explicit follow-up request:
+// "when product is added i want to have delete and also can edit the
+// price") — click-to-edit price (Save/Cancel swap, same shape as this
+// page's other inline-edit affordances) and a delete button per row, both
+// real writes to the live Pancake order via LeadController::removeItem()/
+// updateItem(). Delegated on the shared #inlineUpsellSearchWrap's own
+// leadId (sits in the same Products card) rather than a second per-row
+// lookup, since every row here belongs to the same lead. Re-bound on every
+// modal open by loadLeadDetailInto(), same reason initInlineUpsellSearch()
+// is.
+function initLineItemsPanel() {
+    document.querySelectorAll('.line-item-row').forEach((row) => {
+        const priceInput = row.querySelector('.line-item-price-input');
+        const qtyInput   = row.querySelector('.line-item-qty-input');
+        const totalEl    = row.querySelector('.line-item-total');
+
+        // Always-editable inputs (matches Pancake's own order-item row —
+        // explicit follow-up: "make it like this UI that can edit the
+        // price and also can delete"), auto-saving on blur/Enter rather
+        // than a separate Save button. The visible total updates live as
+        // the TSA types, independent of whether the save has landed yet,
+        // so the row never looks stale while a request is in flight.
+        function recalcTotal() {
+            const price = parseFloat(priceInput.value) || 0;
+            const qty = parseInt(qtyInput.value, 10) || 1;
+            if (totalEl) totalEl.textContent = '₱' + (price * qty).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        priceInput?.addEventListener('input', recalcTotal);
+        qtyInput?.addEventListener('input', recalcTotal);
+
+        async function saveItem() {
+            const wrap = document.getElementById('inlineUpsellSearchWrap');
+            const leadId = wrap?.dataset.leadId;
+            if (!leadId) return;
+
+            const price = parseFloat(priceInput.value);
+            const qty = Math.max(1, parseInt(qtyInput.value, 10) || 1);
+            qtyInput.value = qty;
+
+            // No-op guard: blur fires on every focus-out, including when
+            // nothing actually changed (e.g. tabbing through without
+            // editing) — skip the write entirely rather than round-
+            // tripping a real Pancake PUT for an identical value.
+            if (isNaN(price) || price < 0) {
+                window.showToast?.('Enter a valid price.', 'error');
+                priceInput.value = row.dataset.price;
+                recalcTotal();
+                return;
+            }
+            if (price === parseFloat(row.dataset.price) && qty === parseInt(row.dataset.qty, 10)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`/calls/leads/${leadId}/items`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    },
+                    body: JSON.stringify({
+                        variation_id: row.dataset.variationId,
+                        name: row.dataset.name,
+                        retail_price: price,
+                        quantity: qty,
+                    }),
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    window.showToast?.('Product updated.', 'success');
+                    row.dataset.price = price;
+                    row.dataset.qty = qty;
+                } else {
+                    window.showToast?.(data.error || 'Could not update this product — try again.', 'error');
+                    priceInput.value = row.dataset.price;
+                    qtyInput.value = row.dataset.qty;
+                    recalcTotal();
+                }
+            } catch (e) {
+                window.showToast?.('Could not reach the server — try again.', 'error');
+                priceInput.value = row.dataset.price;
+                qtyInput.value = row.dataset.qty;
+                recalcTotal();
+            }
+        }
+
+        [priceInput, qtyInput].forEach((input) => {
+            input?.addEventListener('blur', saveItem);
+            input?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+            });
+        });
+
+        row.querySelector('.line-item-delete-btn')?.addEventListener('click', async () => {
+            const wrap = document.getElementById('inlineUpsellSearchWrap');
+            const leadId = wrap?.dataset.leadId;
+            if (!leadId) return;
+
+            if (!await window.showConfirm(`Remove "${row.dataset.name}" from this order?`, { confirmText: 'Remove' })) return;
+
+            try {
+                const res = await fetch(`/calls/leads/${leadId}/items`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                    },
+                    body: JSON.stringify({
+                        variation_id: row.dataset.variationId,
+                        name: row.dataset.name,
+                    }),
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    window.showToast?.('Product removed.', 'success');
+                    window.refreshLeadDetail(leadId);
+                } else {
+                    window.showToast?.(data.error || 'Could not remove this product — try again.', 'error');
+                }
+            } catch (e) {
+                window.showToast?.('Could not reach the server — try again.', 'error');
+            }
+        });
+    });
+}
+
+// Status/Detail tab switch for the restyled Activity history panel
+// (explicit follow-up request: "add history like in the POS (status,
+// detail)") — scoped to the clicked button's own .history-panel ancestor,
+// not a global querySelectorAll, so this works correctly even though the
+// full-page view and the modal never both exist in the DOM at once (no
+// actual collision today, but this keeps it correct if that ever changes).
+window.switchHistoryTab = function (btn, tab) {
+    const panel = btn.closest('.history-panel');
+    if (!panel) return;
+
+    panel.querySelectorAll('.history-tab-btn').forEach((b) => {
+        const isActive = b === btn;
+        b.classList.toggle('active', isActive);
+        b.classList.toggle('border-primary', isActive);
+        b.classList.toggle('text-primary-dark', isActive);
+        b.classList.toggle('dark:text-yellow-300', isActive);
+        b.classList.toggle('border-transparent', !isActive);
+        b.classList.toggle('text-slate-400', !isActive);
+    });
+
+    panel.querySelectorAll('.history-tab-panel').forEach((p) => {
+        p.classList.toggle('hidden', p.dataset.panel !== tab);
+    });
+};
+
+// Polls #historyPanel every 8s while a lead's modal is open (explicit
+// follow-up: "i want real time like in the pos in all leads detail
+// history") — same cadence/pattern as initPancakeNotesPanel()'s own poll.
+// Deliberately scoped to ONLY this card (LeadController::history()
+// returns just its HTML), not a full refreshLeadDetail() of the whole
+// modal, so Products/Tags/Delivery — and whatever a TSA is actively
+// mid-edit on them — are never disturbed by this poll landing.
+function initHistoryPanel() {
+    const panel = document.getElementById('historyPanel');
+    if (!panel) return;
+
+    const leadId = panel.dataset.leadId;
+    if (historyPanelInterval) clearInterval(historyPanelInterval);
+
+    async function refresh() {
+        const current = document.getElementById('historyPanel');
+        if (!current) return; // modal closed / navigated away since the poll fired
+
+        // Preserves whichever tab the TSA currently has open (Status vs
+        // Detail) across the refresh — the freshly rendered HTML always
+        // defaults to Detail active, same as a first render, so without
+        // this a TSA reading Status would get silently flipped back to
+        // Detail every 8s.
+        const activeTab = current.querySelector('.history-tab-btn.active')?.dataset.tab || 'detail';
+
+        try {
+            const res = await fetch(`/calls/leads/${leadId}/history`, { headers: { Accept: 'application/json' } });
+            const data = await res.json();
+            if (!data.success) return;
+
+            const stillPresent = document.getElementById('historyPanel');
+            if (!stillPresent) return;
+
+            stillPresent.outerHTML = data.html;
+            const refreshedBtn = document.querySelector(`#historyPanel .history-tab-btn[data-tab="${activeTab}"]`);
+            if (refreshedBtn && activeTab !== 'detail') {
+                window.switchHistoryTab(refreshedBtn, activeTab);
+            }
+        } catch (e) {
+            // Silent — a missed poll tick isn't worth a toast, same
+            // reasoning loadPancakeNotes()'s own poll uses.
+        }
+    }
+
+    historyPanelInterval = setInterval(refresh, 8000);
+}
+
 // Inline "+ Add tag" chip in the POS Tags card — writes a real tag straight
 // to Pancake (LeadController::addTag(), new 2026-08-25) the moment one's
 // picked, distinct from updateDisposition()'s own tag-writing (that's
@@ -1906,6 +2114,12 @@ document.addEventListener('click', (e) => {
 let pancakeNotesInterval = null;
 let pancakeNotesDraftDebounce = null;
 let pancakeNotesDraftRestoredFor = null;
+
+// Same "re-query fresh every call, track the interval so a stale poll
+// never survives the panel it was watching" reasoning as
+// pancakeNotesInterval above — explicit follow-up: "i want real time
+// like in the pos in all leads detail history".
+let historyPanelInterval = null;
 
 function pancakeNotesLeadId() {
     return document.getElementById('pancakeNotesPanel')?.dataset.leadId;
@@ -2059,6 +2273,12 @@ function deliveryLeadId() {
 // reset fresh on every initDeliveryPanel() call (see that function's own
 // comment for why this can't be a one-time module load).
 let deliveryAddressState = null;
+
+// The outside-click listener attached at the bottom of initDeliveryPanel()
+// below — tracked so it can be removed before a new one is attached (see
+// that listener's own comment for why leaving old ones behind breaks the
+// chip's click-to-reopen entirely, not just "sometimes").
+let deliveryOutsideClickHandler = null;
 
 function deliveryAddressTabClasses(active) {
     return active
@@ -2301,14 +2521,32 @@ function initDeliveryPanel() {
         clearDeliveryAddress();
     });
 
-    document.addEventListener('click', (e) => {
+    // Root cause of "still cant click" persisting across modal reopens:
+    // this used to be a plain document.addEventListener with no matching
+    // removeEventListener. initDeliveryPanel() re-runs on every modal
+    // open/refresh (loadLeadDetailInto() replaces #leadDetailModalBody's
+    // whole innerHTML each time), so a NEW listener was added every time
+    // without ever removing the OLD one — and the old listener's closure
+    // still held a `picker` reference pointing at a now-detached DOM node
+    // from the previous render. picker.contains(e.target) on a detached
+    // node is always false, so every stale listener treated every click as
+    // "outside" and immediately re-collapsed the chip in the same tick the
+    // current (correct) listener had just opened it in — indistinguishable
+    // from the chip simply not responding to clicks at all, and worse the
+    // more times the modal had been reopened in that session. Removing the
+    // previous handler before attaching a new one fixes this permanently.
+    if (deliveryOutsideClickHandler) {
+        document.removeEventListener('click', deliveryOutsideClickHandler);
+    }
+    deliveryOutsideClickHandler = (e) => {
         if (!picker.contains(e.target)) {
             closeDeliveryAddressDropdown();
             // Re-collapses to the chip if a reopen (see chip's own click
             // handler above) gets abandoned without picking anything new.
             updateDeliveryAddressChip();
         }
-    });
+    };
+    document.addEventListener('click', deliveryOutsideClickHandler);
 }
 
 /** Saves the Delivery card's own fields — no longer has its own button
@@ -2442,6 +2680,8 @@ initPancakeNotesPanel();
 initInlineUpsellSearch();
 initInlineTagsPanel();
 initDeliveryPanel();
+initLineItemsPanel();
+initHistoryPanel();
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

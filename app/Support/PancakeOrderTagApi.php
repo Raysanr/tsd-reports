@@ -188,7 +188,18 @@ class PancakeOrderTagApi
                 'api_key' => $apiKey,
             ]);
 
-            if (!$response->successful()) {
+            // Real behavior confirmed live, not assumed: Pancake returns
+            // HTTP 200 even for an order it can't find/isn't authorized
+            // for — {"message":"You do not have permission to view this
+            // order","success":false} — so successful() alone isn't
+            // enough. Checking the body's own success flag is the same
+            // convention every write method below already applies (see
+            // addUpsellItem()'s own $success check) — this was just never
+            // applied on the READ side until a stale/wrong
+            // pancake_order_id on a real lead surfaced it as a silently
+            // empty Detail/Status history instead of the intended
+            // "Pancake unreachable" local-activity fallback.
+            if (!$response->successful() || $response->json('success') === false) {
                 return null;
             }
 
@@ -213,6 +224,26 @@ class PancakeOrderTagApi
                 'estimate_delivery_date' => $order['estimate_delivery_date'] ?? null,
                 'courier_name'          => $order['partner']['partner_name'] ?? null,
                 'tracking_link'         => $order['tracking_link'] ?? null,
+                // Real order-history (explicit follow-up request: "add
+                // history like in the POS", then "can you fetch the
+                // history from pos?" once the local LeadActivity log
+                // proved too sparse) — confirmed live against a real
+                // order's raw response: 'histories' is a field-level diff
+                // log (old/new pairs per changed field, editor_id,
+                // timestamp), 'status_history' is specifically status
+                // transitions with a resolved editor name/avatar already
+                // attached. Both already ride along in this same GET, no
+                // separate endpoint exists for them. Editor names/avatars
+                // for 'histories' entries are resolved from the order's
+                // own creator/last_editor/assigning_seller (see
+                // PancakeOrderHistoryFormatter, which does the actual
+                // diff-to-sentence translation) since 'histories' itself
+                // only carries a bare editor_id.
+                'histories'       => $order['histories'] ?? [],
+                'status_history'  => $order['status_history'] ?? [],
+                'creator'         => $order['creator'] ?? null,
+                'last_editor'     => $order['last_editor'] ?? null,
+                'assigning_seller' => $order['assigning_seller'] ?? null,
             ];
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
@@ -654,6 +685,120 @@ class PancakeOrderTagApi
             return $success;
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: addUpsellItem threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Removes one line item from the order — same GET-then-PUT-the-whole-
+     * order pattern as addUpsellItem() above. $variationId is matched
+     * against each item's variation_id, which (unlike a dedicated line-item
+     * id — Pancake's item shape here carries none) is the only field that
+     * reliably identifies one line, same key addUpsellItem() writes when
+     * adding. If two items on the same order somehow share a variation_id
+     * (e.g. the same product added twice as separate upsells), both are
+     * removed together — this API has no per-instance id to distinguish
+     * them, and correcting a miskeyed add is already what deleting resolves.
+     */
+    public function removeItem(string $orderId, string $variationId): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before removing item failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            $order['items'] = collect($order['items'] ?? [])
+                ->reject(fn ($item) => (string) ($item['variation_id'] ?? '') === $variationId)
+                ->values()->all();
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: removeItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: removeItem threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
+     * Updates one line item's retail_price (and optionally quantity) —
+     * same GET-then-PUT-the-whole-order pattern, same variation_id matching
+     * as removeItem() above. Only the matched item's variation_info.
+     * retail_price/quantity are touched; every other item and field on the
+     * order round-trips unchanged.
+     */
+    public function updateItem(string $orderId, string $variationId, float $retailPrice, ?int $quantity = null): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating item failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            $found = false;
+            $order['items'] = collect($order['items'] ?? [])->map(function ($item) use ($variationId, $retailPrice, $quantity, &$found) {
+                if ((string) ($item['variation_id'] ?? '') !== $variationId) {
+                    return $item;
+                }
+                $found = true;
+                $item['variation_info']['retail_price'] = $retailPrice;
+                if ($quantity !== null) {
+                    $item['quantity'] = $quantity;
+                }
+                return $item;
+            })->values()->all();
+
+            if (!$found) {
+                Log::warning('PancakeOrderTagApi: updateItem found no matching variation_id', ['order_id' => $orderId, 'variation_id' => $variationId]);
+                return false;
+            }
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateItem threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
             return false;
         }
     }

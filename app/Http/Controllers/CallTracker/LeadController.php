@@ -305,6 +305,36 @@ class LeadController extends Controller
         return view('calls.leads.show', ['lead' => $lead, 'order' => $order, 'liveOrder' => $liveOrder]);
     }
 
+    /**
+     * JSON-wrapped HTML for just the History card (explicit follow-up: "i
+     * want real time like in the pos in all leads detail history") —
+     * polled every 8s while a lead's modal is open (initHistoryPanel() in
+     * calls.js, same cadence as the existing Pancake Notes poll), so a
+     * status/tag/note/delivery/item change made directly in Pancake POS
+     * or by another admin shows up without the TSA closing and reopening
+     * the lead. Deliberately scoped to ONLY this card, not the whole
+     * modal — refreshing Products/Tags/Delivery too would risk wiping out
+     * whatever a TSA is actively mid-edit on those fields the moment a
+     * poll lands (see the earlier scoping decision this follow-up made:
+     * "just the History panel," not "the whole lead modal").
+     */
+    public function history(Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $lead->load('activities');
+        $liveOrder = $lead->pancake_order_id ? $api->getOrderDetail($lead->pancake_order_id) : null;
+
+        return response()->json([
+            'success' => true,
+            'html' => view('calls.leads._history', ['lead' => $lead, 'liveOrder' => $liveOrder])->render(),
+        ]);
+    }
+
     /** Pin/unpin — same ownership guard as show() (a TSA only manages their
      *  own leads, an admin can manage any). Sorts to the top of the Leads
      *  table via index()'s own orderByRaw('pinned_at IS NULL') above. */
@@ -717,6 +747,81 @@ class LeadController extends Controller
         }
 
         return response()->json(['success' => true, 'message' => "Added \"{$data['name']}\" to order #{$lead->pancake_order_id}."]);
+    }
+
+    /**
+     * Removes one line item from the lead's linked Pancake order — same
+     * permission gate and audit-trail convention as addUpsell() above.
+     * $variation_id (not a local id — Pancake's item shape carries none)
+     * identifies which line, matching PancakeOrderTagApi::removeItem()'s
+     * own matching key.
+     */
+    public function removeItem(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'variation_id' => ['required', 'string'],
+            'name'         => ['required', 'string', 'max:255'],
+        ]);
+
+        $success = $api->removeItem($lead->pancake_order_id, $data['variation_id']);
+
+        $description = "Removed \"{$data['name']}\" from order by {$user->name}"
+            . ($success ? '.' : ' — Pancake write failed, verify in POS.');
+        LeadActivity::log($lead, 'item_removed', $description, $user);
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not remove this product from the order in Pancake — try again or remove it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true, 'message' => "Removed \"{$data['name']}\" from order #{$lead->pancake_order_id}."]);
+    }
+
+    /**
+     * Updates one line item's price (and/or quantity) on the lead's linked
+     * Pancake order — same permission gate/audit-trail convention as
+     * addUpsell()/removeItem() above.
+     */
+    public function updateItem(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'variation_id' => ['required', 'string'],
+            'name'         => ['required', 'string', 'max:255'],
+            'retail_price' => ['required', 'numeric', 'min:0'],
+            'quantity'     => ['nullable', 'integer', 'min:1', 'max:99'],
+        ]);
+
+        $success = $api->updateItem($lead->pancake_order_id, $data['variation_id'], $data['retail_price'], $data['quantity'] ?? null);
+
+        $description = "Updated \"{$data['name']}\" to ₱" . number_format($data['retail_price'], 2)
+            . ($data['quantity'] ? " × {$data['quantity']}" : '') . " by {$user->name}"
+            . ($success ? '.' : ' — Pancake write failed, verify in POS.');
+        LeadActivity::log($lead, 'item_updated', $description, $user);
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not update this product on the order in Pancake — try again or update it directly in POS.'], 500);
+        }
+
+        return response()->json(['success' => true, 'message' => "Updated \"{$data['name']}\" on order #{$lead->pancake_order_id}."]);
     }
 
     /**

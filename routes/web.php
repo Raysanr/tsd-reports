@@ -163,6 +163,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/disposition', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateDisposition'])->name('leads.disposition');
         Route::get('/leads/{lead}/products', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchProducts'])->name('leads.products');
         Route::post('/leads/{lead}/upsell', [\App\Http\Controllers\CallTracker\LeadController::class, 'addUpsell'])->name('leads.upsell');
+        Route::delete('/leads/{lead}/items', [\App\Http\Controllers\CallTracker\LeadController::class, 'removeItem'])->name('leads.items.remove');
+        Route::put('/leads/{lead}/items', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateItem'])->name('leads.items.update');
         Route::post('/leads/{lead}/status', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateStatus'])->name('leads.status');
         Route::post('/leads/{lead}/tags/remove', [\App\Http\Controllers\CallTracker\LeadController::class, 'removeTag'])->name('leads.tags.remove');
         Route::post('/leads/{lead}/tags/add', [\App\Http\Controllers\CallTracker\LeadController::class, 'addTag'])->name('leads.tags.add');
@@ -179,6 +181,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/leads/{lead}/recordings', [\App\Http\Controllers\CallTracker\LeadController::class, 'recordings'])->name('leads.recordings');
         Route::get('/leads/{lead}/recordings/{fileId}/stream', [\App\Http\Controllers\CallTracker\LeadController::class, 'streamRecording'])->name('leads.recordings.stream');
         Route::get('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'notes'])->name('leads.notes');
+        Route::get('/leads/{lead}/history', [\App\Http\Controllers\CallTracker\LeadController::class, 'history'])->name('leads.history');
         Route::post('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateNotes'])->name('leads.notes.update');
         Route::get('/leads/{lead}/delivery/provinces', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryProvinces'])->name('leads.delivery.provinces');
         Route::get('/leads/{lead}/delivery/districts', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryDistricts'])->name('leads.delivery.districts');
