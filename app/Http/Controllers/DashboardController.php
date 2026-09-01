@@ -232,10 +232,24 @@ class DashboardController extends Controller
             // reasoning as TSA Performance's own hourly breakdown: a "calls per hour"
             // chart needs the hour work actually happened in, not the hour a lead
             // first arrived in Pancake.
-            $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)->get();
-
-            $leadTally = ProductPerformance::tally($dayOrders);
+            // Computed one calendar day at a time, not the whole range fetched into
+            // one Collection — same reasoning as $dayProductRows' own per-day loop
+            // below (see that comment for the full 2026-08-28 memory-crash
+            // root-cause writeup). This exact query used to fetch the WHOLE range
+            // at once and was the one spot that loop's fix missed: confirmed live
+            // 2026-09-01, a 31-day ALL-teams range fatal-errored here specifically
+            // (128MB exhausted) — 16,619 Order models alone already used 126.5MB
+            // before tally() even ran. ProductPerformance::sumRows() is safe to
+            // combine per-day tally()s this way for the same reason $dayProductRows
+            // is: addition is associative, so summing per-day sums equals summing
+            // everything at once.
+            $leadTallyByDay = collect();
+            for ($cursor = $dateFrom->copy()->startOfDay(); $cursor->lte($dateTo); $cursor->addDay()) {
+                $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
+                    ->whereIn('team', $orderTeams)->get();
+                $leadTallyByDay->push(ProductPerformance::tally($dayOrders));
+            }
+            $leadTally = ProductPerformance::sumRows($leadTallyByDay);
 
             // Total Leads/Catered Leads use "sum of the per-product rows",
             // matching Leads Report's own Grand Total (2026-08-21, explicit
