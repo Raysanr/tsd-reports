@@ -323,8 +323,20 @@ class ProductPerformance
         // case) or a disposition tag, and that order is already correctly
         // reflected in Catered — bucketing it into Restocking too would double-
         // subtract it out of Excess.
-        $calledIds = self::ordersForColumn($orders, 'total_called')->pluck('id');
-        $row['restocking'] = $orders->where('status_code', 11)->whereNotIn('id', $calledIds)->count();
+        //
+        // ordersForColumn('total_called') is run against ONLY the small
+        // Restocking-status subset here, not the full $orders collection — it
+        // re-derives every disposition column from scratch over whatever it's
+        // given, and running that over the WHOLE order set on a full-month
+        // ALL-teams range (~16k orders × 7 products) measured 6.5s -> 11.2s per
+        // buildRow() call, enough to blow past production's request timeout
+        // (confirmed live, 2026-09-01: /leads-report?date_from=2026-08-01
+        // &date_to=2026-08-31 500'd after this was first added the expensive
+        // way). Restricting to the Restocking subset keeps the exact same
+        // called-orders definition at a fraction of the cost.
+        $restockingStatus = $orders->where('status_code', 11);
+        $calledRestockingIds = self::ordersForColumn($restockingStatus, 'total_called')->pluck('id');
+        $row['restocking'] = $restockingStatus->whereNotIn('id', $calledRestockingIds)->count();
 
         // Excess = Total - Catered - Restocking: the reconciling remainder once both
         // known non-lead buckets are pulled out, so every row still adds up visibly
