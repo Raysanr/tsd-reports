@@ -112,8 +112,8 @@
     <svg class="w-12 h-12 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
     </svg>
-    <p class="text-sm font-mono text-slate-400">Nothing needs action right now.</p>
-    <p class="text-xs font-mono text-slate-300 dark:text-slate-600 max-w-sm text-center">Action items come from the same cards as the Insights tab — a quiet stretch there means an empty plan here too.</p>
+    <p class="text-sm font-mono text-slate-400">Wala pang kailangang aksyunan ngayon.</p>
+    <p class="text-xs font-mono text-slate-300 dark:text-slate-600 max-w-sm text-center">Ang Action Items ay galing sa parehong cards ng Insights tab — kung tahimik doon, wala rin dito.</p>
 </div>
 @else
 
@@ -153,8 +153,8 @@
         <path stroke-linecap="round" stroke-linejoin="round"
               d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"/>
     </svg>
-    <p class="text-sm font-mono text-slate-400">Nothing worth flagging right now.</p>
-    <p class="text-xs font-mono text-slate-300 dark:text-slate-600 max-w-sm text-center">Every card here needs enough real volume to trust the number behind it — a quiet stretch means fewer cards, not a broken page.</p>
+    <p class="text-sm font-mono text-slate-400">Wala pang dapat i-flag ngayon.</p>
+    <p class="text-xs font-mono text-slate-300 dark:text-slate-600 max-w-sm text-center">Bawat card dito ay kailangan ng sapat na volume para ma-trust ang numero sa likod nito — kung tahimik, mas kaunti ang cards, hindi sira ang page.</p>
 </div>
 @else
 
@@ -162,7 +162,7 @@
      row atop Dashboard/Analytics, so this page opens the same way every
      other report page in this app does. --}}
 <div class="flex flex-wrap items-center gap-3 mb-6">
-    @foreach(['critical' => 'Needs attention', 'warning' => 'Worth watching', 'positive' => 'Going well', 'info' => 'FYI'] as $sev => $label)
+    @foreach(['critical' => 'Kailangan ng aksyon', 'warning' => 'Bantayan', 'positive' => 'Maganda ang takbo', 'info' => 'FYI'] as $sev => $label)
     @if($counts->get($sev, 0) > 0)
     <span class="inline-flex items-center gap-1.5 text-xs font-mono font-semibold px-3 py-1.5 rounded-full {{ $severityStyle[$sev]['bg'] }} {{ $severityStyle[$sev]['label'] }} border {{ $severityStyle[$sev]['border'] }}">
         {{ $counts->get($sev, 0) }} {{ $label }}

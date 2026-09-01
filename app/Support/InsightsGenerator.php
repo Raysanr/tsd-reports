@@ -207,7 +207,7 @@ class InsightsGenerator
         if ($card = $this->bottomPerformerCard($candidates, $referenceDate)) {
             $cards->push($card);
         }
-        if ($card = $this->peakExcessHourCard($activityOrders)) {
+        if ($card = $this->peakExcessHourCard($activityOrders, $referenceDate)) {
             $cards->push($card);
         }
         if ($card = $this->excessSpikeDayCard($activityOrders)) {
@@ -245,7 +245,7 @@ class InsightsGenerator
         $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
         $ordersByTsa = $teamOrders->groupBy(fn ($o) => $o->tsa_name ?? '__unassigned__');
         $refKey = $referenceDate->toDateString();
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
 
         foreach ($shifts as $shift) {
             $tsaOrders = $ordersByTsa->get($shift->tsa_key, collect());
@@ -284,14 +284,14 @@ class InsightsGenerator
             if ($delta <= -self::TREND_DELTA_POINTS) {
                 $cards->push($this->card(
                     'warning', 'TSA performance', '📉',
-                    "{$shift->display_name}'s conversion rate is {$refRate}% {$dayWord}, well below their own {$this->fmt($baseline)}% average over the last " . self::LOOKBACK_DAYS . ' days — worth a check-in.',
-                    "Check in with {$shift->display_name} — find out what's behind the drop (personal issue, technical problem, or a lead-quality issue) before it continues."
+                    "Bumaba ang Conversion Rate ni {$shift->display_name} sa {$refRate}% {$dayWord}, malayo sa {$this->fmt($baseline)}% average niya sa nakaraang " . self::LOOKBACK_DAYS . ' days — dapat i-check-in.',
+                    "I-check-in si {$shift->display_name} — alamin kung ano ang dahilan ng pagbaba (personal issue, technical problem, o lead-quality issue) bago pa ito lumala."
                 ));
             } elseif ($delta >= self::TREND_DELTA_POINTS) {
                 $cards->push($this->card(
                     'positive', 'TSA performance', '📈',
-                    "{$shift->display_name}'s conversion rate is {$refRate}% {$dayWord}, well above their own {$this->fmt($baseline)}% average.",
-                    "Ask {$shift->display_name} what worked {$dayWord} — worth understanding so it can be repeated by others."
+                    "Tumaas ang Conversion Rate ni {$shift->display_name} sa {$refRate}% {$dayWord}, mas mataas sa {$this->fmt($baseline)}% average niya.",
+                    "Tanungin si {$shift->display_name} kung ano ang ginawa niya {$dayWord} — dapat malaman para maulit ng ibang TSA."
                 ));
             }
         }
@@ -315,7 +315,7 @@ class InsightsGenerator
         $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
         $ordersByTsa = $teamOrders->groupBy(fn ($o) => $o->tsa_name ?? '__unassigned__');
         $refKey = $referenceDate->toDateString();
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
 
         foreach ($shifts as $shift) {
             $tsaOrders = $ordersByTsa->get($shift->tsa_key, collect());
@@ -356,8 +356,8 @@ class InsightsGenerator
 
             $cards->push($this->card(
                 'warning', 'Target metrics', '🎯',
-                "{$shift->display_name} is short on " . count($misses) . ' of 5 daily targets ' . $dayWord . ': ' . implode(', ', $misses) . '.',
-                "Schedule a coaching check-in with {$shift->display_name} focused on: " . implode(', ', $misses) . '.'
+                "Hindi na-achieve ni {$shift->display_name} ang " . count($misses) . ' of 5 daily targets ' . $dayWord . ': ' . implode(', ', $misses) . '.',
+                "Mag-schedule ng coaching check-in kay {$shift->display_name}, focused sa: " . implode(', ', $misses) . '.'
             ));
         }
 
@@ -398,7 +398,7 @@ class InsightsGenerator
             return null;
         }
 
-        return "driven by {$topLabel} ({$topCount} of {$row['unanswered']} unanswered)";
+        return "galing sa {$topLabel} ({$topCount} sa {$row['unanswered']} unanswered)";
     }
 
     /** Which PRODUCT a TSA's unanswered leads are actually concentrated in —
@@ -433,7 +433,7 @@ class InsightsGenerator
             return null;
         }
 
-        return "mostly {$best->display_name} orders";
+        return "majority ay galing sa {$best->display_name} orders";
     }
 
     /** Every TSA on every team with a trustworthy sample on the selected
@@ -492,11 +492,11 @@ class InsightsGenerator
             return null;
         }
 
-        $label = $referenceDate->isToday() ? "today's" : $referenceDate->format('M j') . "'s";
+        $label = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
         return $this->card(
             'positive', 'TSA performance', '🏆',
-            "{$best['name']} is {$label} top performer: {$best['rate']}% conversion rate, {$best['upsells']} upsells confirmed.",
-            "Recognize {$best['name']} for {$label} results — consider sharing their approach with the team."
+            "Si {$best['name']} ang top performer {$label}: {$best['rate']}% conversion rate, {$best['upsells']} upsells confirmed.",
+            "Kilalanin si {$best['name']} para sa result {$label} — pwedeng i-share ang approach niya sa team."
         );
     }
 
@@ -519,30 +519,38 @@ class InsightsGenerator
             return null;
         }
 
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
         return $this->card(
             'warning', 'TSA performance', '🔻',
-            "{$worst['name']}'s conversion rate is {$worst['rate']}% {$dayWord}, the lowest among comparable TSAs ({$worst['answered']} answered calls).",
-            "Coach {$worst['name']} on call handling and conversation-to-conversion technique — focus on turning more answered calls into confirmed upsells."
+            "Ang Conversion Rate ni {$worst['name']} ay {$worst['rate']}% {$dayWord}, ang pinakamababa sa comparable TSAs ({$worst['answered']} answered calls).",
+            "I-coach si {$worst['name']} sa call handling at conversation-to-conversion technique — focus sa pag-convert ng mas maraming answered calls papuntang confirmed upsells."
         );
     }
 
-    /** Which hour-of-day generates the most Excess, summed across every day
-     *  in the lookback window — same hourly bucketing ChartsController's own
-     *  "Excess Leads Trend" chart uses, just re-summed by hour instead of by
-     *  day. Also names WHICH shift that Excess mostly comes from — explicit
-     *  request, 2026-08-27: "anong oras tumataas ang excess leads? saang
-     *  shift ito nanggagaling?" (what hour does Excess rise, which shift
-     *  does it come from) — grouping that peak hour's own orders by TSA
-     *  answers the second question with the same tally()['excess'] formula,
-     *  just re-summed by TSA instead of by hour. */
-    private function peakExcessHourCard(Collection $activityOrders): ?array
+    /** Which hour-of-day generates the most Excess — explicit request,
+     *  2026-09-01: scoped to just the SELECTED day, not summed across the
+     *  whole 14-day lookback window like it originally was (a supervisor
+     *  filtering one specific date, e.g. Aug 31, wants that day's own peak
+     *  hour/count, not "92 over the last 14 days" folded into it). Same
+     *  hourly bucketing ChartsController's own "Excess Leads Trend" chart
+     *  uses, just re-summed by hour instead of by day, and now pre-filtered
+     *  to $referenceDate before that grouping happens. Also names WHICH
+     *  shift that Excess mostly comes from — explicit request, 2026-08-27:
+     *  "anong oras tumataas ang excess leads? saang shift ito nanggagaling?"
+     *  (what hour does Excess rise, which shift does it come from) —
+     *  grouping that peak hour's own orders by TSA answers the second
+     *  question with the same tally()['excess'] formula, just re-summed by
+     *  TSA instead of by hour. $activityOrders is still the full lookback
+     *  window (shared with excessSpikeDayCard(), which genuinely needs
+     *  multiple days to find an outlier) — filtered down to one day here. */
+    private function peakExcessHourCard(Collection $activityOrders, Carbon $referenceDate): ?array
     {
-        if ($activityOrders->isEmpty()) {
+        $dayOrders = $activityOrders->filter(fn (Order $o) => $o->pancake_created_at->isSameDay($referenceDate));
+        if ($dayOrders->isEmpty()) {
             return null;
         }
 
-        $byHour = $activityOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
+        $byHour = $dayOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
         $excessByHour = $byHour->map(fn ($orders) => ProductPerformance::tally($orders)['excess']);
         if ($excessByHour->sum() <= 0) {
             return null;
@@ -569,16 +577,18 @@ class InsightsGenerator
                     ? 'Unassigned'
                     : (TsaShift::where('tsa_key', $topTsaKey)->first()?->display_name ?? $topTsaKey);
                 $shiftPhrase = $topExcess >= $peakExcess
-                    ? " — entirely from {$topName}'s shift"
-                    : " — mostly from {$topName}'s shift ({$topExcess} of {$peakExcess})";
-                $actionShiftPhrase = " (especially {$topName}'s shift)";
+                    ? " — galing lahat sa shift ni {$topName}"
+                    : " — majority galing sa shift ni {$topName} ({$topExcess} sa {$peakExcess})";
+                $actionShiftPhrase = " (lalo na sa shift ni {$topName})";
             }
         }
 
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
+
         return $this->card(
             'warning', 'Timing', '🕐',
-            "Excess leads peak around {$this->formatHourRange($peakHour)} — {$peakExcess} over the last " . self::LOOKBACK_DAYS . " days, more than any other hour{$shiftPhrase}. Consider extra coverage then.",
-            "Schedule extra coverage around {$this->formatHourRange($peakHour)}{$actionShiftPhrase}."
+            "Tumataas ang Excess leads sa {$this->formatHourRange($peakHour)} {$dayWord} — {$peakExcess} sa oras na iyon, pinakamataas sa lahat ng oras{$shiftPhrase}. Dapat magdagdag ng coverage sa oras na iyon.",
+            "Mag-schedule ng extra coverage sa {$this->formatHourRange($peakHour)}{$actionShiftPhrase}."
         );
     }
 
@@ -614,8 +624,8 @@ class InsightsGenerator
 
         return $this->card(
             'critical', 'Timing',  '⚠️',
-            "{$dateLabel} had {$maxExcess} excess leads — about {$multiple}x the {$this->fmt($avgOthers)}-lead daily average for the rest of this window.",
-            "Review what drove the {$dateLabel} spike (lead source, promo, ad push) so staffing can be ready if it repeats."
+            "May {$maxExcess} excess leads ang {$dateLabel} — mga {$multiple}x ng {$this->fmt($avgOthers)}-lead daily average ng ibang araw sa window na ito.",
+            "I-review kung ano ang nag-drive ng spike noong {$dateLabel} (lead source, promo, ad push) para ready ang staffing kung mauulit."
         );
     }
 
@@ -663,8 +673,8 @@ class InsightsGenerator
 
             $cards->push($this->card(
                 'warning', 'Returns', '🚚',
-                "{$r['shift']->display_name}'s RTS rate is {$this->fmt($r['rate'])}% of upsell revenue over the last " . self::LOOKBACK_DAYS . " days, vs. their team's {$this->fmt($teamAvg)}% average (₱" . number_format($r['rts'], 0) . ' returned of ₱' . number_format($r['sample'], 0) . ' total).',
-                "Review {$r['shift']->display_name}'s recent upsell orders for a pattern — may point to product-fit or expectation-setting coaching."
+                "Ang RTS rate ni {$r['shift']->display_name} ay {$this->fmt($r['rate'])}% ng upsell revenue sa nakaraang " . self::LOOKBACK_DAYS . " days, kumpara sa {$this->fmt($teamAvg)}% average ng team niya (₱" . number_format($r['rts'], 0) . ' returned sa ₱' . number_format($r['sample'], 0) . ' total).',
+                "I-review ang recent upsell orders ni {$r['shift']->display_name} para hanapin ang pattern — pwedeng dahil sa product-fit o expectation-setting coaching."
             ));
         }
 
@@ -687,7 +697,7 @@ class InsightsGenerator
         $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
         $ordersByTsa = $teamOrders->groupBy(fn ($o) => $o->tsa_name ?? '__unassigned__');
         $refKey = $referenceDate->toDateString();
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
 
         foreach ($shifts as $shift) {
             $tsaOrders = $ordersByTsa->get($shift->tsa_key, collect());
@@ -710,8 +720,8 @@ class InsightsGenerator
 
             $cards->push($this->card(
                 'warning', 'Cancellations', '❌',
-                "{$shift->display_name} confirmed {$grossUpsells} upsells {$dayWord}, but {$cancelledCount} were later cancelled (₱" . number_format($cancelledAmount, 0) . ") — {$row['upsell_confirmation']} net.",
-                "Have QA review {$shift->display_name}'s cancelled-upsell call recordings to find the pattern behind the cancellations."
+                "May {$grossUpsells} upsells si {$shift->display_name} {$dayWord}, pero {$cancelledCount} dito ay na-cancel (₱" . number_format($cancelledAmount, 0) . ") — {$row['upsell_confirmation']} na lang ang net.",
+                "Pa-review sa QA ang cancelled-upsell call recordings ni {$shift->display_name} para mahanap ang pattern ng mga cancellation."
             ));
         }
 
@@ -734,7 +744,7 @@ class InsightsGenerator
         }
 
         $teamProducts = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
         $cards = collect();
 
         foreach ($teamProducts as $product) {
@@ -745,8 +755,8 @@ class InsightsGenerator
 
             $cards->push($this->card(
                 'warning', 'Product', '📦',
-                "{$product->display_name} had {$row['total']} leads {$dayWord} but zero confirmed upsells.",
-                "Check {$product->display_name}'s script/positioning and current stock status — {$row['total']} leads with no upsell is worth investigating."
+                "May {$row['total']} leads ang {$product->display_name} {$dayWord} pero walang confirmed upsells.",
+                "I-check ang script/positioning at current stock status ng {$product->display_name} — dapat i-imbestigahan ang {$row['total']} leads na walang upsell."
             ));
         }
 
@@ -783,21 +793,20 @@ class InsightsGenerator
         $refRow = ProductPerformance::tally($refOrders);
         $prevRow = ProductPerformance::tally($prevOrders);
 
-        $label = $referenceDate->isToday() ? 'Today' : $referenceDate->format('M j');
-        $verb = $referenceDate->isToday() ? 'is' : 'was';
-        $dayWord = $referenceDate->isToday() ? 'today' : $referenceDate->format('M j');
+        $label = $referenceDate->isToday() ? 'Ngayong araw' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
         $cards = collect();
 
         if ($prevRow['total'] > 0) {
             $volDeltaPct = round((($refRow['total'] - $prevRow['total']) / $prevRow['total']) * 100, 1);
             if (abs($volDeltaPct) >= self::VOLUME_DELTA_PERCENT) {
-                $direction = $volDeltaPct > 0 ? 'up' : 'down';
+                $direction = $volDeltaPct > 0 ? 'tumaas' : 'bumaba';
                 $cards->push($this->card(
                     $volDeltaPct > 0 ? 'info' : 'warning', 'Daily trend', $volDeltaPct > 0 ? '📊' : '📉',
-                    "{$label}'s New Leads count {$verb} {$refRow['total']}, {$direction} " . $this->fmt(abs($volDeltaPct)) . "% from {$prevRow['total']} the day before.",
+                    "{$label}, {$direction} ang New Leads count sa {$refRow['total']}, " . $this->fmt(abs($volDeltaPct)) . "% mula sa {$prevRow['total']} kahapon.",
                     $volDeltaPct > 0
-                        ? 'Confirm shift coverage can handle the higher volume; watch for a resulting Excess increase.'
-                        : 'Check whether the drop is a sync/data gap or a real volume drop before assuming a problem.'
+                        ? 'I-confirm kung kaya ng shift coverage ang mas mataas na volume; bantayan ang posibleng pagtaas ng Excess.'
+                        : 'I-check kung sync/data gap lang ang dahilan ng pagbaba o totoong volume drop bago i-assume na problema.'
                 ));
             }
         }
@@ -808,10 +817,10 @@ class InsightsGenerator
             if (abs($delta) >= self::DAY_CONVERSION_DELTA_POINTS) {
                 $cards->push($this->card(
                     $delta > 0 ? 'positive' : 'warning', 'Daily trend', $delta > 0 ? '📈' : '📉',
-                    "{$label}'s overall conversion rate {$verb} {$refRow['conversion_rate']}%, " . ($delta > 0 ? 'up' : 'down') . ' ' . $this->fmt(abs($delta)) . "pts from {$this->fmt($prevRow['conversion_rate'])}% the day before.",
+                    "{$label}, ang overall Conversion Rate ay {$refRow['conversion_rate']}%, " . ($delta > 0 ? 'tumaas' : 'bumaba') . ' ng ' . $this->fmt(abs($delta)) . "pts mula sa {$this->fmt($prevRow['conversion_rate'])}% kahapon.",
                     $delta > 0
-                        ? "Note what changed {$dayWord} — worth repeating across the team."
-                        : 'Investigate the drop — check the disposition mix and hourly breakdown for where it concentrated.'
+                        ? "I-note kung ano ang nagbago {$dayWord} — dapat ulitin sa buong team."
+                        : 'I-imbestigahan ang pagbaba — i-check ang disposition mix at hourly breakdown kung saan ito nag-concentrate.'
                 ));
             }
         }
@@ -852,13 +861,13 @@ class InsightsGenerator
         if ($lastWeekRow['total'] > 0) {
             $volDeltaPct = round((($thisWeekRow['total'] - $lastWeekRow['total']) / $lastWeekRow['total']) * 100, 1);
             if (abs($volDeltaPct) >= self::VOLUME_DELTA_PERCENT) {
-                $direction = $volDeltaPct > 0 ? 'up' : 'down';
+                $direction = $volDeltaPct > 0 ? 'tumaas' : 'bumaba';
                 $cards->push($this->card(
                     $volDeltaPct > 0 ? 'info' : 'warning', 'Weekly trend', $volDeltaPct > 0 ? '📊' : '📉',
-                    "This week's New Leads total is {$thisWeekRow['total']}, {$direction} " . $this->fmt(abs($volDeltaPct)) . "% from {$lastWeekRow['total']} last week.",
+                    "Ang New Leads total ngayong linggo ay {$thisWeekRow['total']}, {$direction} ng " . $this->fmt(abs($volDeltaPct)) . "% mula sa {$lastWeekRow['total']} noong nakaraang linggo.",
                     $volDeltaPct > 0
-                        ? 'Confirm staffing is planned for the higher weekly volume going forward.'
-                        : 'Check lead sources/sync for this week — a real drop this size is worth escalating.'
+                        ? 'I-confirm kung planado ang staffing para sa mas mataas na weekly volume papunta sa susunod.'
+                        : 'I-check ang lead sources/sync ngayong linggo — dapat i-escalate kung ganito kalaki ang drop.'
                 ));
             }
         }
@@ -869,10 +878,10 @@ class InsightsGenerator
             if (abs($delta) >= self::WEEK_CONVERSION_DELTA_POINTS) {
                 $cards->push($this->card(
                     $delta > 0 ? 'positive' : 'warning', 'Weekly trend', $delta > 0 ? '📈' : '📉',
-                    "This week's conversion rate is {$thisWeekRow['conversion_rate']}%, " . ($delta > 0 ? 'up' : 'down') . ' ' . $this->fmt(abs($delta)) . "pts from {$this->fmt($lastWeekRow['conversion_rate'])}% last week.",
+                    "Ang Conversion Rate ngayong linggo ay {$thisWeekRow['conversion_rate']}%, " . ($delta > 0 ? 'tumaas' : 'bumaba') . ' ng ' . $this->fmt(abs($delta)) . "pts mula sa {$this->fmt($lastWeekRow['conversion_rate'])}% noong nakaraang linggo.",
                     $delta > 0
-                        ? 'Note what changed this week — worth repeating and reinforcing across the team.'
-                        : 'Review this week\'s disposition mix and per-TSA trends to find where the drop concentrated.'
+                        ? 'I-note kung ano ang nagbago ngayong linggo — dapat ulitin at i-reinforce sa buong team.'
+                        : 'I-review ang disposition mix at per-TSA trends ngayong linggo para mahanap kung saan nag-concentrate ang drop.'
                 ));
             }
         }
@@ -960,19 +969,19 @@ class InsightsGenerator
         $severity = $downSignals >= 2 ? 'warning' : (($upSignals >= 2 && $downSignals === 0) ? 'positive' : 'info');
         $icon = $severity === 'warning' ? '📉' : ($severity === 'positive' ? '📈' : '📋');
 
-        $label = $referenceDate->isToday() ? 'Today' : $referenceDate->format('M j');
+        $label = $referenceDate->isToday() ? 'Ngayong araw' : $referenceDate->format('M j');
 
         $workingNote = '';
         if ($refWorking !== $prevWorking) {
-            $workingNote = " {$refWorking} TSA" . ($refWorking === 1 ? '' : 's') . ' worked vs. ' . $prevWorking . ' the day before'
-                . ($refWorking < $prevWorking ? ' — fewer hands on deck likely explains part of this.' : '.');
+            $workingNote = " {$refWorking} TSA ang nag-work kumpara sa {$prevWorking} kahapon"
+                . ($refWorking < $prevWorking ? ' — bahagyang naipapaliwanag nito ang kakulangan dahil kulang ang manpower.' : '.');
         }
 
-        $message = "{$label} vs. the day before: " . implode(', ', $lines) . '.' . $workingNote;
+        $message = "{$label} kumpara sa kahapon: " . implode(', ', $lines) . '.' . $workingNote;
 
         return $this->card($severity, 'Daily recap', $icon, $message,
             $severity === 'warning'
-                ? 'Review the disposition mix and working-TSA count before assuming this is a pure performance issue.'
+                ? 'I-review ang disposition mix at working-TSA count bago i-assume na performance issue lang ito.'
                 : null
         );
     }
@@ -991,11 +1000,11 @@ class InsightsGenerator
 
         $deltaPct = round((($ref - $prev) / $prev) * 100, 1);
         if ($deltaPct === 0.0) {
-            return "{$label} {$fmt($ref)} (flat vs. {$fmt($prev)})";
+            return "{$label} {$fmt($ref)} (flat, kagaya ng {$fmt($prev)})";
         }
 
-        $dir = $deltaPct > 0 ? 'up' : 'down';
-        return "{$label} {$fmt($ref)} ({$dir} " . $this->fmt(abs($deltaPct)) . "% from {$fmt($prev)})";
+        $dir = $deltaPct > 0 ? 'tumaas' : 'bumaba';
+        return "{$label} {$fmt($ref)} ({$dir} ng " . $this->fmt(abs($deltaPct)) . "% mula sa {$fmt($prev)})";
     }
 
     /** Shared by dailyRecapCard() — a percentage rate's day-over-day delta
@@ -1013,8 +1022,8 @@ class InsightsGenerator
             return "{$label} {$this->fmt($ref)}% (flat)";
         }
 
-        $dir = $delta > 0 ? 'up' : 'down';
-        return "{$label} {$this->fmt($ref)}% ({$dir} " . $this->fmt(abs($delta)) . "pts from {$this->fmt($prev)}%)";
+        $dir = $delta > 0 ? 'tumaas' : 'bumaba';
+        return "{$label} {$this->fmt($ref)}% ({$dir} ng " . $this->fmt(abs($delta)) . "pts mula sa {$this->fmt($prev)}%)";
     }
 
     /** Whole-shop, plain-language paragraph synthesizing the whole day —
@@ -1047,7 +1056,7 @@ class InsightsGenerator
 
         $refRow = $facts['refRow'];
         $prevRow = $facts['prevRow'];
-        $dayWord = $referenceDate->isToday() ? 'Today' : $referenceDate->format('M j');
+        $dayWord = $referenceDate->isToday() ? 'Ngayong araw' : $referenceDate->format('M j');
 
         // Deterministic per (date, team) — same seed every reload of the
         // same day, different across days/teams.
@@ -1070,39 +1079,39 @@ class InsightsGenerator
 
         $openings = [
             'down' => [
-                "{$dayWord} came in softer than the day before.",
-                "{$dayWord}'s numbers slipped compared to yesterday.",
-                "The team lost some ground {$dayWord} relative to the previous day.",
+                "Mas mahina ang {$dayWord} kumpara sa araw bago nito.",
+                "Bumaba ang mga numero {$dayWord} kumpara kahapon.",
+                "Medyo nalugi ang team {$dayWord} kumpara sa nakaraang araw.",
             ],
             'up' => [
-                "{$dayWord} was a genuinely strong day.",
-                "{$dayWord}'s results improved nicely over yesterday.",
-                "The team pushed the numbers forward {$dayWord}.",
+                "Malakas talaga ang performance {$dayWord}.",
+                "Gumanda ang resulta {$dayWord} kumpara kahapon.",
+                "Tumaas ang mga numero ng team {$dayWord}.",
             ],
             'mixed' => [
-                "{$dayWord}'s results were a mixed bag compared to yesterday.",
-                "{$dayWord} landed somewhere in between yesterday's numbers — a few things up, a few things down.",
-                "Nothing moved dramatically {$dayWord}, just a split day.",
+                "Halo-halo ang resulta {$dayWord} kumpara kahapon.",
+                "Sa gitna lang ang {$dayWord} kumpara sa mga numero kahapon — may tumaas, may bumaba.",
+                "Walang malaking galaw {$dayWord}, hati lang ang resulta.",
             ],
         ];
         $sentences[] = $pick($openings[$tone], 'opening');
 
         $orderDelta = $refRow['upsell_confirmation'] - $prevRow['upsell_confirmation'];
-        $orderWord = $orderDelta > 0 ? 'up' : ($orderDelta < 0 ? 'down' : 'flat');
+        $orderWord = $orderDelta > 0 ? 'tumaas' : ($orderDelta < 0 ? 'bumaba' : 'flat');
         $rateBits = array_filter([
-            $refRow['pick_up_rate'] !== null ? "Pick-up Rate at {$this->fmt($refRow['pick_up_rate'])}%" : null,
-            $refRow['upselling_rate'] !== null ? "Upselling Rate at {$this->fmt($refRow['upselling_rate'])}%" : null,
+            $refRow['pick_up_rate'] !== null ? "Pick-up Rate na {$this->fmt($refRow['pick_up_rate'])}%" : null,
+            $refRow['upselling_rate'] !== null ? "Upselling Rate na {$this->fmt($refRow['upselling_rate'])}%" : null,
         ]);
-        $sentences[] = "{$refRow['total']} new leads came in and {$refRow['upsell_confirmation']} orders were confirmed ({$orderWord} " . abs($orderDelta) . ' from yesterday), with ' . implode(' and ', $rateBits) . '.';
+        $sentences[] = "May {$refRow['total']} new leads na pumasok at {$refRow['upsell_confirmation']} orders ang na-confirm ({$orderWord} ng " . abs($orderDelta) . ' mula kahapon), may ' . implode(' at ', $rateBits) . '.';
 
         // Manpower — only when working-TSA count actually DROPPED (matches
         // the real report's own "kulang na manpower" framing; a rise in
         // headcount isn't a concern worth narrating here).
         if ($facts['refWorking'] < $facts['prevWorking']) {
             $sentences[] = $pick([
-                "Only {$facts['refWorking']} TSAs were working (vs. {$facts['prevWorking']} yesterday), which likely explains part of the gap.",
-                "Manpower was thinner today — {$facts['refWorking']} vs. {$facts['prevWorking']} TSAs the day before.",
-                "With {$facts['refWorking']} of the usual {$facts['prevWorking']} TSAs in, capacity was down before any performance factor even comes into it.",
+                "{$facts['refWorking']} TSA lang ang nag-work (vs. {$facts['prevWorking']} kahapon), na malamang bahagi ng dahilan ng kakulangan.",
+                "Kulang ang manpower ngayong araw — {$facts['refWorking']} vs. {$facts['prevWorking']} TSA kahapon.",
+                "Sa {$facts['refWorking']} sa dating {$facts['prevWorking']} TSA na karaniwang naka-duty, bumaba na ang capacity kahit wala pang performance factor.",
             ], 'manpower');
         }
 
@@ -1111,16 +1120,16 @@ class InsightsGenerator
             $worst = $candidates[count($candidates) - 1];
             if ($best['rate'] > 0) {
                 $sentences[] = $pick([
-                    "{$best['name']} led the day at {$best['rate']}% conversion ({$best['upsells']} upsells).",
-                    "On the strong side, {$best['name']} closed out at {$best['rate']}% conversion.",
-                    "{$best['name']}'s {$best['rate']}% conversion rate was the standout today.",
+                    "Si {$best['name']} ang nangunguna ngayong araw sa {$best['rate']}% conversion ({$best['upsells']} upsells).",
+                    "Sa magandang side, natapos si {$best['name']} sa {$best['rate']}% conversion.",
+                    "Ang {$best['rate']}% conversion rate ni {$best['name']} ang pinakamatingkad ngayong araw.",
                 ], 'top');
             }
             if ($worst['rate'] <= self::BOTTOM_PERFORMER_MAX_RATE && $worst['name'] !== $best['name']) {
                 $sentences[] = $pick([
-                    "{$worst['name']} struggled by comparison, at {$worst['rate']}% conversion — worth a check-in.",
-                    "On the other end, {$worst['name']}'s {$worst['rate']}% conversion rate needs attention.",
-                    "{$worst['name']} is the one to coach up, sitting at {$worst['rate']}% today.",
+                    "Nahirapan naman si {$worst['name']}, sa {$worst['rate']}% conversion lang — dapat i-check-in.",
+                    "Sa kabilang banda, kailangan ng atensyon ang {$worst['rate']}% conversion rate ni {$worst['name']}.",
+                    "Si {$worst['name']} ang dapat i-coach, nasa {$worst['rate']}% lang ngayong araw.",
                 ], 'bottom');
             }
         }
@@ -1130,39 +1139,38 @@ class InsightsGenerator
         // message text.
         $targetMissCount = $cards->where('category', 'Target metrics')->count();
         if ($targetMissCount > 0) {
-            $tsaWord = $targetMissCount === 1 ? 'TSA' : 'TSAs';
             $sentences[] = $pick([
-                "{$targetMissCount} {$tsaWord} missed at least one daily target — see Target Metrics below for specifics.",
-                "Daily targets weren't fully hit by {$targetMissCount} {$tsaWord} — details below.",
+                "{$targetMissCount} TSA ang hindi na-achieve ang kahit isang daily target — tingnan ang Target Metrics sa baba para sa detalye.",
+                "Hindi na-achieve ng {$targetMissCount} TSA ang buong daily targets — detalye sa baba.",
             ], 'targets');
         }
 
         if ($cards->contains(fn ($c) => $c['category'] === 'Cancellations')) {
             $sentences[] = $pick([
-                'A meaningful share of confirmed upsells were later cancelled — worth a QA pass on those calls.',
-                "Some upsells that looked confirmed didn't stick — cancellations ate into the real number.",
+                'Marami sa confirmed upsells ang na-cancel pa rin — dapat i-QA ang mga tawag na iyon.',
+                'May mga upsells na tila confirmed pero na-cancel din — kinain ng cancellations ang totoong bilang.',
             ], 'cancellations');
         }
 
         if ($cards->contains(fn ($c) => $c['category'] === 'Timing' && $c['severity'] !== 'positive')) {
             $sentences[] = $pick([
-                'Excess leads are still concentrated in specific hours — coverage timing is worth another look.',
-                'A clear peak-hour pattern in Excess leads suggests staffing could shift to match demand better.',
+                'Nakaconcentrate pa rin ang Excess leads sa specific na oras — dapat tingnan ulit ang coverage timing.',
+                'Malinaw ang peak-hour pattern ng Excess leads, dapat i-adjust ang staffing para umayon sa demand.',
             ], 'timing');
         }
 
         $closings = [
             'down' => [
-                'Focus tomorrow: shore up the gaps above before they compound.',
-                "Tomorrow's priority is recovering the ground lost today.",
+                'Focus bukas: tapunan ang mga puwang sa itaas bago pa lumala.',
+                'Priority bukas ay ang mabawi ang nawala ngayong araw.',
             ],
             'up' => [
-                'Keep the momentum — repeat whatever drove today and watch for it to hold.',
-                "The goal now is making today's result the new normal, not a one-off.",
+                'Panatilihin ang momentum — ulitin ang nag-drive ngayong araw at bantayan kung tuloy-tuloy.',
+                'Ang goal ngayon ay gawing normal ang resulta ngayong araw, hindi one-time lang.',
             ],
             'mixed' => [
-                "Tomorrow, double down on what worked and address what didn't.",
-                'A day like this is mostly about fixing the specific gaps, not a wholesale change.',
+                'Bukas, i-double down ang mga gumana at ayusin ang mga hindi.',
+                'Ang araw na ganito ay tungkol sa pag-ayos ng specific na puwang, hindi malaking pagbabago.',
             ],
         ];
         $sentences[] = $pick($closings[$tone], 'closing');

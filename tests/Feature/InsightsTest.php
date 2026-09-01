@@ -187,7 +187,7 @@ class InsightsTest extends TestCase
             // reason (explicit request, 2026-08-27: "there is many leads
             // that is unanswered that's why that got down the pick up
             // rate") should name it right on the Pick-up Rate miss.
-            && str_contains($c['message'], 'driven by Not Answering (12 of 12 unanswered)')));
+            && str_contains($c['message'], 'galing sa Not Answering (12 sa 12 unanswered)')));
     }
 
     public function test_omits_the_pick_up_rate_reason_when_no_single_cause_dominates(): void
@@ -235,8 +235,8 @@ class InsightsTest extends TestCase
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Target metrics'
             && str_contains($c['message'], 'Gemma De Guzman')
-            && str_contains($c['message'], 'driven by Not Answering (12 of 12 unanswered)')
-            && str_contains($c['message'], 'mostly SINUXYL orders')));
+            && str_contains($c['message'], 'galing sa Not Answering (12 sa 12 unanswered)')
+            && str_contains($c['message'], 'majority ay galing sa SINUXYL orders')));
     }
 
     public function test_does_not_flag_a_tsa_who_hits_every_target(): void
@@ -293,7 +293,7 @@ class InsightsTest extends TestCase
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'TSA performance'
             && $c['severity'] === 'warning'
             && str_contains($c['message'], 'Gemma De Guzman')
-            && str_contains($c['message'], 'lowest')));
+            && str_contains($c['message'], 'pinakamababa')));
     }
 
     public function test_does_not_flag_a_bottom_performer_when_the_worst_rate_is_still_healthy(): void
@@ -312,7 +312,7 @@ class InsightsTest extends TestCase
 
         $cards = (new InsightsGenerator())->generate();
 
-        $this->assertFalse($cards->contains(fn ($c) => $c['category'] === 'TSA performance' && str_contains($c['message'], 'lowest')));
+        $this->assertFalse($cards->contains(fn ($c) => $c['category'] === 'TSA performance' && str_contains($c['message'], 'pinakamababa')));
     }
 
     // ---- Cancelled upsells ---------------------------------------------
@@ -334,8 +334,8 @@ class InsightsTest extends TestCase
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Cancellations'
             && str_contains($c['message'], 'Gemma De Guzman')
             && str_contains($c['message'], '24 upsells')
-            && str_contains($c['message'], '5 were later cancelled')
-            && str_contains($c['message'], '19 net')));
+            && str_contains($c['message'], '5 dito ay na-cancel')
+            && str_contains($c['message'], '19 na lang ang net')));
     }
 
     public function test_does_not_flag_cancellations_below_the_minimum_count(): void
@@ -384,7 +384,7 @@ class InsightsTest extends TestCase
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Product'
             && str_contains($c['message'], 'SINUXYL')
             && str_contains($c['message'], '8 leads')
-            && str_contains($c['message'], 'zero confirmed upsells')));
+            && str_contains($c['message'], 'walang confirmed upsells')));
     }
 
     public function test_does_not_flag_a_product_with_too_few_leads(): void
@@ -642,7 +642,7 @@ class InsightsTest extends TestCase
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Daily trend'
             && $c['severity'] === 'warning'
-            && str_contains($c['message'], 'conversion rate')
+            && str_contains($c['message'], 'Conversion Rate')
             && str_contains($c['message'], '0%')));
     }
 
@@ -703,7 +703,7 @@ class InsightsTest extends TestCase
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Weekly trend'
             && $c['severity'] === 'warning'
-            && str_contains($c['message'], 'conversion rate')
+            && str_contains($c['message'], 'Conversion Rate')
             && str_contains($c['message'], '0%')));
     }
 
@@ -768,8 +768,8 @@ class InsightsTest extends TestCase
         $cards = (new InsightsGenerator())->generate();
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Daily recap'
-            && str_contains($c['message'], '1 TSA worked vs. 2 the day before')
-            && str_contains($c['message'], 'fewer hands on deck')));
+            && str_contains($c['message'], '1 TSA ang nag-work kumpara sa 2 kahapon')
+            && str_contains($c['message'], 'kulang ang manpower')));
     }
 
     public function test_the_daily_recap_is_skipped_below_the_minimum_volume_gate(): void
@@ -822,7 +822,7 @@ class InsightsTest extends TestCase
 
         $narrative = $cards->firstWhere('category', 'Overview');
         $this->assertStringContainsString('1', $narrative['message']);
-        $this->assertMatchesRegularExpression('/2 TSAs the day before|vs\. 2 the day before|usual 2 TSAs/', $narrative['message']);
+        $this->assertMatchesRegularExpression('/vs\. 2 kahapon|vs\. 2 TSA kahapon|dating 2 TSA/', $narrative['message']);
     }
 
     public function test_the_daily_narrative_mentions_top_and_bottom_performer(): void
@@ -873,7 +873,7 @@ class InsightsTest extends TestCase
         $cards = (new InsightsGenerator())->generate();
 
         $narrative = $cards->firstWhere('category', 'Overview');
-        $this->assertMatchesRegularExpression('/1 TSA missed|missed .* by 1 TSA/', $narrative['message']);
+        $this->assertMatchesRegularExpression('/1 TSA ang hindi na-achieve|Hindi na-achieve ng 1 TSA/', $narrative['message']);
 
         Carbon::setTestNow();
     }
@@ -907,6 +907,30 @@ class InsightsTest extends TestCase
         $this->assertNull($cards->firstWhere('category', 'Overview'));
     }
 
+    // ---- Peak excess hour: scoped to the selected day only ---------------
+
+    public function test_peak_excess_hour_only_counts_the_selected_day_not_the_whole_lookback_window(): void
+    {
+        // Explicit request, 2026-09-01: filtering one specific date (e.g.
+        // Aug 31) should show THAT day's own peak-hour Excess count, not the
+        // 14-day lookback window's total folded into it. 5 days ago: 50
+        // Excess leads at 2pm (would dominate a 14-day sum). Today: only 3
+        // Excess leads at 2pm. The card should report 3, not 53.
+        for ($i = 0; $i < 50; $i++) {
+            $this->order(['pancake_created_at' => today()->subDays(5)->setTime(14, 0), 'pancake_inserted_at' => today()->subDays(5)->setTime(14, 0)]);
+        }
+        for ($i = 0; $i < 3; $i++) {
+            $this->order(['pancake_created_at' => today()->setTime(14, 0), 'pancake_inserted_at' => today()->setTime(14, 0)]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $timingCard = $cards->firstWhere('category', 'Timing');
+        $this->assertNotNull($timingCard);
+        $this->assertStringContainsString('— 3 sa oras na iyon', $timingCard['message']);
+        $this->assertStringNotContainsString('53', $timingCard['message']);
+    }
+
     // ---- Peak excess hour: which shift -----------------------------------
 
     public function test_names_the_shift_a_peak_hours_excess_mostly_comes_from(): void
@@ -925,9 +949,9 @@ class InsightsTest extends TestCase
         $cards = (new InsightsGenerator())->generate();
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Timing'
-            && str_contains($c['message'], 'peak around')
-            && str_contains($c['message'], "mostly from Gemma De Guzman's shift")
-            && str_contains($c['message'], '20 of 25')));
+            && str_contains($c['message'], 'Tumataas ang Excess leads')
+            && str_contains($c['message'], 'majority galing sa shift ni Gemma De Guzman')
+            && str_contains($c['message'], '20 sa 25')));
     }
 
     public function test_says_entirely_when_only_one_shift_contributes(): void
@@ -938,7 +962,7 @@ class InsightsTest extends TestCase
 
         $cards = (new InsightsGenerator())->generate();
 
-        $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Timing' && str_contains($c['message'], "entirely from Gemma De Guzman's shift")));
+        $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Timing' && str_contains($c['message'], 'galing lahat sa shift ni Gemma De Guzman')));
     }
 
     public function test_omits_the_shift_phrase_when_no_single_shift_dominates(): void
@@ -958,7 +982,7 @@ class InsightsTest extends TestCase
         $cards = (new InsightsGenerator())->generate();
 
         $this->assertTrue($cards->contains(fn ($c) => $c['category'] === 'Timing'
-            && str_contains($c['message'], 'peak around')
+            && str_contains($c['message'], 'Tumataas ang Excess leads')
             && !str_contains($c['message'], 'shift')));
     }
 
@@ -999,7 +1023,7 @@ class InsightsTest extends TestCase
         $this->assertTrue($cards->contains(fn ($c) => $c['severity'] === 'positive'
             && str_contains($c['message'], 'top performer')
             && $c['action'] !== null
-            && str_contains($c['action'], 'Recognize')));
+            && str_contains($c['action'], 'Kilalanin')));
     }
 
     public function test_the_action_plan_view_only_shows_cards_that_have_an_action(): void
@@ -1009,7 +1033,7 @@ class InsightsTest extends TestCase
         $response = $this->get(route('insights', ['view' => 'action-plan']));
 
         $response->assertOk();
-        $response->assertDontSee('Nothing worth flagging right now.');
+        $response->assertDontSee('Wala pang dapat i-flag ngayon.');
     }
 
     public function test_the_view_toggle_persists_across_requests_via_session(): void
@@ -1040,6 +1064,6 @@ class InsightsTest extends TestCase
         $response = $this->get(route('insights'));
 
         $response->assertOk();
-        $response->assertSee('Nothing worth flagging right now.');
+        $response->assertSee('Wala pang dapat i-flag ngayon.');
     }
 }
