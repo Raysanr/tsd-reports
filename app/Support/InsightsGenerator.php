@@ -51,12 +51,6 @@ class InsightsGenerator
      *  selected day's conversion rate is worth a card (either direction). */
     private const TREND_DELTA_POINTS = 15.0;
 
-    /** A day's Excess must be at least this many multiples of the OTHER
-     *  days' average, AND at least MIN_EXCESS_SPIKE_COUNT leads, before it's
-     *  flagged as a spike rather than normal day-to-day variance. */
-    private const EXCESS_SPIKE_MULTIPLIER = 2.0;
-    private const MIN_EXCESS_SPIKE_COUNT = 10;
-
     /** RTS rate (returned ÷ (returned + delivered)) this many percentage
      *  points above the TEAM's own average — not a hardcoded absolute
      *  percent, which would need knowing this business's real baseline RTS
@@ -160,19 +154,52 @@ class InsightsGenerator
         // POS," 2026-08-11) — needed for per-TSA trend/RTS cards below.
         // $activityOrders answers "when did this lead actually arrive/get
         // worked," the plain pancake_created_at ChartsController's own
-        // hourly/daily trends already use — needed for the timing cards.
-        // Using the wrong one for either would silently disagree with the
-        // page a supervisor would go double-check the card against.
+        // hourly/daily trends already use — needed for peakExcessHourCard()
+        // below. Using the wrong one for either would silently disagree with
+        // the page a supervisor would go double-check the card against.
         // whereIn('team', $orderTeams) here (not a filter after ->get()) is
         // what scopes EVERY card below to the selected team — the day/week/
         // timing cards never touch config('teams') themselves, so this is
         // the only place team-scoping happens for them.
+        //
+        // $activityOrders is scoped to just $referenceDate, NOT the full
+        // 14-day $rangeFrom/$rangeTo window — it used to feed both
+        // peakExcessHourCard() and excessSpikeDayCard(), the latter of which
+        // genuinely needed the full window to find an outlier day. That card
+        // was removed 2026-09-01 (explicit request: naming a DIFFERENT day,
+        // e.g. "Aug 18 had 248 excess leads," while viewing a filtered Aug
+        // 31 was confusing — there's no date-RANGE mode on this page, every
+        // visit is a single selected day, so a card whose whole point is "a
+        // different day than the one you picked" never fit it). Left at the
+        // narrower single-day range since the only remaining reader
+        // (peakExcessHourCard()) doesn't need more than that.
         $attributionOrders = Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeFrom, $rangeTo]
         )->whereIn('team', $orderTeams)->get();
-        $activityOrders = Order::whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+        $activityOrders = Order::whereBetween('pancake_created_at', [$referenceDate->copy()->startOfDay(), $referenceDate->copy()->endOfDay()])
             ->whereIn('team', $orderTeams)->get();
+
+        // $matchPool/$products — explicit request, 2026-09-01: Overview's "New
+        // Leads"/Daily Recap totals disagreed with Leads Report/TSA Performance's
+        // own Grand Total (395 vs 383, confirmed live) because dayVsPrevFacts()
+        // used to tally() $attributionOrders directly (every order in range, no
+        // product-matching), while Leads Report/TSA Performance define "total
+        // leads" as the SUM of each configured product's own matched orders — an
+        // order that matches NO product at all is silently excluded there (see
+        // LeadsReportController::indexAll()'s own comment: "An untracked-product
+        // order is simply not counted here"). $matchPool is deliberately NOT
+        // scoped to $orderTeams (unlike $attributionOrders above) for the exact
+        // same reason LeadsReportController::index()'s own $matchPool isn't — a
+        // cross-team combo order (e.g. a Pterygium order bundling Sinuxyl units)
+        // would otherwise be invisible to the other team's product row.
+        $matchPool = Order::whereRaw(
+            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+            [$rangeFrom, $rangeTo]
+        )->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+        $products = $team && array_key_exists($team, $teamsConfig)
+            ? Product::where('team', $teamsConfig[$team]['order_team'])->orderBy('sort_order')->get()
+            : Product::orderBy('sort_order')->get();
 
         $cards = collect();
 
@@ -199,7 +226,7 @@ class InsightsGenerator
         // topbar filter buttons' race-condition window (see app.js's
         // softRefresh/submit-handler comments) wider than it needed to be.
         $candidates = $this->rankedConversionCandidates($attributionOrders, $referenceDate);
-        $dayVsPrevFacts = $this->dayVsPrevFacts($attributionOrders, $referenceDate);
+        $dayVsPrevFacts = $this->dayVsPrevFacts($matchPool, $products, $referenceDate);
 
         if ($card = $this->topPerformerCard($candidates, $referenceDate)) {
             $cards->push($card);
@@ -208,9 +235,6 @@ class InsightsGenerator
             $cards->push($card);
         }
         if ($card = $this->peakExcessHourCard($activityOrders, $referenceDate)) {
-            $cards->push($card);
-        }
-        if ($card = $this->excessSpikeDayCard($activityOrders)) {
             $cards->push($card);
         }
 
@@ -527,30 +551,27 @@ class InsightsGenerator
         );
     }
 
-    /** Which hour-of-day generates the most Excess — explicit request,
-     *  2026-09-01: scoped to just the SELECTED day, not summed across the
-     *  whole 14-day lookback window like it originally was (a supervisor
-     *  filtering one specific date, e.g. Aug 31, wants that day's own peak
-     *  hour/count, not "92 over the last 14 days" folded into it). Same
-     *  hourly bucketing ChartsController's own "Excess Leads Trend" chart
-     *  uses, just re-summed by hour instead of by day, and now pre-filtered
-     *  to $referenceDate before that grouping happens. Also names WHICH
-     *  shift that Excess mostly comes from — explicit request, 2026-08-27:
-     *  "anong oras tumataas ang excess leads? saang shift ito nanggagaling?"
-     *  (what hour does Excess rise, which shift does it come from) —
-     *  grouping that peak hour's own orders by TSA answers the second
-     *  question with the same tally()['excess'] formula, just re-summed by
-     *  TSA instead of by hour. $activityOrders is still the full lookback
-     *  window (shared with excessSpikeDayCard(), which genuinely needs
-     *  multiple days to find an outlier) — filtered down to one day here. */
+    /** Which hour-of-day generates the most Excess on the SELECTED day —
+     *  explicit request, 2026-09-01: used to sum across the whole 14-day
+     *  lookback window regardless of which single date was picked (a
+     *  supervisor filtering one specific date, e.g. Aug 31, wants that day's
+     *  own peak hour/count, not "92 over the last 14 days" folded into it);
+     *  $activityOrders (generate()'s own fetch) is now already scoped to
+     *  just $referenceDate for this reason. Same hourly bucketing
+     *  ChartsController's own "Excess Leads Trend" chart uses, just
+     *  re-summed by hour instead of by day. Also names WHICH shift that
+     *  Excess mostly comes from — explicit request, 2026-08-27: "anong oras
+     *  tumataas ang excess leads? saang shift ito nanggagaling?" (what hour
+     *  does Excess rise, which shift does it come from) — grouping that peak
+     *  hour's own orders by TSA answers the second question with the same
+     *  tally()['excess'] formula, just re-summed by TSA instead of by hour. */
     private function peakExcessHourCard(Collection $activityOrders, Carbon $referenceDate): ?array
     {
-        $dayOrders = $activityOrders->filter(fn (Order $o) => $o->pancake_created_at->isSameDay($referenceDate));
-        if ($dayOrders->isEmpty()) {
+        if ($activityOrders->isEmpty()) {
             return null;
         }
 
-        $byHour = $dayOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
+        $byHour = $activityOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
         $excessByHour = $byHour->map(fn ($orders) => ProductPerformance::tally($orders)['excess']);
         if ($excessByHour->sum() <= 0) {
             return null;
@@ -589,43 +610,6 @@ class InsightsGenerator
             'warning', 'Timing', '🕐',
             "Tumataas ang Excess leads sa {$this->formatHourRange($peakHour)} {$dayWord} — {$peakExcess} sa oras na iyon, pinakamataas sa lahat ng oras{$shiftPhrase}. Dapat magdagdag ng coverage sa oras na iyon.",
             "Mag-schedule ng extra coverage sa {$this->formatHourRange($peakHour)}{$actionShiftPhrase}."
-        );
-    }
-
-    /** The single worst day in the window for Excess, if it's genuinely an
-     *  outlier (not just the naturally busiest day) — at least double the
-     *  average of every OTHER day, and at least MIN_EXCESS_SPIKE_COUNT
-     *  leads so a quiet week's tiny numbers don't trip a 2x threshold. */
-    private function excessSpikeDayCard(Collection $activityOrders): ?array
-    {
-        $byDate = $activityOrders->groupBy(fn (Order $o) => $o->pancake_created_at->toDateString());
-        // Fewer than 4 days in range isn't enough to call one an outlier
-        // against "the others."
-        if ($byDate->count() < 4) {
-            return null;
-        }
-
-        $excessByDate = $byDate->map(fn ($orders) => ProductPerformance::tally($orders)['excess']);
-        $maxDate = $excessByDate->sortDesc()->keys()->first();
-        $maxExcess = $excessByDate[$maxDate];
-
-        if ($maxExcess < self::MIN_EXCESS_SPIKE_COUNT) {
-            return null;
-        }
-
-        $others = $excessByDate->except($maxDate);
-        $avgOthers = $others->avg();
-        if ($avgOthers <= 0 || $maxExcess < self::EXCESS_SPIKE_MULTIPLIER * $avgOthers) {
-            return null;
-        }
-
-        $multiple = round($maxExcess / $avgOthers, 1);
-        $dateLabel = Carbon::parse($maxDate)->format('M j');
-
-        return $this->card(
-            'critical', 'Timing',  '⚠️',
-            "May {$maxExcess} excess leads ang {$dateLabel} — mga {$multiple}x ng {$this->fmt($avgOthers)}-lead daily average ng ibang araw sa window na ito.",
-            "I-review kung ano ang nag-drive ng spike noong {$dateLabel} (lead source, promo, ad push) para ready ang staffing kung mauulit."
         );
     }
 
@@ -770,10 +754,7 @@ class InsightsGenerator
      *  average" — this is the simpler, broader "yesterday vs today" read a
      *  supervisor asked for on top of that, using New Leads volume
      *  ('total', same column Leads Report/TSA Performance call it) and
-     *  overall conversion rate. Excess deliberately isn't repeated here —
-     *  excessSpikeDayCard() above already flags an outlier day within the
-     *  window; a second day-over-day Excess comparison would just double
-     *  up on the same signal. */
+     *  overall conversion rate. */
     private function dayOverDayCards(Collection $attributionOrders, Carbon $referenceDate): Collection
     {
         $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
@@ -897,22 +878,38 @@ class InsightsGenerator
      *  'refWorking'/'prevWorking' are distinct TSA counts with any order
      *  that day — explicit confirmation, 2026-08-27: a TSA with no data
      *  that day means rest day/absence, so this doubles as "how many TSAs
-     *  actually worked." */
-    private function dayVsPrevFacts(Collection $attributionOrders, Carbon $referenceDate): ?array
+     *  actually worked."
+     *
+     *  $refRow/$prevRow use ProductPerformance::sumRows() over each
+     *  configured product's own buildRow() — the SAME "total leads" and
+     *  "catered leads" definition Leads Report/TSA Performance's own Grand
+     *  Total use (sum of per-product matched rows; an order matching NO
+     *  configured product is excluded), not a raw tally() over every order
+     *  in range. Fixed 2026-09-01 — confirmed live, a raw tally() showed 554
+     *  "total leads" for a day Leads Report's own Grand Total showed 494,
+     *  the gap being every order that didn't match any product's raw_tags/
+     *  cart item at all (LeadsReportController::indexAll()'s own comment:
+     *  "An untracked-product order is simply not counted here"). $matchPool
+     *  (cross-team, like Leads Report's own matchPool) is what buildRow()
+     *  matches against; $products is the team-scoped (or all-teams) product
+     *  list to sum over. Volume-gate/working-TSA-count below still read the
+     *  raw per-day order set — that's about real activity/headcount, not
+     *  which orders matched a tracked product. */
+    private function dayVsPrevFacts(Collection $matchPool, Collection $products, Carbon $referenceDate): ?array
     {
         $attributionDate = fn (Order $o) => ($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString();
         $refKey = $referenceDate->toDateString();
         $prevKey = $referenceDate->copy()->subDay()->toDateString();
 
-        $refOrders = $attributionOrders->filter(fn ($o) => $attributionDate($o) === $refKey);
-        $prevOrders = $attributionOrders->filter(fn ($o) => $attributionDate($o) === $prevKey);
+        $refOrders = $matchPool->filter(fn ($o) => $attributionDate($o) === $refKey);
+        $prevOrders = $matchPool->filter(fn ($o) => $attributionDate($o) === $prevKey);
 
         if ($refOrders->count() < self::MIN_DAY_VOLUME || $prevOrders->count() < self::MIN_DAY_VOLUME) {
             return null;
         }
 
-        $refRow = ProductPerformance::tally($refOrders);
-        $prevRow = ProductPerformance::tally($prevOrders);
+        $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
+        $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
 
         return [
             'refRow' => $refRow,

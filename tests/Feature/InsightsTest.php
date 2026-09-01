@@ -722,6 +722,47 @@ class InsightsTest extends TestCase
         $this->assertFalse($cards->contains(fn ($c) => $c['category'] === 'Weekly trend'));
     }
 
+    // ---- Total leads matches Leads Report/TSA Performance ----------------
+
+    public function test_daily_recap_new_leads_excludes_orders_matching_no_configured_product(): void
+    {
+        // Explicit bug report, 2026-09-01: Insights' Overview showed 383 New
+        // Leads for a day Leads Report's own Grand Total showed 395 for —
+        // the gap was orders that don't match any configured product's
+        // raw_tags/cart item at all. Leads Report/TSA Performance's Grand
+        // Total is a SUM of each product's own matched rows, which silently
+        // excludes an unmatched order (LeadsReportController::indexAll()'s
+        // own comment: "An untracked-product order is simply not counted
+        // here") — dayVsPrevFacts() must use that same definition, not a
+        // raw distinct-order tally() over everything in range.
+        //
+        // 15 orders tagged SINUXYL (a real configured product) + 5 with no
+        // tag/product signal at all (would only count under a raw tally()).
+        // Yesterday needs the same shape so the MIN_DAY_VOLUME gate passes
+        // on both sides and the recap card actually fires.
+        for ($i = 0; $i < 15; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 15; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL']);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $recap = $cards->firstWhere('category', 'Daily recap');
+        $this->assertNotNull($recap);
+        // Only the 15 SINUXYL-tagged orders should count — the 5 unmatched
+        // ones are excluded, same as Leads Report's own Grand Total would
+        // exclude them.
+        $this->assertStringContainsString('New Leads 15 (flat', $recap['message']);
+    }
+
     // ---- Daily recap -----------------------------------------------------
 
     public function test_the_daily_recap_always_shows_every_metric_given_enough_volume(): void
@@ -729,14 +770,19 @@ class InsightsTest extends TestCase
         // Real EOD reports supplied 2026-08-27 compare Gross Sales, Orders,
         // Pick-up Rate, Upselling Rate, and AOV day-over-day as routine
         // reporting — every line should show regardless of size.
+        //
+        // raw_tags => ['SINUXYL'] on every order — dayVsPrevFacts() sums
+        // PRODUCT-MATCHED rows (2026-09-01 fix, see its own doc comment), so
+        // an order matching no configured product wouldn't count toward
+        // these totals at all.
         for ($i = 0; $i < 10; $i++) {
-            $this->order(['is_upsell' => true, 'amount' => 800, 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+            $this->order(['is_upsell' => true, 'amount' => 800, 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
         }
         for ($i = 0; $i < 10; $i++) {
-            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
         }
         for ($i = 0; $i < 20; $i++) {
-            $this->order(['disposition' => 'CONFIRMED VIA CALL']);
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
         }
 
         $cards = (new InsightsGenerator())->generate();
@@ -929,6 +975,33 @@ class InsightsTest extends TestCase
         $this->assertNotNull($timingCard);
         $this->assertStringContainsString('— 3 sa oras na iyon', $timingCard['message']);
         $this->assertStringNotContainsString('53', $timingCard['message']);
+    }
+
+    public function test_no_timing_card_ever_names_a_different_day_than_the_one_selected(): void
+    {
+        // Explicit bug report, 2026-09-01: viewing a filtered Aug 31 showed
+        // a Timing card about Aug 18 ("May 248 excess leads ang Aug 18") —
+        // excessSpikeDayCard() scanned the whole 14-day lookback window for
+        // an outlier day and could name a day entirely different from the
+        // one selected. That card is removed outright: this page has no
+        // date-RANGE mode, every visit is a single selected day, and a card
+        // whose whole point is "a different day than the one you picked"
+        // never fit that. A genuine spike 5 days ago (400 excess leads, a
+        // clear outlier) must never surface as a card while viewing today.
+        for ($i = 0; $i < 400; $i++) {
+            $this->order(['pancake_created_at' => today()->subDays(5)->setTime(10, 0), 'pancake_inserted_at' => today()->subDays(5)->setTime(10, 0)]);
+        }
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['pancake_created_at' => today()->subDays(3), 'pancake_inserted_at' => today()->subDays(3)]);
+        }
+        for ($i = 0; $i < 5; $i++) {
+            $this->order(['pancake_created_at' => today()]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $this->assertFalse($cards->contains(fn ($c) => $c['category'] === 'Timing'
+            && (str_contains($c['message'], today()->subDays(5)->format('M j')) || str_contains($c['message'], '400'))));
     }
 
     // ---- Peak excess hour: which shift -----------------------------------
