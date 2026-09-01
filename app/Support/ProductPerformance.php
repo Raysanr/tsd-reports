@@ -305,13 +305,34 @@ class ProductPerformance
 
         // Catered = Answered + Unanswered (total_called) — a lead only counts as
         // catered once it has an actual recognized outcome, not just a TSA name tag
-        // with no disposition yet. Excess = Total - Catered: the reconciling
-        // remainder, so every row adds up visibly (total = catered + excess) with no
-        // third bucket. This deliberately folds mid-call/not-yet-dispositioned leads
-        // into Excess rather than Catered — a stricter definition than the previous
-        // tag-based one (Order::EXCESS_DISPOSITIONS is no longer read here at all).
+        // with no disposition yet.
         $row['catered'] = $row['total_called'];
-        $row['excess']  = $row['total'] - $row['catered'];
+
+        // Restocking — orders Pancake itself has parked in Restocking status
+        // (status_code 11, Order::STATUS_LABELS) pending stock, not yet dispositioned
+        // one way or the other. Broken out as its own bucket (2026-09-01, explicit
+        // request) so it's visible instead of silently inflating Excess — before
+        // this, a fully out-of-stock product (e.g. CanPro: 0 total, 0 called, 8
+        // Restocking orders) showed a confusing negative Excess with no visible
+        // cause on the Leads Report.
+        //
+        // Excludes an order already counted in $row['catered'] above — a
+        // Restocking-status order CAN still carry a genuine upsell tag (see
+        // Order::isBroadRealUpsell()'s tag-fallback branch for void statuses,
+        // confirmed live: ExcludedUpsellSellerReportsTest's "real-restocking-1"
+        // case) or a disposition tag, and that order is already correctly
+        // reflected in Catered — bucketing it into Restocking too would double-
+        // subtract it out of Excess.
+        $calledIds = self::ordersForColumn($orders, 'total_called')->pluck('id');
+        $row['restocking'] = $orders->where('status_code', 11)->whereNotIn('id', $calledIds)->count();
+
+        // Excess = Total - Catered - Restocking: the reconciling remainder once both
+        // known non-lead buckets are pulled out, so every row still adds up visibly
+        // (total = catered + restocking + excess) with no unexplained bucket. This
+        // deliberately folds any remaining mid-call/not-yet-dispositioned leads into
+        // Excess rather than Catered — a stricter definition than the previous
+        // tag-based one (Order::EXCESS_DISPOSITIONS is no longer read here at all).
+        $row['excess'] = $row['total'] - $row['catered'] - $row['restocking'];
 
         return array_merge($row, self::rates($row));
     }
@@ -360,7 +381,7 @@ class ProductPerformance
             'total', 'confirmed_via_call', 'upsell_confirmation', 'call_back', 'call_dropped',
             'repeat_order_upsell', 'rude_customer', 'relatives_confirmation', 'dfr', 'double_order',
             'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number', 'upsell_sales',
-            'answered', 'unanswered', 'total_called', 'catered', 'excess',
+            'answered', 'unanswered', 'total_called', 'catered', 'restocking', 'excess',
         ];
 
         $summed = array_fill_keys($keys, 0);
@@ -466,12 +487,20 @@ class ProductPerformance
             return $orders->whereIn('id', $calledIds->flatten()->unique())->values();
         }
 
-        // Excess = Total - Catered (see tally()'s 'excess' line) — the
+        // Restocking — see tally()'s 'restocking' line: orders Pancake has parked
+        // in Restocking status (status_code 11), pulled out of Excess as their own
+        // bucket.
+        if ($column === 'restocking') {
+            return $orders->where('status_code', 11)->values();
+        }
+
+        // Excess = Total - Catered - Restocking (see tally()'s 'excess' line) — the
         // reconciling remainder, so its own "which orders" answer is simply
-        // whichever of these orders didn't land in the Called union above.
+        // whichever of these orders didn't land in the Called union or Restocking above.
         if ($column === 'excess') {
-            $calledIds = self::ordersForColumn($orders, 'total_called')->pluck('id');
-            return $orders->whereNotIn('id', $calledIds)->values();
+            $calledIds     = self::ordersForColumn($orders, 'total_called')->pluck('id');
+            $restockingIds = self::ordersForColumn($orders, 'restocking')->pluck('id');
+            return $orders->whereNotIn('id', $calledIds->merge($restockingIds))->values();
         }
 
         return collect();

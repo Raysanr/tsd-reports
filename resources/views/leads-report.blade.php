@@ -124,6 +124,11 @@
                     class="bg-red-200 dark:bg-red-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">
                     Unanswered Call Leads
                 </th>
+                <th rowspan="2" data-sort-key="restocking"
+                    class="bg-black border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-white uppercase tracking-wide whitespace-nowrap"
+                    style="min-width:80px">
+                    Restocking<br>Orders
+                </th>
                 <th colspan="1"
                     class="bg-rose-300 dark:bg-rose-900 border border-slate-300 dark:border-slate-600 px-3 py-2 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide">
                     Excess Leads
@@ -145,19 +150,21 @@
                 </th>
             </tr>
             <tr>
-                @foreach($metricCols as $col)
+                @foreach($answeredCols->merge($unansweredCols) as $col)
                 @php
-                    $summaryHeaderColor = match($col['group']) {
-                        'answered' => 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400',
-                        'excess'   => 'bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-400',
-                        default    => 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400',
-                    };
+                    $summaryHeaderColor = $col['group'] === 'answered'
+                        ? 'bg-green-50 dark:bg-green-950 text-green-800 dark:text-green-400'
+                        : 'bg-red-50 dark:bg-red-950 text-red-800 dark:text-red-400';
                 @endphp
                 <th class="{{ $summaryHeaderColor }} border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
                     style="min-width:{{ $col['min_width'] }}px" data-sort-key="{{ $col['key'] }}">
                     {!! $col['label'] !!}
                 </th>
                 @endforeach
+                <th class="bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-400 border border-slate-300 dark:border-slate-600 px-2 py-2 text-center text-[10px] font-semibold uppercase tracking-wide leading-tight"
+                    style="min-width:80px" data-sort-key="excess">
+                    Excess<br>Leads
+                </th>
             </tr>
         </thead>
         <tbody>
@@ -175,12 +182,20 @@
                     @if($row['catered']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="catered" title="Click to see the orders behind this total" @endif>
                     {{ $row['catered'] ?: '' }}
                 </td>
-                @foreach($metricCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : ($col['group'] === 'excess' ? 'text-rose-700 dark:text-rose-400 font-semibold' : 'text-slate-700 dark:text-slate-200') }} {{ $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}"
+                @foreach($answeredCols->merge($unansweredCols) as $col)
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $row[$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="{{ $col['key'] }}" data-sort-value="{{ $row[$col['key']] }}"
                     @if($row[$col['key']]) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $row[$col['key']] ?: '' }}
                 </td>
                 @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold text-slate-700 dark:text-slate-200 {{ $row['restocking'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="restocking" data-sort-value="{{ $row['restocking'] }}"
+                    @if($row['restocking']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="restocking" title="Click to see the orders behind this total" @endif>
+                    {{ $row['restocking'] ?: '' }}
+                </td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold text-rose-700 dark:text-rose-400 {{ $row['excess'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="excess" data-sort-value="{{ $row['excess'] }}"
+                    @if($row['excess']) data-drilldown data-dd-cell-product="{{ $row['product_id'] }}" data-dd-column="excess" title="Click to see the orders behind this total" @endif>
+                    {{ $row['excess'] ?: '' }}
+                </td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="pickUpRate" data-sort-value="{{ $row['pick_up_rate'] ?? '' }}">
                     {{ $row['pick_up_rate'] !== null ? $row['pick_up_rate'].'%' : '—' }}
                 </td>
@@ -198,11 +213,17 @@
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
                 <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
-                @foreach($metricCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : ($col['group'] === 'excess' ? 'text-rose-300' : '') }}">
+                @foreach($answeredCols->merge($unansweredCols) as $col)
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
                     {{ $grandTotal[$col['key']] ?: '' }}
                 </td>
                 @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center">
+                    {{ $grandTotal['restocking'] ?: '' }}
+                </td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">
+                    {{ $grandTotal['excess'] ?: '' }}
+                </td>
                 <td class="border border-slate-700 px-3 py-3 text-center text-blue-300">
                     {{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}
                 </td>
@@ -249,6 +270,7 @@
                 <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">Called<br>Leads</th>
                 <th colspan="{{ $answeredCols->count() }}" class="bg-green-200 dark:bg-green-900/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">Answered Called Leads</th>
                 <th colspan="{{ $unansweredCols->count() }}" class="bg-red-200 dark:bg-red-900/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">Unanswered Call Leads</th>
+                <th rowspan="2" class="bg-black border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-white uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Restocking<br>Orders</th>
                 <th rowspan="2" class="bg-rose-300 dark:bg-rose-900/70 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Excess<br>Leads</th>
                 <th rowspan="2" class="bg-blue-100 dark:bg-blue-900/50 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight" style="min-width:90px">Pick-up<br>Rate</th>
                 <th rowspan="2" class="bg-orange-100 dark:bg-orange-900/50 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight" style="min-width:90px">Conversion<br>Rate</th>
@@ -275,6 +297,7 @@
                 @foreach($unansweredCols as $col)
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ $hour['row'][$col['key']] ?: '' }}</td>
                 @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['restocking'] ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['restocking'] ?: '' }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['excess'] }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
@@ -292,6 +315,7 @@
                 @foreach($unansweredCols as $col)
                 <td class="border border-slate-700 px-2 py-3 text-center">{{ $grandTotal[$col['key']] ?: '' }}</td>
                 @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center">{{ $grandTotal['restocking'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">{{ $grandTotal['excess'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">{{ $grandTotal['conversion_rate'] !== null ? $grandTotal['conversion_rate'].'%' : '—' }}</td>
@@ -340,6 +364,7 @@
                 <th rowspan="2" class="bg-yellow-50 dark:bg-yellow-950/40 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide whitespace-nowrap">Called<br>Leads</th>
                 <th colspan="{{ $answeredCols->count() }}" class="bg-green-200 dark:bg-green-900/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-center text-[11px] font-bold text-green-900 dark:text-green-200 uppercase tracking-wide">Answered Called Leads</th>
                 <th colspan="{{ $unansweredCols->count() }}" class="bg-red-200 dark:bg-red-900/60 border border-slate-200 dark:border-slate-700 px-3 py-2 text-center text-[11px] font-bold text-red-900 dark:text-red-200 uppercase tracking-wide">Unanswered Call Leads</th>
+                <th rowspan="2" class="bg-black border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-white uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Restocking<br>Orders</th>
                 <th rowspan="2" class="bg-rose-300 dark:bg-rose-900/70 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-rose-900 dark:text-rose-200 uppercase tracking-wide whitespace-nowrap" style="min-width:80px">Excess<br>Leads</th>
                 <th rowspan="2" class="bg-blue-100 dark:bg-blue-900/50 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wide leading-tight" style="min-width:90px">Pick-up<br>Rate</th>
                 <th rowspan="2" class="bg-orange-100 dark:bg-orange-900/50 border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-[11px] font-bold text-orange-900 dark:text-orange-200 uppercase tracking-wide leading-tight" style="min-width:90px">Conversion<br>Rate</th>
@@ -366,6 +391,7 @@
                 @foreach($unansweredCols as $col)
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ $hour['row'][$col['key']] ?: '' }}</td>
                 @endforeach
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['restocking'] ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['restocking'] ?: '' }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['excess'] }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
@@ -390,6 +416,8 @@
                 <td class="border border-slate-700 px-2 py-3 text-center {{ $table['total'][$col['key']] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
                     @if($table['total'][$col['key']]) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $table['total'][$col['key']] ?: '' }}</td>
                 @endforeach
+                <td class="border border-slate-700 px-2 py-3 text-center {{ $table['total']['restocking'] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
+                    @if($table['total']['restocking']) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="restocking" title="Click to see the orders behind this total" @endif>{{ $table['total']['restocking'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-rose-300 {{ $table['total']['excess'] ? 'cursor-pointer hover:bg-yellow-900/40' : '' }}"
                     @if($table['total']['excess']) data-drilldown data-dd-cell-product="{{ $table['product']->id }}" data-dd-column="excess" title="Click to see the orders behind this total" @endif>{{ $table['total']['excess'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $table['total']['pick_up_rate'] !== null ? $table['total']['pick_up_rate'].'%' : '—' }}</td>
