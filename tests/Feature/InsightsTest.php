@@ -927,6 +927,35 @@ class InsightsTest extends TestCase
         $this->assertSame($totalMatch[1], $closingMatch[2]);
     }
 
+    public function test_eod_report_capacity_excludes_a_scheduled_tsa_with_zero_leads_that_day(): void
+    {
+        // Explicit request, 2026-09-02, reported against a TSA Performance
+        // screenshot showing Gemma/Mariel with a blank row (scheduled shift,
+        // but zero catered leads that day): capacity used to count every
+        // TSA_shift row with a shift_start in the window regardless of
+        // whether they actually caught any leads, overstating how many
+        // hands were really available that day. Both Gemma and Kathleen
+        // have an Opening-window shift_start here, but only Gemma has real
+        // orders — capacity should reflect just her (1 × 75), not both (150).
+        TsaShift::where('tsa_key', 'Gemma')->update(['shift_start' => '08:00']);
+        TsaShift::where('tsa_key', 'Kathleen')->update(['shift_start' => '08:00']);
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'tsa_name' => 'Gemma', 'pancake_created_at' => today()->setTime(10, 0), 'pancake_inserted_at' => today()->setTime(10, 0)]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        preg_match('/(\d+) leads lang ang theoretical capacity/', $report['message'], $m);
+        $this->assertNotEmpty($m);
+        $this->assertSame(75, (int) $m[1]);
+    }
+
     public function test_the_eod_report_names_the_limited_manpower_finding_when_a_shift_is_over_capacity(): void
     {
         // Explicit rewrite, 2026-09-01: dailyNarrativeCard()'s old "N TSA

@@ -1097,15 +1097,22 @@ class InsightsGenerator
         $md[] = $overall;
         $md[] = "May **₱" . number_format($refAov, 2) . " AOV** ngayong araw base sa **{$refRow['upsell_confirmation']} orders** na **₱" . number_format($refRow['upsell_sales'], 0) . ' total sales**.';
 
+        // Every shift's ref-day row, unfiltered — used both for the TSA
+        // Performance callout list below (filtered further to a reporting
+        // threshold) and for Lead Capacity's own "which TSAs actually worked
+        // today" check further down, so both sections agree on each TSA's
+        // real catered count instead of computing it two different ways.
+        $allTsaRows = $shifts->map(function ($shift) use ($refOrders, $prevOrders, $products) {
+            $tsaRefOrders = $refOrders->where('tsa_name', $shift->tsa_key);
+            $tsaPrevOrders = $prevOrders->where('tsa_name', $shift->tsa_key);
+            $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaRefOrders, $products)));
+            $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaPrevOrders, $products)));
+            return ['shift' => $shift, 'ref' => $refRow, 'prev' => $prevRow];
+        });
+
         // ---- TSA Performance ------------------------------------------
         if ($shifts->isNotEmpty()) {
-            $tsaRows = $shifts->map(function ($shift) use ($refOrders, $prevOrders, $products) {
-                $tsaRefOrders = $refOrders->where('tsa_name', $shift->tsa_key);
-                $tsaPrevOrders = $prevOrders->where('tsa_name', $shift->tsa_key);
-                $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaRefOrders, $products)));
-                $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaPrevOrders, $products)));
-                return ['shift' => $shift, 'ref' => $refRow, 'prev' => $prevRow];
-            })->filter(fn ($r) => $r['ref']['catered'] >= self::MIN_CATERED_FOR_TARGET_CHECK || $r['ref']['upsell_confirmation'] > 0);
+            $tsaRows = $allTsaRows->filter(fn ($r) => $r['ref']['catered'] >= self::MIN_CATERED_FOR_TARGET_CHECK || $r['ref']['upsell_confirmation'] > 0);
 
             if ($tsaRows->isNotEmpty()) {
                 $md[] = '### *TSA Performance*';
@@ -1132,9 +1139,23 @@ class InsightsGenerator
 
         // ---- Lead Capacity & Distribution ------------------------------
         $md[] = '### *Lead Capacity & Distribution*';
+        // Capacity only counts a TSA who actually had ≥1 catered lead today —
+        // explicit request, 2026-09-02, reported against a TSA Performance
+        // screenshot showing Gemma/Mariel with a blank row (scheduled, but
+        // zero leads that day): counting them toward capacity like a TSA who
+        // genuinely worked overstates how many hands were actually available,
+        // which then understates Opening/Closing's leads-vs-capacity pressure.
+        // Deliberately a lower bar than TSA Performance's own $tsaRows filter
+        // above (MIN_CATERED_FOR_TARGET_CHECK) — that one decides whether a
+        // TSA is worth a callout bullet; this one only asks "did this person
+        // actually catch any leads today," so even a single catered lead
+        // still counts them as staffing that shift. Reuses $allTsaRows'
+        // already-computed 'catered' rather than re-deriving from raw
+        // tsa_name (which an uncalled/excess order can also carry).
+        $activeShifts = $allTsaRows->filter(fn ($r) => $r['ref']['catered'] > 0)->pluck('shift');
         $isOpeningShift = fn ($s) => $s->shift_start && (int) date('G', strtotime($s->shift_start)) < 15;
-        $openingCapacity = $shifts->filter($isOpeningShift)->count() * self::TARGET_CATERED_LEADS;
-        $closingCapacity = $shifts->filter(fn ($s) => !$isOpeningShift($s))->filter(fn ($s) => $s->shift_start)->count() * self::TARGET_CATERED_LEADS;
+        $openingCapacity = $activeShifts->filter($isOpeningShift)->count() * self::TARGET_CATERED_LEADS;
+        $closingCapacity = $activeShifts->filter(fn ($s) => !$isOpeningShift($s))->filter(fn ($s) => $s->shift_start)->count() * self::TARGET_CATERED_LEADS;
         $totalCapacity = $openingCapacity + $closingCapacity;
 
         // ProductPerformance::countedOrdersFor() — the exact distinct-order
