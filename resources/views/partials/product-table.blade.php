@@ -5,12 +5,28 @@
 
      Expects: $tableId, $rows, $grandTotal, $answeredCols, $unansweredCols,
      $dateFrom, $dateTo (for drilldown), $chartId, $exportName, $exportTitle,
-     $snapshotDateLabel. --}}
+     $snapshotDateLabel. $cardTitle is optional — when set, renders the same
+     bordered-card header bar (title left, filter/export right) leads-report.
+     blade.php's own per-product cards use, instead of a bare filter row. --}}
+@if(isset($cardTitle))
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-4">
+    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $cardTitle }}</h2>
+        <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-slate-400">{{ $grandTotal['total'] }} {{ \Illuminate\Support\Str::plural('lead', $grandTotal['total']) }}</span>
+            <input type="text" data-table-filter="{{ $tableId }}" placeholder="Filter…" aria-label="Filter products"
+                   class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+            @include('partials.table-actions', ['target' => $tableId, 'name' => $exportName, 'chart' => $chartId, 'title' => $exportTitle, 'subtitle' => $snapshotDateLabel])
+        </div>
+    </div>
+</div>
+@else
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="{{ $tableId }}" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
     @include('partials.table-actions', ['target' => $tableId, 'name' => $exportName, 'chart' => $chartId, 'title' => $exportTitle, 'subtitle' => $snapshotDateLabel])
 </div>
+@endif
 
 <div class="flex flex-col lg:flex-row gap-4">
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-w-0" style="max-height:calc(100vh - 180px)" id="{{ $tableId }}" data-sortable-table data-scroll-shadow

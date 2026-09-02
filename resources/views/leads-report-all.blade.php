@@ -94,16 +94,16 @@
      table per team so a supervisor can see their own team's products without
      scrolling/filtering the combined list. --}}
 @foreach($teamTables as $i => $teamTable)
-<h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mt-8 mb-1.5">{{ $teamTable['label'] }}</h2>
-@php $teamChartId = 'teamChart' . $i; @endphp
+<div class="mt-6">
 @include('partials.product-table', [
     'tableId' => 'productTeamTable' . $i, 'rows' => $teamTable['rows'], 'grandTotal' => $teamTable['grandTotal'],
     'answeredCols' => $answeredCols, 'unansweredCols' => $unansweredCols,
-    'dateFrom' => $dateFrom, 'dateTo' => $dateTo, 'chartId' => $teamChartId,
+    'dateFrom' => $dateFrom, 'dateTo' => $dateTo, 'chartId' => 'teamChart' . $i,
     'exportName' => 'leads-report-' . \Illuminate\Support\Str::slug($teamTable['label']),
     'exportTitle' => 'Leads Report — ' . $teamTable['label'],
-    'snapshotDateLabel' => $snapshotDateLabel,
+    'snapshotDateLabel' => $snapshotDateLabel, 'cardTitle' => $teamTable['label'],
 ])
+</div>
 @endforeach
 
 @endif
