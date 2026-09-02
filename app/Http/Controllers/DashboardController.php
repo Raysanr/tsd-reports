@@ -339,40 +339,24 @@ class DashboardController extends Controller
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
             $teamNames   = collect(Teams::config())->pluck('name', 'order_team');
 
-            // Only count an order toward a TSA if the order's OWN team column
-            // matches that TSA's roster team — same "group by team first"
-            // requirement TsaPerformanceController::indexAll() already
-            // enforces (see that method's own comment: grouping by tsa_name
-            // alone, with no team check, can put a cross-team order — e.g. a
-            // combo SKU bundling another team's product, still tagged with
-            // this TSA's name — under her row here even though it belongs to
-            // the OTHER team and her own TSA Performance page correctly
-            // excludes it.
-            //
-            // upsell_count/upsell_sales/total_calls are now read DIRECTLY off
-            // ProductPerformance::tally() instead of a hand-rolled filter
-            // chain that had to independently reimplement every exclusion
-            // rule (Deleted orders, excluded sellers, logistics duplicates,
-            // is_upsell vs is_returned_upsell vs the tag-fallback branch) —
-            // this is the second time that hand-rolled chain drifted out of
-            // sync with tally()'s own rules and produced a real mismatch
-            // (Katherine 16 vs 15, then Grace 8 vs 7, both confirmed live,
-            // 2026-09-02), so it's replaced entirely rather than patched
-            // again: reading tally()'s own 'upsell_confirmation'/
-            // 'upsell_sales' keys makes this leaderboard structurally
-            // incapable of disagreeing with TSA Performance/Leads Report on
-            // the same order set, since all three now share the exact same
-            // counting function instead of three independent copies of it.
-            // tally()'s own 'upsell_sales' is also more correct than the old
-            // code's bare sum('amount') — it uses Order::realUpsellAmount(),
-            // the isolated add-on price (not the raw order total) for a
-            // Restocking-status upsell recovered via the tag-fallback branch.
-            $tsaLeaderboard = $dayOrders
-                ->whereNotNull('tsa_name')
-                ->filter(fn ($o) => ($shiftsByKey[$o->tsa_name] ?? null)?->team === $o->team)
-                ->groupBy('tsa_name')
-                ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
-                    $tally = ProductPerformance::tally($orders);
+            // ProductPerformance::tsaRows() — the SAME per-TSA "group by team
+            // first, then by tsa_name within that team's own roster" grouping
+            // TsaPerformanceController::indexAll() itself uses to build the
+            // exact rows TSA Performance renders (extracted 2026-09-02
+            // specifically so this leaderboard and TSA Performance can no
+            // longer independently drift out of sync — two prior attempts to
+            // keep a hand-rolled copy of this grouping "equivalent by
+            // construction" both still produced a real mismatch confirmed
+            // live: Katherine 16 vs 15, then Grace 8 vs 7). Calling the exact
+            // same function TSA Performance calls, on the exact same $orders
+            // input, is the only way to guarantee this leaderboard can never
+            // show a different number for the same TSA/day again — not
+            // "should match," but literally cannot disagree, since there is
+            // now only one implementation of this grouping in the codebase.
+            $tsaTallyByKey = ProductPerformance::tsaRows($dayOrders, $shiftsByKey->values());
+
+            $tsaLeaderboard = $tsaTallyByKey
+                ->map(function (array $tally, string $tsaKey) use ($includeRestocking, $dayOrders) {
                     $upsellCount = $tally['upsell_confirmation'];
                     $upsellSales = $tally['upsell_sales'];
 
@@ -382,19 +366,24 @@ class DashboardController extends Controller
                     // own 'upsell_confirmation'/'upsell_sales' never include a
                     // Restocking-status order (see that method's own 'restocking'
                     // bucket), so folding it in here on top is still additive, not
-                    // double-counting.
+                    // double-counting. Sourced straight from $dayOrders (not
+                    // tsaRows()' own team-matched subset) since a Restocking-status
+                    // order is never ambiguous about which TSA closed it the way a
+                    // combo/cross-team upsell order can be.
                     if ($includeRestocking) {
-                        $upsellCount += $orders->where('is_restocking_upsell', true)->count();
-                        $upsellSales += (float) $orders->where('is_restocking_upsell', true)->sum('restocking_upsell_amount');
+                        $tsaRestocking = $dayOrders->where('tsa_name', $tsaKey)->where('is_restocking_upsell', true);
+                        $upsellCount += $tsaRestocking->count();
+                        $upsellSales += (float) $tsaRestocking->sum('restocking_upsell_amount');
                     }
 
                     return (object) [
-                        'tsa_name'     => $tsaName,
+                        'tsa_name'     => $tsaKey,
                         'total_calls'  => $tally['total_called'],
                         'upsell_count' => $upsellCount,
                         'upsell_sales' => $upsellSales,
                     ];
                 })
+                ->filter(fn ($row) => $row->total_calls > 0 || $row->upsell_count > 0)
                 ->values()
                 ->sort(fn ($a, $b) => [$b->upsell_sales, $b->upsell_count] <=> [$a->upsell_sales, $a->upsell_count])
                 ->values()

@@ -180,13 +180,17 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
      * resolve a second real mismatch (Grace: 8 here vs 7 on TSA Performance,
      * confirmed live 2026-09-02, even filtered to her own team alone — so it
      * wasn't a cross-team order this time, and diagnosing the exact real
-     * order needed production DB access this session didn't have). Rather
-     * than chase a third hand-rolled exclusion gap, the leaderboard's
-     * upsell_count/upsell_sales/total_calls are now read directly off
-     * ProductPerformance::tally() — the same function TSA Performance and
-     * Leads Report already use — instead of independently reimplementing
-     * its exclusion rules. This test proves that structurally: for ANY mix
-     * of order shapes (live upsell, returned upsell, voided-order upsell,
+     * order needed production DB access this session didn't have). A first
+     * pass at this fix read upsell_count/upsell_sales/total_calls straight
+     * off ProductPerformance::tally() but still grouped orders into
+     * per-TSA buckets by hand — STILL a hand-rolled copy of "group by team
+     * first," just one function call closer to correct, and the live
+     * mismatch persisted after deploying it. The actual fix (see
+     * ProductPerformance::tsaRows()) calls the exact same grouping function
+     * TsaPerformanceController::indexAll() calls to build the rows TSA
+     * Performance itself renders — not "an equivalent implementation," the
+     * literal same one. This test proves that structurally: for ANY mix of
+     * order shapes (live upsell, returned upsell, voided-order upsell,
      * Deleted order, excluded seller, logistics duplicate, Restocking-status
      * tag-fallback upsell), the leaderboard's number for a TSA must equal
      * tally()'s own 'upsell_confirmation' for that exact same order set —
@@ -234,6 +238,73 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         $this->assertSame($expected['upsell_confirmation'], $leaderboardRow->upsell_count);
         $this->assertSame((float) $expected['upsell_sales'], (float) $leaderboardRow->upsell_sales);
         $this->assertSame($expected['total_called'], $leaderboardRow->total_calls);
+    }
+
+    /**
+     * The end-to-end version of the parity test above: hits BOTH real routes
+     * (dashboard, tsa-performance?team=all) for the same seeded orders and
+     * asserts the actual rendered numbers agree — not comparing against
+     * ProductPerformance::tally() in isolation, but against what TSA
+     * Performance's own controller/view genuinely produces. Includes a
+     * cross-team order (tagged with this TSA's name, but its own team
+     * column is the OTHER team) specifically because that's the shape that
+     * exposed the original bug — a hand-rolled grouping can accidentally
+     * still include it under the wrong assumption of "same intent, so it
+     * must produce the same result."
+     */
+    public function test_leaderboard_upsell_count_matches_the_real_tsa_performance_all_view(): void
+    {
+        $shift = TsaShift::where('team', 'Eyecare Team')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'e2e-own-team-1',
+            'team'               => $shift->team,
+            'tsa_name'           => $shift->tsa_key,
+            'is_upsell'          => true,
+            'amount'             => 500.0,
+            'status_code'        => 2,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+        Order::create([
+            'pancake_order_id'   => 'e2e-cross-team-1',
+            'team'               => 'SH Naturals',
+            'tsa_name'           => $shift->tsa_key,
+            'is_upsell'          => true,
+            'amount'             => 400.0,
+            'status_code'        => 2,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+        Order::create([
+            'pancake_order_id'   => 'e2e-deleted-1',
+            'team'               => $shift->team,
+            'tsa_name'           => $shift->tsa_key,
+            'is_upsell'          => false,
+            'is_upsell_on_voided_order' => true,
+            'amount'             => 300.0,
+            'status_code'        => 7,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $dashboardResponse = $this->get(route('dashboard'));
+        $dashboardResponse->assertOk();
+        $leaderboardRow = $dashboardResponse->viewData('tsaLeaderboard')->firstWhere('tsa_name', $shift->tsa_key);
+        $this->assertNotNull($leaderboardRow);
+
+        $tsaPerfResponse = $this->get(route('tsa-performance', ['team' => 'all']));
+        $tsaPerfResponse->assertOk();
+        $tsaPerfRow = $tsaPerfResponse->viewData('tsaRows')->firstWhere('tsa_key', $shift->tsa_key);
+        $this->assertNotNull($tsaPerfRow);
+
+        $this->assertSame($tsaPerfRow['upsell_confirmation'], $leaderboardRow->upsell_count);
+        $this->assertSame((float) $tsaPerfRow['upsell_sales'], (float) $leaderboardRow->upsell_sales);
+        // Both real-order-shape orders (own-team + cross-team) counted, the
+        // Deleted one didn't, and the cross-team order specifically did NOT
+        // leak in despite carrying this TSA's name.
+        $this->assertSame(1, $leaderboardRow->upsell_count);
+        $this->assertSame(500.0, (float) $leaderboardRow->upsell_sales);
     }
 
     public function test_top_tsa_spotlight_also_includes_returned_upsells(): void

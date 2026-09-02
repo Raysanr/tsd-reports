@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\TsaShift;
 use Illuminate\Support\Collection;
 
 /**
@@ -435,6 +436,37 @@ class ProductPerformance
         }
 
         return array_merge($summed, self::rates($summed));
+    }
+
+    /** One tally() row per TSA (keyed by tsa_key), built the SAME way
+     *  TsaPerformanceController::indexAll() builds its own $tsaRows — group
+     *  by each order's own team column FIRST, then by tsa_name within that
+     *  team's own subset, and ONLY if tsa_name matches a REAL, CURRENT
+     *  roster key for that exact team (a stale/renamed/wrong-team tsa_name
+     *  falls out entirely here, same as indexAll()'s own Unassigned
+     *  fallback). Extracted 2026-09-02 so any other page needing a per-TSA
+     *  breakdown (the Dashboard's own TSA Leaderboard, in particular) calls
+     *  this SAME function instead of reconstructing the grouping by hand —
+     *  a hand-rolled copy of "group by team first" drifted out of sync with
+     *  this one twice already (Dashboard leaderboard vs TSA Performance:
+     *  Katherine 16 vs 15, then Grace 8 vs 7, both confirmed live,
+     *  2026-09-02) even though both were built to the same intent, because
+     *  matching intent in two separate implementations doesn't guarantee
+     *  matching behavior on every real edge case. $shifts: every TsaShift
+     *  row to build a row for (already filtered to the teams in scope by
+     *  the caller). Returns tsa_key => tally() row (no Unassigned row —
+     *  callers that need it build that separately from whatever's left
+     *  over, same as indexAll() does). */
+    public static function tsaRows(Collection $orders, Collection $shifts): Collection
+    {
+        $ordersByTeam = $orders->groupBy('team');
+
+        return $shifts->mapWithKeys(function (TsaShift $shift) use ($ordersByTeam) {
+            $teamOrders = $ordersByTeam->get($shift->team, collect());
+            $tsaOrders  = $teamOrders->where('tsa_name', $shift->tsa_key);
+
+            return [$shift->tsa_key => self::tally($tsaOrders)];
+        });
     }
 
     /** Diagnostic only: given a product and one order matchingOrders() already
