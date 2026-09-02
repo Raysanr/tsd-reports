@@ -5,11 +5,14 @@
 
      Expects: $tableId, $rows, $grandTotal, $answeredCols, $unansweredCols,
      $dateFrom, $dateTo (for drilldown), $chartId, $exportName, $exportTitle,
-     $snapshotDateLabel. $cardTitle is optional — when set, renders the same
-     bordered-card header bar (title left, filter/export right) leads-report.
-     blade.php's own per-product cards use, instead of a bare filter row. --}}
+     $snapshotDateLabel. $cardTitle is optional — when set, wraps the header
+     bar AND the table+chart row in ONE shared bordered card (title bar on
+     top, no gap into the table below it) matching leads-report.blade.php's
+     own per-product cards; without it, this renders as a bare filter row
+     above its own separately-bordered table (leads-report-all's combined
+     table, which has no title). --}}
 @if(isset($cardTitle))
-<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-4">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
     <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $cardTitle }}</h2>
         <div class="flex items-center gap-3">
@@ -19,19 +22,22 @@
             @include('partials.table-actions', ['target' => $tableId, 'name' => $exportName, 'chart' => $chartId, 'title' => $exportTitle, 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
-</div>
+    <div class="flex flex-col lg:flex-row gap-4">
+    <div class="overflow-x-auto flex-1 min-w-0" id="{{ $tableId }}" data-scroll-shadow
+         data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
+    <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
 @else
 <div class="flex items-center justify-end gap-3 mb-2">
     <input type="text" data-table-filter="{{ $tableId }}" placeholder="Filter…" aria-label="Filter products"
            class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
     @include('partials.table-actions', ['target' => $tableId, 'name' => $exportName, 'chart' => $chartId, 'title' => $exportTitle, 'subtitle' => $snapshotDateLabel])
 </div>
-@endif
 
 <div class="flex flex-col lg:flex-row gap-4">
 <div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex-1 min-w-0" style="max-height:calc(100vh - 180px)" id="{{ $tableId }}" data-sortable-table data-scroll-shadow
      data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
 <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
+@endif
     <thead class="sticky top-0 z-20 shadow-sm">
         <tr>
             <th rowspan="2" data-sort-key="product"
@@ -176,3 +182,6 @@
 @include('partials.pie-chart-panel', ['id' => $chartId])
 @endif
 </div>
+@if(isset($cardTitle))
+</div>
+@endif
