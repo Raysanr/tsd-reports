@@ -164,27 +164,133 @@ class LeadsReportController extends Controller
         // order is never invisible to it either — Recent Orders ($currentOrders,
         // built from $ordersQuery further down) is the one thing that deliberately
         // stays team-scoped, since a combo order is only ever OWNED by its own team.
-        $matchPool       = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
-            ->get();
-        $matchPoolBySlot = $matchPool->groupBy($slotKeyOf);
+        // Fetched one calendar day at a time, not the whole range in one
+        // Collection — same memory-crash fix already applied to Dashboard's
+        // own wide-range Grand Total (2026-08-28) and this page's ALL view
+        // (indexAll(), above), for the identical reason: reproduced live,
+        // fetching the whole range at once alone used 126.5MB of a 128MB
+        // limit on a 31-day range, and the per-product matching pass on top
+        // of it (buildRow() called per product per hour slot, PLUS once more
+        // per product for the whole-range total) pushed peak usage to
+        // 138.5MB — over the edge, which is why this per-team view 500'd on
+        // "Last month" while the ALL view (no hourly breakdown, so ~10MB
+        // lighter) happened to still survive at 128.5MB, itself right at the
+        // same edge (see indexAll()'s own comment).
+        //
+        // $applyShiftCutoff is false for every multi-day range (the crash
+        // scenario — see its own definition above: only true for last24h or
+        // a single selected day), which means buildHourlyRows()'s ONLY
+        // active branch here is the simple per-slot one — it never reads
+        // back multiple hours' worth of raw orders for the shift-cutoff
+        // backlog merge, it just tally()s whatever's in one slot and moves
+        // on. That means each day's contribution to each hour-of-day slot
+        // can be computed (via buildRow(), already correctly matched/
+        // exclusion-applied) and SUMMED across days immediately, without
+        // ever holding more than one day's raw Order models in memory at
+        // once — unlike keeping every raw order in a merged $matchPoolBySlot
+        // Collection, which (confirmed live) still ends up holding the
+        // exact same ~16k total order count as a single whole-range fetch,
+        // just accumulated incrementally instead of in one query — no
+        // actual memory saved. A single-day range (last24h or one calendar
+        // day) still fetches its one day's orders directly below since the
+        // cutoff logic genuinely needs real orders then, and one day's
+        // worth was never the memory risk to begin with.
+        $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
+        $products   = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
-        $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
+        // Exactly one of these two ends up populated, matching $applyShiftCutoff
+        // below — declared here so the closure that reads both further down
+        // (via `use`) always has a defined variable regardless of which branch
+        // ran, instead of an "undefined variable" fatal on whichever branch
+        // didn't set it.
+        $matchPoolTotal            = null;
+        $dailyTotalRowsByProductId = null;
+
+        if ($applyShiftCutoff) {
+            $matchPool       = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+                ->whereIn('team', $orderTeams)
+                ->get();
+            $matchPoolBySlot = $matchPool->groupBy($slotKeyOf);
+            $matchPoolTotal  = $matchPool;
+        } else {
+            // Per product, per hour-of-day slot: a list of that DAY's own row,
+            // one per day in range — summed into one row per (product, slot)
+            // once every day's been walked. Keyed by product id, never
+            // positional index (same reasoning as indexAll()'s own fix above).
+            // Plain nested PHP arrays here, not Collections — indexing two
+            // levels deep into a Collection via [$key][$key2][] triggers
+            // PHP's "indirect modification of overloaded element has no
+            // effect" notice (Collection's ArrayAccess doesn't guarantee a
+            // nested offsetGet() result is a live reference back into its
+            // own storage); plain arrays don't have that hazard.
+            $dailySlotRows  = []; // [productId][slotKey] => [row, row, ...]
+            $dailyTotalRows = []; // [productId] => [row, row, ...]
+
+            for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
+                $dayOrders    = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
+                    ->whereIn('team', $orderTeams)
+                    ->get();
+                $dayOrdersBySlot = $dayOrders->groupBy($slotKeyOf);
+
+                foreach ($products as $product) {
+                    foreach ($slots as $slot) {
+                        $slotOrders = $dayOrdersBySlot->get($slot['key'], collect());
+                        if ($slotOrders->isEmpty()) continue;
+                        $dailySlotRows[$product->id][$slot['key']][] = ProductPerformance::buildRow($product, $slotOrders, $products);
+                    }
+                    $dailyTotalRows[$product->id][] = ProductPerformance::buildRow($product, $dayOrders, $products);
+                }
+            }
+
+            // sumRows() only sums the fixed additive $keys list it knows about
+            // — it drops product_id/display_name/team, which buildRow()
+            // normally adds after tally(). Re-attached here since every day's
+            // already-built row already carried the same values (they don't
+            // vary per day/slot, only per product) — product_id specifically
+            // is required by the firstWhere('product_id', ...) lookups below
+            // and in the Grand Total hourly section further down; without it
+            // every slot lookup would silently return null (same class of
+            // bug indexAll()'s own fix caught via its own test failure).
+            $matchPoolBySlot = collect($slots)->mapWithKeys(fn ($slot) => [$slot['key'] => collect()]);
+            foreach ($products as $product) {
+                foreach ($dailySlotRows[$product->id] ?? [] as $slotKey => $dayRows) {
+                    $summed = array_merge(
+                        ProductPerformance::sumRows(collect($dayRows)),
+                        ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+                    );
+                    $matchPoolBySlot[$slotKey] = $matchPoolBySlot[$slotKey]->push($summed);
+                }
+            }
+
+            $dailyTotalRowsByProductId = $products->mapWithKeys(
+                fn ($p) => [$p->id => collect($dailyTotalRows[$p->id] ?? [])]
+            );
+        }
 
         $productTables = $products->map(function ($product) use (
-            $slots, $matchPoolBySlot, $matchPool, $products,
+            $slots, $matchPoolBySlot, $matchPoolTotal, $dailyTotalRowsByProductId, $products,
             $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
         ) {
-            $hourlyRows = $this->buildHourlyRows(
-                $slots, $matchPoolBySlot,
-                fn(Collection $orders) => ProductPerformance::buildRow($product, $orders, $products),
-                $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
-            );
+            $hourlyRows = $applyShiftCutoff
+                ? $this->buildHourlyRows(
+                    $slots, $matchPoolBySlot,
+                    fn(Collection $orders) => ProductPerformance::buildRow($product, $orders, $products),
+                    $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+                )
+                : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $product) {
+                    $row = $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id);
+                    return ($row && $row['total'] !== 0) ? ['label' => $slot['label'], 'row' => $row] : null;
+                })->filter()->values()->all();
 
             return [
                 'product'    => $product,
                 'hourlyRows' => $hourlyRows,
-                'total'      => ProductPerformance::buildRow($product, $matchPool, $products),
+                'total'      => $applyShiftCutoff
+                    ? ProductPerformance::buildRow($product, $matchPoolTotal, $products)
+                    : array_merge(
+                        ProductPerformance::sumRows($dailyTotalRowsByProductId[$product->id]),
+                        ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+                    ),
             ];
         })->values();
 
@@ -219,13 +325,28 @@ class LeadsReportController extends Controller
         // $grandTotal just above) instead of tally()-ing the hour's raw
         // orders directly. Sums over $matchPool (cross-team pool), matching
         // what the per-product hourly rows themselves are built from.
-        $grandTotalHourlyRows = $this->buildHourlyRows(
-            $slots, $matchPoolBySlot,
-            fn (Collection $orders) => ProductPerformance::sumRows(
-                $visibleProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
-            ),
-            $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
-        );
+        //
+        // Non-cutoff branch (wide/multi-day range): $matchPoolBySlot already
+        // holds one pre-summed row PER PRODUCT per slot (see the day-bucketed
+        // build above) rather than raw orders, so this sums those rows
+        // directly instead of re-deriving from a Collection of orders that no
+        // longer exists in that shape — buildHourlyRows() itself still
+        // expects raw orders, so it's only used on the cutoff branch, which
+        // is always a single day and never the memory risk.
+        $grandTotalHourlyRows = $applyShiftCutoff
+            ? $this->buildHourlyRows(
+                $slots, $matchPoolBySlot,
+                fn (Collection $orders) => ProductPerformance::sumRows(
+                    $visibleProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                ),
+                $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+            )
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $visibleProducts) {
+                $rows = $visibleProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+                if ($rows->isEmpty()) return null;
+                $row = ProductPerformance::sumRows($rows);
+                return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
+            })->filter()->values()->all();
 
         $currentOrders = $teamOrders
             ->sortByDesc(fn ($o) => $o->effective_created_at)
@@ -333,12 +454,6 @@ class LeadsReportController extends Controller
     ) {
         $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
 
-        // See the per-team branch above for why this reads the effective
-        // (creation-date-first) column instead of pancake_created_at directly.
-        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->whereIn('team', $orderTeams)
-            ->get();
-
         // orderBy('team') alone would sort alphabetically ("Eyecare Team" < "SH
         // Naturals"), putting Eyecare first — wrong. Sort by each product's team's
         // position in $orderTeams (config order) instead, keeping sort_order as the
@@ -348,12 +463,56 @@ class LeadsReportController extends Controller
             ->sortBy(fn($p) => array_search($p->team, $orderTeams))
             ->values();
 
-        // Same hidden-product rule as the per-team view above: dropped only when
-        // there's genuinely nothing to show for the selected range.
-        $productRowsWithProduct = $products
-            ->map(fn($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders, $products)])
-            ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0);
+        // Fetched and matched one calendar day at a time, not the whole range at
+        // once — same memory-crash fix already applied to Dashboard's own wide-
+        // range Grand Total (2026-08-28) and this exact page's per-team view
+        // (below), for the identical reason: reproduced live, this single
+        // unbucketed fetch alone used 126.5MB of a 128MB limit on a 31-day ALL-
+        // teams range, with the per-product matching pass on top of it pushing
+        // peak usage to 128.5MB — right at the edge, one busier day or a
+        // slightly wider range away from the same fatal-error 500 the per-team
+        // view was already hitting. Mathematically identical result to a single
+        // whole-range fetch: sumRows() defines Grand Total as literally "sum of
+        // the rows," and summing each day's per-product sums equals summing
+        // everything at once (addition is associative) — see the per-team
+        // view's own comment on this same property. See the effective
+        // (creation-date-first) column reasoning in the per-team branch above.
+        // Keyed by each product's own id throughout, never positional index —
+        // safer against $products/$dailyProductRows ever drifting out of sync
+        // in count or order.
+        $rowsByProductId = $products->mapWithKeys(fn ($p) => [$p->id => collect()]);
+        for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
+            $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
+                ->whereIn('team', $orderTeams)
+                ->get();
+            foreach ($products as $product) {
+                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
+            }
+        }
 
+        // Same hidden-product rule as the per-team view above: dropped only when
+        // there's genuinely nothing to show for the selected range — summed
+        // across every day first so a product with leads on SOME days isn't
+        // dropped just because any single day had none.
+        //
+        // sumRows() only sums the fixed additive $keys list it knows about —
+        // it drops product_id/display_name/team, which buildRow() normally
+        // adds after tally() (see buildRow()'s own lines). Re-attached here
+        // since every day's already-built row already carried the same
+        // values (they don't vary per day, only per product) — real bug
+        // caught by the test suite: the view crashed with "Undefined array
+        // key display_name" without this.
+        $productRowsWithProduct = $products
+            ->map(fn ($product) => [
+                'product' => $product,
+                'row' => array_merge(
+                    ProductPerformance::sumRows($rowsByProductId[$product->id]),
+                    ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+                ),
+            ])
+            ->reject(fn ($item) => $item['product']->is_hidden && $item['row']['total'] === 0);
+
+        $products    = $productRowsWithProduct->pluck('product')->values();
         $productRows = $productRowsWithProduct->pluck('row')->values();
 
         // Grand Total — the sum of the product rows above, full stop. Explicit
