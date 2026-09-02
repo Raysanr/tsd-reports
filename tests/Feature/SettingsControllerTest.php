@@ -608,4 +608,66 @@ class SettingsControllerTest extends TestCase
 
         $response->assertRedirect(route('settings'));
     }
+
+    // ---- Team Names -----------------------------------------------------
+
+    public function test_saving_team_names_overrides_the_display_name_everywhere_its_read(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->post(route('settings.team-names'), [
+            'team_names' => ['sh-naturals' => 'OPENING', 'eyecare' => 'CLOSING'],
+        ]);
+        $response->assertRedirect(route('settings'));
+
+        $this->assertSame('OPENING', \App\Support\Teams::config()['sh-naturals']['name']);
+        $this->assertSame('CLOSING', \App\Support\Teams::config()['eyecare']['name']);
+
+        // A real page that reads the team name (not just Teams::config() in
+        // isolation) shows the override too — Leads Report's team filter
+        // buttons read $teams (built from $teamsConfig['name']).
+        $this->get(route('leads-report'))
+            ->assertOk()
+            ->assertSee('OPENING')
+            ->assertSee('CLOSING');
+    }
+
+    public function test_team_names_leaves_order_team_and_slug_untouched(): void
+    {
+        // Renaming display names must never affect which real orders/products
+        // belong to a team (order_team) or the URL/session slug every route
+        // is keyed by — only the label shown in the UI changes.
+        $this->actingAs(User::factory()->create());
+
+        $this->post(route('settings.team-names'), [
+            'team_names' => ['sh-naturals' => 'OPENING'],
+        ]);
+
+        $config = \App\Support\Teams::config();
+        $this->assertSame('SH Naturals', $config['sh-naturals']['order_team']);
+        $this->assertArrayHasKey('sh-naturals', $config);
+    }
+
+    public function test_a_blank_team_name_reverts_to_the_config_default(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->post(route('settings.team-names'), ['team_names' => ['sh-naturals' => 'OPENING']]);
+        $this->assertSame('OPENING', \App\Support\Teams::config()['sh-naturals']['name']);
+
+        $this->post(route('settings.team-names'), ['team_names' => ['sh-naturals' => '']]);
+        $this->assertSame('SH Naturals', \App\Support\Teams::config()['sh-naturals']['name']);
+    }
+
+    public function test_an_unrecognized_team_slug_is_ignored(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $response = $this->post(route('settings.team-names'), [
+            'team_names' => ['not-a-real-team' => 'Whatever'],
+        ]);
+
+        $response->assertRedirect(route('settings'));
+        $this->assertNull(Setting::get(\App\Support\Teams::nameSettingKey('not-a-real-team')));
+    }
 }

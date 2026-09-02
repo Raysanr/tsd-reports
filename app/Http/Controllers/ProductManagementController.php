@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Support\ActivityLogger;
+use App\Support\Teams;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -30,7 +31,7 @@ class ProductManagementController extends Controller
 
     private function buildViewData(): array
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $products    = Product::orderBy('sort_order')->get();
 
         $teamGroups = collect($teamsConfig)->map(function ($team) use ($products) {
@@ -164,7 +165,7 @@ class ProductManagementController extends Controller
 
     public function bulk(Request $request)
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
 
         $data = $request->validate([
@@ -271,7 +272,7 @@ class ProductManagementController extends Controller
 
     private function validateProduct(Request $request): array
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
 
         return $request->validate([

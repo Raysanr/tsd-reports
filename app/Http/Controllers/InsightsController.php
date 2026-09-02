@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Support\InsightsGenerator;
+use App\Support\Teams;
 use Illuminate\Support\Carbon;
 
 /**
@@ -53,7 +54,7 @@ class InsightsController extends Controller
         // persistence as DashboardController::index()'s own $selectedTeam,
         // so switching teams here behaves exactly like it does everywhere
         // else in the app.
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $teams = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
         $selectedTeam = request('team', session('filters.insights.team', 'all'));
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {

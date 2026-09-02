@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\CallEvent;
 use App\Models\TsaShift;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -37,7 +38,7 @@ class CallLogController extends Controller
 
         // Team filter (explicit request, 2026-08-24) — same "ALL" + config('teams')
         // convention Monitor TSA's own resolveTeam()/filteredTsas() already use.
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
         $selectedTeam = $this->rememberedFilter($request, 'call-log', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {

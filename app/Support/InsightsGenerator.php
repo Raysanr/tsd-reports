@@ -138,7 +138,7 @@ class InsightsGenerator
     {
         $referenceDate = ($referenceDate ?? today())->copy()->startOfDay();
 
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $selectedTeams = ($team && array_key_exists($team, $teamsConfig))
             ? [$team => $teamsConfig[$team]]
             : $teamsConfig;

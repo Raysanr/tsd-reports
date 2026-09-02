@@ -10,6 +10,7 @@ use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\ProductPerformance;
 use App\Support\SyncHealth;
+use App\Support\Teams;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -31,7 +32,7 @@ class DashboardController extends Controller
         // (LeadsReportController::index()) — 'all' isn't a real config('teams') key,
         // handled as its own branch below, same convention as those two pages.
         $selectedTeam = $request->input('team', session('filters.dashboard.team', 'all'));
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
         $teams        = ['all' => 'ALL'] + array_map(fn($t) => $t['name'], $teamsConfig);
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
             $selectedTeam = 'all';
@@ -336,19 +337,38 @@ class DashboardController extends Controller
             // fix, as Hourly Activity's "calls per hour, not raw lead volume" above —
             // reusing $dayOrders (already fetched for that) instead of a second query.
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
-            $teamNames   = collect(config('teams'))->pluck('name', 'order_team');
+            $teamNames   = collect(Teams::config())->pluck('name', 'order_team');
 
             $tsaLeaderboard = $dayOrders
                 ->whereNotNull('tsa_name')
                 ->groupBy('tsa_name')
                 ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
+                    // Same "no longer exists in Pancake" exclusion
+                    // ProductPerformance::tally() applies before counting
+                    // anything (see that method's own doc comment) — this
+                    // leaderboard's upsell count/sales used to skip it
+                    // entirely, so a Deleted order that was genuinely tagged
+                    // as an upsell before deletion still inflated the count
+                    // here while every other page (TSA Performance, Leads
+                    // Report) correctly dropped it. Confirmed live, 2026-09-02:
+                    // Katherine showed 16 upsells here vs 15 on her own TSA
+                    // Performance page — order #1362095 (status 7/Deleted,
+                    // genuinely tagged "UPSELL TSD...") was the one still
+                    // counted here and nowhere else. total_calls below
+                    // already goes through tally() separately and was never
+                    // affected by this gap.
+                    $countableOrders = $orders->reject(fn ($o) => $o->status_code === 7
+                        || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
+                        || $o->excluded_upsell_seller
+                        || $o->is_duplicated_by_logistics);
+
                     // Order::isRealUpsell() — see its own doc comment. Leads Report/
                     // TSA Performance already counted both is_upsell and
                     // is_returned_upsell; this leaderboard was the one place that
                     // never got the same fix — confirmed live against real Pancake
                     // POS + the logistics system, both of which count a
                     // later-returned upsell toward the day's total same as any other.
-                    $realUpsells = $orders->filter(fn ($o) => Order::isRealUpsell($o));
+                    $realUpsells = $countableOrders->filter(fn ($o) => Order::isRealUpsell($o));
                     $upsellCount = $realUpsells->count();
                     $upsellSales = (float) $realUpsells->sum('amount');
 

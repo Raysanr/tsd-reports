@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
+use App\Support\Teams;
 use Illuminate\Support\Carbon;
 
 class ChartsController extends Controller
@@ -23,7 +24,7 @@ class ChartsController extends Controller
         $from = Carbon::parse($dateFrom)->startOfDay();
         $to   = Carbon::parse($dateTo)->endOfDay();
 
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $orderTeams  = collect($teamsConfig)->pluck('order_team')->all();
         $teamNames   = collect($teamsConfig)->pluck('name', 'order_team');
 

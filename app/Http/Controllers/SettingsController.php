@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\SyncHealth;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -69,13 +70,16 @@ class SettingsController extends Controller
         $accessTokenMasked     = self::mask($accessToken);
         $accessTokenExpiresAt  = self::decodeJwtExpiry($accessToken);
 
+        $teamsConfig = Teams::config();
+
         return view('settings', compact(
             'layout',
             'apiKeyMasked', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
             'driveClientId', 'driveClientSecretMasked', 'driveRefreshTokenMasked',
             'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
             'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage', 'driveSyncRunning',
-            'overdueThresholdHours', 'accessTokenMasked', 'accessTokenExpiresAt'
+            'overdueThresholdHours', 'accessTokenMasked', 'accessTokenExpiresAt',
+            'teamsConfig'
         ));
     }
 
@@ -202,6 +206,33 @@ class SettingsController extends Controller
         ActivityLogger::log('settings.pancake_connected', null, $message);
 
         return $this->redirectToCaller($request)->with('success', $message);
+    }
+
+    /**
+     * Explicit request, 2026-09-02: "is it possible that the team sh
+     * naturals and eyecare is editable" — only the display NAME is
+     * editable, one Setting row per team slug (see Teams::config()'s own
+     * doc comment for why the slug/order_team stay fixed). Only real
+     * config('teams') slugs are ever accepted — a submitted key that
+     * doesn't match one is silently ignored rather than creating a stray
+     * Setting row for a team that doesn't exist.
+     */
+    public function saveTeamNames(Request $request)
+    {
+        $validSlugs = array_keys(config('teams', []));
+
+        foreach ($request->input('team_names', []) as $slug => $name) {
+            if (!in_array($slug, $validSlugs, true)) continue;
+
+            $name = trim((string) $name);
+            // Blank submission clears the override (reverts to config/teams.php's
+            // own default name) rather than saving an empty display name.
+            Setting::set(Teams::nameSettingKey($slug), $name !== '' ? $name : null);
+        }
+
+        ActivityLogger::log('settings.team_names_saved', null, 'Team names updated.');
+
+        return $this->redirectToCaller($request)->with('success', 'Team names saved.');
     }
 
     public function saveShifts(Request $request)

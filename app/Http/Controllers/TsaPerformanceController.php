@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -54,7 +55,7 @@ class TsaPerformanceController extends Controller
         $from         = Carbon::parse($dateFrom)->startOfDay();
         $to           = Carbon::parse($dateTo)->endOfDay();
         $selectedTeam = request('team', session('filters.tsa_performance.team', 'sh-naturals'));
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
 
         session([
             'filters.tsa_performance.date_from' => $dateFrom,
@@ -295,7 +296,7 @@ class TsaPerformanceController extends Controller
      *  scanning every hour block in the main table for their one row. */
     public function showTsa(string $team, string $tsaKey)
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         abort_if(!array_key_exists($team, $teamsConfig), 404);
 
         $shift = TsaShift::where('team', $teamsConfig[$team]['order_team'])
@@ -549,7 +550,7 @@ class TsaPerformanceController extends Controller
      *  or the Grand Total row); 'hour' omitted = every hour (Grand Total). */
     public function drilldown(Request $request)
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $team        = $request->query('team');
         abort_if(!array_key_exists($team, $teamsConfig), 404);
 

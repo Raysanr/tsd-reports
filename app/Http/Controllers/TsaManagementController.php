@@ -7,6 +7,7 @@ use App\Models\Setting;
 use App\Models\TsaRestDay;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -33,7 +34,7 @@ class TsaManagementController extends Controller
 
     private function buildViewData(): array
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get();
 
         // Group TSAs by team for display, using each configured team's real
@@ -216,7 +217,7 @@ class TsaManagementController extends Controller
 
     public function bulk(Request $request)
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
 
         $data = $request->validate([
@@ -442,7 +443,7 @@ class TsaManagementController extends Controller
 
     private function validateTsa(Request $request): array
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
 
         return $request->validate([

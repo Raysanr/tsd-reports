@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -30,7 +31,7 @@ class LeadsReportController extends Controller
         }
 
         $selectedTeam = request('team', session('filters.leads_report.team', 'sh-naturals'));
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
         // 'all' prepended, same convention as TSA Performance's team-button row —
         // NOT a real key in $teamsConfig, so it's handled as its own branch below
         // before the "unknown team → default" guard would otherwise stomp on it.
@@ -555,7 +556,7 @@ class LeadsReportController extends Controller
      */
     public function drilldown(Request $request)
     {
-        $teamsConfig = config('teams', []);
+        $teamsConfig = Teams::config();
         $productId   = $request->query('product');
         abort_if(!$productId, 422);
 

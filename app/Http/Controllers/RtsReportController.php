@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\TsaShift;
+use App\Support\Teams;
 use Illuminate\Support\Carbon;
 
 class RtsReportController extends Controller
@@ -26,7 +27,7 @@ class RtsReportController extends Controller
 
         // Both teams shown side by side (matches the source report), not filtered to
         // one team at a time like Leads Report / TSA Performance.
-        $teamTables = collect(config('teams', []))->map(function ($teamConfig) use ($from, $to) {
+        $teamTables = collect(Teams::config())->map(function ($teamConfig) use ($from, $to) {
             $shifts = TsaShift::where('team', $teamConfig['order_team'])
                 ->orderBy('sort_order')->get();
 

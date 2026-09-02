@@ -10,6 +10,7 @@ use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\HourFormatter;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -70,7 +71,7 @@ class DashboardController extends Controller
         // Same ALL/SH Naturals/Eyecare filter as TSD Reports' own Dashboard
         // (explicit request, 2026-08-17) — 'all' isn't a real config('teams')
         // key, handled as its own branch below, same convention as that page.
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
         $selectedTeam = $this->rememberedFilter($request, 'dashboard', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {

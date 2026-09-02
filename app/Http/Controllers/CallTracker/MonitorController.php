@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lead;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -197,7 +198,7 @@ class MonitorController extends Controller
      *  see PersistsCallTrackerFilters's own doc comment. */
     private function resolveTeam(Request $request): array
     {
-        $teamsConfig  = config('teams', []);
+        $teamsConfig  = Teams::config();
         $teams        = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
         $selectedTeam = $this->rememberedFilter($request, 'monitor', 'team', 'all');
         if ($selectedTeam !== 'all' && !array_key_exists($selectedTeam, $teamsConfig)) {
