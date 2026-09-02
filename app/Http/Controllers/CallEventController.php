@@ -56,7 +56,9 @@ class CallEventController extends Controller
         // acts if they're still marked Calling — if they'd already manually
         // switched to something else (e.g. Break) before this webhook
         // landed, that's a real, more-recent choice this shouldn't stomp on.
-        // ExpireWrapUpStatuses auto-returns them to Login ~60s after this.
+        // Wrap Up itself no longer auto-expires (removed 2026-09-01,
+        // explicit request) — from here the TSA stays in it until they
+        // manually pick their next real status.
         if ($tsa->status === TsaShift::STATUS_CALLING) {
             $tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }

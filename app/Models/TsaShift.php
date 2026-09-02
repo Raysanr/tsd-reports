@@ -58,13 +58,17 @@ class TsaShift extends Model
      *  below.
      *
      *  Calling/Wrap Up/Lunch/Others added for Monitor TSA (explicit request,
-     *  2026-08-20). Calling and Wrap Up are both system-only — Calling is
-     *  set the moment a lead's phone number is clicked
-     *  (LeadController::logCallClick()), Wrap Up when that call ends (see
-     *  applyStatusChange()'s callers — CallEventController on a real call
-     *  ending, and the ExpireWrapUpStatuses command 60s later) — neither is
-     *  ever a button a TSA or admin clicks, and TsaStatusController::update()
-     *  explicitly rejects a manual attempt to set either one. */
+     *  2026-08-20). Calling and Wrap Up are both system-only to ENTER —
+     *  Calling is set the moment a lead's phone number is clicked
+     *  (LeadController::logCallClick()), Wrap Up when that call ends
+     *  (CallEventController) — neither is ever a button a TSA or admin
+     *  clicks to START, and TsaStatusController::update() explicitly
+     *  rejects a manual attempt to set either one. Getting OUT of Wrap Up
+     *  is a different question: it no longer auto-expires (removed
+     *  2026-09-01, explicit request — see applyStatusChange()'s own doc
+     *  comment) — a TSA leaves it the same way they leave any other
+     *  status, by manually picking a real next one from
+     *  SELF_SERVICE_STATUSES. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
@@ -187,12 +191,14 @@ class TsaShift extends Model
      *  denormalized status/status_changed_at/status_locked_by columns AND
      *  appends a TsaStatusLog row, together, every time. Extracted
      *  (2026-08-20) so a manual change (TsaStatusController::update()) and
-     *  the two automatic ones Monitor TSA introduces (CallEventController
-     *  flipping Calling -> Wrap Up when a call ends, ExpireWrapUpStatuses
-     *  flipping Wrap Up -> Login 60s later) can never drift apart on how a
-     *  status change is actually recorded — Analytics' own per-status
-     *  duration math (TsaStatusLog::secondsByStatus()) depends on every
-     *  change showing up here, automatic or not. */
+     *  the automatic one Monitor TSA introduces (CallEventController
+     *  flipping Calling -> Wrap Up when a call ends) can never drift apart
+     *  on how a status change is actually recorded — Analytics' own
+     *  per-status duration math (TsaStatusLog::secondsByStatus()) depends
+     *  on every change showing up here, automatic or not. Wrap Up's own
+     *  60s auto-expiry back to Login (ExpireWrapUpStatuses) was removed
+     *  2026-09-01: Wrap Up now stays until the TSA picks a real next status
+     *  themselves, same as Break/Lunch/etc. */
     public function applyStatusChange(string $status, ?int $lockedByUserId = null): void
     {
         $wasLoggedOut = $this->status === self::STATUS_LOGOUT;

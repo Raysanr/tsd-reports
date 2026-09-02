@@ -40,9 +40,14 @@ class RoundRobinAssigner
      *  Calling and Wrap Up both count as available too (explicit request,
      *  2026-08-20) — a round-robin assignment just queues the lead for
      *  whenever the TSA gets to it, it doesn't require them to be idle this
-     *  exact second, so being on another call already (or in the brief,
-     *  system-only after-call window right after one — see
-     *  ExpireWrapUpStatuses) shouldn't leave leads piling up unassigned. */
+     *  exact second, so being on another call already (or in after-call
+     *  wrap-up right after one) shouldn't leave leads piling up unassigned.
+     *  Worth knowing since Wrap Up's own auto-expiry back to Login was
+     *  removed (2026-09-01, explicit request): a TSA who stays in Wrap Up
+     *  indefinitely (rather than manually moving to Login/Break/etc.) keeps
+     *  counting as eligible here for exactly as long as they do — this was
+     *  already true while Wrap Up was capped at ~60s, just no longer bounded
+     *  by that timer. */
     public static function next(Product $product): ?TsaShift
     {
         $roster = $product->tsas()->where('active', true)

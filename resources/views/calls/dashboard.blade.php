@@ -144,7 +144,7 @@ $statusBadge = fn($status) => match(true) {
      the isToday-aware suffix the old cards used. --}}
 <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-6">
     @include('calls.partials.stat-tile', ['label' => 'TSA Log In', 'value' => $tsaLoginCount, 'icon' => 'user', 'color' => 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40', 'underline' => 'bg-yellow-500', 'caption' => 'Total TSA logged in'])
-    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Leads Today' : 'Total Leads', 'value' => $totalLeads, 'icon' => 'inbox', 'color' => 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40', 'underline' => 'bg-amber-500', 'caption' => 'Total leads available'])
+    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Leads Today' : 'Total Leads', 'value' => $totalLeads, 'icon' => 'inbox', 'color' => 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40', 'underline' => 'bg-amber-500', 'caption' => 'Every lead created, assigned or not'])
     @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Catered Today' : 'Total Catered Leads', 'value' => $totalCateredLeads, 'icon' => 'headset', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'underline' => 'bg-emerald-500', 'caption' => 'Total leads catered'])
     @include('calls.partials.stat-tile', ['label' => 'AHT', 'value' => $ahtDisplay, 'icon' => 'stopwatch', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'underline' => 'bg-blue-500', 'caption' => 'Average handle time (mm:ss)'])
     @include('calls.partials.stat-tile', ['label' => 'Unproductive Time', 'value' => $unproductiveDisplay, 'icon' => 'hourglass', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'underline' => 'bg-red-500', 'caption' => 'Average unproductive time (mm:ss)'])
@@ -214,9 +214,19 @@ $statusBadge = fn($status) => match(true) {
      (DashboardController::index()'s own comment on scope/why), a solid
      yellow header and a black TOTAL row matching the reference exactly. --}}
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">TSA Performance Overview</h2>
-        <span class="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-full">
+    <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+            <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono">TSA Performance Overview</h2>
+            {{-- Explicit follow-up (2026-09-01): the KPI card above counts
+                 every lead CREATED in this range, including ones no TSA
+                 has picked up yet; this table counts leads actually
+                 ASSIGNED to a TSA in this range (round-robin output) —
+                 a smaller number by design (DashboardController::index()'s
+                 own comment on why), not a bug. Spelled out here so that
+                 doesn't need re-discovering every time the two disagree. --}}
+            <p class="text-[11px] font-mono text-slate-400 mt-0.5">Leads actually assigned to a TSA in this range — usually fewer than the Total Leads card above, which counts every lead created</p>
+        </div>
+        <span class="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-full shrink-0">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
             {{ $tsaLoginCount }} ONLINE
         </span>

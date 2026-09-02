@@ -102,7 +102,7 @@
     status changes happen from TSA Management or a TSA's own topbar dropdown, and show up here automatically.
     <strong class="text-slate-800 dark:text-slate-100">Calling</strong> starts the moment a lead's number is clicked, and
     <strong class="text-slate-800 dark:text-slate-100">Wrap Up</strong> starts automatically once that call ends —
-    neither is ever set by hand. Default automatic wrap-up duration: <strong class="text-slate-800 dark:text-slate-100">{{ $wrapUpSeconds }} seconds</strong>.
+    neither is ever set by hand. Wrap Up no longer auto-expires — a TSA stays in it until they pick their next status themselves.
 </div>
 
 <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">

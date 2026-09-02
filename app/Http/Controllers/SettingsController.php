@@ -52,6 +52,15 @@ class SettingsController extends Controller
         $driveSyncLastRun     = Setting::get('drive_sync_last_run');
         $driveSyncLastStatus  = Setting::get('drive_sync_last_status');
         $driveSyncLastMessage = Setting::get('drive_sync_last_message');
+        // Explicit follow-up (2026-09-01: "i want to add loading when sync
+        // in the gdrive") — syncDriveNow() below fires the actual sync as a
+        // detached background process and redirects immediately, so there
+        // was previously no way to tell "it's working" from "it silently
+        // did nothing" until the page was manually refreshed. Fed into the
+        // Blade view so the Sync Now button can render a real loading
+        // state on load (not just after a click in the same page load),
+        // and polled via driveSyncStatus() below while a sync is in flight.
+        $driveSyncRunning = Setting::get('drive_sync_running') === '1';
 
         // Ported from call-tracker (merged into one app 2026-08-12) — Call
         // Tracker's own two extra Settings fields, folded onto this page.
@@ -65,9 +74,27 @@ class SettingsController extends Controller
             'apiKeyMasked', 'apiSaved', 'shopId', 'shopName', 'syncInterval', 'lastSynced',
             'driveClientId', 'driveClientSecretMasked', 'driveRefreshTokenMasked',
             'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
-            'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage',
+            'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage', 'driveSyncRunning',
             'overdueThresholdHours', 'accessTokenMasked', 'accessTokenExpiresAt'
         ));
+    }
+
+    /**
+     * JSON status poll for the Drive sync loading state (explicit request:
+     * "i want to add loading when sync in the gdrive") — the actual sync
+     * runs as a detached background process (see syncDriveNow() below), so
+     * this is the only way the page can tell when a running sync has
+     * actually finished without the admin manually refreshing. Same three
+     * Settings keys the page itself already reads on a normal load.
+     */
+    public function driveSyncStatus()
+    {
+        return response()->json([
+            'running' => Setting::get('drive_sync_running') === '1',
+            'lastRun'     => Setting::get('drive_sync_last_run'),
+            'lastStatus'  => Setting::get('drive_sync_last_status'),
+            'lastMessage' => Setting::get('drive_sync_last_message'),
+        ]);
     }
 
     /**
@@ -293,7 +320,10 @@ class SettingsController extends Controller
     public function syncDriveNow(Request $request)
     {
         if (empty(Setting::get('drive_refresh_token'))) {
-            return $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => 'Save Google Drive credentials before running a manual sync.']);
+            $message = 'Save Google Drive credentials before running a manual sync.';
+            return $request->wantsJson()
+                ? response()->json(['success' => false, 'error' => $message], 422)
+                : $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => $message]);
         }
 
         // The command itself also guards against this (see SyncCallRecordings::
@@ -301,7 +331,10 @@ class SettingsController extends Controller
         // overlap — this check just avoids spawning a doomed-to-skip process and
         // gives the user an immediate, honest message instead of a silent no-op.
         if (Setting::get('drive_sync_running') === '1') {
-            return $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => 'A sync is already running — wait for it to finish before starting another.']);
+            $message = 'A sync is already running — wait for it to finish before starting another.';
+            return $request->wantsJson()
+                ? response()->json(['success' => false, 'error' => $message], 409)
+                : $this->redirectToCaller($request)->withErrors(['drive_refresh_token' => $message]);
         }
 
         // Explicit date, not just "sync today": confirmed in production — a
@@ -323,6 +356,17 @@ class SettingsController extends Controller
         exec("{$php} {$artisan} calls:sync-recordings --date={$dateArg} >> {$logFile} 2>&1 &");
 
         ActivityLogger::log('settings.drive_sync_now', null, "Manually triggered Google Drive call-recording sync for {$date}.");
+
+        // JSON branch (explicit follow-up: "i want to add loading when sync
+        // in the gdrive") — the page's own JS (initDriveSyncNow() in
+        // settings.blade.php) submits via fetch with Accept: application/
+        // json so it can show a real loading state and poll
+        // driveSyncStatus() instead of doing a full-page redirect+reload;
+        // a plain (no-JS) form POST still gets the original redirect
+        // behavior, unaffected.
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => "Google Drive sync for {$date} started."]);
+        }
 
         return $this->redirectToCaller($request)->with('success', "Google Drive sync for {$date} started in the background — refresh this page in a minute or two to see the result.");
     }

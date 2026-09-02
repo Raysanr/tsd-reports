@@ -201,16 +201,31 @@
                      they already exist in Drive — one uploaded after the last
                      run of a given day was previously stuck that way forever,
                      with no way to go back and catch it. Defaults to today so
-                     the common case (re-check right now) still needs no typing. --}}
-                <form method="POST" action="{{ route('settings.drive.sync-now') }}" class="flex items-center gap-1.5">
+                     the common case (re-check right now) still needs no typing.
+
+                     Submitted via JS (initDriveSyncNow() below), not a plain
+                     POST, so a real loading state can show (explicit request:
+                     "i want to add loading when sync in the gdrive") — the
+                     actual sync still runs as a detached background process
+                     server-side either way (syncDriveNow()), this just keeps
+                     the admin on the page and polls driveSyncStatus() instead
+                     of redirecting immediately into an ambiguous "did it
+                     start?" full-page reload. --}}
+                <form id="driveSyncNowForm" method="POST" action="{{ route('settings.drive.sync-now') }}" class="flex items-center gap-1.5">
                     @csrf
                     <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
-                    <input type="date" name="date" value="{{ now('Asia/Manila')->toDateString() }}"
+                    <input type="date" name="date" id="driveSyncDate" value="{{ now('Asia/Manila')->toDateString() }}"
                            max="{{ now('Asia/Manila')->toDateString() }}"
                            aria-label="Date to sync"
                            class="px-2 py-1.5 text-xs font-mono rounded-lg border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
-                    <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer whitespace-nowrap">
-                        Sync Now
+                    <button type="submit" id="driveSyncNowBtn" data-initially-running="{{ $driveSyncRunning ? '1' : '0' }}"
+                            @if($driveSyncRunning) disabled @endif
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold font-mono text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed">
+                        <svg id="driveSyncNowSpinner" class="{{ $driveSyncRunning ? '' : 'hidden' }} w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span id="driveSyncNowLabel">{{ $driveSyncRunning ? 'Syncing…' : 'Sync Now' }}</span>
                     </button>
                 </form>
                 <form method="POST" action="{{ route('settings.drive.clear') }}" onsubmit="return confirm('Disconnect Google Drive? Real OPT/AHT data will stop syncing until reconnected.');">
@@ -222,29 +237,39 @@
                 </form>
                 @endif
             </div>
-            @if($driveSyncLastRun)
-            <div class="mt-3 flex items-center gap-2 text-xs">
-                @if($driveSyncLastStatus === 'success')
-                    <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
-                        <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Last sync succeeded
-                    </span>
-                @elseif($driveSyncLastStatus === 'failed')
-                    <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync failed
-                    </span>
-                @elseif($driveSyncLastStatus === 'error')
-                    <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync errored
-                    </span>
+            <div id="driveSyncStatusLine">
+                @if($driveSyncRunning)
+                <div class="mt-3 flex items-center gap-2 text-xs">
+                    <svg class="w-3.5 h-3.5 text-emerald-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span class="text-emerald-600 dark:text-emerald-400 font-semibold">Sync in progress…</span>
+                </div>
+                @elseif($driveSyncLastRun)
+                <div class="mt-3 flex items-center gap-2 text-xs">
+                    @if($driveSyncLastStatus === 'success')
+                        <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Last sync succeeded
+                        </span>
+                    @elseif($driveSyncLastStatus === 'failed')
+                        <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync failed
+                        </span>
+                    @elseif($driveSyncLastStatus === 'error')
+                        <span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync errored
+                        </span>
+                    @endif
+                    <span class="text-slate-400">— {{ \Carbon\Carbon::parse($driveSyncLastRun)->diffForHumans() }}</span>
+                </div>
+                @if($driveSyncLastMessage)
+                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400 font-mono">{{ $driveSyncLastMessage }}</p>
                 @endif
-                <span class="text-slate-400">— {{ \Carbon\Carbon::parse($driveSyncLastRun)->diffForHumans() }}</span>
+                @else
+                <p class="mt-3 text-xs text-slate-400">Never run yet — runs automatically every 2 hours once connected.</p>
+                @endif
             </div>
-            @if($driveSyncLastMessage)
-            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400 font-mono">{{ $driveSyncLastMessage }}</p>
-            @endif
-            @else
-            <p class="mt-3 text-xs text-slate-400">Never run yet — runs automatically every 2 hours once connected.</p>
-            @endif
         </div>
 
         <form method="POST" action="{{ route('settings.drive.save') }}">
@@ -479,5 +504,121 @@ function showStatus(type, msg) {
     statusEl.className = `mt-3 text-xs ${styles[type] ?? 'text-slate-600 dark:text-slate-400'}`;
     statusEl.textContent = msg;
 }
+
+// Google Drive "Sync Now" loading state (explicit request: "i want to add
+// loading when sync in the gdrive") — the sync itself runs as a detached
+// background process server-side either way (SettingsController::
+// syncDriveNow()), so this is purely about giving the click real feedback
+// instead of a full-page redirect that leaves it ambiguous whether
+// anything actually started. Submits via fetch (Accept: application/json,
+// see that same controller method's JSON branch) so the page never
+// navigates away, then polls driveSyncStatus() until drive_sync_running
+// flips back off.
+(function () {
+    const form      = document.getElementById('driveSyncNowForm');
+    if (!form) return; // not connected yet — this card isn't rendered at all
+
+    const dateInput = document.getElementById('driveSyncDate');
+    const btn       = document.getElementById('driveSyncNowBtn');
+    const spinner   = document.getElementById('driveSyncNowSpinner');
+    const label     = document.getElementById('driveSyncNowLabel');
+    const statusLine = document.getElementById('driveSyncStatusLine');
+    const statusUrl  = '{{ route("settings.drive.sync-status") }}';
+    let pollInterval = null;
+
+    function setLoading(isLoading) {
+        btn.disabled = isLoading;
+        dateInput.disabled = isLoading;
+        spinner.classList.toggle('hidden', !isLoading);
+        label.textContent = isLoading ? 'Syncing…' : 'Sync Now';
+    }
+
+    function renderStatusLine(data) {
+        if (data.running) {
+            statusLine.innerHTML = `
+                <div class="mt-3 flex items-center gap-2 text-xs">
+                    <svg class="w-3.5 h-3.5 text-emerald-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span class="text-emerald-600 dark:text-emerald-400 font-semibold">Sync in progress…</span>
+                </div>`;
+            return;
+        }
+
+        const badges = {
+            success: '<span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400"><span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span> Last sync succeeded</span>',
+            failed:  '<span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync failed</span>',
+            error:   '<span class="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><span class="w-1.5 h-1.5 rounded-full bg-red-500 inline-block"></span> Last sync errored</span>',
+        };
+        const badge = badges[data.lastStatus] ?? '';
+        const when = data.lastRun ? new Date(data.lastRun).toLocaleString() : '';
+
+        statusLine.innerHTML = data.lastRun
+            ? `<div class="mt-3 flex items-center gap-2 text-xs">${badge}<span class="text-slate-400">— ${when}</span></div>`
+                + (data.lastMessage ? `<p class="mt-1 text-xs text-slate-500 dark:text-slate-400 font-mono">${escapeHtmlLocal(data.lastMessage)}</p>` : '')
+            : '<p class="mt-3 text-xs text-slate-400">Never run yet — runs automatically every 2 hours once connected.</p>';
+    }
+
+    function escapeHtmlLocal(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+    }
+
+    async function poll() {
+        try {
+            const res = await fetch(statusUrl, { headers: { Accept: 'application/json' } });
+            const data = await res.json();
+            renderStatusLine(data);
+            if (!data.running) {
+                setLoading(false);
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        } catch (e) {
+            // Silent — a missed poll tick just tries again next interval.
+        }
+    }
+
+    function startPolling() {
+        if (pollInterval) return;
+        poll();
+        pollInterval = setInterval(poll, 4000);
+    }
+
+    // Resume polling on load if a sync was already running when this page
+    // rendered (e.g. triggered from a different tab, or the scheduled job).
+    if (btn.dataset.initiallyRunning === '1') startPolling();
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        setLoading(true);
+
+        try {
+            const res = await fetch(form.action, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: JSON.stringify({ date: dateInput.value }),
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                setLoading(false);
+                window.showToast?.(data.error || 'Could not start the sync — try again.', 'error');
+                return;
+            }
+
+            startPolling();
+        } catch (e) {
+            setLoading(false);
+            window.showToast?.('Could not reach the server — try again.', 'error');
+        }
+    });
+})();
 </script>
 @endpush

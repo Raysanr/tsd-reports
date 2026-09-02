@@ -1869,7 +1869,20 @@ function initLineItemsPanel() {
             const leadId = wrap?.dataset.leadId;
             if (!leadId) return;
 
-            if (!await window.showConfirm(`Remove "${row.dataset.name}" from this order?`, { confirmText: 'Remove' })) return;
+            // Root cause of "delete icon does nothing": this called
+            // window.showConfirm(), which is only ever DEFINED in app.js
+            // (resources/js/app.js) — layouts/calls.blade.php, what every
+            // Call Tracker page including this one actually loads, only
+            // pulls in calls.js, never app.js, and has no #confirmModal
+            // element in its markup either. showConfirm() itself guards
+            // against a missing #confirmModal by silently resolving false
+            // with zero visible feedback — so the click DID fire (hover
+            // worked, per the report), it just silently bailed out every
+            // time with no dialog, no error, nothing. calls.js' own real
+            // convention for this (see the TSA-token-regenerate confirm
+            // above) is the plain native confirm() — matching that here
+            // instead of the app.js-only custom modal.
+            if (!confirm(`Remove "${row.dataset.name}" from this order?`)) return;
 
             try {
                 const res = await fetch(`/calls/leads/${leadId}/items`, {

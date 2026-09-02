@@ -74,14 +74,17 @@ class TsaStatusController extends Controller
             }
         }
 
-        // Wrap Up is system-only (Monitor TSA, explicit request 2026-08-20)
-        // — it's set automatically when a call ends and auto-expires back to
-        // Login on its own (see CallEventController::store() and the
-        // ExpireWrapUpStatuses command), never a button anyone clicks. This
+        // Wrap Up is system-only to ENTER (Monitor TSA, explicit request
+        // 2026-08-20) — it's set automatically when a call ends (see
+        // CallEventController::store()), never a button anyone clicks. This
         // is the one path every manual status change funnels through
         // (topbar dropdown + Call Rotation + Monitor TSA's button grid all
         // POST here), so rejecting it here closes the gap even though no UI
-        // exposes a Wrap Up button today.
+        // exposes a Wrap Up button today. It no longer auto-expires back to
+        // Login on its own (removed 2026-09-01, explicit request) — a TSA
+        // leaves Wrap Up the normal way, by picking a real next status,
+        // which this same endpoint (with a different $data['status']) already
+        // allows freely.
         if ($data['status'] === TsaShift::STATUS_WRAP_UP) {
             abort(422, 'Wrap Up is set automatically when a call ends — it can\'t be picked manually.');
         }

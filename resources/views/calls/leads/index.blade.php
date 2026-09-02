@@ -101,7 +101,6 @@
     <form method="GET" class="flex items-center gap-3 flex-wrap">
         @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
 
-        @if(auth()->user()->isAtLeastAdmin())
         @php
             // Team dot colors — same gold/teal accent pair Leads Setup's own
             // table already uses per team (round-robin-setup/_table.blade.php),
@@ -112,6 +111,7 @@
             $statusLabels = ['catered' => 'Catered', 'uncatered' => 'Uncatered'];
         @endphp
 
+        @if(auth()->user()->isAtLeastAdmin())
         {{-- Custom dropdown (explicit request, 2026-08-20; the same
              trigger+floating-panel design was then extended to Team/Product/
              Status below, explicit request 2026-08-28) instead of a plain
@@ -203,11 +203,18 @@
                 </div>
             </div>
         </div>
+        @endif
 
-        {{-- Product filter — options are already scoped to the team picked
-             above (LeadController::index()'s own 'products' query), so this
-             can never offer a product that team's TSAs don't actually
-             handle. --}}
+        {{-- Product filter — admin-only above this closed with the Team
+             filter: Product/Status/Search work for a TSA too (explicit
+             follow-up, 2026-09-02: "add product, status, search in the
+             tsa(normal user) in leads") — only the Team/TSA pickers stay
+             admin-only, since narrowing to a specific TSA/team is
+             inherently an admin-only concept (a TSA already only ever sees
+             their own queue). Options are scoped to the team picked above
+             for an admin, or to that TSA's own leads for a TSA
+             (LeadController::index()'s own 'products' query), so this can
+             never offer a product with nothing to show. --}}
         <div class="relative" data-filter-wrap>
             <input type="hidden" name="product" value="{{ $selectedProduct ?: '' }}" data-filter-input>
             <button type="button" data-filter-trigger
@@ -301,7 +308,9 @@
              letting an admin change THAT TSA's status right here instead of
              a separate page. Only makes sense once a specific TSA is
              picked — "All TSAs" has no single status to show/change, so
-             this stays hidden until one is. --}}
+             this stays hidden until one is. Admin-only: $selectedTsaModel
+             is never set for a TSA viewer (they have no TSA-picker to set
+             it from), so this is naturally already scoped correctly. --}}
         @if(!$view && $selectedTsaModel)
         @include('calls.partials.tsa-status-panel', [
             'id'      => 'leads-tsa-filter',
@@ -309,6 +318,23 @@
             'current' => $selectedTsaModel->status,
             'target'  => (string) $selectedTsaModel->id,
         ])
+        @endif
+
+        @if(!auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
+        {{-- A logged-in TSA sees their own name here, same avatar+name shape
+             as the admin Team/TSA dropdowns above minus the chevron/click
+             handler — explicit request, 2026-08-26: "the one tsa can only
+             see their name and has no dropdown." Narrowing to a specific
+             TSA/team is inherently an admin-only concept (a TSA already
+             only ever sees their own queue, per the base query in
+             LeadController::index()), so this stays as a static label
+             while Product/Status/Search below are no longer admin-only
+             (explicit follow-up, 2026-09-02: "add product, status, search
+             in the tsa(normal user) in leads"). --}}
+        <div class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
+            <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr(auth()->user()->tsa->display_name, 0, 2)) }}</span>
+            <span>{{ auth()->user()->tsa->display_name }}</span>
+        </div>
         @endif
 
         <div class="relative">
@@ -320,25 +346,12 @@
         </div>
         <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">Search</button>
 
+        @if(auth()->user()->isAtLeastAdmin())
         @include('partials.date-picker', [
             'mode' => 'range', 'id' => 'callsLeadsDrp',
             'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom ?: now()),
             'dateTo'   => \Illuminate\Support\Carbon::parse($dateTo ?: now()),
         ])
-        @elseif(auth()->user()->tsa)
-        {{-- A logged-in TSA sees their own name here, same avatar+name shape
-             as the admin dropdown above minus the chevron/click handler —
-             explicit request, 2026-08-26: "the one tsa can only see their
-             name and has no dropdown." Everything else in the @if branch
-             above (TSA filter, status filter, search, date range) stays
-             admin-only exactly as it already was — this whole block was
-             already entirely admin-gated before this change, so a TSA saw
-             nothing here at all; this just adds a static name label instead
-             of leaving that space empty. --}}
-        <div class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
-            <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr(auth()->user()->tsa->display_name, 0, 2)) }}</span>
-            <span>{{ auth()->user()->tsa->display_name }}</span>
-        </div>
         @endif
     </form>
 </div>

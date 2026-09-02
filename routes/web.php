@@ -121,6 +121,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/settings/drive',           [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
         Route::post('/settings/drive/clear',     [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
         Route::post('/settings/drive/sync-now',  [SettingsController::class, 'syncDriveNow'])->name('settings.drive.sync-now');
+        Route::get('/settings/drive/sync-status', [SettingsController::class, 'driveSyncStatus'])->name('settings.drive.sync-status');
         // Ported from call-tracker (merged into one app 2026-08-12) — folded
         // onto this same Settings page rather than a second one, since both
         // would otherwise edit the same underlying Pancake connection.

@@ -165,12 +165,13 @@ class LeadControllerTest extends TestCase
 
     /**
      * Explicit request, 2026-08-26: "the one tsa can only see their name
-     * and has no dropdown." The whole TSA filter bar (dropdown, status
-     * filter, search, date range) was already entirely admin-only before
-     * this — a TSA gets a plain, non-interactive name badge instead of
-     * that empty space, not the real filter dropdown.
+     * and has no dropdown" for the TEAM/TSA picker specifically — updated
+     * 2026-09-02 (explicit follow-up: "add product, status, search in the
+     * tsa(normal user) in leads") to reopen Product/Status/Search for a
+     * TSA, while the Team/TSA picker (inherently admin-only — a TSA
+     * already only ever sees their own queue) stays a plain name badge.
      */
-    public function test_a_tsa_sees_their_own_name_with_no_dropdown_on_the_leads_page(): void
+    public function test_a_tsa_sees_their_own_name_with_no_team_dropdown_but_has_product_status_search_on_the_leads_page(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma-name@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
@@ -179,7 +180,16 @@ class LeadControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Gemma De Guzman');
-        $response->assertDontSee('data-filter-trigger', false);
+        // Product/Status filter triggers are now present for a TSA.
+        $response->assertSee('data-filter-trigger', false);
+        $response->assertSee('All Products');
+        $response->assertSee('All Statuses');
+        $response->assertSee('Search name, phone, order ID');
+        // Team picker (an admin-only concept) is still absent — its
+        // distinguishing markers ("All Teams" label, team= hidden input)
+        // never render for a non-admin.
+        $response->assertDontSee('All Teams');
+        $response->assertDontSee('name="team"', false);
     }
 
     /**

@@ -161,7 +161,14 @@ class LeadController extends Controller
             $query->where('status', '!=', 'called');
         }
 
-        if ($user->isAtLeastAdmin() && $request->filled('q')) {
+        // Search re-opened to a TSA too (explicit follow-up, 2026-09-02:
+        // "add product, status, search in the tsa(normal user) in leads") —
+        // was admin-only since this filter form's very first version; no
+        // extra scoping needed here beyond what already exists above (line
+        // 73-74 already restricts the base $query to only this TSA's own
+        // leads before this ever runs), so a TSA searching can only ever
+        // search within their own queue, never anyone else's.
+        if ($request->filled('q')) {
             $q = trim($request->string('q'));
             $query->where(function ($sub) use ($q) {
                 $sub->where('customer_name', 'like', "%{$q}%")
@@ -237,10 +244,19 @@ class LeadController extends Controller
             // Options narrow to the picked team (all products when no team
             // is picked) — same "the dropdown can never offer something the
             // query itself would reject" guarantee STATUS_FILTER_VALUES
-            // already gives the status filter above.
+            // already gives the status filter above. A TSA (explicit
+            // follow-up, 2026-09-02: "add product, status, search in the
+            // tsa(normal user) in leads") gets a narrower list scoped to
+            // products actually appearing on THEIR OWN leads, not their
+            // whole team's catalog — an admin's product list can offer
+            // something zero of their currently-visible leads use (they see
+            // the whole team), but a TSA's own queue is small enough that
+            // offering a product with nothing to show would just be
+            // confusing empty options.
             'products'              => $user->isAtLeastAdmin()
                 ? Product::orderBy('sort_order')->when($selectedTeam, fn ($q) => $q->where('team', $selectedTeam))->get()
-                : collect(),
+                : Product::whereIn('id', Lead::where('tsa_id', $user->tsa_id)->whereNotNull('product_id')->distinct()->pluck('product_id'))
+                    ->orderBy('sort_order')->get(),
             'selectedProduct'       => $request->integer('product'),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,

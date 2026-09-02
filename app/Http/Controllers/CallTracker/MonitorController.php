@@ -5,7 +5,6 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
-use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
 use Illuminate\Http\Request;
@@ -106,7 +105,6 @@ class MonitorController extends Controller
             'statusCounts'         => $statusCounts,
             'q'                    => $q,
             'selectedStatus'       => $status,
-            'wrapUpSeconds'        => max(1, (int) Setting::get('wrap_up_duration_seconds', 60)),
             'teams'                => $teams,
             'selectedTeam'         => $selectedTeam,
             'dateFrom'             => $dateFrom,
