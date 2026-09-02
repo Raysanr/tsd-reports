@@ -50,7 +50,7 @@ class LeadsReportEffectiveDateTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertViewHas('currentOrders', fn($orders) => $orders->isEmpty());
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
     }
 
     public function test_an_order_created_today_but_worked_yesterday_still_shows_in_todays_leads_report(): void
@@ -77,9 +77,7 @@ class LeadsReportEffectiveDateTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertViewHas('currentOrders', fn($orders) => $orders->contains(
-            fn($o) => $o->pancake_order_id === 'backlog-2'
-        ));
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
     }
 
     public function test_a_pre_backfill_order_with_no_pancake_inserted_at_falls_back_to_worked_at(): void
@@ -106,8 +104,6 @@ class LeadsReportEffectiveDateTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertViewHas('currentOrders', fn($orders) => $orders->contains(
-            fn($o) => $o->pancake_order_id === 'legacy-1'
-        ));
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
     }
 }

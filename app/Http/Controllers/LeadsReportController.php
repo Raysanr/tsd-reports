@@ -88,9 +88,6 @@ class LeadsReportController extends Controller
         // same day. TSA Performance/Charts deliberately still use pancake_created_at
         // (worked-at) — that's what makes a backlog lead count toward the TSA who
         // actually worked it, on the day they worked it.
-        $ordersQuery = Order::where('team', $orderTeam)
-            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to]);
-
         // Hour slots for the breakdown rows. 'dates' mode: hour-of-day buckets 0–23,
         // so a multi-day range aggregates each hour's activity across every day (the
         // original behavior). 'last24h' mode: one slot per REAL hour in the window,
@@ -150,20 +147,17 @@ class LeadsReportController extends Controller
         // window vs. one hour's subset both work correctly and consistently with how
         // TSA Performance counts the same data.
         //
-        // Product-matching pool, cross-team (not scoped to $orderTeam like $ordersQuery
-        // above): a combo SKU can bundle products from TWO different teams under one
-        // order (e.g. a Pterygium order — Eyecare's own team — bundling 10 Sinuxyl
-        // units, an SH Naturals product), but an order only ever carries the ONE team
-        // its primary item belongs to. Team-scoping this pool would make that whole
+        // Product-matching pool, cross-team (not scoped to $orderTeam): a combo SKU
+        // can bundle products from TWO different teams under one order (e.g. a
+        // Pterygium order — Eyecare's own team — bundling 10 Sinuxyl units, an SH
+        // Naturals product), but an order only ever carries the ONE team its
+        // primary item belongs to. Team-scoping this pool would make that whole
         // cross-team half of the bundle invisible to SH Naturals' own SINUXYL row —
         // confirmed in production (order 1333736: 89 in POS vs 88 here).
         // ProductPerformance::buildRow() itself already trusts an explicit product/
         // bundle_description text match across team lines; it just needs a pool that
         // isn't pre-filtered down to one team to find it in. Grand Total below is
-        // built from the SAME pool (a straight sum of these product rows), so a combo
-        // order is never invisible to it either — Recent Orders ($currentOrders,
-        // built from $ordersQuery further down) is the one thing that deliberately
-        // stays team-scoped, since a combo order is only ever OWNED by its own team.
+        // built from the SAME pool (a straight sum of these product rows).
         // Fetched one calendar day at a time, not the whole range in one
         // Collection — same memory-crash fix already applied to Dashboard's
         // own wide-range Grand Total (2026-08-28) and this page's ALL view
@@ -317,7 +311,6 @@ class LeadsReportController extends Controller
         // untracked-product order exists in range; that's the accepted
         // trade-off of this explicit choice, not an oversight.
         $visibleProducts = $productTables->pluck('product');
-        $teamOrders       = (clone $ordersQuery)->get();
         $grandTotal       = ProductPerformance::sumRows($productTables->pluck('total'));
 
         // Same per-hour breakdown as each product table above, but summing
@@ -348,14 +341,11 @@ class LeadsReportController extends Controller
                 return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
             })->filter()->values()->all();
 
-        $currentOrders = $teamOrders
-            ->sortByDesc(fn ($o) => $o->effective_created_at)
-            ->values();
-        $metricCols    = ProductPerformance::METRIC_COLUMNS;
+        $metricCols = ProductPerformance::METRIC_COLUMNS;
 
         return view('leads-report', compact(
             'dateFrom', 'dateTo', 'selectedTeam', 'teams', 'mode', 'rangeLabel',
-            'currentOrders', 'productTables', 'metricCols', 'grandTotal', 'grandTotalHourlyRows'
+            'productTables', 'metricCols', 'grandTotal', 'grandTotalHourlyRows'
         ));
     }
 
