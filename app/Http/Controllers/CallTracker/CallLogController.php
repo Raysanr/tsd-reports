@@ -8,6 +8,7 @@ use App\Models\CallEvent;
 use App\Models\TsaShift;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift.
@@ -24,6 +25,8 @@ class CallLogController extends Controller
 
     public function index(Request $request)
     {
+        $user = Auth::user();
+
         // Remembered across a tab-away-and-back navigation (explicit
         // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
         // comment.
@@ -50,6 +53,19 @@ class CallLogController extends Controller
         // separate, independent TSA universe.
         $tsaFilterInput = $this->rememberedFilter($request, 'call-log', 'tsa');
         $selectedTsa    = $tsaFilterInput ? (int) $tsaFilterInput : null;
+
+        // Opened to a TSA too (explicit follow-up, 2026-09-02: "i want tsa
+        // can see access this tabs — dashboard, leads, call log") — a
+        // non-admin always gets forced to their own tsa_id, same as
+        // Dashboard/Leads already do, regardless of whatever team/tsa
+        // params happen to be in the URL/remembered filter (this report
+        // otherwise showed every TSA's call activity, real cross-visibility
+        // into colleagues' data that was never scoped down before).
+        if (!$user->isAtLeastAdmin()) {
+            $selectedTeam = 'all';
+            $orderTeam    = null;
+            $selectedTsa  = $user->tsa_id;
+        }
 
         $events = CallEvent::with(['tsa', 'lead'])
             ->whereBetween('occurred_at', [$from, $to])

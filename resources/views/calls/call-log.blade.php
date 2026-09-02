@@ -3,6 +3,7 @@
 @section('subtitle', 'Real calls reported by each TSA\'s own phone — the basis for load reimbursement')
 
 @push('topbar-right')
+@if(auth()->user()->isAtLeastAdmin())
 {{-- Team filter (explicit request, 2026-08-24, moved into the topbar the
      same day — "make the team filter too in the topbar too like the
      dashboard too") — same ALL/SH Naturals/Eyecare pill group + bg-primary-
@@ -12,7 +13,14 @@
      instant AJAX team-switch with a full-reload date change would feel
      inconsistent. Date range carries through the link (the date picker's
      own navigate mode can't carry `team` back the other way — an accepted
-     minor rough edge, same as Leads Setup's own picker). --}}
+     minor rough edge, same as Leads Setup's own picker).
+
+     Admin-only (explicit follow-up, 2026-09-02: "i want tsa can see access
+     this tabs — dashboard, leads, call log"): browsing OTHER TSAs' data is
+     inherently an admin concept — a TSA opening this page always sees only
+     their own row (CallLogController::index() forces $selectedTsa to their
+     own tsa_id regardless of these params), so Team/TSA pickers that could
+     only ever point away from that would just be misleading. --}}
 <div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
     @foreach($teams as $key => $label)
     <a href="{{ route('calls.call-log', ['team' => $key, 'tsa' => $selectedTsa, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
@@ -40,6 +48,7 @@
     <option value="{{ route('calls.call-log', ['team' => $selectedTeam, 'tsa' => $tsa->id, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @selected($selectedTsa === $tsa->id)>{{ $tsa->display_name }}</option>
     @endforeach
 </select>
+@endif
 
 {{-- Icon-only, same shared range picker Dashboard/Leads Setup use (explicit
      request, 2026-08-24: "make the date picker too of call log is like in

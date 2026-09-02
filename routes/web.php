@@ -193,6 +193,16 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
         Route::get('/api/own-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'own'])->name('tsa-status.own');
 
+        // Opened to a TSA too (explicit follow-up, 2026-09-02: "i want tsa
+        // can see access this tabs — dashboard, leads, call log") — Dashboard
+        // (calls.dashboard) and Leads (calls.leads.index) were already
+        // outside the admin-only group below and already self-scope for a
+        // non-admin; Call Log needed the same treatment (moved out of the
+        // group, controller scoped — see CallLogController::index()'s own
+        // comment) since it previously showed every TSA's call activity
+        // with no restriction at all.
+        Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
+
         Route::middleware('role:super_admin,admin')->group(function () {
             Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');
             Route::post('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'store'])->name('tsa-management.store');
@@ -215,7 +225,6 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
 
             Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
             Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
-            Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
             Route::get('/call-recordings', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'index'])->name('call-recordings');
             Route::get('/call-recordings/{recording}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
             Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');

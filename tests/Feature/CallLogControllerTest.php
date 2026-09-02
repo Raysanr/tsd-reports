@@ -27,12 +27,38 @@ class CallLogControllerTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_a_tsa_cannot_reach_the_call_log(): void
+    /**
+     * Explicit follow-up (2026-09-02: "i want tsa can see access this tabs
+     * — dashboard, leads, call log") — reverses the earlier admin-only
+     * restriction. The controller forces $selectedTsa to the viewer's own
+     * tsa_id for a non-admin regardless of any team/tsa param, so a TSA
+     * only ever sees their own row here, never a colleague's.
+     */
+    public function test_a_tsa_can_reach_the_call_log_and_sees_only_their_own_row(): void
     {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $user   = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
 
-        $this->actingAs($user)->get(route('calls.call-log'))->assertForbidden();
+        $today = now('Asia/Manila')->format('Y-m-d');
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $mariel->id, 'phone_number' => '2', 'direction' => 'incoming', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        // Even a colleague's tsa_id passed explicitly in the URL is ignored
+        // for a non-admin — the controller always forces their own.
+        $response = $this->actingAs($user)->get(route('calls.call-log', ['date_from' => $today, 'date_to' => $today, 'tsa' => $mariel->id]));
+
+        $response->assertOk();
+        $rows = collect($response->viewData('rows'));
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($gemma->id, $rows->first()['tsa']->id);
+        $this->assertSame(1, $rows->first()['total_calls']);
+
+        // The raw "Recent calls" event list is scoped the same way.
+        $events = $response->viewData('events');
+        $this->assertCount(1, $events);
+        $this->assertSame($gemma->id, $events->first()->tsa_id);
     }
 
     public function test_it_totals_calls_per_tsa_within_the_selected_range(): void
