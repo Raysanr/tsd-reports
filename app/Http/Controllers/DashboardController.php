@@ -181,17 +181,30 @@ class DashboardController extends Controller
             }
 
             // Real order-level cancellations (Pancake status_code 6, "Canceled").
-            // Root-caused 2026-08-28: this card used to key off is_cancelled_upsell,
-            // which only catches an upsell add-on being dropped while the primary
-            // order still ships — Eyecare's dashboard showed 1 cancellation (₱799,
-            // an upsell-only cancellation) for a day with 4 fully canceled orders
-            // (#1358422, #1358314, #1358206, #1358187), none of which had
-            // is_cancelled_upsell set. Scoped by $orderTeams same as every other
-            // card, so this is correct for a single selected team AND for the ALL
-            // view across every team.
+            // Root-caused 2026-08-28: this card used to key off is_cancelled_upsell
+            // ALONE, which only catches an upsell add-on being dropped while the
+            // primary order still ships — Eyecare's dashboard showed 1 cancellation
+            // (₱799, an upsell-only cancellation) for a day with 4 fully canceled
+            // orders (#1358422, #1358314, #1358206, #1358187), none of which had
+            // is_cancelled_upsell set. Switched to plain status_code=6, which fixed
+            // that under-count but over-corrected the other direction — confirmed
+            // live, 2026-09-02: Eyecare/Sept 1 showed 17 orders/₱10,838 here, but
+            // only 1 (#1361586) was a genuine full-order cancellation; the other 16
+            // were is_cancelled_upsell orders (a TSA added an upsell, it was later
+            // removed from the cart, base order still shipped) that this card
+            // shouldn't count as "cancelled" at all — same distinction ProductPerformance
+            // ::tally()'s own status_code===6 handling already makes (a Canceled order
+            // still counts as a live upsell lead when is_cancelled_upsell is what
+            // triggered the status, not a real void). Excluding it here keeps both
+            // fixes' intent: still catches a fully canceled order regardless of
+            // whether it happens to carry an upsell tag, without re-counting an
+            // upsell-only revert as a cancelled ORDER. Scoped by $orderTeams same as
+            // every other card, so this is correct for a single selected team AND
+            // for the ALL view across every team.
             $cancelledOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
-                ->where('status_code', 6);
+                ->where('status_code', 6)
+                ->where('is_cancelled_upsell', false);
 
             // Extracted into App\Support\SyncHealth so this page and the dedicated
             // Sync Health page (SyncHealthController) can never drift out of sync
