@@ -122,6 +122,59 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         });
     }
 
+    /**
+     * Confirmed live (2026-09-02): Grace showed 8 upsells on this leaderboard
+     * for a given day, but 7 on TSA Performance's ALL view for the same day.
+     * Root cause: this leaderboard groups $dayOrders by tsa_name alone, with
+     * no check that an order's OWN team column actually matches that TSA's
+     * roster team — TsaPerformanceController::indexAll() already guards
+     * against exactly this (see its own comment: it groups by order.team
+     * FIRST, then tsa_name within that team's own subset), added specifically
+     * because a combo order can carry another team's product yet still be
+     * tagged with a TSA's name. This leaderboard never got the equivalent
+     * fix, so a cross-team order (tsa_name = this TSA, but team = the OTHER
+     * team) still inflated her count here.
+     */
+    public function test_leaderboard_upsell_count_excludes_a_cross_team_order(): void
+    {
+        $shift = TsaShift::where('team', 'Eyecare Team')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'own-team-upsell-1',
+            'team'               => $shift->team,
+            'tsa_name'           => $shift->tsa_key,
+            'is_upsell'          => true,
+            'amount'             => 700.0,
+            'status_code'        => 2,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        // Tagged with this TSA's name, but its OWN team column is the OTHER
+        // team — a real order shape confirmed live (a combo SKU bundling
+        // another team's product can still carry this TSA's tag).
+        Order::create([
+            'pancake_order_id'   => 'cross-team-upsell-1',
+            'team'               => 'SH Naturals',
+            'tsa_name'           => $shift->tsa_key,
+            'is_upsell'          => true,
+            'amount'             => 500.0,
+            'status_code'        => 2,
+            'pancake_created_at' => now(),
+            'synced_at'          => now(),
+        ]);
+
+        $response = $this->get(route('dashboard', ['team' => 'all']));
+
+        $response->assertOk();
+        $response->assertViewHas('tsaLeaderboard', function ($leaderboard) use ($shift) {
+            $row = $leaderboard->firstWhere('tsa_name', $shift->tsa_key);
+            return $row
+                && $row->upsell_count === 1
+                && (float) $row->upsell_sales === 700.0;
+        });
+    }
+
     public function test_top_tsa_spotlight_also_includes_returned_upsells(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();

@@ -339,8 +339,19 @@ class DashboardController extends Controller
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
             $teamNames   = collect(Teams::config())->pluck('name', 'order_team');
 
+            // Only count an order toward a TSA if the order's OWN team column
+            // matches that TSA's roster team — same "group by team first"
+            // requirement TsaPerformanceController::indexAll() already
+            // enforces (see that method's own comment: grouping by tsa_name
+            // alone, with no team check, can put a cross-team order — e.g. a
+            // combo SKU bundling another team's product, still tagged with
+            // this TSA's name — under her row here even though it belongs to
+            // the OTHER team and her own TSA Performance page correctly
+            // excludes it. Confirmed live, 2026-09-02: Grace showed 8
+            // upsells here vs 7 on TSA Performance for the same day.
             $tsaLeaderboard = $dayOrders
                 ->whereNotNull('tsa_name')
+                ->filter(fn ($o) => ($shiftsByKey[$o->tsa_name] ?? null)?->team === $o->team)
                 ->groupBy('tsa_name')
                 ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
                     // Same "no longer exists in Pancake" exclusion
