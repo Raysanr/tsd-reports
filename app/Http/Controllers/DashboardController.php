@@ -347,45 +347,42 @@ class DashboardController extends Controller
             // combo SKU bundling another team's product, still tagged with
             // this TSA's name — under her row here even though it belongs to
             // the OTHER team and her own TSA Performance page correctly
-            // excludes it. Confirmed live, 2026-09-02: Grace showed 8
-            // upsells here vs 7 on TSA Performance for the same day.
+            // excludes it.
+            //
+            // upsell_count/upsell_sales/total_calls are now read DIRECTLY off
+            // ProductPerformance::tally() instead of a hand-rolled filter
+            // chain that had to independently reimplement every exclusion
+            // rule (Deleted orders, excluded sellers, logistics duplicates,
+            // is_upsell vs is_returned_upsell vs the tag-fallback branch) —
+            // this is the second time that hand-rolled chain drifted out of
+            // sync with tally()'s own rules and produced a real mismatch
+            // (Katherine 16 vs 15, then Grace 8 vs 7, both confirmed live,
+            // 2026-09-02), so it's replaced entirely rather than patched
+            // again: reading tally()'s own 'upsell_confirmation'/
+            // 'upsell_sales' keys makes this leaderboard structurally
+            // incapable of disagreeing with TSA Performance/Leads Report on
+            // the same order set, since all three now share the exact same
+            // counting function instead of three independent copies of it.
+            // tally()'s own 'upsell_sales' is also more correct than the old
+            // code's bare sum('amount') — it uses Order::realUpsellAmount(),
+            // the isolated add-on price (not the raw order total) for a
+            // Restocking-status upsell recovered via the tag-fallback branch.
             $tsaLeaderboard = $dayOrders
                 ->whereNotNull('tsa_name')
                 ->filter(fn ($o) => ($shiftsByKey[$o->tsa_name] ?? null)?->team === $o->team)
                 ->groupBy('tsa_name')
                 ->map(function (Collection $orders, string $tsaName) use ($includeRestocking) {
-                    // Same "no longer exists in Pancake" exclusion
-                    // ProductPerformance::tally() applies before counting
-                    // anything (see that method's own doc comment) — this
-                    // leaderboard's upsell count/sales used to skip it
-                    // entirely, so a Deleted order that was genuinely tagged
-                    // as an upsell before deletion still inflated the count
-                    // here while every other page (TSA Performance, Leads
-                    // Report) correctly dropped it. Confirmed live, 2026-09-02:
-                    // Katherine showed 16 upsells here vs 15 on her own TSA
-                    // Performance page — order #1362095 (status 7/Deleted,
-                    // genuinely tagged "UPSELL TSD...") was the one still
-                    // counted here and nowhere else. total_calls below
-                    // already goes through tally() separately and was never
-                    // affected by this gap.
-                    $countableOrders = $orders->reject(fn ($o) => $o->status_code === 7
-                        || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
-                        || $o->excluded_upsell_seller
-                        || $o->is_duplicated_by_logistics);
-
-                    // Order::isRealUpsell() — see its own doc comment. Leads Report/
-                    // TSA Performance already counted both is_upsell and
-                    // is_returned_upsell; this leaderboard was the one place that
-                    // never got the same fix — confirmed live against real Pancake
-                    // POS + the logistics system, both of which count a
-                    // later-returned upsell toward the day's total same as any other.
-                    $realUpsells = $countableOrders->filter(fn ($o) => Order::isRealUpsell($o));
-                    $upsellCount = $realUpsells->count();
-                    $upsellSales = (float) $realUpsells->sum('amount');
+                    $tally = ProductPerformance::tally($orders);
+                    $upsellCount = $tally['upsell_confirmation'];
+                    $upsellSales = $tally['upsell_sales'];
 
                     // Same Include Restocking toggle as Total Cross-Sell Sales above —
                     // restocking_upsell_amount is the isolated add-on price, same
-                    // convention as everywhere else Restocking is counted.
+                    // convention as everywhere else Restocking is counted. tally()'s
+                    // own 'upsell_confirmation'/'upsell_sales' never include a
+                    // Restocking-status order (see that method's own 'restocking'
+                    // bucket), so folding it in here on top is still additive, not
+                    // double-counting.
                     if ($includeRestocking) {
                         $upsellCount += $orders->where('is_restocking_upsell', true)->count();
                         $upsellSales += (float) $orders->where('is_restocking_upsell', true)->sum('restocking_upsell_amount');
@@ -393,7 +390,7 @@ class DashboardController extends Controller
 
                     return (object) [
                         'tsa_name'     => $tsaName,
-                        'total_calls'  => ProductPerformance::tally($orders)['total_called'],
+                        'total_calls'  => $tally['total_called'],
                         'upsell_count' => $upsellCount,
                         'upsell_sales' => $upsellSales,
                     ];

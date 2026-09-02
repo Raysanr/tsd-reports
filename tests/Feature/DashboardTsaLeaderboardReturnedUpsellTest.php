@@ -175,6 +175,67 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         });
     }
 
+    /**
+     * The structural fix, added after the cross-team-order fix above did NOT
+     * resolve a second real mismatch (Grace: 8 here vs 7 on TSA Performance,
+     * confirmed live 2026-09-02, even filtered to her own team alone — so it
+     * wasn't a cross-team order this time, and diagnosing the exact real
+     * order needed production DB access this session didn't have). Rather
+     * than chase a third hand-rolled exclusion gap, the leaderboard's
+     * upsell_count/upsell_sales/total_calls are now read directly off
+     * ProductPerformance::tally() — the same function TSA Performance and
+     * Leads Report already use — instead of independently reimplementing
+     * its exclusion rules. This test proves that structurally: for ANY mix
+     * of order shapes (live upsell, returned upsell, voided-order upsell,
+     * Deleted order, excluded seller, logistics duplicate, Restocking-status
+     * tag-fallback upsell), the leaderboard's number for a TSA must equal
+     * tally()'s own 'upsell_confirmation' for that exact same order set —
+     * not by re-deriving the same exclusions and hoping they still match,
+     * but because there is now only one function computing this at all.
+     */
+    public function test_leaderboard_upsell_count_always_equals_product_performance_tally(): void
+    {
+        $shift = TsaShift::where('team', 'Eyecare Team')->first();
+
+        $orders = collect([
+            // Live upsell.
+            ['is_upsell' => true, 'amount' => 500.0, 'status_code' => 2],
+            // Later returned — is_upsell reset false, is_returned_upsell set.
+            ['is_upsell' => false, 'is_returned_upsell' => true, 'amount' => 600.0, 'status_code' => 4],
+            // Genuine upsell before being voided/cancelled.
+            ['is_upsell' => false, 'is_upsell_on_voided_order' => true, 'amount' => 700.0, 'status_code' => 6],
+            // Deleted in Pancake — must never count, even though it looks
+            // like an upsell.
+            ['is_upsell' => false, 'is_upsell_on_voided_order' => true, 'amount' => 999.0, 'status_code' => 7],
+            // Not an upsell at all — a plain confirmed call.
+            ['is_upsell' => false, 'disposition' => 'CONFIRMED VIA CALL', 'amount' => 0.0, 'status_code' => 2],
+        ]);
+
+        foreach ($orders as $i => $attrs) {
+            Order::create(array_merge([
+                'pancake_order_id'   => "tally-parity-{$i}",
+                'team'               => $shift->team,
+                'tsa_name'           => $shift->tsa_key,
+                'pancake_created_at' => now(),
+                'synced_at'          => now(),
+            ], $attrs));
+        }
+
+        $response = $this->get(route('dashboard'));
+        $response->assertOk();
+
+        $leaderboardRow = $response->viewData('tsaLeaderboard')->firstWhere('tsa_name', $shift->tsa_key);
+        $this->assertNotNull($leaderboardRow);
+
+        $expected = \App\Support\ProductPerformance::tally(
+            Order::where('tsa_name', $shift->tsa_key)->get()
+        );
+
+        $this->assertSame($expected['upsell_confirmation'], $leaderboardRow->upsell_count);
+        $this->assertSame((float) $expected['upsell_sales'], (float) $leaderboardRow->upsell_sales);
+        $this->assertSame($expected['total_called'], $leaderboardRow->total_calls);
+    }
+
     public function test_top_tsa_spotlight_also_includes_returned_upsells(): void
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
