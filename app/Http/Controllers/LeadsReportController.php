@@ -514,9 +514,26 @@ class LeadsReportController extends Controller
         // Performance's own tally() whenever one exists in range — accepted.
         $grandTotal = ProductPerformance::sumRows($productRows);
 
+        // Per-team breakdown below the combined table above — same $productRows
+        // already computed, just grouped by each row's own 'team' (buildRow()
+        // sets this from Product::team, e.g. "Eyecare Team" — the raw order_team
+        // string, NOT $teams' short display label "Eyecare"), so this is a free
+        // regrouping of data that exists already rather than a second query/
+        // tally pass. $teamsConfig carries both, keyed the same as $teamsConfig
+        // itself; ordered to match config order, skipping a team with nothing
+        // to show for this range.
+        $teamTables = collect($teamsConfig)
+            ->map(fn ($t) => [
+                'label' => $t['name'],
+                'rows'  => $productRows->where('team', $t['order_team'])->values(),
+            ])
+            ->filter(fn ($t) => $t['rows']->isNotEmpty())
+            ->map(fn ($t) => $t + ['grandTotal' => ProductPerformance::sumRows($t['rows'])])
+            ->values();
+
         return view('leads-report-all', [
             'dateFrom'    => $dateFrom, 'dateTo' => $dateTo, 'mode' => $mode, 'rangeLabel' => $rangeLabel,
-            'productRows' => $productRows, 'grandTotal' => $grandTotal,
+            'productRows' => $productRows, 'grandTotal' => $grandTotal, 'teamTables' => $teamTables,
             'teams'       => $teams, 'selectedTeam' => 'all', 'metricCols' => ProductPerformance::METRIC_COLUMNS,
         ]);
     }
