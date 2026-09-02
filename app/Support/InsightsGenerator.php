@@ -1148,14 +1148,40 @@ class InsightsGenerator
         // own doc comment for the full reasoning.
         $countedOrders = ProductPerformance::countedOrdersFor($products, $refOrders);
         $byHour = $countedOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
-        $openingLeads = $byHour->filter(fn ($orders, $h) => $h >= 6 && $h < 15)->flatten(1)->count();
-        $closingLeads = $byHour->filter(fn ($orders, $h) => $h >= 15 || $h < 6)->flatten(1)->count();
+        $isOpeningHour = fn ($h) => $h >= 6 && $h < 15;
+        $openingLeads = $byHour->filter(fn ($orders, $h) => $isOpeningHour($h))->flatten(1)->count();
+        $closingLeads = $byHour->filter(fn ($orders, $h) => !$isOpeningHour($h))->flatten(1)->count();
+        // Capacity-shortfall signal (NOT shown as "excess" in the bullets below —
+        // see $openingExcess/$closingExcess just below for that) — still used
+        // further down to answer "is today's main issue a manpower/capacity
+        // problem" (Main Finding) and which shift had the heavier volume
+        // pressure (Summary), a genuinely different question from "how many of
+        // the actually-recorded excess leads happened in this shift."
         $openingOver = max(0, $openingLeads - $openingCapacity);
         $closingOver = max(0, $closingLeads - $closingCapacity);
 
+        // Actual recorded-excess orders (Total - Catered - Restocking's own
+        // reconciling remainder — see ProductPerformance::tally()'s 'excess' line),
+        // split Opening/Closing by the SAME hour rule as $openingLeads/$closingLeads
+        // above, so these two bullets report the SAME "83 recorded excess leads"
+        // figure quoted elsewhere in this report instead of an unrelated leads-
+        // vs-theoretical-capacity comparison that reads "0 excess" right next to
+        // "83 recorded excess leads" (confirmed confusing — explicit request,
+        // 2026-09-02: "why there's no data in this... i want to make it all
+        // accurate"). $refRow['excess'] itself isn't per-day-additive from two
+        // hour-bucketed tally() calls (it's a residual, not a sum of a real
+        // per-order flag), so it's split by literally finding which specific
+        // orders count as excess (ordersForColumn) and bucketing THOSE by hour,
+        // rather than re-deriving two independent excess figures that could
+        // fail to add back up to $refRow['excess'].
+        $excessOrders = ProductPerformance::ordersForColumn($countedOrders, 'excess');
+        $excessByHour = $excessOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
+        $openingExcess = $excessByHour->filter(fn ($orders, $h) => $isOpeningHour($h))->flatten(1)->count();
+        $closingExcess = $excessByHour->filter(fn ($orders, $h) => !$isOpeningHour($h))->flatten(1)->count();
+
         $md[] = "Umabot sa **{$refRow['total']} incoming leads** ang total for the day, habang **{$totalCapacity} leads lang ang theoretical capacity** ng team.";
-        $md[] = "* **Opening:** {$openingLeads} leads vs. {$openingCapacity} capacity = **{$openingOver} excess**";
-        $md[] = "* **Closing:** {$closingLeads} leads vs. {$closingCapacity} capacity = **{$closingOver} excess**";
+        $md[] = "* **Opening:** {$openingLeads} leads, **{$openingExcess} of {$refRow['excess']} excess leads**";
+        $md[] = "* **Closing:** {$closingLeads} leads, **{$closingExcess} of {$refRow['excess']} excess leads**";
 
         $peakHour = null;
         if ($byHour->isNotEmpty() && $byHour->sum(fn ($o) => $o->count()) > 0) {
@@ -1178,7 +1204,7 @@ class InsightsGenerator
 
         $capacityGap = max(0, $refRow['total'] - $totalCapacity);
         if ($capacityGap !== $refRow['excess']) {
-            $md[] = "**Note:** Magkaiba ang **{$capacityGap} theoretical capacity gap** at **{$refRow['excess']} recorded excess leads**. Ang {$capacityGap} ay based sa total capacity, habang ang {$refRow['excess']} ay actual excess na recorded sa lead data.";
+            $md[] = "**Note:** Ang **{$totalCapacity} theoretical capacity** ay hindi pa umaabot sa **{$refRow['total']} incoming leads** ngayong araw ({$capacityGap} over kung ihahambing), pero may **{$refRow['excess']} excess leads pa rin na naitala** — ibig sabihin nagmula ito sa disposition ng lead (hal. unang-una hindi na-cater), hindi sa kakulangan ng manpower.";
         }
 
         // ---- Conversion Analysis ---------------------------------------
@@ -1219,8 +1245,11 @@ class InsightsGenerator
             $heavierExcess = max($openingOver, $closingOver);
             $bothOver = $openingOver > 0 && $closingOver > 0;
             $md[] = "**Mataas ang incoming lead volume pero limited ang team capacity**, kaya " . ($bothOver ? 'parehong shifts nagkaroon ng excess' : "ang {$heavierShift} shift ang nagkaroon ng excess") . ", with **{$heavierShift} having the heavier pressure at {$heavierExcess} excess leads**.";
+        } elseif ($refRow['excess'] > 0) {
+            $heavierExcessShift = $closingExcess > $openingExcess ? 'Closing' : 'Opening';
+            $md[] = "**Nasa loob ng theoretical capacity** ang parehong shifts ngayong araw, pero may **{$refRow['excess']} excess leads pa ring naitala** — mas marami dito ang nangyari sa **{$heavierExcessShift}** ({$openingExcess} Opening vs {$closingExcess} Closing). Ibig sabihin galing ito sa disposition ng lead (hal. hindi na-cater sa oras), hindi sa kakulangan ng manpower.";
         } else {
-            $md[] = "**Nasa loob ng theoretical capacity** ang parehong shifts ngayong araw — ang excess leads na naitala ({$refRow['excess']}) ay galing sa ibang dahilan (hal. unmatched disposition), hindi sa kakulangan ng manpower.";
+            $md[] = '**Nasa loob ng theoretical capacity** ang parehong shifts ngayong araw, at walang naitalang excess leads.';
         }
         if ($productExcess->isNotEmpty()) {
             $top = $productExcess->first();

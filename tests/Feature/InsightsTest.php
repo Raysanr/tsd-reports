@@ -887,6 +887,46 @@ class InsightsTest extends TestCase
         $this->assertSame((int) $totalMatch[1], (int) $openingMatch[1] + (int) $closingMatch[1]);
     }
 
+    public function test_eod_report_opening_and_closing_excess_bullets_sum_to_the_stated_recorded_excess(): void
+    {
+        // Real bug reported live, 2026-09-02: the Opening/Closing bullets showed
+        // "0 excess" each (a leads-vs-theoretical-capacity comparison) right next
+        // to a separate "N recorded excess leads" line elsewhere in the same
+        // report using a totally different number — confusing/contradictory
+        // ("why there's no data in this... i want to make it all accurate").
+        // Fixed by having the bullets report a split of the SAME recorded-excess
+        // figure instead. No disposition + status_code 1 (this file's order()
+        // default) is neither called nor Restocking, so it lands in Excess by
+        // tally()'s own Total-Catered-Restocking residual — 6 at 10am (Opening
+        // window) + 4 at 8pm (Closing window) = 10 excess leads split 6/4.
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL']]);
+        }
+        for ($i = 0; $i < 6; $i++) {
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(10, 0), 'pancake_inserted_at' => today()->setTime(10, 0)]);
+        }
+        for ($i = 0; $i < 4; $i++) {
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(20, 0), 'pancake_inserted_at' => today()->setTime(20, 0)]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        preg_match('/Opening:\*\* \d+ leads, \*\*(\d+) of (\d+) excess leads/', $report['message'], $openingMatch);
+        preg_match('/Closing:\*\* \d+ leads, \*\*(\d+) of (\d+) excess leads/', $report['message'], $closingMatch);
+        preg_match('/\*\*(\d+) recorded excess leads\*\*/', $report['message'], $totalMatch);
+        $this->assertNotEmpty($openingMatch);
+        $this->assertNotEmpty($closingMatch);
+        $this->assertNotEmpty($totalMatch);
+        $this->assertSame((int) $totalMatch[1], (int) $openingMatch[1] + (int) $closingMatch[1]);
+        $this->assertSame($totalMatch[1], $openingMatch[2]);
+        $this->assertSame($totalMatch[1], $closingMatch[2]);
+    }
+
     public function test_the_eod_report_names_the_limited_manpower_finding_when_a_shift_is_over_capacity(): void
     {
         // Explicit rewrite, 2026-09-01: dailyNarrativeCard()'s old "N TSA
