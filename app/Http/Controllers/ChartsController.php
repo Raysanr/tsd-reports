@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
@@ -47,6 +48,7 @@ class ChartsController extends Controller
                 'id', 'pancake_created_at', 'team', 'status_code', 'is_upsell',
                 'is_returned_upsell', 'is_cancelled_upsell', 'raw_tags', 'disposition',
                 'amount', 'product', 'base_product', 'bundle_description', 'returned_upsell_amount',
+                'tsa_name', 'excluded_upsell_seller', 'is_duplicated_by_logistics', 'is_upsell_on_voided_order',
             ])
             ->get();
 
@@ -129,6 +131,28 @@ class ChartsController extends Controller
             ->sortByDesc('upselling_rate')
             ->values();
 
+        // --- TSA Rankings: Pick-up/Conversion/Upselling Rate per TSA across the
+        // whole range — explicit request, 2026-09-03. ProductPerformance::tsaRows()
+        // (the same shared per-TSA grouping the Dashboard leaderboard and TSA
+        // Performance both already use — see that method's own doc comment) so
+        // this ranking can never drift out of sync with what those pages already
+        // show for the same TSA/range. Dropped entirely when a TSA has no called
+        // leads in range (total_called === 0) — every rate is null in that case, a
+        // meaningless 0%/dash row rather than a real ranking position.
+        $shifts  = TsaShift::whereIn('team', $orderTeams)->orderBy('sort_order')->get()
+            ->sortBy(fn($s) => array_search($s->team, $orderTeams))
+            ->values();
+        $tsaTallyByKey = ProductPerformance::tsaRows($orders, $shifts);
+        $tsaRankings = $shifts
+            ->map(fn($shift) => array_merge($tsaTallyByKey[$shift->tsa_key], [
+                'tsa_key'      => $shift->tsa_key,
+                'display_name' => $shift->display_name,
+                'team'         => $teamNames[$shift->team] ?? $shift->team,
+            ]))
+            ->reject(fn($row) => $row['total_called'] === 0)
+            ->sortByDesc('upselling_rate')
+            ->values();
+
         // --- Hourly aggregate (0–23) across the whole range, both teams combined ---
         $ordersByHour = $orders->groupBy(fn($o) => (int) $o->pancake_created_at->format('G'));
         $hourlyLabels = [];
@@ -148,7 +172,7 @@ class ChartsController extends Controller
             'dateFrom', 'dateTo', 'dailyLabels',
             'rateSeries', 'calledSeries', 'salesSeries', 'excessSeries', 'answeredSeries', 'unansweredSeries',
             'deliveredSeries', 'rtsSeries',
-            'productRows', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess',
+            'productRows', 'tsaRankings', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess',
             'orderTeams', 'teamNames'
         ));
     }
