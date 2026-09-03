@@ -127,7 +127,29 @@ class ProductPerformance
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
         return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
-            if ($productIds->isNotEmpty() && !empty($o->pancake_product_ids)) {
+            // A SEPARATE PARCEL upsell order's own line item IS the upsold
+            // add-on itself (e.g. "Turmeric Soap"), shipped as its own
+            // sibling Pancake order — its real product ID genuinely belongs
+            // to THAT add-on product, not to whatever base product the TSA
+            // actually upsold onto (e.g. Ginseng Serum). Explicit follow-up
+            // request, 2026-09-03: "when there's separate upsell ... this
+            // 1000 will be in kathleen's upsell" — confirmed live, order
+            // #1363274 (Kathleen): Turmeric Soap has no catalog entry/ID
+            // mapping of its own at all, so the ID-priority check below would
+            // return false for EVERY product regardless of which one is
+            // being checked, making the order invisible from every
+            // Per-Product column while it still correctly counted toward the
+            // TSA's overall Dashboard upsell total (isBroadRealUpsell()/
+            // realUpsellAmount() never depend on product-ID matching).
+            // Skipping ID-matching for this order and falling straight to the
+            // tag loop below lets its "TSD UPSELL - GINSENG SERUM" tag
+            // correctly attribute it to Ginseng Serum — the base product this
+            // upsell was actually made against, same "trust the tag" logic
+            // extractUpsellProduct()/remainingItemIsJustTheBase() already
+            // give a SEPARATE PARCEL order elsewhere for this exact reason.
+            $isSeparateParcel = Order::hasSeparateParcelTag($o->raw_tags ?? []);
+
+            if (!$isSeparateParcel && $productIds->isNotEmpty() && !empty($o->pancake_product_ids)) {
                 return $productIds->intersect($o->pancake_product_ids)->isNotEmpty();
             }
 
