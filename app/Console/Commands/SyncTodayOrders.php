@@ -662,7 +662,29 @@ class SyncTodayOrders extends Command
         $itemName = fn (array $item) => ($item['variation_info'] ?? [])['name'] ?? $item['product_name'] ?? null;
 
         if ($isUpsell) {
-            if (count($items) < 2 && Order::remainingItemIsJustTheBase($raw)) {
+            // Explicit follow-up request (2026-09-03: "why when you add it it
+            // will be 8500 only" — TSA Performance's Per-Product Hourly
+            // Breakdown undercounting a real upsell the Dashboard leaderboard
+            // already counted correctly): confirmed live, order #1363274
+            // (Kathleen Santilleses) — a single-item order tagged "TSD UPSELL
+            // - GINSENG SERUM" + "SEPARATE PARCEL", its one remaining item is
+            // TURMERIC SOAP, the real upsold add-on itself (shipped as its own
+            // sibling Pancake order, not removed) — but remainingItemIsJustThe
+            // Base() alone read this as "the add-on was removed, only the base
+            // remains" (TURMERIC SOAP doesn't contain GINSENG SERUM), zeroing
+            // out product/base_name/bundle_description here. That silently
+            // dropped this real upsell from every per-product table (Leads
+            // Report, TSA Performance) while the Dashboard leaderboard kept
+            // counting it correctly (isBroadRealUpsell()/realUpsellAmount()
+            // never depend on product/base_name at all). The other two
+            // remainingItemIsJustTheBase() call sites (this file's own
+            // $isCancelledUpsell assignment below, and Order::
+            // realUpsellAmount()) already guard with !hasSeparateParcelTag()
+            // for exactly this reason (see Order::realUpsellAmount()'s own
+            // doc comment, Joana/2026-08-12) — this was the one site that
+            // fix never reached.
+            $rawTagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $raw['tags'] ?? []);
+            if (count($items) < 2 && Order::remainingItemIsJustTheBase($raw) && !Order::hasSeparateParcelTag($rawTagNames)) {
                 return ['name' => null, 'display_id' => null, 'base_name' => null]; // upsell add-on was removed; nothing valid to show
             }
             $hintIndex = Order::findItemIndexByTagHint($raw);

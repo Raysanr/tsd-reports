@@ -168,4 +168,53 @@ class SyncTodayOrdersCancelledUpsellSingleNameTagTest extends TestCase
         $this->assertFalse($order->is_cancelled_upsell);
         $this->assertSame(1000.0, (float) $order->amount, 'A SEPARATE PARCEL order\'s amount must not be zeroed out — it is a real TSA sale');
     }
+
+    /**
+     * Explicit follow-up request (2026-09-03: TSA Performance's Per-Product
+     * Hourly Breakdown undercounted a real upsell the Dashboard leaderboard
+     * already counted correctly, "8500 only" vs the correct 9500) — confirmed
+     * live, order #1363274 (Kathleen Santilleses): a single-item SEPARATE
+     * PARCEL order whose upsell tag names the BASE product only ("TSD UPSELL
+     * - GINSENG SERUM", no "+" combo), and whose one remaining item
+     * (TURMERIC SOAP) is the real upsold add-on itself, shipped separately —
+     * not the base surviving after the add-on was cancelled.
+     * extractUpsellProduct() zeroed out product/base_product/
+     * bundle_description for this exact shape (missing the same
+     * !hasSeparateParcelTag() guard the is_upsell/is_cancelled_upsell check
+     * above already had), silently dropping it from every per-product table
+     * (Leads Report, TSA Performance) while the Dashboard leaderboard kept
+     * counting it fine (isBroadRealUpsell()/realUpsellAmount() never depend
+     * on product/base_product at all).
+     */
+    public function test_single_item_separate_parcel_order_still_resolves_a_real_product_name(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1363274,
+            'status'      => 8,
+            'total_price' => 1000,
+            'cod'         => 1000,
+            'inserted_at' => '2026-09-03T14:00:00',
+            'updated_at'  => '2026-09-03T14:00:00',
+            'tags'        => [
+                ['id' => 1, 'name' => 'KATH'],
+                ['id' => 2, 'name' => 'TSD UPSELL - GINSENG SERUM'],
+                ['id' => 3, 'name' => 'SEPARATE PARCEL'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'TURMERIC SOAP', 'retail_price' => 1000], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-09-03']);
+
+        $order = Order::where('pancake_order_id', '1363274')->first();
+
+        $this->assertNotNull($order);
+        $this->assertTrue($order->is_upsell);
+        $this->assertSame(1000.0, (float) $order->amount);
+        $this->assertSame('TURMERIC SOAP', $order->product, 'The real upsold add-on name must not be blanked out just because it shipped as its own SEPARATE PARCEL order');
+    }
 }

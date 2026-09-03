@@ -373,6 +373,87 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertSame(500.0, (float) $order->amount);
     }
 
+    /**
+     * Explicit follow-up request (2026-09-03: "TSA added product like their
+     * upsell and then later on the upsell will be deleted but the order will
+     * be proceed like that") — a CANCELED order (status_code=6) can never
+     * have is_upsell/is_restocking_upsell/is_returned_upsell true (Sync
+     * TodayOrders forces them false for any void status), so the candidate
+     * query above could never find one before this fix, no matter how stale
+     * its leftover upsell tag was. Confirmed live, 319 such orders existed
+     * with a real upsell tag and every upsell flag false — counted at full
+     * order value toward Dashboard's Total Cancelled Orders even when the
+     * real story was "an add-on was added then removed, the base order still
+     * went through." raw_tags carries the stale tag locally (that's how this
+     * candidate group is found in the first place — no product===base_product
+     * precondition needed, unlike the active-order branch above).
+     */
+    public function test_corrects_a_canceled_order_whose_upsell_add_on_was_removed(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1362999',
+            'status_code'         => 6, // Canceled
+            'is_upsell'           => false,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Sinuxyl',
+            'base_product'        => 'Sinuxyl',
+            'amount'              => 500.0,
+            'raw_tags'            => ['UPSELL TSD - Sinuxyl Inhaler'],
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*' => Http::response(['data' => [
+                'id'          => 1362999,
+                'status'      => 6,
+                'total_price' => 500,
+                'tags'        => [['id' => 1, 'name' => 'UPSELL TSD - Sinuxyl Inhaler']],
+                'items'       => [
+                    ['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1362999')->first();
+        $this->assertFalse($order->is_upsell);
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(500.0, (float) $order->cancelled_upsell_amount);
+        $this->assertSame(500.0, (float) $order->amount);
+    }
+
+    /** A CANCELED order with no upsell tag at all is a genuine full
+     *  cancellation — must never be touched by the new candidate group
+     *  above, which only ever looks at orders that actually carry a
+     *  recognized upsell tag. */
+    public function test_leaves_a_genuinely_canceled_order_with_no_upsell_tag_alone(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1363001',
+            'status_code'         => 6,
+            'is_upsell'           => false,
+            'is_cancelled_upsell' => false,
+            'product'             => 'Pterygium',
+            'base_product'        => 'Pterygium',
+            'amount'              => 999.0,
+            'raw_tags'            => ['JOANA', 'PTERYGIUM'],
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1363001')->first();
+        $this->assertFalse($order->is_cancelled_upsell);
+        $this->assertSame(999.0, (float) $order->amount);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/orders/1363001'));
+    }
+
     /** A local candidate (product == base_product) that turns out, once
      *  actually checked live, to have 2 real items — a genuine upsell, just
      *  one where product/base_product happened to be recorded identically for

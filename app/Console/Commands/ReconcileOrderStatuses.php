@@ -241,7 +241,7 @@ class ReconcileOrderStatuses extends Command
         // addon being added then removed, tagged in a way
         // remainingItemIsJustTheBase() alone couldn't recognize (see that
         // check's own call site below).
-        $candidates = Order::where(fn ($q) => $q->where('is_upsell', true)
+        $activeCandidates = Order::where(fn ($q) => $q->where('is_upsell', true)
                 ->orWhere('is_restocking_upsell', true)
                 ->orWhere('is_returned_upsell', true))
             ->where('is_cancelled_upsell', false)
@@ -249,6 +249,36 @@ class ReconcileOrderStatuses extends Command
             ->whereColumn('product', 'base_product')
             ->whereBetween('pancake_created_at', [$from, $to])
             ->get();
+
+        // Canceled orders (explicit follow-up request, 2026-09-03: "TSA
+        // added product like their upsell and then later on the upsell will
+        // be deleted but the order will be proceed like that") — a Canceled
+        // order's is_upsell/is_restocking_upsell/is_returned_upsell are
+        // ALWAYS false (SyncTodayOrders forces them false for any
+        // VOID_STATUSES row, Canceled included), so the query above can
+        // structurally never find one — confirmed live, 2026-09-03: 319 real
+        // Canceled orders carry a genuine upsell tag with every upsell flag
+        // false, meaning they've never once been checked by this
+        // reconciliation and would count at FULL order value toward
+        // Dashboard's Total Cancelled Orders even when the real story is "an
+        // add-on was added then removed, the base order proceeded" — exactly
+        // what is_cancelled_upsell/Order::isBroadRealUpsell() exists to
+        // exclude. is_upsell false is enough here (no need to also check the
+        // other two flags — a Canceled order can never have them true at
+        // all), and there is no product===base_product precondition on this
+        // branch: a Canceled order's `product`/`base_product` were computed
+        // AS IF it were never an upsell at all (see extractUpsellProduct()'s
+        // own $index=0 default), so requiring them to match here would
+        // exclude every genuine candidate rather than narrow to real ones —
+        // the tag check plus $isStale below is what actually decides.
+        $cancelledCandidates = Order::where('status_code', 6)
+            ->where('is_upsell', false)
+            ->where('is_cancelled_upsell', false)
+            ->whereBetween('pancake_created_at', [$from, $to])
+            ->get()
+            ->filter(fn (Order $o) => Order::hasUpsellTag($o->raw_tags ?? []));
+
+        $candidates = $activeCandidates->merge($cancelledCandidates);
 
         $checked   = 0;
         $corrected = 0;
