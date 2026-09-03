@@ -152,12 +152,14 @@ class SyncPancakeLeadsTest extends TestCase
     }
 
     /**
-     * Explicit request: round-robin assignment is a local-only signal now —
-     * no tag write-back to Pancake happens automatically when a new lead
-     * comes in. Only a TSA's own logged Outcome writes real tags (see
-     * LeadController::tagOutcomeInPancake()).
+     * Reversed (explicit follow-up request, 2026-09-03: "when there's new
+     * leads it is auto tagging ... because it is their leads") — round-robin
+     * assignment now pushes the new owner's own POS name tag to Pancake
+     * immediately, same as LeadController::tagOutcomeInPancake() does when an
+     * outcome is logged, via the shared tagTsaOnPancakeOrder() helper. Was
+     * previously a local-only signal with no tag write-back at all.
      */
-    public function test_a_new_leads_round_robin_assignment_does_not_write_any_tag_to_pancake(): void
+    public function test_a_new_leads_round_robin_assignment_tags_the_new_owner_in_pancake(): void
     {
         $this->fakePancake([[
             'id'    => 9004,
@@ -165,7 +167,12 @@ class SyncPancakeLeadsTest extends TestCase
             'tags'  => [],
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
-        ]]);
+        ]], [
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 11, 'name' => 'Gemma'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/9004*' => Http::response(['success' => true, 'data' => ['id' => 9004, 'tags' => []]], 200),
+        ]);
 
         Artisan::call('pancake:sync-leads');
 
@@ -173,7 +180,10 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame('assigned', $lead->status);
         $this->assertSame('Gemma', $lead->tsa->tsa_key);
 
-        Http::assertNotSent(fn ($r) => str_contains($r->url(), '/orders/9004') || str_contains($r->url(), '/orders/tags'));
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT' || !str_contains($r->url(), '/orders/9004')) return false;
+            return collect($r['tags'])->pluck('name')->contains('Gemma');
+        });
     }
 
     public function test_running_the_sync_twice_does_not_reassign_or_duplicate_a_lead(): void

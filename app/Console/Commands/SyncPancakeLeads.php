@@ -2,12 +2,14 @@
 
 namespace App\Console\Commands;
 
+use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\PancakeOrderTagApi;
 use App\Support\RoundRobinAssigner;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -161,6 +163,16 @@ class SyncPancakeLeads extends Command
                 } elseif ($lead->tsa) {
                     LeadActivity::log($lead, 'assigned', "Round-robin assigned to {$lead->tsa->display_name}.");
                 }
+
+                // Tag the new owner's own POS name onto the real order right
+                // away (explicit follow-up request, 2026-09-03: "when there's
+                // new leads it is auto tagging ... because it is their
+                // leads") — previously this was local-only until the TSA
+                // logged a call outcome (see LeadController::
+                // tagTsaOnPancakeOrder()'s own doc comment).
+                if ($lead->tsa_id) {
+                    LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class));
+                }
             }
 
             if (count($orders) < 100) break;
@@ -278,6 +290,11 @@ class SyncPancakeLeads extends Command
                 "Round-robin assigned to {$tsa->display_name} (was unassigned since "
                     . ($lead->pancake_created_at?->format('M j, g:i A') ?? 'an earlier sync') . ').'
             );
+
+            // Same immediate POS name tag as a brand-new lead gets above —
+            // see LeadController::tagTsaOnPancakeOrder()'s own doc comment.
+            LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class));
+
             $caughtUp++;
         }
 

@@ -163,7 +163,23 @@
                         @endif
                     </div>
                 </td>
-                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $lead->product?->display_name ?? '—' }}</td>
+                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                    {{-- Variation badge, POS-style (explicit request,
+                         2026-09-03: "5 Pterygium Drops" like the POS shows) —
+                         orderBaseProducts is the locally-synced order's own
+                         variation label (LeadController::index()'s own
+                         comment), not a live Pancake fetch (the earlier
+                         attempt at this made the page slow — reverted), so it
+                         can be null when the order hasn't synced yet; falls
+                         back to the local catalog product name alone, same
+                         text this cell always showed before. --}}
+                    @php $baseProduct = $orderBaseProducts[$lead->pancake_order_id] ?? null; @endphp
+                    @if($baseProduct)
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-pink-50 text-pink-600 dark:bg-pink-900/20 dark:text-pink-300">{{ $baseProduct }}</span>
+                    @else
+                    {{ $lead->product?->display_name ?? '—' }}
+                    @endif
+                </td>
                 @if(auth()->user()->isAtLeastAdmin())
                 <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {{-- Transfer to another TSA (explicit request, 2026-08-19) —

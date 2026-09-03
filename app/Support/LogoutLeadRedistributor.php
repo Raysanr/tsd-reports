@@ -2,10 +2,12 @@
 
 namespace App\Support;
 
+use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
 use App\Models\TsaShift;
+use App\Support\PancakeOrderTagApi;
 
 /**
  * Explicit request (2026-08-25, from a "smart rotation" round-robin
@@ -38,8 +40,10 @@ class LogoutLeadRedistributor
      * Returns how many leads actually moved — purely for the caller's own
      * logging/testing convenience, not something callers need to act on.
      */
-    public static function redistribute(TsaShift $tsa): int
+    public static function redistribute(TsaShift $tsa, ?PancakeOrderTagApi $api = null): int
     {
+        $api ??= app(PancakeOrderTagApi::class);
+
         // Root-caused 2026-08-26 (real examples #1347621, #1347619, and
         // others): a lead whose real Pancake order already resolved on its
         // own — Received/Returned/Returning/Partial return/Canceled/
@@ -87,6 +91,11 @@ class LogoutLeadRedistributor
                 "Auto-reassigned from {$tsa->display_name} to {$newTsa->display_name} — {$tsa->display_name} logged out with this lead still uncalled.",
                 null
             );
+
+            // New owner's own POS name tag, same as any other assignment
+            // path — see LeadController::tagTsaOnPancakeOrder()'s own doc
+            // comment.
+            LeadController::tagTsaOnPancakeOrder($lead, $api);
 
             $moved++;
         }

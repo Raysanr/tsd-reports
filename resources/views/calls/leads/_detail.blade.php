@@ -91,6 +91,16 @@
                         $qty  = $item['quantity'] ?? 1;
                         $price = $vi['retail_price'] ?? 0;
                         $variationId = $item['variation_id'] ?? '';
+                        // Pancake's own pink qty+variation badge (explicit
+                        // request, 2026-09-03: "display the count of product
+                        // like '2 Clear Sight 3.0' like in the POS") —
+                        // variation_info.display_id is Pancake's own combo/qty
+                        // label text (e.g. "1 Ginseng Serum + 5 Scar Cream" for
+                        // a combo, or "3 Clear Sight 3.0" for a plain
+                        // quantity), confirmed against SyncTodayOrders::
+                        // extractUpsellProduct()'s own doc comment — this is
+                        // live data already in $liveOrder, no new fetch.
+                        $displayId = $vi['display_id'] ?? null;
                     @endphp
                     {{-- Delete + always-editable price/qty (explicit follow-
                          up: "make it like this UI that can edit the price
@@ -111,7 +121,12 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
                             </svg>
                         </div>
-                        <p class="font-semibold text-slate-800 dark:text-slate-100 min-w-[120px] flex-1 basis-40">{{ $name }}</p>
+                        <div class="min-w-[120px] flex-1 basis-40">
+                            @if($displayId)
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-pink-50 text-pink-600 dark:bg-pink-900/20 dark:text-pink-300 mb-1">{{ $displayId }}</span>
+                            @endif
+                            <p class="font-semibold text-slate-800 dark:text-slate-100">{{ $name }}</p>
+                        </div>
                         <div class="flex items-center gap-1.5 shrink-0">
                             <input type="number" class="line-item-price-input w-20 text-sm text-right border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500" value="{{ $price }}" min="0" step="0.01" aria-label="Price">
                             <span class="text-xs text-slate-400 shrink-0">₱ ×</span>

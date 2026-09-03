@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Controller;
+use App\Models\CallEvent;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
@@ -219,10 +220,19 @@ class LeadController extends Controller
         // so a live fetch here would mean up to 30 extra Pancake API calls on every
         // single poll tick.
         $orders = Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id')->filter())
-            ->get(['pancake_order_id', 'status_code', 'raw_tags'])
+            ->get(['pancake_order_id', 'status_code', 'raw_tags', 'base_product'])
             ->keyBy('pancake_order_id');
         $orderStatuses = $orders->map->status_code;
         $orderTags     = $orders->map(fn ($o) => $o->raw_tags ?? []);
+
+        // Variation badge (explicit request, 2026-09-03: "5 Pterygium Drops"
+        // like the POS shows) — base_product is already the exact variation
+        // label Pancake itself uses (SyncTodayOrders::extractUpsellProduct(),
+        // index 0's own variation_info.name for a normal single-item order),
+        // synced periodically same as status/tags right above — no live
+        // Pancake call needed, unlike the earlier per-row getOrderDetail()
+        // attempt that made this page slow to load and was reverted.
+        $orderBaseProducts = $orders->map(fn ($o) => $o->base_product);
 
         // Real tag catalog colors (explicit request, 2026-08-22) — matches each
         // real tag's dot to the same color Pancake POS itself uses, not a generic
@@ -236,6 +246,7 @@ class LeadController extends Controller
             'leads'                 => $leads,
             'orderStatuses'         => $orderStatuses,
             'orderTags'             => $orderTags,
+            'orderBaseProducts'     => $orderBaseProducts,
             'tagColors'             => $tagColors,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
@@ -379,7 +390,7 @@ class LeadController extends Controller
      * already-called lead keeps its status/disposition as-is — transferring
      * ownership doesn't erase what was already logged.
      */
-    public function transfer(Request $request, Lead $lead)
+    public function transfer(Request $request, Lead $lead, PancakeOrderTagApi $api)
     {
         $user = Auth::user();
 
@@ -406,6 +417,10 @@ class LeadController extends Controller
         ]);
 
         LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
+
+        // New owner's own POS name tag, same as any other assignment path —
+        // see tagTsaOnPancakeOrder()'s own doc comment.
+        self::tagTsaOnPancakeOrder($lead, $api);
 
         return response()->json(['success' => true, 'message' => "Transferred to {$newTsa->display_name}."]);
     }
@@ -450,7 +465,7 @@ class LeadController extends Controller
      * lead's own activity trail still shows the real transfer — a single
      * combined log entry would lose that per-lead history.
      */
-    public function bulkTransfer(Request $request)
+    public function bulkTransfer(Request $request, PancakeOrderTagApi $api)
     {
         $user = Auth::user();
 
@@ -482,6 +497,11 @@ class LeadController extends Controller
             ]);
 
             LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
+
+            // New owner's own POS name tag, same as any other assignment
+            // path — see tagTsaOnPancakeOrder()'s own doc comment.
+            self::tagTsaOnPancakeOrder($lead, $api);
+
             $moved++;
         }
 
@@ -1199,6 +1219,23 @@ class LeadController extends Controller
      * disagree, with zero extra round trips added to the dial path. Applies
      * even when the TSA was on Break/Lunch/etc — clicking to call IS them
      * going on a call regardless of what they were doing a second ago.
+     *
+     * Also creates a placeholder CallEvent (explicit follow-up request,
+     * 2026-09-03: "when they call in the leads it is automatically be has
+     * data in the call log ... marisol tried to call one lead but it did not
+     * display to the call log") — Call Log was previously 100% dependent on
+     * each TSA's own phone's MacroDroid automation reporting the real call
+     * back (see CallEventController's own doc comment); if that automation
+     * isn't running/configured on a given phone, NOTHING ever showed up for
+     * that TSA, with no visible error anywhere. This guarantees Call Log
+     * always has at least a "call was attempted at this time" row —
+     * direction is always 'outgoing' (a lead is always called, never the
+     * reverse) and duration_seconds is always null (this page has no way to
+     * know how long the call actually lasted or whether it even connected —
+     * see CallLogController's own '—' fallback for a null duration). This
+     * can double-count against a later real MacroDroid event for the exact
+     * same call (accepted tradeoff, explicit decision — no reliable way to
+     * de-duplicate the two independent signals).
      */
     public function logCallClick(Lead $lead)
     {
@@ -1225,6 +1262,15 @@ class LeadController extends Controller
             // "most recent activity" timestamp on this model (assigned_at,
             // callback_at).
             $lead->update(['dialed_at' => now()]);
+
+            CallEvent::create([
+                'tsa_id'           => $lead->tsa_id,
+                'lead_id'          => $lead->id,
+                'phone_number'     => $lead->phone_number ?: $lead->dialable_number,
+                'direction'        => 'outgoing',
+                'duration_seconds' => null,
+                'occurred_at'      => now(),
+            ]);
         }
 
         return response()->json(['success' => true]);
@@ -1374,29 +1420,51 @@ class LeadController extends Controller
      * tags API, is the one that actually shows up in Pancake POS and reaches
      * TSD Reports' own sync). The TSA tag is gated by the
      * 'pos_auto_tagging_enabled' Setting (toggle lives on the TSA Management
-     * tab) — off skips just that one tag, not the whole call. This and
-     * removeTag() above are the only things that write a tag to Pancake now
-     * — round-robin assignment itself (SyncPancakeLeads) is a local-only
-     * signal, no automatic tag on a new lead. Silently no-ops (with a logged
-     * warning) per-tag when there's no linked order or a tag doesn't exist
-     * in the real catalog — same "feature unavailable, not fatal" convention
-     * as elsewhere; a TSA's outcome is still saved locally either way.
+     * tab) — off skips just that one tag, not the whole call. Delegates the
+     * actual tag-push to tagTsaOnPancakeOrder() below, shared with every
+     * other place a lead's tsa_id gets set (see that method's own doc
+     * comment). Silently no-ops (with a logged warning) per-tag when there's
+     * no linked order or a tag doesn't exist in the real catalog — same
+     * "feature unavailable, not fatal" convention as elsewhere; a TSA's
+     * outcome is still saved locally either way.
      */
     private function tagOutcomeInPancake(Lead $lead, string $disposition, PancakeOrderTagApi $api): void
+    {
+        self::tagTsaOnPancakeOrder($lead, $api, self::splitTags($disposition)->all());
+    }
+
+    /**
+     * Pushes $lead's currently-assigned TSA's own POS name tag to the real
+     * Pancake order, optionally alongside any $extraTags (e.g. outcome/
+     * disposition tags from tagOutcomeInPancake() above) — extracted out of
+     * that method (explicit follow-up request, 2026-09-03: "when there's new
+     * leads it is auto tagging ... because it is their leads") so every place
+     * a lead's tsa_id gets SET can push the same tag immediately on
+     * assignment, not only once a call outcome is eventually logged.
+     * Round-robin assignment itself (SyncPancakeLeads) used to be a
+     * local-only signal with no Pancake tag at all — see this method's own
+     * callers (SyncPancakeLeads, LogoutLeadRedistributor, transfer()/
+     * bulkTransfer() below) for where that's since changed.
+     *
+     * Same silent-no-op conventions as before: no linked order yet, or the
+     * 'pos_auto_tagging_enabled' Setting is off, or a tag doesn't exist in
+     * the real catalog — none of these are fatal, a lead's local assignment
+     * is never blocked on Pancake being reachable.
+     */
+    public static function tagTsaOnPancakeOrder(Lead $lead, PancakeOrderTagApi $api, array $extraTags = []): void
     {
         if (!$lead->pancake_order_id) {
             return;
         }
 
-        // Global on/off switch (TSA Management tab) — explicit request,
-        // 2026-08-28: OFF only withholds the TSA's own POS name tag; the
-        // disposition/outcome tags ("Confirmed", "Call Back", etc.) still go
-        // through either way, and lead assignment + visibility in the Leads
-        // tab is untouched by this setting entirely.
         $tsaTag = Setting::get('pos_auto_tagging_enabled', true) ? $lead->tsa?->tsa_key : null;
 
-        $tagNames = self::splitTags($disposition)->push($tsaTag)->filter()->unique()->values()->all();
-        $results  = $api->addTagsToOrder($lead->pancake_order_id, $tagNames);
+        $tagNames = collect($extraTags)->push($tsaTag)->filter()->unique()->values()->all();
+        if (empty($tagNames)) {
+            return;
+        }
+
+        $results = $api->addTagsToOrder($lead->pancake_order_id, $tagNames);
 
         foreach ($results as $tagName => $success) {
             if (!$success) {

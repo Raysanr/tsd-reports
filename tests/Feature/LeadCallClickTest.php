@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CallEvent;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Product;
@@ -131,6 +132,44 @@ class LeadCallClickTest extends TestCase
         $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
 
         $this->assertNull($lead->fresh()->dialed_at);
+    }
+
+    /**
+     * Explicit follow-up request (2026-09-03: "when they call in the leads
+     * it is automatically be has data in the call log ... marisol tried to
+     * call one lead but it did not display to the call log") — Call Log was
+     * previously 100% dependent on each TSA's own phone's MacroDroid
+     * automation reporting back; this guarantees a row always exists even
+     * when that automation never fires. duration_seconds is always null —
+     * this click has no way to know how long the call actually lasted.
+     */
+    public function test_clicking_to_call_creates_a_placeholder_call_event(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $event = CallEvent::where('lead_id', $lead->id)->first();
+        $this->assertNotNull($event);
+        $this->assertSame($gemma->id, $event->tsa_id);
+        $this->assertSame('09171234567', $event->phone_number);
+        $this->assertSame('outgoing', $event->direction);
+        $this->assertNull($event->duration_seconds);
+    }
+
+    /** Same "nothing meaningful to log" guard as the unassigned-lead cases
+     *  above — no TSA to attribute a call event to. */
+    public function test_a_call_click_on_an_unassigned_lead_does_not_create_a_call_event(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '9006', 'customer_name' => 'Ana', 'phone_number' => '09171234567', 'product_id' => $product->id, 'status' => 'unassigned']);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(0, CallEvent::where('lead_id', $lead->id)->count());
     }
 
     public function test_the_leads_table_shows_a_dialed_indicator_once_stamped(): void
