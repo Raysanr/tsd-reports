@@ -52,6 +52,55 @@ class ChartsController extends Controller
             ])
             ->get();
 
+        // --- KPI summary row: current period vs the immediately-preceding period
+        // of equal length — explicit request, 2026-09-03 ("modern... KPI cards
+        // with trend badges", matching a TailAdmin-style reference). Both teams
+        // combined, same ProductPerformance::tally() every other number on this
+        // page already goes through. previousDays: same day-count as the
+        // selected range, ending the day before $from — so a 14-day range
+        // compares against the 14 days immediately before it, not an arbitrary
+        // fixed window (a 7-day selection shouldn't be judged against 14 days
+        // of history, and vice versa).
+        $periodDays = $from->diffInDays($to) + 1;
+        $prevFrom   = $from->copy()->subDays($periodDays)->startOfDay();
+        $prevTo     = $from->copy()->subDay()->endOfDay();
+        $prevOrders = Order::whereBetween('pancake_created_at', [$prevFrom, $prevTo])
+            ->whereIn('team', $orderTeams)
+            ->select([
+                'id', 'status_code', 'is_upsell', 'is_returned_upsell', 'is_cancelled_upsell',
+                'raw_tags', 'disposition', 'excluded_upsell_seller', 'is_duplicated_by_logistics',
+                'is_upsell_on_voided_order',
+            ])
+            ->get();
+
+        $currentTally = ProductPerformance::tally($orders);
+        $previousTally = ProductPerformance::tally($prevOrders);
+
+        // Percentage-point delta for a rate (null-safe: either side missing data
+        // means no meaningful comparison, not a misleading "0% change"), or a
+        // percent-of-previous delta for the raw call-volume KPI.
+        $rateDelta = fn($cur, $prev) => ($cur === null || $prev === null) ? null : round($cur - $prev, 1);
+        $volumeDelta = fn($cur, $prev) => $prev > 0 ? round(($cur - $prev) / $prev * 100, 1) : null;
+
+        $kpis = [
+            'total_called' => [
+                'label' => 'Total Called Leads', 'value' => $currentTally['total_called'], 'suffix' => '',
+                'delta' => $volumeDelta($currentTally['total_called'], $previousTally['total_called']), 'deltaSuffix' => '%',
+            ],
+            'pick_up_rate' => [
+                'label' => 'Pick-up Rate', 'value' => $currentTally['pick_up_rate'], 'suffix' => '%',
+                'delta' => $rateDelta($currentTally['pick_up_rate'], $previousTally['pick_up_rate']), 'deltaSuffix' => 'pp',
+            ],
+            'conversion_rate' => [
+                'label' => 'Conversion Rate', 'value' => $currentTally['conversion_rate'], 'suffix' => '%',
+                'delta' => $rateDelta($currentTally['conversion_rate'], $previousTally['conversion_rate']), 'deltaSuffix' => 'pp',
+            ],
+            'upselling_rate' => [
+                'label' => 'Upselling Rate', 'value' => $currentTally['upselling_rate'], 'suffix' => '%',
+                'delta' => $rateDelta($currentTally['upselling_rate'], $previousTally['upselling_rate']), 'deltaSuffix' => 'pp',
+            ],
+        ];
+
         $ordersByDate = $orders->groupBy(fn($o) => $o->pancake_created_at->toDateString());
 
         $days = [];
@@ -173,7 +222,7 @@ class ChartsController extends Controller
         }
 
         return view('charts', compact(
-            'dateFrom', 'dateTo', 'dailyLabels',
+            'dateFrom', 'dateTo', 'dailyLabels', 'kpis',
             'rateSeries', 'calledSeries', 'salesSeries', 'excessSeries', 'answeredSeries', 'unansweredSeries',
             'deliveredSeries', 'rtsSeries',
             'productRows', 'tsaRankings', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess',

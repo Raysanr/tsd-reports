@@ -28,6 +28,80 @@
 </div>
 @else
 
+{{-- KPI SUMMARY — explicit request, 2026-09-03 ("modern UI... like TailAdmin"):
+     4 headline numbers with a trend badge vs the immediately-preceding period
+     of equal length, same .stat-card convention the Dashboard's own KPI row
+     already established (icon badge left, label/value/subtitle stacked
+     right) — just with the delta badge pattern from the reference added on
+     top of it. --}}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5 mb-6">
+    @foreach($kpis as $key => $kpi)
+    @php
+        $kpiIcons = [
+            'total_called'    => ['bg' => 'rgba(202,138,4,0.12)', 'fg' => '#CA8A04', 'path' => 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z'],
+            'pick_up_rate'    => ['bg' => 'rgba(37,99,235,0.12)',  'fg' => '#2563EB', 'path' => 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
+            'conversion_rate' => ['bg' => 'rgba(234,88,12,0.12)',  'fg' => '#EA580C', 'path' => 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6'],
+            'upselling_rate'  => ['bg' => 'rgba(202,138,4,0.12)',  'fg' => '#CA8A04', 'path' => 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2'],
+        ];
+        $icon = $kpiIcons[$key];
+        $deltaUp = $kpi['delta'] !== null && $kpi['delta'] > 0;
+        $deltaDown = $kpi['delta'] !== null && $kpi['delta'] < 0;
+    @endphp
+    <div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-3 sm:p-5 shadow-sm flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
+        <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full flex items-center justify-center shrink-0" style="background:{{ $icon['bg'] }}">
+            <svg class="w-4.5 h-4.5 sm:w-6 sm:h-6" style="color:{{ $icon['fg'] }}" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="{{ $icon['path'] }}" />
+            </svg>
+        </div>
+        <div class="min-w-0 w-full">
+            <p class="text-xs font-mono font-semibold text-slate-400 uppercase tracking-wider mb-1">{{ $kpi['label'] }}</p>
+            <p class="text-lg sm:text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono leading-none" style="font-variant-numeric: tabular-nums">
+                {{ $kpi['value'] !== null ? $kpi['value'] . $kpi['suffix'] : '—' }}
+            </p>
+            <p class="mt-1.5 flex items-center justify-center sm:justify-start gap-1 text-xs font-mono">
+                @if($kpi['delta'] === null)
+                <span class="text-slate-400">No prior-period data</span>
+                @else
+                <span class="inline-flex items-center gap-0.5 font-semibold {{ $deltaUp ? 'text-green-600 dark:text-green-400' : ($deltaDown ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400') }}">
+                    @if($deltaUp)
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3l6 7h-4v7H8v-7H4l6-7z"/></svg>
+                    @elseif($deltaDown)
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 17l-6-7h4V3h4v7h4l-6 7z"/></svg>
+                    @endif
+                    {{ $deltaUp ? '+' : '' }}{{ $kpi['delta'] }}{{ $kpi['deltaSuffix'] }}
+                </span>
+                <span class="text-slate-400">vs prior period</span>
+                @endif
+            </p>
+        </div>
+    </div>
+    @endforeach
+</div>
+
+{{-- SECTION TABS — explicit request, 2026-09-03 ("separation in analytics
+     like in the settings"): same tab pattern as settings.blade.php (plain
+     show/hide, sessionStorage-persisted active tab, .{page}-tab-btn /
+     data-{page}-panel convention) — 'analytics' prefix instead of
+     'settings' so both pages' JS/storage never collide if open in different
+     tabs at once. Chart.js needs its OWN handling here that Settings never
+     needed: a canvas drawn while its parent is display:none measures as
+     0×0, so every chart on this page is now created hidden-safe (see the
+     script block below — each Chart.js instance is tracked and .resize()'d
+     the moment its tab actually becomes visible) rather than at page-load
+     time regardless of which tab is showing. --}}
+<div class="border-b border-slate-200 dark:border-slate-700 mb-6">
+    <nav class="flex gap-6 overflow-x-auto" role="tablist" aria-label="Analytics sections">
+        @foreach(['trends' => 'Trends', 'products' => 'Products', 'tsa' => 'TSA'] as $tabKey => $tabLabel)
+        <button type="button" role="tab" data-analytics-tab="{{ $tabKey }}"
+                class="analytics-tab-btn shrink-0 px-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer whitespace-nowrap">
+            {{ $tabLabel }}
+        </button>
+        @endforeach
+    </nav>
+</div>
+
+{{-- ===== TRENDS ===== --}}
+<div data-analytics-panel="trends">
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
 
     {{-- RATE TRENDS — 3 line charts, one per rate, each split by team --}}
@@ -162,8 +236,10 @@
     </div>
 
 </div>
+</div>{{-- /data-analytics-panel="trends" --}}
 
-{{-- PRODUCT COMPARISON --}}
+{{-- ===== PRODUCTS ===== --}}
+<div data-analytics-panel="products" class="hidden">
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="flex items-center justify-between mb-5">
         <div>
@@ -201,11 +277,14 @@
     </div>
     <canvas id="productSalesChart" height="110"></canvas>
 </div>
+</div>{{-- /data-analytics-panel="products" --}}
 
 {{-- TSA RANKINGS — explicit request, 2026-09-03: Pick-up/Conversion/Upselling
      Rate per TSA, as three bar charts (same card/bar style as the Product
      comparison charts above — one metric per chart, sorted highest to
      lowest, bars colored by team), not a table. --}}
+{{-- ===== TSA ===== --}}
+<div data-analytics-panel="tsa" class="hidden">
 @if($tsaRankings->isNotEmpty())
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="flex items-center justify-between mb-5">
@@ -261,6 +340,7 @@
     <canvas id="tsaUpsellingChart" height="110"></canvas>
 </div>
 @endif
+</div>{{-- /data-analytics-panel="tsa" --}}
 
 @endif
 
@@ -598,6 +678,68 @@ function tsaRateChart(canvasId, rateKey) {
 tsaRateChart('tsaPickUpChart', 'pick_up_rate');
 tsaRateChart('tsaConversionChart', 'conversion_rate');
 tsaRateChart('tsaUpsellingChart', 'upselling_rate');
+})();
+</script>
+
+<script data-rerun>
+{{-- Section tabs — same plain show/hide + sessionStorage pattern as
+     settings.blade.php's own tab JS (see that file for the full reasoning),
+     'analytics' prefix so this page's storage key/classes never collide
+     with Settings' if both happen to be open in different tabs at once.
+     Chart.js-specific problem Settings never had: every chart above is
+     created immediately on page load regardless of which tab is visible —
+     a canvas inside a display:none ancestor measures 0×0 width/height at
+     that moment, so a chart built while its own tab is hidden renders
+     blank/squashed even after the tab is later shown (canvas dimensions
+     don't recompute on their own just because a CSS class changed).
+     Chart.getChart(id) (a real Chart.js v4 static lookup — no need to
+     capture/track each `new Chart(...)` return value up in the block
+     above) retrieves the already-built instance for a given canvas id;
+     calling .resize() on it forces Chart.js to re-measure its now-visible
+     container and redraw at the correct size. Run once per canvas the
+     first time its own tab is actually activated (a chart already sized
+     correctly on a later re-activation doesn't need another resize). --}}
+(function () {
+    const tabButtons = document.querySelectorAll('.analytics-tab-btn');
+    const panels      = document.querySelectorAll('[data-analytics-panel]');
+    const STORAGE_KEY = 'analyticsActiveTab';
+
+    const canvasIdsByPanel = {
+        trends:   ['rateChart-pick_up_rate', 'rateChart-conversion_rate', 'rateChart-upselling_rate', 'calledChart', 'excessChart', 'rtsDeliveredChart', 'salesChart', 'mixChart', 'hourlyChart'],
+        products: ['productChart', 'productSalesChart'],
+        tsa:      ['tsaPickUpChart', 'tsaConversionChart', 'tsaUpsellingChart'],
+    };
+    const resizedPanels = new Set();
+
+    function activate(tabKey) {
+        panels.forEach(p => p.classList.toggle('hidden', p.dataset.analyticsPanel !== tabKey));
+        tabButtons.forEach(b => {
+            const isActive = b.dataset.analyticsTab === tabKey;
+            b.classList.toggle('text-primary', isActive);
+            b.classList.toggle('border-primary', isActive);
+            b.classList.toggle('text-slate-400', !isActive);
+            b.classList.toggle('dark:text-slate-500', !isActive);
+            b.classList.toggle('border-transparent', !isActive);
+        });
+        try { sessionStorage.setItem(STORAGE_KEY, tabKey); } catch (e) {}
+
+        if (!resizedPanels.has(tabKey)) {
+            resizedPanels.add(tabKey);
+            (canvasIdsByPanel[tabKey] || []).forEach(id => {
+                const chart = window.Chart?.getChart?.(id);
+                chart?.resize();
+            });
+        }
+    }
+
+    tabButtons.forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.analyticsTab)));
+
+    let initial = 'trends';
+    try {
+        const stored = sessionStorage.getItem(STORAGE_KEY);
+        if (stored && document.querySelector(`[data-analytics-panel="${stored}"]`)) initial = stored;
+    } catch (e) {}
+    activate(initial);
 })();
 </script>
 @endpush
