@@ -147,7 +147,11 @@ class ChartsController extends Controller
             ->map(fn($shift) => array_merge($tsaTallyByKey[$shift->tsa_key], [
                 'tsa_key'      => $shift->tsa_key,
                 'display_name' => $shift->display_name,
-                'team'         => $teamNames[$shift->team] ?? $shift->team,
+                // Raw order_team (NOT the resolved display name) — same
+                // convention productRows' own 'team' key already uses, so the
+                // chart-side team-color lookup (orderTeams.indexOf(team)) works
+                // identically for both.
+                'team'         => $shift->team,
             ]))
             ->reject(fn($row) => $row['total_called'] === 0)
             ->sortByDesc('upselling_rate')

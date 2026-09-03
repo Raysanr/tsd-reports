@@ -203,56 +203,62 @@
 </div>
 
 {{-- TSA RANKINGS — explicit request, 2026-09-03: Pick-up/Conversion/Upselling
-     Rate per TSA, one sortable table (same pattern as TSA Performance's own
-     table — data-sortable-table/data-table-filter, sticky header + first
-     column) rather than three separate chart cards. Defaults sorted by
-     Upselling Rate (matches the Product comparison charts' own default sort
-     just above), but every column here is independently clickable to
-     re-sort. --}}
+     Rate per TSA, as three bar charts (same card/bar style as the Product
+     comparison charts above — one metric per chart, sorted highest to
+     lowest, bars colored by team), not a table. --}}
 @if($tsaRankings->isNotEmpty())
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="flex items-center justify-between mb-5">
         <div>
-            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">TSA Rankings</h2>
-            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted by Upselling Rate</p>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Pick-up Rate by TSA</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
         </div>
-        <div class="flex items-center gap-3">
-            <input type="text" data-table-filter="tsaRankingsTable" placeholder="Filter…" aria-label="Filter TSAs"
-                   class="w-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-            @include('partials.table-actions', ['target' => 'tsaRankingsTable', 'name' => 'tsa-rankings'])
-        </div>
-    </div>
-    <div class="overflow-auto" style="max-height:60vh" id="tsaRankingsTable" data-sortable-table data-scroll-shadow>
-    <table class="w-full border-collapse text-xs font-mono">
-        <thead class="sticky top-0 z-10">
-            <tr class="bg-slate-50 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                <th class="sticky-col px-3 py-2.5 text-left border border-slate-200 dark:border-slate-700" data-sort-key="tsa" style="min-width:160px">TSA</th>
-                <th class="px-3 py-2.5 text-center border border-slate-200 dark:border-slate-700" data-sort-key="pickUpRate" style="min-width:100px">Pick-up<br>Rate</th>
-                <th class="px-3 py-2.5 text-center border border-slate-200 dark:border-slate-700" data-sort-key="conversionRate" style="min-width:100px">Conversion<br>Rate</th>
-                <th class="px-3 py-2.5 text-center border border-slate-200 dark:border-slate-700" data-sort-key="upsellingRate" style="min-width:100px">Upselling<br>Rate</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-            @foreach($tsaRankings as $row)
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="sticky-col sticky-col-body px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap border border-slate-200 dark:border-slate-700" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
-                    {{ $row['display_name'] }}
-                    <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
-                </td>
-                <td class="px-3 py-2.5 text-center font-semibold border border-slate-200 dark:border-slate-700 {{ $row['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="pickUpRate" data-sort-value="{{ $row['pick_up_rate'] ?? '' }}">
-                    {{ $row['pick_up_rate'] !== null ? $row['pick_up_rate'].'%' : '—' }}
-                </td>
-                <td class="px-3 py-2.5 text-center font-semibold border border-slate-200 dark:border-slate-700 {{ $row['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="conversionRate" data-sort-value="{{ $row['conversion_rate'] ?? '' }}">
-                    {{ $row['conversion_rate'] !== null ? $row['conversion_rate'].'%' : '—' }}
-                </td>
-                <td class="px-3 py-2.5 text-center font-semibold border border-slate-200 dark:border-slate-700 {{ $row['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}" data-sort-key="upsellingRate" data-sort-value="{{ $row['upselling_rate'] ?? '' }}">
-                    {{ $row['upselling_rate'] !== null ? $row['upselling_rate'].'%' : '—' }}
-                </td>
-            </tr>
+        <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
+            @foreach($orderTeams as $i => $team)
+            <span class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
+                {{ $teamNames[$team] ?? $team }}
+            </span>
             @endforeach
-        </tbody>
-    </table>
+        </div>
     </div>
+    <canvas id="tsaPickUpChart" height="110"></canvas>
+</div>
+
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    <div class="flex items-center justify-between mb-5">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Conversion Rate by TSA</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
+        </div>
+        <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
+            @foreach($orderTeams as $i => $team)
+            <span class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
+                {{ $teamNames[$team] ?? $team }}
+            </span>
+            @endforeach
+        </div>
+    </div>
+    <canvas id="tsaConversionChart" height="110"></canvas>
+</div>
+
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    <div class="flex items-center justify-between mb-5">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Upselling Rate by TSA</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }}, sorted highest to lowest</p>
+        </div>
+        <div class="flex items-center gap-4 text-xs font-mono text-slate-600 dark:text-slate-400">
+            @foreach($orderTeams as $i => $team)
+            <span class="flex items-center gap-1.5">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background:{{ $teamColors[$i % count($teamColors)] }}"></span>
+                {{ $teamNames[$team] ?? $team }}
+            </span>
+            @endforeach
+        </div>
+    </div>
+    <canvas id="tsaUpsellingChart" height="110"></canvas>
 </div>
 @endif
 
@@ -314,6 +320,7 @@ const unansweredSeries = @json($unansweredSeries);
 const deliveredSeries  = @json($deliveredSeries);
 const rtsSeries        = @json($rtsSeries);
 const productRows  = @json($productRows);
+const tsaRankings  = @json($tsaRankings);
 const hourlyLabels = @json($hourlyLabels);
 const hourlyLeads  = @json($hourlyLeads);
 const hourlyExcess = @json($hourlyExcess);
@@ -553,6 +560,44 @@ new Chart(document.getElementById('productSalesChart'), {
         },
     },
 });
+
+/* --- TSA Rankings: Pick-up/Conversion/Upselling Rate per TSA (each own sort
+   — a TSA's best rate can differ per metric, same reasoning as Total Upsell
+   Sales sorting separately from the Upselling Rate chart above). Colored by
+   team, same convention as every other chart on this page. --- */
+function tsaRateChart(canvasId, rateKey) {
+    const rows = [...tsaRankings]
+        .filter(r => r[rateKey] !== null)
+        .sort((a, b) => b[rateKey] - a[rateKey]);
+    if (rows.length === 0) return;
+
+    new Chart(document.getElementById(canvasId), {
+        type: 'bar',
+        data: {
+            labels: rows.map(r => r.display_name),
+            datasets: [{
+                data: rows.map(r => r[rateKey]),
+                backgroundColor: rows.map(r => teamColors[orderTeams.indexOf(r.team) % teamColors.length]),
+                borderRadius: 4, borderSkipped: false,
+            }],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: ctx => ` ${ctx.raw === null ? '—' : ctx.raw + '%'}` } },
+            },
+            scales: {
+                x: { grid: { display: false } },
+                y: { grid: gridStyle, beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } },
+            },
+        },
+    });
+}
+
+tsaRateChart('tsaPickUpChart', 'pick_up_rate');
+tsaRateChart('tsaConversionChart', 'conversion_rate');
+tsaRateChart('tsaUpsellingChart', 'upselling_rate');
 })();
 </script>
 @endpush
