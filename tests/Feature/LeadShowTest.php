@@ -268,10 +268,15 @@ class LeadShowTest extends TestCase
         $response->assertSee('Return rate: 4%', false);
     }
 
-    /** A brand-new customer (never had a single successful order yet) must
-     *  not show a 0-length bar with a "0/0" tooltip — that would just be
-     *  visual noise, not a real signal. */
-    public function test_hides_the_success_rate_bar_for_a_customer_with_no_successful_orders_yet(): void
+    /**
+     * Reversed (explicit follow-up, 2026-09-04: "show it always, even at
+     * 0/0" — a brand-new customer's hidden bar read as a missing feature,
+     * not an intentional empty state). Must render with no divide-by-zero
+     * error, and the track must stay bare gray rather than filling 100%
+     * rose/red, which would misread as "100% returned" instead of "no data
+     * yet".
+     */
+    public function test_shows_the_success_rate_bar_even_for_a_customer_with_no_order_history_yet(): void
     {
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
@@ -296,7 +301,8 @@ class LeadShowTest extends TestCase
         $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
 
         $response->assertOk();
-        $response->assertDontSee('Return rate:', false);
+        $response->assertSee('Successful orders: 0 / Returned orders: 0', false);
+        $response->assertSee('Return rate: 0%', false);
     }
 
     /** Explicit follow-up requests (2026-08-25): "add delivery to this like
