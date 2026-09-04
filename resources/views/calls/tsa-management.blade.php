@@ -20,10 +20,14 @@
            class="tsaMgmt-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
             All teams
         </a>
-        @foreach($teams as $team)
-        <a href="{{ route('calls.tsa-management', ['team' => $team]) }}" data-team="{{ $team }}"
-           class="tsaMgmt-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $team ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
-            {{ $team }}
+        {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+             $teams is now [order_team => display name] (Teams::config());
+             the href/data-team keys stay the fixed order_team string, only
+             the visible label uses the (possibly renamed) value. --}}
+        @foreach($teams as $orderTeam => $displayName)
+        <a href="{{ route('calls.tsa-management', ['team' => $orderTeam]) }}" data-team="{{ $orderTeam }}"
+           class="tsaMgmt-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $orderTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+            {{ $displayName }}
         </a>
         @endforeach
     </div>
@@ -88,8 +92,12 @@
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Team</label>
                 <select name="team" required
                     class="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    @foreach($teams as $team)
-                    <option value="{{ $team }}">{{ $team }}</option>
+                    {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+                         option value stays the fixed order_team string (validated/
+                         stored as-is by TsaManagementController::store()), only the
+                         visible option text uses the (possibly renamed) display name. --}}
+                    @foreach($teams as $orderTeam => $displayName)
+                    <option value="{{ $orderTeam }}">{{ $displayName }}</option>
                     @endforeach
                 </select>
             </div>

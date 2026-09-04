@@ -176,7 +176,11 @@
                 @else
                 <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
                 @endif
-                <span>{{ $selectedTeam ?: 'All Teams' }}</span>
+                {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+                     $selectedTeam is the fixed order_team string; look up its
+                     current display name from $teams rather than showing the
+                     raw key. --}}
+                <span>{{ $selectedTeam ? ($teams[$selectedTeam] ?? $selectedTeam) : 'All Teams' }}</span>
                 <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>
@@ -191,11 +195,16 @@
                         <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                         @endif
                     </div>
-                    @foreach($teams as $team)
-                    <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $team }}">
-                        <span class="w-2.5 h-2.5 rounded-full shrink-0 {{ $teamDotColors[$team] ?? 'bg-slate-400' }}"></span>
-                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $team }}</span>
-                        @if($selectedTeam === $team)
+                    {{-- Renamed-team-aware (explicit follow-up request,
+                         2026-09-04) — $teams is now [order_team => display
+                         name] (Teams::config()); data-value/$teamDotColors
+                         keys stay the fixed order_team string, only the
+                         visible label uses the (possibly renamed) value. --}}
+                    @foreach($teams as $orderTeam => $displayName)
+                    <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $orderTeam }}">
+                        <span class="w-2.5 h-2.5 rounded-full shrink-0 {{ $teamDotColors[$orderTeam] ?? 'bg-slate-400' }}"></span>
+                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $displayName }}</span>
+                        @if($selectedTeam === $orderTeam)
                         <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                         @endif
                     </div>

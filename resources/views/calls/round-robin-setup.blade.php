@@ -52,10 +52,10 @@
        class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ !$selectedTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
         All teams
     </a>
-    @foreach($teams as $team)
-    <a href="{{ route('calls.round-robin-setup', ['team' => $team] + $rangeQuery) }}" data-team="{{ $team }}"
-       class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $team ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
-        {{ $team }}
+    @foreach($teams as $orderTeam => $displayName)
+    <a href="{{ route('calls.round-robin-setup', ['team' => $orderTeam] + $rangeQuery) }}" data-team="{{ $orderTeam }}"
+       class="rrs-pill relative z-10 px-4 py-1.5 text-sm font-mono font-semibold rounded-lg transition-colors duration-200 {{ $selectedTeam === $orderTeam ? 'text-slate-800 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200' }}">
+        {{ $displayName }}
     </a>
     @endforeach
 </div>

@@ -69,7 +69,12 @@
                     <td class="px-5 py-4">
                         <span class="inline-flex items-center gap-1.5 text-xs font-mono font-semibold {{ $style['text'] }} {{ $style['bg'] }} rounded-full px-2.5 py-1">
                             <span class="w-1.5 h-1.5 rounded-full {{ $style['dot'] }}"></span>
-                            {{ $tsa->team }}
+                            {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+                                 $tsa->team is the fixed order_team string (correct for the
+                                 $teamStyles color lookup above), but the VISIBLE label must
+                                 reflect any admin rename; $teams (order_team => display name)
+                                 is already in scope via this partial's parent @include. --}}
+                            {{ $teams[$tsa->team] ?? $tsa->team }}
                         </span>
                     </td>
                     <td class="px-5 py-4">
@@ -139,7 +144,9 @@
                                     <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from Macros 2–4 in the setup guide below (Phone call automation card). Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
                                 </div>
 
-                                <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles ({{ $tsa->team }} only)</p>
+                                {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+                                     $teams (order_team => display name) already in scope. --}}
+                                <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles ({{ $teams[$tsa->team] ?? $tsa->team }} only)</p>
                                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
                                     @foreach($teamProducts as $product)
                                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">

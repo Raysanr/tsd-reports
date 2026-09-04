@@ -9,6 +9,7 @@ use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\ActivityLogger;
+use App\Support\Teams;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -59,7 +60,14 @@ class TsaManagementController extends Controller
             'tsas'         => $tsas,
             'products'     => $products,
             'assignments'  => $assignments,
-            'teams'        => collect(config('teams'))->pluck('order_team')->all(),
+            // Renamed-team-aware (explicit follow-up request, 2026-09-04: "in
+            // the settings when rename team i want in the call tracker is
+            // will be change too") — order_team (the array KEY here) stays
+            // the fixed, never-editable string every filter/query already
+            // matches against; 'name' (the array VALUE) is the admin-editable
+            // display label from Teams::config(), same pattern the main app's
+            // own DashboardController already uses for this exact purpose.
+            'teams'        => collect(Teams::config())->pluck('name', 'order_team')->all(),
             'selectedTeam' => $team,
             // Candidates for "Link to an existing account" below — explicit
             // request, 2026-08-26: TSAs already have real accounts (role=

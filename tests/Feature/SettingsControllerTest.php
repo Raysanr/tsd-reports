@@ -632,6 +632,65 @@ class SettingsControllerTest extends TestCase
             ->assertSee('CLOSING');
     }
 
+    /**
+     * Explicit follow-up request (2026-09-04: "in the settings when rename
+     * team i want in the call tracker is will be change too") — Call
+     * Tracker's own Leads Setup (round-robin-setup), Leads, and TSA
+     * Management pages previously still called raw config('teams')-&gt;
+     * pluck('order_team') for their team labels, so a Settings rename never
+     * reached them even though it already worked on the main app's Leads
+     * Report/Dashboard. Confirms all three Call Tracker pages now show the
+     * renamed label too.
+     */
+    public function test_call_tracker_pages_also_show_the_renamed_team_label(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin);
+
+        $this->post(route('settings.team-names'), [
+            'team_names' => ['sh-naturals' => 'TEAM CLOSING', 'eyecare' => 'TEAM OPENING'],
+        ])->assertRedirect(route('settings'));
+
+        // 'SH Naturals'/'Eyecare Team' still legitimately appear in this
+        // markup (query strings, data-team attributes) — those are the fixed
+        // order_team keys every filter link/query matches against, correctly
+        // untouched by a display-name rename. Only the VISIBLE pill/badge
+        // text is asserted here.
+        $this->get(route('calls.round-robin-setup'))
+            ->assertOk()
+            ->assertSee('TEAM CLOSING')
+            ->assertSee('TEAM OPENING');
+
+        $this->get(route('calls.tsa-management'))
+            ->assertOk()
+            ->assertSee('TEAM CLOSING')
+            ->assertSee('TEAM OPENING');
+
+        $this->get(route('calls.leads.index'))
+            ->assertOk()
+            ->assertSee('TEAM CLOSING')
+            ->assertSee('TEAM OPENING');
+    }
+
+    /** The real per-TSA team badge (not just the filter pills) must also
+     *  reflect the rename — this is the second place the same bug hid
+     *  (RoundRobinSetupController's per-row $tsa->team, not just its pills). */
+    public function test_call_tracker_pages_per_row_team_badge_shows_the_renamed_label(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin);
+
+        $this->post(route('settings.team-names'), [
+            'team_names' => ['sh-naturals' => 'TEAM CLOSING'],
+        ]);
+
+        $gemma = \App\Models\TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals roster
+
+        $this->get(route('calls.round-robin-setup'))->assertOk()->assertSee('TEAM CLOSING');
+        $this->get(route('calls.tsa-management'))->assertOk()->assertSee('TEAM CLOSING');
+        $this->assertSame('SH Naturals', $gemma->team, 'The underlying order_team must stay unchanged by the rename');
+    }
+
     public function test_team_names_leaves_order_team_and_slug_untouched(): void
     {
         // Renaming display names must never affect which real orders/products

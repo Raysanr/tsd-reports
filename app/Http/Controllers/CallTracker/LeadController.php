@@ -14,6 +14,7 @@ use App\Support\GoogleDriveClient;
 use App\Support\PancakeConversationApi;
 use App\Support\PancakeOrderTagApi;
 use App\Support\PancakeProductApi;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -250,7 +251,14 @@ class LeadController extends Controller
             'tagColors'             => $tagColors,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),
-            'teams'                 => collect(config('teams'))->pluck('order_team')->all(),
+            // Renamed-team-aware (explicit follow-up request, 2026-09-04: "in
+            // the settings when rename team i want in the call tracker is
+            // will be change too") — order_team (the array KEY here) stays
+            // the fixed, never-editable string every filter/query already
+            // matches against; 'name' (the array VALUE) is the admin-editable
+            // display label from Teams::config(), same pattern the main app's
+            // own DashboardController already uses for this exact purpose.
+            'teams'                 => collect(Teams::config())->pluck('name', 'order_team')->all(),
             'selectedTeam'          => $selectedTeam,
             // Options narrow to the picked team (all products when no team
             // is picked) — same "the dropdown can never offer something the

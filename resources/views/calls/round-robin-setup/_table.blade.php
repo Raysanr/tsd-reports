@@ -65,7 +65,13 @@
                     <td class="px-5 py-4">
                         <span class="inline-flex items-center gap-1.5 text-xs font-mono font-semibold {{ $style['text'] }} {{ $style['bg'] }} rounded-full px-2.5 py-1">
                             <span class="w-1.5 h-1.5 rounded-full {{ $style['dot'] }}"></span>
-                            {{ $tsa->team }}
+                            {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
+                                 $tsa->team is the fixed order_team string (correct for the
+                                 $teamStyles color lookup above), but the VISIBLE label must
+                                 reflect any admin rename; $teams (order_team => display name,
+                                 from Teams::config()) is already in scope via this partial's
+                                 parent @include. --}}
+                            {{ $teams[$tsa->team] ?? $tsa->team }}
                         </span>
                     </td>
                     <td class="px-5 py-4">

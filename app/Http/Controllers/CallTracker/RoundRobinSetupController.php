@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\TsaShift;
+use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -54,7 +55,14 @@ class RoundRobinSetupController extends Controller
 
         $data = [
             'tsas'         => $tsas,
-            'teams'        => collect(config('teams'))->pluck('order_team')->all(),
+            // Renamed-team-aware (explicit follow-up request, 2026-09-04: "in
+            // the settings when rename team i want in the call tracker is
+            // will be change too") — order_team (the array KEY here) stays
+            // the fixed, never-editable string every filter/query already
+            // matches against; 'name' (the array VALUE) is the admin-editable
+            // display label from Teams::config(), same pattern the main app's
+            // own DashboardController already uses for this exact purpose.
+            'teams'        => collect(Teams::config())->pluck('name', 'order_team')->all(),
             'selectedTeam' => $team,
             'dateFrom'     => $dateFrom,
             'dateTo'       => $dateTo,
