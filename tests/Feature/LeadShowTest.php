@@ -230,6 +230,75 @@ class LeadShowTest extends TestCase
         $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
     }
 
+    /**
+     * Explicit follow-up request (2026-09-04: "can fetch this like rts rate
+     * and successful rate of the leads like in the pos") — confirmed live
+     * against a real order: the customer sub-object already riding along in
+     * this same GET carries succeed_order_count/returned_order_count/
+     * order_count, the same 3 numbers Pancake POS's own hover tooltip
+     * reads. Return rate is returned ÷ succeeded (matching Pancake's own
+     * math: "25 successful / 1 returned" reads as 4%, i.e. 1÷25).
+     */
+    public function test_shows_the_customers_real_success_and_return_rate_from_pancake(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's10', 'customer_name' => 'Repeat Customer', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s10*' => Http::response(['data' => [
+                'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1]],
+                'tags'  => [],
+                'customer' => [
+                    'succeed_order_count'  => 25,
+                    'returned_order_count' => 1,
+                    'order_count'          => 26,
+                ],
+            ]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('Successful orders: 25 / Returned orders: 1', false);
+        $response->assertSee('Return rate: 4%', false);
+    }
+
+    /** A brand-new customer (never had a single successful order yet) must
+     *  not show a 0-length bar with a "0/0" tooltip — that would just be
+     *  visual noise, not a real signal. */
+    public function test_hides_the_success_rate_bar_for_a_customer_with_no_successful_orders_yet(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's11', 'customer_name' => 'Brand New Customer', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s11*' => Http::response(['data' => [
+                'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1]],
+                'tags'  => [],
+                'customer' => [
+                    'succeed_order_count'  => 0,
+                    'returned_order_count' => 0,
+                    'order_count'          => 1,
+                ],
+            ]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertDontSee('Return rate:', false);
+    }
+
     /** Explicit follow-up requests (2026-08-25): "add delivery to this like
      *  in the POS", then "make it editable like in the POS" — an editable
      *  form pre-filled from the same order fetch as Products/POS Tags,

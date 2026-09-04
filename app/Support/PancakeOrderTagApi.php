@@ -244,6 +244,22 @@ class PancakeOrderTagApi
                 'creator'         => $order['creator'] ?? null,
                 'last_editor'     => $order['last_editor'] ?? null,
                 'assigning_seller' => $order['assigning_seller'] ?? null,
+                // Customer success/return history (explicit follow-up
+                // request, 2026-09-04: "is it possible that can fetch this
+                // like rts rate and successful rate of the leads like in
+                // the POS") — confirmed live against a real order's raw
+                // response: 'customer' already rides along in this same GET
+                // (no separate customer endpoint exists/was ever called
+                // anywhere in this app), just never extracted before. Same
+                // 3 counts Pancake POS's own hover tooltip reads: succeed_
+                // order_count, returned_order_count, order_count (the
+                // customer's WHOLE history with this shop, not just this
+                // one order).
+                'customer_order_stats' => isset($order['customer']) ? [
+                    'succeed_count'  => (int) ($order['customer']['succeed_order_count'] ?? 0),
+                    'returned_count' => (int) ($order['customer']['returned_order_count'] ?? 0),
+                    'total_count'    => (int) ($order['customer']['order_count'] ?? 0),
+                ] : null,
             ];
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);

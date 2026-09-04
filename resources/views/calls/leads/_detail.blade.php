@@ -317,6 +317,34 @@
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Customer</p>
                 <p class="font-semibold text-slate-800 dark:text-slate-100">{{ $lead->customer_name ?: '—' }}</p>
                 <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ $lead->phone_number ?: '—' }}</p>
+                {{-- Success/return rate bar (explicit follow-up request,
+                     2026-09-04: "can fetch this like rts rate and
+                     successful rate of the leads like in the pos") —
+                     mirrors Pancake POS's own colored bar + hover tooltip
+                     next to the customer's gender, confirmed live against a
+                     real order that the raw customer object already carries
+                     succeed_order_count/returned_order_count/order_count
+                     (this customer's WHOLE history with this shop, not just
+                     this one order) — no new Pancake endpoint needed, see
+                     PancakeOrderTagApi::getOrderDetail()'s own comment on
+                     customer_order_stats. Return rate = returned ÷
+                     succeeded, matching Pancake's own math (their "25
+                     successful / 1 returned" reads as 4%, i.e. 1÷25, not
+                     1÷26). Hidden entirely when the customer has never had
+                     a single successful order — a 0-length bar with a
+                     "0/0" tooltip would just be visual noise. --}}
+                @if($liveOrder && $liveOrder['customer_order_stats'] && $liveOrder['customer_order_stats']['succeed_count'] > 0)
+                @php
+                    $stats = $liveOrder['customer_order_stats'];
+                    $returnRate = round($stats['returned_count'] / $stats['succeed_count'] * 100);
+                    $successPct = round($stats['succeed_count'] / max(1, $stats['succeed_count'] + $stats['returned_count']) * 100);
+                @endphp
+                <div class="mt-2 w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default"
+                     title="Successful orders: {{ $stats['succeed_count'] }} / Returned orders: {{ $stats['returned_count'] }}&#10;Return rate: {{ $returnRate }}%">
+                    <div class="h-full bg-emerald-500 float-left" style="width: {{ $successPct }}%"></div>
+                    <div class="h-full bg-rose-500 float-left" style="width: {{ 100 - $successPct }}%"></div>
+                </div>
+                @endif
             </div>
 
 @if($liveOrder && $liveOrder['shipping_address'] && $canManage)
