@@ -129,6 +129,32 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Confirmed Today');
     }
 
+    /**
+     * Explicit request (2026-09-04: "i want only the leads will be only the
+     * product in the product management and when there are no in the
+     * product management it will not occur in the leads tab") — a lead
+     * whose item never matched a real Product Management entry (product_id
+     * null, e.g. a real Pancake product like "NutriLay" that was never
+     * added to the catalog) is excluded from this tab entirely, not just
+     * shown with a blank product name. Accepted, confirmed consequence:
+     * round-robin already never assigns these, and now nobody sees them in
+     * the Leads tab either — Unmatched Orders is this app's own dedicated
+     * place for reviewing them instead.
+     */
+    public function test_a_lead_with_no_matched_product_never_shows_in_the_leads_tab(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Matched Product Lead', 'product_id' => $product->id, 'status' => 'unassigned']);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Unmatched Product Lead', 'product_id' => null, 'status' => 'unassigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('Matched Product Lead');
+        $response->assertDontSee('Unmatched Product Lead');
+    }
+
     /** Reversed 2026-08-15 (see commit c82cdb5, "Make Overdue/Callbacks
      *  follow the picked date range, not hardcoded today") — Overdue used to
      *  ignore date_from/date_to entirely; it now applies the same shared

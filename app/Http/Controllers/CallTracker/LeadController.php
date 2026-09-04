@@ -66,7 +66,21 @@ class LeadController extends Controller
         // request, 2026-08-17 — added as the FIRST orderBy so every other
         // ordering below (latest/assigned_at/callback_at) stays intact as
         // the secondary sort within pinned vs unpinned.
+        // Explicit request, 2026-09-04: "i want only the leads will be only
+        // the product in the product management and when there are no in
+        // the product management it will not occur in the leads tab" — a
+        // lead whose item never matched a real Product Management entry
+        // (product_id null) is excluded from this tab entirely, not just
+        // shown with a blank/fallback product name. Confirmed, accepted
+        // consequence: round-robin already never assigns these (see the
+        // product-filter branch below's own doc comment on the "no product
+        // matched" case), so hiding them here too means nobody sees or
+        // calls these customers until the item is added to Product
+        // Management — Unmatched Orders (UnmatchedOrdersController) is this
+        // app's own dedicated place for reviewing exactly this category,
+        // not a gap this change creates.
         $query = Lead::with(['product', 'tsa'])
+            ->whereNotNull('product_id')
             ->orderByRaw('pinned_at IS NULL')
             ->latest('pancake_created_at');
 
