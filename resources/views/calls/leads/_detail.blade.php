@@ -346,17 +346,33 @@
                     $returnRate = $stats['succeed_count'] > 0 ? round($stats['returned_count'] / $stats['succeed_count'] * 100) : 0;
                     $successPct = $totalForRate > 0 ? round($stats['succeed_count'] / $totalForRate * 100) : 0;
                 @endphp
-                <div class="mt-2 w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default"
-                     title="Successful orders: {{ $stats['succeed_count'] }} / Returned orders: {{ $stats['returned_count'] }}&#10;Return rate: {{ $returnRate }}%">
-                    {{-- $totalForRate === 0 (a genuinely brand-new customer,
-                         nothing succeeded or returned yet) leaves the track
-                         bare gray — filling the remainder rose/red would
-                         misread as "100% returned" instead of "no data
-                         yet". --}}
-                    @if($totalForRate > 0)
-                    <div class="h-full bg-emerald-500 float-left" style="width: {{ $successPct }}%"></div>
-                    <div class="h-full bg-rose-500 float-left" style="width: {{ 100 - $successPct }}%"></div>
-                    @endif
+                {{-- Custom CSS-only tooltip (explicit follow-up request,
+                     2026-09-04: "make the current tooltip work more
+                     reliably") — a plain `title` attribute is the native
+                     browser tooltip, which has its own ~1s+ hover delay
+                     before it appears and can't be styled; group/group-hover
+                     shows this instantly on hover with no JS, matching
+                     Pancake's own dark popup exactly. `group` sits on the
+                     OUTER wrapper (not the bar itself) so the bar can keep
+                     `overflow-hidden` for its own rounded corners without
+                     clipping the tooltip box that pops up above it. --}}
+                <div class="group relative mt-2 w-full">
+                    <div class="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default">
+                        {{-- $totalForRate === 0 (a genuinely brand-new
+                             customer, nothing succeeded or returned yet)
+                             leaves the track bare gray — filling the
+                             remainder rose/red would misread as "100%
+                             returned" instead of "no data yet". --}}
+                        @if($totalForRate > 0)
+                        <div class="h-full bg-emerald-500 float-left" style="width: {{ $successPct }}%"></div>
+                        <div class="h-full bg-rose-500 float-left" style="width: {{ 100 - $successPct }}%"></div>
+                        @endif
+                    </div>
+                    <div class="hidden group-hover:block absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-black text-white text-xs px-3 py-2 shadow-lg pointer-events-none">
+                        Successful orders: {{ $stats['succeed_count'] }} / Returned orders: {{ $stats['returned_count'] }}
+                        <br>Return rate: {{ $returnRate }}%
+                        <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900 dark:border-t-black"></span>
+                    </div>
                 </div>
                 @endif
             </div>
