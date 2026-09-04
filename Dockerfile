@@ -16,10 +16,35 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
 
 WORKDIR /app
+
+# Dependency manifests copied BEFORE the rest of the source (explicit
+# follow-up request, 2026-09-04: "why is it so much now slow to deploy" —
+# root-caused: the old single `COPY . .` before install meant Docker's layer
+# cache invalidated on ANY file change, forcing a full composer install +
+# npm ci + npm run build (~12+ min) on every single push, even a blade-only
+# or JS-only change with zero dependency changes. Splitting the copy this
+# way means Docker only re-runs composer install/npm ci when composer.lock/
+# package-lock.json themselves actually change — a normal code-only push
+# reuses the cached dependency layer entirely and only re-runs the fast
+# `npm run build` step (Vite needs the real resources/ present, so that part
+# can't be cached the same way).
+#
+# --no-scripts on this first composer install is required, not optional:
+# composer.json's post-autoload-dump hook runs `artisan package:discover`,
+# which needs the actual app/ + bootstrap/ + config/ present to boot
+# Laravel at all — running it before COPY . . below would fail outright.
+# The second, scripted install after the full COPY re-runs those hooks now
+# that the app exists, and is itself fully cached whenever composer.lock is
+# unchanged (Docker sees the same COPY input + same RUN command).
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-interaction --no-scripts --no-autoloader
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
 COPY . .
 
 RUN composer install --no-dev --optimize-autoloader --no-interaction \
-    && npm ci \
     && npm run build \
     && npm prune --omit=dev
 
