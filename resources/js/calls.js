@@ -1153,14 +1153,23 @@ window.openLeadModal = function (leadId) {
 // standalone full page instead (calls/leads/show.blade.php) — the whole
 // page's own state, not just this one card, needs to reflect the write
 // there, and there's no separate "just this card" container to target.
+// Returns the underlying load promise (explicit follow-up request,
+// 2026-09-04: "when users add tag like one tag it will not be closed and
+// can add more tag like that") — submitInlineTagAdd() below chains onto
+// this to reopen the Add tag panel once the refreshed markup (and its
+// freshly re-initialized panel, see loadLeadDetailInto()'s own comment) is
+// actually in the DOM, instead of the panel just staying closed after every
+// full-detail refresh a tag add triggers. A plain full-page reload (the
+// modal-closed branch) has nothing to chain onto, so that path returns
+// undefined same as before — callers must not assume this is always a
+// Promise.
 window.refreshLeadDetail = function (leadId) {
     const modal = document.getElementById('leadDetailModal');
     const body = document.getElementById('leadDetailModalBody');
     if (modal && body && !modal.classList.contains('hidden')) {
-        loadLeadDetailInto(leadId, body).catch(() => {
+        return loadLeadDetailInto(leadId, body).catch(() => {
             window.showToast?.('Could not refresh this lead — reload the page.', 'error');
         });
-        return;
     }
     window.location.reload();
 };
@@ -2077,7 +2086,13 @@ async function submitInlineTagAdd(tagName) {
     const list = document.getElementById('inlineTagsList');
     if (!list) return;
     const leadId = list.dataset.leadId;
-    document.getElementById('inlineTagAddPanel')?.classList.add('hidden');
+    // Explicit follow-up request, 2026-09-04: "when users add tag like one
+    // tag it will not be closed and can add more tag like that" — the panel
+    // used to hide immediately here, then stay hidden forever since
+    // refreshLeadDetail()'s full-detail reload re-inits it closed by
+    // default (initInlineTagsPanel()'s own convention). No longer hidden up
+    // front; reopened explicitly below once the refreshed markup (a brand
+    // new #inlineTagAddPanel element) is actually in the DOM.
 
     try {
         const res = await fetch(`/calls/leads/${leadId}/tags/add`, {
@@ -2093,7 +2108,11 @@ async function submitInlineTagAdd(tagName) {
 
         if (data.success) {
             window.showToast?.(`Added "${tagName}".`, 'success');
-            window.refreshLeadDetail(leadId);
+            // .then(), not await — refreshLeadDetail() only returns a real
+            // Promise when the detail modal is open (the common case here,
+            // since this action only exists inside that modal); a plain
+            // page reload has nothing to chain onto and simply skips this.
+            Promise.resolve(window.refreshLeadDetail(leadId)).then(() => window.openInlineTagAdd?.());
         } else {
             window.showToast?.(data.error || `Could not add "${tagName}".`, 'error');
         }

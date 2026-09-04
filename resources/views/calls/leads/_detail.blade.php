@@ -198,15 +198,10 @@
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">POS Tags</p>
                 <div class="flex flex-wrap items-center gap-1.5" id="inlineTagsList" data-lead-id="{{ $lead->id }}" data-writable="{{ $liveTags !== null ? '1' : '0' }}">
-                    @foreach($displayTags as $tagName)
-                    <span class="real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1">
-                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                        {{ $tagName }}
-                        @if($liveTags !== null)
-                        <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="{{ $lead->id }}" data-tag="{{ $tagName }}" title="Remove tag from order" aria-label="Remove {{ $tagName }}">×</button>
-                        @endif
-                    </span>
-                    @endforeach
+                    {{-- Add tag button fixed FIRST (explicit request, 2026-09-04:
+                         "make it the add tag button is fixed only in the start")
+                         — previously sat after every existing chip, so its
+                         position visibly shifted depending on tag count. --}}
                     @if($liveTags !== null)
                     <div class="relative" id="inlineTagAddWrap">
                         <button type="button" id="inlineTagAddBtn" onclick="openInlineTagAdd()"
@@ -223,6 +218,15 @@
                         </div>
                     </div>
                     @endif
+                    @foreach($displayTags as $tagName)
+                    <span class="real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                        {{ $tagName }}
+                        @if($liveTags !== null)
+                        <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="{{ $lead->id }}" data-tag="{{ $tagName }}" title="Remove tag from order" aria-label="Remove {{ $tagName }}">×</button>
+                        @endif
+                    </span>
+                    @endforeach
                 </div>
             </div>
             @endif
