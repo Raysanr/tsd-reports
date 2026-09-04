@@ -633,6 +633,44 @@ class SettingsControllerTest extends TestCase
     }
 
     /**
+     * The exact scenario the user asked about, 2026-09-04: "if today 12
+     * midnight transition the team opening and closing it will be like
+     * tomorrow when we backtrack the data like yesterday it is sh naturals
+     * and eyecare" — confirms renaming TODAY does not retroactively change
+     * what a PAST date's Dashboard shows, while today's own Dashboard
+     * correctly shows the new name.
+     */
+    public function test_renaming_a_team_today_does_not_change_what_a_past_dashboards_leaderboard_shows(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $gemma = \App\Models\TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals roster
+        $product = \App\Models\Product::where('display_name', 'SINUXYL')->first();
+        $yesterday = today()->subDay();
+
+        \App\Models\Order::create([
+            'pancake_order_id' => 'rename-test-1', 'team' => 'SH Naturals', 'tsa_name' => $gemma->tsa_key,
+            'product' => 'SINUXYL', 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => true,
+            'amount' => 500, 'status_code' => 1,
+            'pancake_created_at' => $yesterday, 'pancake_inserted_at' => $yesterday, 'synced_at' => $yesterday,
+        ]);
+
+        // Renamed TODAY — the dropdown/filter option (date-agnostic by
+        // design) legitimately shows the new name regardless of which date
+        // is being viewed; only the LEADERBOARD ROW's own team_name (tied
+        // to that specific order's date) must stay dated.
+        $this->post(route('settings.team-names'), ['team_names' => ['sh-naturals' => 'Team Closing']]);
+
+        $yesterdayDate = $yesterday->toDateString();
+        $response = $this->get(route('dashboard', ['date_from' => $yesterdayDate, 'date_to' => $yesterdayDate]));
+        $response->assertOk();
+        $response->assertViewHas('tsaLeaderboard', function ($leaderboard) {
+            $row = $leaderboard->firstWhere('tsa_name', 'Gemma');
+            return $row && $row->team_name === 'SH Naturals';
+        });
+    }
+
+    /**
      * Explicit follow-up request (2026-09-04: "in the settings when rename
      * team i want in the call tracker is will be change too") — Call
      * Tracker's own Leads Setup (round-robin-setup), Leads, and TSA

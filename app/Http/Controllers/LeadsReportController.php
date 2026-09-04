@@ -525,7 +525,12 @@ class LeadsReportController extends Controller
         // to show for this range.
         $teamTables = collect($teamsConfig)
             ->map(fn ($t) => [
-                'label' => $t['name'],
+                // Dated (explicit follow-up request, 2026-09-04: "backtrack
+                // the data like yesterday it is sh naturals and eyecare") —
+                // this whole page's rows are scoped to $from/$to above, so
+                // each team section's own label must match what it was
+                // actually called across that range, not today's name.
+                'label' => Teams::nameForOrderTeamRange($t['order_team'], $from, $to),
                 'rows'  => $productRows->where('team', $t['order_team'])->values(),
             ])
             ->filter(fn ($t) => $t['rows']->isNotEmpty())

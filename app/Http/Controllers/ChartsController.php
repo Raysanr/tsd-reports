@@ -27,7 +27,15 @@ class ChartsController extends Controller
 
         $teamsConfig = Teams::config();
         $orderTeams  = collect($teamsConfig)->pluck('order_team')->all();
-        $teamNames   = collect($teamsConfig)->pluck('name', 'order_team');
+        // Dated (explicit follow-up request, 2026-09-04: "backtrack the
+        // data like yesterday it is sh naturals and eyecare") — this whole
+        // page's charts/legends are scoped to the picked $from/$to range
+        // (default: last 14 days), so a team's own label must reflect what
+        // it was actually called across THAT range, not whatever it's
+        // called today — Teams::nameForRange() combines "Old / New" when
+        // the range straddles a rename instead of picking one arbitrarily.
+        $teamNames = collect($teamsConfig)
+            ->mapWithKeys(fn ($t, $slug) => [$t['order_team'] => Teams::nameForRange($slug, $from, $to)]);
 
         // Fetch every order in range ONCE; every chart below slices this same
         // in-memory collection (by day, by team, by hour) rather than re-querying —

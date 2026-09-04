@@ -59,7 +59,10 @@ class RtsReportController extends Controller
             })->values();
 
             return [
-                'name'            => $teamConfig['name'],
+                // Dated (explicit follow-up request, 2026-09-04: "backtrack
+                // the data like yesterday it is sh naturals and eyecare") —
+                // scoped to $from/$to above.
+                'name'            => Teams::nameForOrderTeamRange($teamConfig['order_team'], $from, $to),
                 'rows'            => $rows,
                 'total_rts'       => $rows->sum('rts_amount'),
                 'total_delivered' => $rows->sum('delivered_amount'),

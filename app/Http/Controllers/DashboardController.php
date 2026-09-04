@@ -361,7 +361,6 @@ class DashboardController extends Controller
             // fix, as Hourly Activity's "calls per hour, not raw lead volume" above —
             // reusing $dayOrders (already fetched for that) instead of a second query.
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
-            $teamNames   = collect(Teams::config())->pluck('name', 'order_team');
 
             // ProductPerformance::tsaRows() — the SAME per-TSA "group by team
             // first, then by tsa_name within that team's own roster" grouping
@@ -411,10 +410,17 @@ class DashboardController extends Controller
                 ->values()
                 ->sort(fn ($a, $b) => [$b->upsell_sales, $b->upsell_count] <=> [$a->upsell_sales, $a->upsell_count])
                 ->values()
-                ->map(function ($row) use ($shiftsByKey, $teamNames) {
+                ->map(function ($row) use ($shiftsByKey, $dateFrom, $dateTo) {
                     $shift = $shiftsByKey->get($row->tsa_name);
                     $row->display_name = $shift->display_name ?? $row->tsa_name;
-                    $row->team_name    = $shift ? ($teamNames[$shift->team] ?? $shift->team) : null;
+                    // Dated (explicit follow-up request, 2026-09-04:
+                    // "backtrack the data like yesterday it is sh naturals
+                    // and eyecare") — this leaderboard can show any picked
+                    // $dateFrom/$dateTo range, not only today (see
+                    // $leaderboardIsToday's own conditional label), so the
+                    // team name must reflect what it was actually called
+                    // across that range.
+                    $row->team_name    = $shift ? Teams::nameForOrderTeamRange($shift->team, $dateFrom, $dateTo) : null;
                     $row->upsell_rate  = $row->total_calls > 0 ? round($row->upsell_count / $row->total_calls * 100, 1) : 0.0;
                     return $row;
                 });
@@ -541,7 +547,13 @@ class DashboardController extends Controller
                 $upsellCount = $realUpsells->count();
 
                 return [
-                    'name'         => $teamConfig['name'],
+                    // Dated (explicit follow-up request, 2026-09-04:
+                    // "backtrack the data like yesterday it is sh naturals
+                    // and eyecare") — this whole comparison is already
+                    // scoped to $dateFrom/$dateTo above, so the label must
+                    // match what this team was actually called across that
+                    // exact range, not today's name.
+                    'name'         => Teams::nameForOrderTeamRange($teamConfig['order_team'], $dateFrom, $dateTo),
                     'total_calls'  => $totalCalled,
                     'upsell_count' => $upsellCount,
                     'upsell_rate'  => $totalCalled > 0 ? round($upsellCount / $totalCalled * 100, 1) : 0.0,
@@ -560,10 +572,12 @@ class DashboardController extends Controller
                 ->groupBy('tsa_name')
                 ->orderByDesc('restocking_value')
                 ->get()
-                ->map(function ($row) use ($shiftsByKey, $teamNames) {
+                ->map(function ($row) use ($shiftsByKey, $dateFrom, $dateTo) {
                     $shift = $shiftsByKey->get($row->tsa_name);
                     $row->display_name = $shift->display_name ?? $row->tsa_name;
-                    $row->team_name    = $shift ? ($teamNames[$shift->team] ?? $shift->team) : null;
+                    // Dated (explicit follow-up request, 2026-09-04) — same
+                    // reasoning as the TSA Leaderboard's own team_name above.
+                    $row->team_name    = $shift ? Teams::nameForOrderTeamRange($shift->team, $dateFrom, $dateTo) : null;
                     return $row;
                 });
 
@@ -578,7 +592,9 @@ class DashboardController extends Controller
                         ->where('is_restocking_upsell', true);
 
                     return [
-                        'name'             => $teamConfig['name'],
+                        // Dated (explicit follow-up request, 2026-09-04) —
+                        // same reasoning as the Team Comparison panel above.
+                        'name'             => Teams::nameForOrderTeamRange($teamConfig['order_team'], $dateFrom, $dateTo),
                         'restocking_count' => (clone $base)->count(),
                         'restocking_value' => (clone $base)->sum('restocking_upsell_amount'),
                     ];

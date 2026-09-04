@@ -1076,7 +1076,11 @@ class InsightsGenerator
         $refAov = $refRow['upsell_confirmation'] > 0 ? $refRow['upsell_sales'] / $refRow['upsell_confirmation'] : 0.0;
 
         $dateLabel = $referenceDate->format('F j, Y');
-        $teamLabel = ($team && array_key_exists($team, $teamsConfig)) ? $teamsConfig[$team]['name'] : null;
+        // Dated (explicit follow-up request, 2026-09-04: "backtrack the
+        // data like yesterday it is sh naturals and eyecare") — this
+        // report is for exactly $referenceDate, so the team's own label
+        // must match what it was actually called on THAT day, not today.
+        $teamLabel = ($team && array_key_exists($team, $teamsConfig)) ? Teams::nameFor($team, $referenceDate) : null;
 
         $md = [];
         $md[] = $teamLabel

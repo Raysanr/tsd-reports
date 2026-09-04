@@ -148,10 +148,14 @@ class TsaPerformanceController extends Controller
         // Unassigned the same way, since none of them has anyone on THIS
         // team's roster to credit.
         $ordersByTsaFlat = $orders->groupBy(fn($o) => ($o->tsa_name !== null && $shifts->has($o->tsa_name)) ? $o->tsa_name : '__unassigned__');
-        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsaFlat, $selectedTeam, $teamsConfig) {
+        // Dated (explicit follow-up request, 2026-09-04: "backtrack the
+        // data like yesterday it is sh naturals and eyecare") — this whole
+        // table is scoped to $from/$to above.
+        $teamNameForRange = Teams::nameForRange($selectedTeam, $from, $to);
+        $tsaRows = $shifts->map(function ($shift) use ($ordersByTsaFlat, $selectedTeam, $teamNameForRange) {
             $row = ProductPerformance::tally($ordersByTsaFlat->get($shift->tsa_key, collect()));
             $row['display_name'] = $shift->display_name;
-            $row['team']         = $teamsConfig[$selectedTeam]['name'];
+            $row['team']         = $teamNameForRange;
             $row['team_key']     = $selectedTeam;
             $row['tsa_key']      = $shift->tsa_key;
             return $row;
@@ -171,7 +175,7 @@ class TsaPerformanceController extends Controller
         if ($unassignedOrders->isNotEmpty()) {
             $unassignedRow = ProductPerformance::tally($unassignedOrders);
             $unassignedRow['display_name'] = 'Unassigned';
-            $unassignedRow['team']         = $teamsConfig[$selectedTeam]['name'];
+            $unassignedRow['team']         = $teamNameForRange;
             $unassignedRow['team_key']     = $selectedTeam;
             $unassignedRow['tsa_key']      = 'unassigned';
             $tsaRows->push($unassignedRow);
@@ -532,7 +536,10 @@ class TsaPerformanceController extends Controller
             'grandUnproductive' => $grandUnproductive,
             'shiftMinutes'      => $shiftMinutes,
             'team'              => $team,
-            'teamName'          => $teamsConfig[$team]['name'],
+            // Dated (explicit follow-up request, 2026-09-04: "backtrack the
+            // data like yesterday it is sh naturals and eyecare") — this
+            // whole page is scoped to $from/$to above.
+            'teamName'          => Teams::nameForRange($team, $from, $to),
             'tsaKey'            => $tsaKey,
             'displayName'       => $shift->display_name,
             'isRestDay'         => $isRestDay,
@@ -690,7 +697,11 @@ class TsaPerformanceController extends Controller
                 $teamKey = $teamKeyByOrderTeam[$shift->team] ?? null;
 
                 $row['display_name'] = $shift->display_name;
-                $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $shift->team;
+                // Dated (explicit follow-up request, 2026-09-04: "backtrack
+                // the data like yesterday it is sh naturals and eyecare") —
+                // this whole page is scoped to $from/$to (indexAll()'s own
+                // params).
+                $row['team']         = $teamKey ? Teams::nameForRange($teamKey, $from, $to) : Teams::nameForOrderTeamRange($shift->team, $from, $to);
                 $row['team_key']     = $teamKey;
                 $row['tsa_key']      = $shift->tsa_key;
 
@@ -703,7 +714,7 @@ class TsaPerformanceController extends Controller
                 $row     = ProductPerformance::tally($teamUnassigned);
 
                 $row['display_name'] = 'Unassigned';
-                $row['team']         = $teamKey ? $teamsConfig[$teamKey]['name'] : $orderTeam;
+                $row['team']         = $teamKey ? Teams::nameForRange($teamKey, $from, $to) : Teams::nameForOrderTeamRange($orderTeam, $from, $to);
                 $row['team_key']     = $teamKey;
                 $row['tsa_key']      = 'unassigned';
 

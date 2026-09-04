@@ -55,14 +55,21 @@ class RoundRobinSetupController extends Controller
 
         $data = [
             'tsas'         => $tsas,
-            // Renamed-team-aware (explicit follow-up request, 2026-09-04: "in
-            // the settings when rename team i want in the call tracker is
-            // will be change too") — order_team (the array KEY here) stays
-            // the fixed, never-editable string every filter/query already
-            // matches against; 'name' (the array VALUE) is the admin-editable
-            // display label from Teams::config(), same pattern the main app's
-            // own DashboardController already uses for this exact purpose.
-            'teams'        => collect(Teams::config())->pluck('name', 'order_team')->all(),
+            // Renamed-team-aware AND dated (explicit follow-up requests,
+            // 2026-09-04: first "in the settings when rename team i want in
+            // the call tracker is will be change too", then "backtrack the
+            // data like yesterday it is sh naturals and eyecare") —
+            // order_team (the array KEY here) stays the fixed, never-
+            // editable string every filter/query already matches against;
+            // the VALUE is now resolved against $dateFrom/$dateTo (this
+            // page's own "Assigned — {range}" column is scoped to exactly
+            // that picked range, per the table partial's own comment) via
+            // Teams::nameForRange(), not Teams::config()'s bare "name as of
+            // today" — so reviewing a past range still shows whatever this
+            // team was actually called back then, not today's rename.
+            'teams'        => collect(Teams::config())
+                ->mapWithKeys(fn ($t, $slug) => [$t['order_team'] => Teams::nameForRange($slug, $dateFrom, $dateTo)])
+                ->all(),
             'selectedTeam' => $team,
             'dateFrom'     => $dateFrom,
             'dateTo'       => $dateTo,

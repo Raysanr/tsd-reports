@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Setting;
+use App\Models\TeamNameHistory;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\SyncHealth;
@@ -220,14 +221,41 @@ class SettingsController extends Controller
     public function saveTeamNames(Request $request)
     {
         $validSlugs = array_keys(config('teams', []));
+        $today = today();
 
         foreach ($request->input('team_names', []) as $slug => $name) {
             if (!in_array($slug, $validSlugs, true)) continue;
 
             $name = trim((string) $name);
-            // Blank submission clears the override (reverts to config/teams.php's
-            // own default name) rather than saving an empty display name.
-            Setting::set(Teams::nameSettingKey($slug), $name !== '' ? $name : null);
+            // Blank submission reverts to config/teams.php's own default
+            // name, effective today — still recorded as a real history row
+            // (not a deleted/skipped one), so "what was this team called on
+            // date X" stays resolvable the same way for every date,
+            // including a date after a revert. Explicit follow-up request,
+            // 2026-09-04: "backtrack the data like yesterday it is sh
+            // naturals and eyecare" — every save is now a DATED event
+            // (Teams::nameFor()/nameForRange()) rather than overwriting one
+            // "current" value, so renaming today never changes what a past
+            // date already showed.
+            $effectiveName = $name !== '' ? $name : (string) config("teams.{$slug}.name");
+
+            // No-op guard: don't insert a redundant history row when the
+            // name isn't actually changing (e.g. re-submitting the form
+            // with the same values) — same "only real transitions get a
+            // dated row" reasoning multiple saves on the same day would
+            // otherwise clutter nameForRange()'s own history walk with,
+            // even though the LATEST row for a given effective_from is
+            // already what nameFor() picks (see its own orderByDesc('id')
+            // tiebreak), a truly no-op save doesn't need one at all.
+            if (Teams::nameFor($slug, $today) === $effectiveName) {
+                continue;
+            }
+
+            TeamNameHistory::create([
+                'slug'           => $slug,
+                'name'           => $effectiveName,
+                'effective_from' => $today,
+            ]);
         }
 
         ActivityLogger::log('settings.team_names_saved', null, 'Team names updated.');
