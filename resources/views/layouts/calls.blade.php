@@ -199,23 +199,45 @@
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
 
-<aside class="relative w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl">
+{{-- Mobile-only backdrop, shown behind the sidebar while it's open as an
+     overlay drawer (explicit follow-up request, 2026-09-05: "i want you to
+     make all tabs is responsive... in tsd reports" — Call Tracker's sidebar
+     was a permanently-static 256px column with zero mobile handling at all,
+     unlike TSD Reports' own layouts/app.blade.php, which already has this
+     exact drawer pattern working — mirrored here verbatim rather than
+     inventing a second one). --}}
+<div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/50 z-40 md:hidden"></div>
+
+{{-- Below md: a fixed, off-canvas drawer (toggled by the hamburger button in
+     the header) sliding in over the content. At md+: back to a normal
+     static column, always visible, exactly like before. --}}
+<aside id="sidebar"
+       class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
+              -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
     <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, rgba(234,179,8,0.16), transparent 70%);"></div>
 
     <div class="relative px-6 py-5 border-b border-white/10">
-        <div class="flex items-center gap-3">
-            {{-- Solid gold fill, black icon (revised 2026-08-15 — matches the
-                 SellersHub cube's high-contrast gold/black treatment, not a
-                 white icon). Full-bleed fill, no border/glow. --}}
-            <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
-                <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+        <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-3 min-w-0">
+                {{-- Solid gold fill, black icon (revised 2026-08-15 — matches the
+                     SellersHub cube's high-contrast gold/black treatment, not a
+                     white icon). Full-bleed fill, no border/glow. --}}
+                <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                    <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">Call Tracker</div>
+                    <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">TSD Telesales</div>
+                </div>
+            </div>
+            <button id="sidebarClose" type="button" aria-label="Close menu"
+                    class="md:hidden shrink-0 p-1.5 rounded-lg text-yellow-200 hover:bg-white/10 cursor-pointer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
-            </div>
-            <div class="min-w-0">
-                <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">Call Tracker</div>
-                <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">TSD Telesales</div>
-            </div>
+            </button>
         </div>
     </div>
 
@@ -423,10 +445,18 @@
          2026-08-17: "make the topbar dark too, like in TSD Reports"). The
          light-mode values (border-line/text-ink/text-ink-muted, Call
          Tracker's own bespoke tokens) stay untouched. --}}
-    <header class="bg-white dark:bg-slate-900 border-b border-line dark:border-slate-700 px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-panel">
-        <div class="shrink-0">
-            <h1 class="text-xl font-bold text-ink dark:text-slate-100 tracking-tight">@yield('title', 'Dashboard')</h1>
-            <p class="text-xs text-ink-muted dark:text-slate-400 font-mono mt-0.5">@yield('subtitle', 'Pancake POS Integration')</p>
+    <header class="bg-white dark:bg-slate-900 border-b border-line dark:border-slate-700 px-4 md:px-8 py-4 flex items-center justify-between gap-3 flex-wrap shrink-0 shadow-panel">
+        <div class="flex items-center gap-3 min-w-0">
+            <button id="sidebarToggle" type="button" aria-label="Open menu"
+                    class="md:hidden shrink-0 p-2 -ml-2 rounded-lg text-ink-muted dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+            <div class="min-w-0">
+                <h1 class="text-lg md:text-xl font-bold text-ink dark:text-slate-100 tracking-tight truncate">@yield('title', 'Dashboard')</h1>
+                <p class="text-xs text-ink-muted dark:text-slate-400 font-mono mt-0.5 truncate">@yield('subtitle', 'Pancake POS Integration')</p>
+            </div>
         </div>
 
         <div class="flex items-center gap-3 flex-wrap justify-end">
@@ -470,7 +500,7 @@
         </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto p-8">
+    <main class="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
         @if(session('success'))
         <div class="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-mono rounded-lg px-4 py-3">
             {{ session('success') }}
@@ -492,6 +522,37 @@
      shared live region — see that page's own comment on why. --}}
 <div id="toastContainer"
      class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-full max-w-sm pointer-events-none"></div>
+
+{{-- Mobile sidebar drawer toggle (explicit follow-up request, 2026-09-05) —
+     same open/close/backdrop/resize logic as TSD Reports' own
+     layouts/app.blade.php, so both areas behave identically on mobile. --}}
+<script>
+(function () {
+    const sidebar  = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    const openBtn  = document.getElementById('sidebarToggle');
+    const closeBtn = document.getElementById('sidebarClose');
+
+    function openSidebar() {
+        sidebar.classList.remove('-translate-x-full');
+        backdrop.classList.remove('hidden');
+    }
+    function closeSidebar() {
+        sidebar.classList.add('-translate-x-full');
+        backdrop.classList.add('hidden');
+    }
+
+    openBtn?.addEventListener('click', openSidebar);
+    closeBtn?.addEventListener('click', closeSidebar);
+    backdrop?.addEventListener('click', closeSidebar);
+
+    // Switching to a desktop width (e.g. rotating a tablet) shouldn't leave
+    // the drawer open-but-invisible behind the now-static sidebar.
+    window.addEventListener('resize', () => {
+        if (window.innerWidth >= 768) closeSidebar();
+    });
+})();
+</script>
 
 @stack('scripts')
 </body>

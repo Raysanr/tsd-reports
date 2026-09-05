@@ -5,7 +5,18 @@
 @section('content')
 <div class="max-w-6xl">
 <div class="flex flex-col lg:flex-row gap-6 items-start">
-<div class="flex-1 min-w-0 space-y-6">
+{{-- w-full (explicit follow-up request, 2026-09-05: "i want to still see
+     this whole even in other device") — root cause of every row still
+     overflowing even after shrinking their own content: `items-start` on
+     the flex-col (mobile) layout above makes cross-axis children size to
+     their own intrinsic content width instead of stretching to fill the
+     container, so `min-w-0` here did nothing until this was added — a flex
+     child's min-width shrink only applies along the MAIN axis, not the
+     cross axis `align-items` controls. lg:w-auto reverts to the original
+     flex-1-driven width once flex-row (desktop) takes over, where this
+     column competes for space against the calendar sidebar instead of
+     needing to fill 100% on its own. --}}
+<div class="flex-1 min-w-0 w-full lg:w-auto space-y-6">
 
     @if($errors->any())
     <div class="px-5 py-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-700 dark:text-red-400">
@@ -13,10 +24,10 @@
     </div>
     @endif
 
-    <div class="flex items-center justify-between">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p class="text-xs text-slate-400 font-mono">Add, edit, or remove agents and set call shifts — all reflected immediately on TSA Performance and Leads Report.</p>
         <button type="button" id="addTsaBtn"
-            class="inline-flex items-center gap-1.5 px-4 py-2 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 ml-4">
+            class="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-yellow-700 hover:bg-yellow-800 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 sm:ml-4">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
             </svg>
@@ -39,7 +50,7 @@
              is keyed by config('teams')'s string slugs ('sh-naturals', 'eyecare'),
              not sequential integers, so an arithmetic modulo needs $loop's index. --}}
         @php $teamColor = $teamAvatarColors[$loop->index % count($teamAvatarColors)]; @endphp
-        <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
+        <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden min-w-0">
             <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
                 <div class="w-7 h-7 rounded-full bg-yellow-700 text-white text-xs font-bold flex items-center justify-center">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,51 +66,47 @@
             @if($group['shifts']->isEmpty())
             <div class="py-10 text-center text-sm text-slate-400 font-mono">No TSAs on this team yet</div>
             @else
-            <div class="divide-y divide-slate-100 dark:divide-slate-700">
+            {{-- Mobile-responsive (explicit follow-up request, 2026-09-05:
+                 "i want to still see this whole even in other device...
+                 responsive view like that" — an earlier attempt WRAPPED
+                 each row onto 3 lines to make it fit, but the actual ask is
+                 the opposite: keep every row exactly as one line, just
+                 SHRINK it down on narrow screens so the whole thing stays
+                 visible without cutting anything off. overflow-x-auto is a
+                 safety net, not the primary fix — text-xs/spacing/input
+                 sizing below are tuned to fit the real content at a 360px
+                 viewport without needing it at all; it only engages on an
+                 even narrower device or unusually long name/TSA key). --}}
+            <div class="divide-y divide-slate-100 dark:divide-slate-700 overflow-x-auto">
                 @foreach($group['shifts'] as $shift)
-                <div class="px-6 py-3 flex items-center gap-4">
+                <div class="px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 w-max sm:w-auto min-w-full sm:min-w-0">
                     {{-- Selection checkbox — reads by the bulk-action bar's JS. This is a
                          plain input, not a nested <form>, so it's safe to sit inside the
                          bulk-save form above; the bulk-action <form> it feeds submits
                          separately, outside this one (see below). --}}
                     <input type="checkbox" class="tsaCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer shrink-0" data-id="{{ $shift->id }}">
-                    {{-- Avatar + name --}}
-                    <div class="flex items-center gap-2.5 w-52 shrink-0">
-                        <div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0" style="background:{{ $teamColor }}">
+                    {{-- Avatar + name — shrinks to a fixed, narrower width on
+                         mobile (w-32) instead of stacking, so name+key still
+                         read fine at a smaller size without pushing the rest
+                         of the row out of view. --}}
+                    <div class="flex items-center gap-1.5 sm:gap-2.5 w-32 sm:w-52 shrink-0">
+                        <div class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-white text-[9px] sm:text-[10px] font-bold shrink-0" style="background:{{ $teamColor }}">
                             {{ strtoupper(substr($shift->display_name, 0, 2)) }}
                         </div>
-                        <div>
+                        <div class="min-w-0 flex-1">
                             <input type="text" name="shifts[{{ $shift->tsa_key }}][display_name]"
                                    value="{{ $shift->display_name }}"
-                                   class="w-full text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
-                                          hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors"
+                                   class="w-full text-xs sm:text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
+                                          hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors truncate"
                                    placeholder="Full name">
-                            <p class="text-[10px] text-slate-400 font-mono">{{ $shift->tsa_key }}</p>
+                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}</p>
                         </div>
                     </div>
 
-                    {{-- Shift time --}}
-                    <div class="flex items-center gap-2 flex-1">
-                        <label class="text-xs font-mono text-slate-400 shrink-0">Shift</label>
-                        <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_start]"
-                               value="{{ $shift->shift_start }}"
-                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200
-                                      focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
-                        <span class="text-xs text-slate-400">to</span>
-                        <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_end]"
-                               value="{{ $shift->shift_end }}"
-                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-700 dark:text-slate-200
-                                      focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
-                        @if($shift->shift_start && $shift->shift_end)
-                        <span class="text-xs font-mono text-slate-400 ml-1">{{ $shift->shift_range }}</span>
-                        @endif
-                    </div>
-
-                    {{-- Row actions: these open/submit forms OUTSIDE this bulk-save
-                         form (browsers don't support nested <form> elements) --}}
-                    <div class="flex items-center gap-1 shrink-0">
+                    {{-- Row actions --}}
+                    <div class="flex items-center gap-0.5 sm:gap-1 shrink-0">
                         <button type="button"
-                            class="editTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
+                            class="editTsaBtn p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
                             title="Edit"
                             data-id="{{ $shift->id }}"
                             data-tsa-key="{{ $shift->tsa_key }}"
@@ -108,19 +115,38 @@
                             data-extra="{{ $shift->extra_tag_keywords }}"
                             data-pos-user-id="{{ $shift->pos_user_id }}"
                             data-rest-day="{{ $shift->rest_day_of_week }}">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                             </svg>
                         </button>
                         <button type="button"
-                            class="deleteTsaBtn p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                            class="deleteTsaBtn p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                             title="Remove"
                             data-id="{{ $shift->id }}"
                             data-name="{{ $shift->display_name }}">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"/>
                             </svg>
                         </button>
+                    </div>
+
+                    {{-- Shift time — smaller text/inputs/gaps on mobile, but
+                         stays on the SAME line as everything else instead of
+                         wrapping to its own row. --}}
+                    <div class="flex items-center gap-1 sm:gap-2 shrink-0">
+                        <label class="text-[10px] sm:text-xs font-mono text-slate-400 shrink-0">Shift</label>
+                        <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_start]"
+                               value="{{ $shift->shift_start }}"
+                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs font-mono text-slate-700 dark:text-slate-200
+                                      focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
+                        <span class="text-[10px] sm:text-xs text-slate-400">to</span>
+                        <input type="time" name="shifts[{{ $shift->tsa_key }}][shift_end]"
+                               value="{{ $shift->shift_end }}"
+                               class="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-lg px-1.5 sm:px-2 py-1 sm:py-1.5 text-[10px] sm:text-xs font-mono text-slate-700 dark:text-slate-200
+                                      focus:outline-none focus:ring-2 focus:ring-yellow-400 cursor-pointer">
+                        @if($shift->shift_start && $shift->shift_end)
+                        <span class="text-[10px] sm:text-xs font-mono text-slate-400 ml-0.5 sm:ml-1 whitespace-nowrap">{{ $shift->shift_range }}</span>
+                        @endif
                     </div>
                 </div>
                 @endforeach

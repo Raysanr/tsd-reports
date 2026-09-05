@@ -4,11 +4,20 @@
 
 @section('content')
 
-<div class="flex items-center justify-between gap-4 mb-6">
+{{-- flex-wrap (explicit follow-up request, 2026-09-05: "make all tabs is
+     responsive") — this row previously forced the team-filter pills and the
+     toggle+button group onto one unwrapped line, pushing the whole page
+     ~20px wider than a 360px viewport (confirmed: neither the table below,
+     which already scrolls fine via overflow-x-auto, nor any single element
+     was individually oversized — this row's own combined content was).
+     overflow-x-auto on the pill filter itself (added below) lets that piece
+     scroll horizontally if it's still too wide to wrap cleanly, same
+     convention this page's own table already uses one section down. --}}
+<div class="flex flex-wrap items-center justify-between gap-4 mb-6">
     {{-- Segmented pill filter — same pattern (and same X-Table-Refresh
          convention) as Leads Setup's own team filter, so the two pages feel
          like one system instead of two different table styles. --}}
-    <div id="tsaMgmtFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+    <div id="tsaMgmtFilter" class="relative inline-flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl max-w-full overflow-x-auto">
         <span id="tsaMgmtFilterHighlight" class="absolute inset-y-1 left-1 rounded-lg bg-white dark:bg-slate-900 shadow-sm transition-all duration-200 ease-out" style="width: 0"></span>
 
         {{-- team='' explicit, not omitted — an omitted param is
@@ -32,7 +41,7 @@
         @endforeach
     </div>
 
-    <div class="flex items-center gap-4 shrink-0">
+    <div class="flex flex-wrap items-center gap-4 shrink-0">
         {{-- Global POS name tag auto-tagging switch — explicit request,
              2026-08-28. One toggle for every TSA (not per-row): OFF just
              stops each TSA's own tag being pushed to their Pancake POS
