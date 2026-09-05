@@ -135,6 +135,52 @@ class CallLogControllerTest extends TestCase
         $this->assertSame(840, $gemmaRow['longest_gap_seconds']);
     }
 
+    /** Bug fix (2026-09-05): logCallClick() creates a CallEvent with
+     *  duration_seconds = null every time a TSA clicks "call" in the UI
+     *  (see that method's own doc comment) — the gap-timing loop used to
+     *  treat a null duration as 0 seconds via `?? 0`, understating the
+     *  idle gap before it, and total_calls counted these phantom
+     *  click-attempts as real calls. Both are now excluded — this report
+     *  should only count calls with a MacroDroid-confirmed duration. */
+    public function test_a_duration_less_call_click_event_does_not_corrupt_gap_math_or_totals(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->startOfDay()->addHours(9);
+
+        // Call 1: a real MacroDroid-confirmed call, 9:00:00 - 9:01:00 (60s).
+        $call1 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => $today->copy()->addMinute()]);
+        // A phantom logCallClick() row at 9:02:00 — no duration, must not be
+        // treated as an instant 0-second call sitting between call 1 and call 2.
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => null, 'occurred_at' => $today->copy()->addMinutes(2)]);
+        // Call 2: a real MacroDroid-confirmed call, starts 9:10:00 (9 idle
+        // minutes after call 1 ended at 9:01:00 — NOT measured from the
+        // phantom row), ends 9:10:30.
+        $call2 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(10)->addSeconds(30)]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today->toDateString(), 'date_to' => $today->toDateString(),
+        ]));
+
+        $response->assertOk();
+
+        // total_calls only counts the 2 real, duration-confirmed calls —
+        // the phantom click row is excluded.
+        $rows = collect($response->viewData('rows'));
+        $gemmaRow = $rows->firstWhere('tsa.id', $gemma->id);
+        $this->assertSame(2, $gemmaRow['total_calls']);
+
+        // The gap before call 2 is measured from call 1's real end (9:01:00)
+        // to call 2's real start (9:10:00) = 9 minutes, not shortened by the
+        // phantom row sitting in between.
+        $gapBeforeSeconds = $response->viewData('gapBeforeSeconds');
+        $this->assertSame(540, $gapBeforeSeconds[$call2->id]); // 9 minutes
+
+        // The "Recent calls" raw list also excludes the phantom row.
+        $events = $response->viewData('events');
+        $this->assertCount(2, $events);
+    }
+
     /** Explicit request (2026-08-24): filter by team, same ALL/SH Naturals/
      *  Eyecare convention Monitor TSA's own filter already uses. */
     public function test_a_team_filter_scopes_both_the_totals_and_the_recent_calls_list(): void

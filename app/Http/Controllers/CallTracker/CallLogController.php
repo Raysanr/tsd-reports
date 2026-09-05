@@ -68,7 +68,24 @@ class CallLogController extends Controller
             $selectedTsa  = $user->tsa_id;
         }
 
+        // Bug fix (2026-09-05): excludes logCallClick()'s duration-less
+        // "call was attempted" placeholder rows (see that method's own doc
+        // comment) — those are always direction='outgoing' with a null
+        // duration, the exact shape that used to get silently treated as an
+        // instant 0-second call in the gap-timing loop below, understating
+        // idle gaps, and inflated total_calls with clicks that might not
+        // have even connected. A real MISSED call also has a null duration
+        // (MacroDroid has no length to report for a call nobody answered)
+        // and must still count — only excluding null-duration OUTGOING rows
+        // keeps that real signal while dropping the phantom one. Accepted
+        // tradeoff: a genuine outgoing call whose MacroDroid duration
+        // report failed to arrive is also excluded here — same acceptable
+        // miscount logCallClick()'s own doc comment already accepts for the
+        // double-counting side of this same tradeoff.
         $events = CallEvent::with(['tsa', 'lead'])
+            ->where(function ($q) {
+                $q->where('direction', '!=', 'outgoing')->orWhereNotNull('duration_seconds');
+            })
             ->whereBetween('occurred_at', [$from, $to])
             ->when($orderTeam, fn ($q) => $q->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
             ->when($selectedTsa, fn ($q) => $q->where('tsa_id', $selectedTsa))
@@ -94,6 +111,12 @@ class CallLogController extends Controller
 
             for ($i = 1; $i < $chronological->count(); $i++) {
                 $previousCallEndedAt = $chronological[$i - 1]->occurred_at;
+                // ?? 0 here is for a real MISSED call (duration_seconds is
+                // legitimately null — nobody answered, so it has no length):
+                // its start and end are the same instant. Every OUTGOING/
+                // INCOMING row reaching this point is guaranteed non-null by
+                // the query above (a null-duration outgoing row is a
+                // logCallClick() phantom, already excluded).
                 $thisCallStartedAt   = $chronological[$i]->occurred_at->copy()->subSeconds($chronological[$i]->duration_seconds ?? 0);
                 $gapSeconds = max(0, $thisCallStartedAt->timestamp - $previousCallEndedAt->timestamp);
 
