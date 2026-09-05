@@ -7,7 +7,7 @@ Read `docs/ARCHITECTURE.md` for the full directory map, data model, and domain g
 ## Quick facts
 - Auth: session login + Google OAuth (`AuthController`, Socialite). Roles: `super_admin`, `admin`, `normal`.
 - DB: SQLite locally (`.env.example`); confirm prod driver before assuming.
-- Deploy: Render (`render.yaml`). `/cron/run` is hit by an external pinger, protected by `CRON_SECRET`, not session auth.
+- Deploy: Railway (Dockerfile-based build). `/cron/run` is hit by an external pinger, protected by `CRON_SECRET`, not session auth.
 - Frontend: Vite 7 + Tailwind 4 + Chart.js. No SPA framework — server-rendered Blade views.
 - Tests: PHPUnit, `tests/` — run before considering a change done.
 

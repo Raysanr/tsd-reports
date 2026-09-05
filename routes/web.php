@@ -227,7 +227,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
             Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
             Route::get('/call-recordings', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'index'])->name('call-recordings');
-            Route::get('/call-recordings/{recording}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
+            // {tsa}/{fileId}, not {recording} (explicit follow-up request,
+            // 2026-09-05: "display the recordings in the gdrive") — this now
+            // streams a real Google Drive file directly, not a local
+            // CallRecording DB row; see CallRecordingController's own doc
+            // comment on why that local pipeline was replaced.
+            Route::get('/call-recordings/{tsa}/{fileId}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
             Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');
 
             // Same shared SettingsController@index as TSD Reports' own
