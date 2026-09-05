@@ -4,7 +4,7 @@ namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
-use App\Models\CallEvent;
+use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
@@ -40,21 +40,21 @@ class AnalyticsController extends Controller
             ->whereBetween('assigned_at', [$from, $to])
             ->get();
 
-        // AHT (Average Handle Time) — real per-call durations from
-        // CallEvent.duration_seconds (MacroDroid's own call-log report, see
-        // the auto-upload setup on Call Rotation), not an estimate. Missing
-        // durations (e.g. a call event logged before duration_seconds
-        // existed, or MacroDroid failing to report one) are excluded rather
-        // than treated as 0 — a handle time of "zero seconds" would quietly
-        // drag every average down. Missed calls are excluded outright: a
-        // call nobody answered has no handle time to average in at all.
-        $callEvents = CallEvent::whereIn('tsa_id', TsaShift::pluck('id'))
-            ->where('direction', '!=', 'missed')
-            ->whereNotNull('duration_seconds')
-            ->whereBetween('occurred_at', [$from, $to])
+        // AHT (Average Handle Time) — real per-hour call-duration totals
+        // synced from Google Drive (CallRecordingHour, see
+        // SyncCallRecordings), not CallEvent. Switched 2026-09-05 for the
+        // same reason DashboardController's own AHT/Unproductive Time cards
+        // were switched on 2026-08-24 (see that controller's own doc
+        // comment): CallEvent needs each TSA's phone to hit the app via
+        // MacroDroid, which only 3 of 7 TSAs have ever had configured, so
+        // this page's AHT was blank or badly stale for most TSAs. Keyed by
+        // tsa_key, not tsa_id — CallRecordingHour has no tsa_id column.
+        $recordingHours = CallRecordingHour::whereIn('tsa_key', TsaShift::pluck('tsa_key'))
+            ->whereDate('date', '>=', $from)
+            ->whereDate('date', '<=', $to)
             ->get();
 
-        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $callEvents, $from, $to) {
+        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $from, $to) {
             $mine   = $leads->where('tsa_id', $tsa->id);
             $called = $mine->where('status', 'called');
 
@@ -68,9 +68,10 @@ class AnalyticsController extends Controller
             $responseMinutes = $called->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
                 ->map(fn (Lead $l) => $l->assigned_at->diffInMinutes($l->called_at));
 
-            $myCallEvents = $callEvents->where('tsa_id', $tsa->id);
-            $ahtSeconds   = $myCallEvents->isNotEmpty() ? (int) round($myCallEvents->avg('duration_seconds')) : null;
-            $thtSeconds   = (int) $myCallEvents->sum('duration_seconds');
+            $myRecordingHours = $recordingHours->where('tsa_key', $tsa->tsa_key);
+            $myCallCount      = $myRecordingHours->sum('call_count');
+            $ahtSeconds       = $myCallCount > 0 ? (int) round($myRecordingHours->sum('total_seconds') / $myCallCount) : null;
+            $thtSeconds       = (int) $myRecordingHours->sum('total_seconds');
 
             // Working days in range = calendar days minus this TSA's own rest
             // days (TsaShift::isOffOn(), same rule round-robin assignment
@@ -96,7 +97,7 @@ class AnalyticsController extends Controller
                 'no_answer_rate'      => $called->count() ? round($noAnswer / $called->count() * 100, 1) : null,
                 'avg_response_mins'   => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
                 'aht_seconds'         => $ahtSeconds,
-                'aht_call_count'      => $myCallEvents->count(),
+                'aht_call_count'      => $myCallCount,
                 'tht_seconds'         => $thtSeconds,
                 'working_days'        => $workingDays,
                 'logged_in_minutes'   => $loggedInMinutes,
@@ -155,7 +156,8 @@ class AnalyticsController extends Controller
         $totalLeadsSum   = $rows->sum('total');
         $totalCateredSum = $rows->sum('called');
 
-        $overallAhtSeconds = $callEvents->isNotEmpty() ? (int) round($callEvents->avg('duration_seconds')) : null;
+        $overallCallCount  = $recordingHours->sum('call_count');
+        $overallAhtSeconds = $overallCallCount > 0 ? (int) round($recordingHours->sum('total_seconds') / $overallCallCount) : null;
         $overallAhtDisplay = $overallAhtSeconds !== null
             ? sprintf('%dm %ds', intdiv($overallAhtSeconds, 60), $overallAhtSeconds % 60)
             : '—';
@@ -169,9 +171,12 @@ class AnalyticsController extends Controller
         // trend would be unreadable with more than 2-3 TSAs on one line chart,
         // so this answers "is handle time getting better or worse overall",
         // while the per-TSA bar chart above already covers "who's fastest".
-        $ahtTrend = $callEvents
-            ->groupBy(fn (CallEvent $e) => $e->occurred_at->timezone('Asia/Manila')->toDateString())
-            ->map(fn ($dayEvents) => (int) round($dayEvents->avg('duration_seconds')))
+        $ahtTrend = $recordingHours
+            ->groupBy(fn (CallRecordingHour $h) => $h->date->toDateString())
+            ->map(function ($dayHours) {
+                $dayCallCount = $dayHours->sum('call_count');
+                return $dayCallCount > 0 ? (int) round($dayHours->sum('total_seconds') / $dayCallCount) : 0;
+            })
             ->sortKeys();
 
         // Chart payload — same $rows data, reshaped into plain arrays keyed by
@@ -190,7 +195,7 @@ class AnalyticsController extends Controller
             'ahtSeconds'      => $rows->pluck('aht_seconds')->values(),
             'ahtTrendLabels'  => $ahtTrend->keys()->values(),
             'ahtTrendSeconds' => $ahtTrend->values()->values(),
-            'hasAnyAht'       => $callEvents->isNotEmpty(),
+            'hasAnyAht'       => $recordingHours->isNotEmpty(),
         ];
 
         return view('calls.analytics', [
