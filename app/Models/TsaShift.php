@@ -225,11 +225,6 @@ class TsaShift extends Model
         return $this->hasMany(CallEvent::class, 'tsa_id');
     }
 
-    public function callRecordings(): HasMany
-    {
-        return $this->hasMany(CallRecording::class, 'tsa_id');
-    }
-
     /** A fresh random secret for this TSA's phone-side call automation
      *  (MacroDroid) to authenticate its webhook with. Not saved here; the
      *  caller decides when to persist it (e.g. only on an explicit
