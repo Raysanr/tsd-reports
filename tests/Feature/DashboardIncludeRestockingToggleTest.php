@@ -124,4 +124,42 @@ class DashboardIncludeRestockingToggleTest extends TestCase
         ]));
         $on->assertSee('Included in Cross-Sell Sales above');
     }
+
+    /** Bug fix (2026-09-06): a Restocking order that carries a genuine
+     *  upsell tag (real production shape — is_restocking_upsell is only
+     *  ever set true alongside a real tag, see SyncTodayOrders::handle()'s
+     *  own $isRestockingUpsell assignment) is already counted once inside
+     *  ProductPerformance::tally()'s upsell_confirmation via
+     *  Order::isBroadRealUpsell()'s tag-fallback branch — status 11 isn't
+     *  excluded from tally()'s reject() filter. This toggle's own
+     *  "add every is_restocking_upsell order on top" used to add it a
+     *  SECOND time, confirmed live: Joana showed 8 upsells here vs. TSA
+     *  Performance's correct 7 for the same day. The earlier
+     *  test_todays_tsa_leaderboard_also_folds_in_restocking_when_on test
+     *  above doesn't catch this — its fixture has no raw_tags at all, an
+     *  unrealistic shape that can't actually happen via the real sync. */
+    public function test_a_tagged_restocking_upsell_is_not_double_counted_when_the_toggle_is_on(): void
+    {
+        Order::create([
+            'pancake_order_id' => 'joana-with-upsell-56', 'team' => 'Eyecare Team', 'tsa_name' => 'Joana',
+            'is_upsell' => false, 'is_restocking_upsell' => true, 'status_code' => 11,
+            'amount' => 5000.0, 'restocking_upsell_amount' => 1000.0,
+            'raw_tags' => ['UPSELL TSD - GINSENG SERUM'],
+            'pancake_created_at' => '2026-07-22 10:00:00', 'pancake_inserted_at' => '2026-07-22 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $on = $this->get(route('dashboard', [
+            'include_restocking' => '1', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $on->assertOk();
+        $on->assertViewHas('tsaLeaderboard', function ($rows) {
+            $joana = $rows->firstWhere('tsa_name', 'Joana');
+            // Counted ONCE (via tally()'s own isBroadRealUpsell tag-fallback),
+            // not twice — the toggle's restocking addition must skip an order
+            // tally() already picked up.
+            return $joana && $joana->upsell_count === 1 && (float) $joana->upsell_sales === 1000.0;
+        });
+    }
 }

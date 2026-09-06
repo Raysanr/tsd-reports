@@ -107,6 +107,18 @@ class MonitorController extends Controller
             'q'                    => $q,
             'selectedStatus'       => $status,
             'teams'                => $teams,
+            // Renamed-team-aware (bug fix, 2026-09-06 — every other team-
+            // grouped table already resolves this way, e.g.
+            // round-robin-setup/_table.blade.php; this one was missed) —
+            // $tsa->team is the fixed order_team string, never what a
+            // renamed team's card should actually display. Keyed by
+            // order_team (not slug) since that's what's in scope on each
+            // TSA card below. Dated to the picked range, same reasoning
+            // Leads Setup's own $teams map already uses for this page's
+            // date-scoped Daily minute record section.
+            'teamNames'            => collect($teamsConfig)
+                ->mapWithKeys(fn ($t, $slug) => [$t['order_team'] => Teams::nameForRange($slug, $dateFrom, $dateTo)])
+                ->all(),
             'selectedTeam'         => $selectedTeam,
             'dateFrom'             => $dateFrom,
             'dateTo'               => $dateTo,
@@ -163,9 +175,16 @@ class MonitorController extends Controller
         $tsas        = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status);
         $statusOrder = array_keys(TsaShift::STATUSES);
 
+        // Renamed-team-aware (bug fix, 2026-09-06 — same missed spot as
+        // index()'s own team label) — $tsa->team is the fixed order_team
+        // string, never what a renamed team's export column should show.
+        $teamNames = collect($teamsConfig)
+            ->mapWithKeys(fn ($t, $slug) => [$t['order_team'] => Teams::nameForRange($slug, $dateFrom, $dateTo)])
+            ->all();
+
         $filename = 'monitor-tsa-' . now('Asia/Manila')->format('Y-m-d_His') . '.csv';
 
-        return response()->streamDownload(function () use ($tsas, $statusOrder, $dateFrom, $dateTo) {
+        return response()->streamDownload(function () use ($tsas, $statusOrder, $dateFrom, $dateTo, $teamNames) {
             $out = fopen('php://output', 'w');
 
             $header = array_merge(['TSA', 'Team', 'Current Status', 'Current Status Since'],
@@ -181,7 +200,7 @@ class MonitorController extends Controller
 
                 fputcsv($out, array_merge([
                     $tsa->display_name,
-                    $tsa->team,
+                    $teamNames[$tsa->team] ?? $tsa->team,
                     TsaShift::STATUSES[$tsa->status]['label'] ?? $tsa->status,
                     optional($tsa->status_changed_at)->format('Y-m-d H:i:s'),
                 ], $minutes, [round(array_sum($seconds) / 60, 1)]));

@@ -440,7 +440,7 @@
                         <div class="row-avatar" style="background:#cbd5e1">{{ strtoupper(substr($shift->display_name, 0, 2)) }}</div>
                         <div>
                             <div class="row-name-input" style="border:none; padding:0;">{{ $shift->display_name }}</div>
-                            <div class="row-key">{{ $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</div>
+                            <div class="row-key">{{ $teamNames[$shift->team] ?? $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</div>
                         </div>
                     </div>
                     <div class="row-actions" style="margin-left:0;">

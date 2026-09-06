@@ -173,7 +173,7 @@
         <div class="flex items-start justify-between gap-3 mb-4">
             <div class="min-w-0">
                 <p class="font-bold text-slate-800 dark:text-slate-100 truncate">{{ $tsa->display_name }}</p>
-                <p class="text-xs text-slate-400 font-mono truncate">{{ $tsa->team }}</p>
+                <p class="text-xs text-slate-400 font-mono truncate">{{ $teamNames[$tsa->team] ?? $tsa->team }}</p>
             </div>
             {{-- Current-status badge only makes sense for TODAY (explicit
                  request, 2026-08-24) — $tsa->status/status_changed_at is

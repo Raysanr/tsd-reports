@@ -132,7 +132,10 @@ class TsaManagementController extends Controller
             'sort_order'   => $nextSort,
         ]);
 
-        $message = "Added \"{$data['display_name']}\" to {$data['team']}.";
+        // Teams::nameForOrderTeam(), not the raw $data['team'] string
+        // (minor inconsistency fix, 2026-09-06) — same reasoning as the
+        // main app's own TsaManagementController::store() fix.
+        $message = "Added \"{$data['display_name']}\" to " . Teams::nameForOrderTeam($data['team'], today()) . '.';
         ActivityLogger::log('tsa.created', $tsa, $message);
 
         return redirect()->route('calls.tsa-management')->with('success', $message);

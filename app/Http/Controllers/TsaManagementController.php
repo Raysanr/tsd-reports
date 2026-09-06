@@ -53,7 +53,16 @@ class TsaManagementController extends Controller
 
         $trashedShifts = TsaShift::onlyTrashed()->orderBy('display_name')->get();
 
-        return compact('teamGroups', 'teamsConfig', 'unassigned', 'calendar', 'shifts', 'trashedShifts');
+        // Renamed-team-aware (bug fix, 2026-09-06) — the active roster above
+        // ($teamGroups) already resolves each team's real, current name;
+        // the "Removed" panel below it was still printing the raw,
+        // never-renamed order_team string instead. Same "name as of today"
+        // resolution as $teamGroups (Teams::config()), not a dated range —
+        // a trashed TSA's team label isn't scoped to any particular report
+        // date, so today's name is the correct, consistent choice here.
+        $teamNames = collect($teamsConfig)->mapWithKeys(fn ($t) => [$t['order_team'] => $t['name']])->all();
+
+        return compact('teamGroups', 'teamsConfig', 'teamNames', 'unassigned', 'calendar', 'shifts', 'trashedShifts');
     }
 
     /** Which named route store()/update()/etc. above send the browser back
@@ -131,7 +140,12 @@ class TsaManagementController extends Controller
             'sort_order'       => $nextSort,
         ]);
 
-        $message = "Added \"{$data['display_name']}\" to {$data['team']}.";
+        // Teams::nameForOrderTeam(), not the raw $data['team'] string
+        // (minor inconsistency fix, 2026-09-06) — this message is persisted
+        // permanently via ActivityLogger, so it should reflect the team's
+        // real display name the same way every other team label in this
+        // app does, not the fixed, never-renamed order_team value.
+        $message = "Added \"{$data['display_name']}\" to " . Teams::nameForOrderTeam($data['team'], today()) . '.';
         ActivityLogger::log('tsa.created', $tsaShift, $message);
 
         return $this->redirectToCaller($request)->with('success', $message);

@@ -202,7 +202,7 @@
                     </div>
                 </div>
                 <div class="flex-1">
-                    <p class="text-xs text-slate-400 font-mono">{{ $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</p>
+                    <p class="text-xs text-slate-400 font-mono">{{ $teamNames[$shift->team] ?? $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                     <form method="POST" action="{{ route('tsa-management.restore', $shift->id) }}">

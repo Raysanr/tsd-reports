@@ -385,16 +385,23 @@ class DashboardController extends Controller
 
                     // Same Include Restocking toggle as Total Cross-Sell Sales above —
                     // restocking_upsell_amount is the isolated add-on price, same
-                    // convention as everywhere else Restocking is counted. tally()'s
-                    // own 'upsell_confirmation'/'upsell_sales' never include a
-                    // Restocking-status order (see that method's own 'restocking'
-                    // bucket), so folding it in here on top is still additive, not
-                    // double-counting. Sourced straight from $dayOrders (not
-                    // tsaRows()' own team-matched subset) since a Restocking-status
-                    // order is never ambiguous about which TSA closed it the way a
-                    // combo/cross-team upsell order can be.
+                    // convention as everywhere else Restocking is counted.
+                    //
+                    // Bug fix (2026-09-06): this used to assume tally()'s own
+                    // 'upsell_confirmation' NEVER includes a Restocking-status
+                    // order, and added every is_restocking_upsell order here on
+                    // top — but Order::isBroadRealUpsell() (what tally() actually
+                    // filters by) already recovers a genuinely-tagged Restocking
+                    // order via its own tag-fallback branch (status 11 isn't
+                    // excluded from tally()'s reject() filter), so that order was
+                    // silently counted TWICE whenever this toggle was on —
+                    // confirmed live: Joana showed 8 upsells here vs. TSA
+                    // Performance's correct 7 for the same day. Only orders
+                    // isBroadRealUpsell() does NOT already count belong here.
                     if ($includeRestocking) {
-                        $tsaRestocking = $dayOrders->where('tsa_name', $tsaKey)->where('is_restocking_upsell', true);
+                        $tsaRestocking = $dayOrders->where('tsa_name', $tsaKey)
+                            ->where('is_restocking_upsell', true)
+                            ->reject(fn (Order $o) => Order::isBroadRealUpsell($o));
                         $upsellCount += $tsaRestocking->count();
                         $upsellSales += (float) $tsaRestocking->sum('restocking_upsell_amount');
                     }
