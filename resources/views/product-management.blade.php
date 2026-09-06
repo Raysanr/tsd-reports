@@ -22,18 +22,23 @@
         </button>
     </div>
 
-    @foreach($teamGroups as $group)
+    {{-- One flat list, no team grouping (explicit request, 2026-09-06) —
+         every TSA now handles every product, so a Team Closing/Team Opening
+         split here no longer reflects who actually works a product. Each
+         row still shows its team as a small badge (the field itself is
+         still required on Add/Edit and still drives every report), just no
+         longer used to split this page into separate sections. --}}
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-yellow-100 dark:border-yellow-900 shadow-sm overflow-hidden">
         <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
-            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $group['name'] }}</h3>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ $group['products']->count() }} {{ \Illuminate\Support\Str::plural('product', $group['products']->count()) }}</p>
+            <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">All Products</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{ $products->count() }} {{ \Illuminate\Support\Str::plural('product', $products->count()) }}</p>
         </div>
 
-        @if($group['products']->isEmpty())
-        <div class="py-10 text-center text-sm text-slate-400 font-mono">No products for this team yet</div>
+        @if($products->isEmpty())
+        <div class="py-10 text-center text-sm text-slate-400 font-mono">No products yet</div>
         @else
         <div class="divide-y divide-slate-100 dark:divide-slate-700">
-            @foreach($group['products'] as $product)
+            @foreach($products as $product)
             <div class="px-6 py-3 flex items-center gap-4 {{ $product->is_hidden ? 'opacity-50' : '' }}">
                 <input type="checkbox" class="productCheckbox w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-yellow-600 focus:ring-yellow-500 bg-white dark:bg-slate-800 cursor-pointer shrink-0" data-id="{{ $product->id }}">
                 <div class="flex-1">
@@ -90,7 +95,6 @@
         </div>
         @endif
     </div>
-    @endforeach
 
     @if($trashedProducts->isNotEmpty())
     <details class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -149,16 +153,6 @@
                 <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Display name</label>
                 <input type="text" id="productNameInput" name="display_name" required
                     class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-            </div>
-
-            <div>
-                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Team</label>
-                <select name="team" id="productTeamSelect" required
-                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                    @foreach($teamsConfig as $team)
-                    <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
-                    @endforeach
-                </select>
             </div>
 
             <div class="relative">
@@ -241,7 +235,6 @@
     const form        = document.getElementById('productForm');
     const methodInput = document.getElementById('productFormMethod');
     const nameInput   = document.getElementById('productNameInput');
-    const teamSelect  = document.getElementById('productTeamSelect');
     const keywordInput = document.getElementById('productKeywordInput');
     const keywordSearch = document.getElementById('productKeywordSearch');
     const keywordResults = document.getElementById('productKeywordResults');
@@ -257,7 +250,6 @@
         methodInput.value = '';
         nameInput.value = '';
         keywordInput.value = '';
-        teamSelect.selectedIndex = 0;
         modalTitle.textContent = 'Add a new product';
         modalSubtitle.textContent = 'Recognized starting with the next sync';
         submitBtn.textContent = 'Add Product';
@@ -353,7 +345,6 @@
             form.action = storeUrl + '/' + id;
             methodInput.value = 'PUT';
             nameInput.value = btn.dataset.displayName || '';
-            teamSelect.value = btn.dataset.team || '';
             keywordInput.value = btn.dataset.matchKeyword || '';
             modalTitle.textContent = 'Edit product';
             modalSubtitle.textContent = 'Changes apply starting with the next sync';

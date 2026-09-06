@@ -40,7 +40,9 @@ class ProductSoftDeleteTest extends TestCase
         });
     }
 
-    public function test_deleted_product_does_not_appear_in_team_groups(): void
+    /** Renamed from "does not appear in team groups" (2026-09-06) — the
+     *  page is now one flat list ($products), not grouped by team. */
+    public function test_deleted_product_does_not_appear_in_the_flat_list(): void
     {
         $product = Product::create(['display_name' => 'Widget', 'team' => 'SH Naturals', 'sort_order' => 1]);
         $product->delete();
@@ -48,13 +50,8 @@ class ProductSoftDeleteTest extends TestCase
         $response = $this->get(route('product-management'));
 
         $response->assertOk();
-        $response->assertViewHas('teamGroups', function ($teamGroups) use ($product) {
-            foreach ($teamGroups as $group) {
-                if ($group['products']->pluck('id')->contains($product->id)) {
-                    return false;
-                }
-            }
-            return true;
+        $response->assertViewHas('products', function ($products) use ($product) {
+            return !$products->pluck('id')->contains($product->id);
         });
     }
 

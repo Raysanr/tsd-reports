@@ -48,11 +48,15 @@
                     $style        = $teamStyles[$tsa->team] ?? ['dot' => 'bg-slate-400', 'text' => 'text-slate-500', 'bg' => 'bg-slate-100'];
                     $tsaProducts  = $assignments[$tsa->id] ?? [];
                     $handledNames = $products->whereIn('id', $tsaProducts)->pluck('display_name');
-                    // Only THIS TSA's own team's products in the edit form below —
-                    // the old grid showed every product from both teams mixed
-                    // together (confirmed confusing: an SH Naturals TSA saw
-                    // Eyecare checkboxes she'd never use, and vice versa).
-                    $teamProducts = $products->where('team', $tsa->team);
+                    // Every product is available to every TSA now (explicit
+                    // request, 2026-09-06: "all of the TSA now will handle
+                    // or cater all of the product now") — this used to be
+                    // filtered to $tsa's own team only, which is why a new
+                    // cross-team assignment was never even selectable here.
+                    // Still sorted by team first (then sort_order) so the
+                    // checkbox grid stays visually grouped instead of a flat
+                    // shuffled list, even though it's no longer a hard gate.
+                    $teamProducts = $products->sortBy(fn ($p) => [$p->team, $p->sort_order]);
                 @endphp
                 <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors duration-150 cursor-pointer" data-tsa-row-toggle="{{ $tsa->id }}">
                     <td class="px-5 py-4">
@@ -144,9 +148,7 @@
                                     <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from Macros 2–4 in the setup guide below (Phone call automation card). Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
                                 </div>
 
-                                {{-- Renamed-team-aware (explicit follow-up request, 2026-09-04) —
-                                     $teams (order_team => display name) already in scope. --}}
-                                <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles ({{ $teams[$tsa->team] ?? $tsa->team }} only)</p>
+                                <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles</p>
                                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
                                     @foreach($teamProducts as $product)
                                         <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">

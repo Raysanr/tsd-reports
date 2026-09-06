@@ -32,20 +32,22 @@ class ProductManagementController extends Controller
     private function buildViewData(): array
     {
         $teamsConfig = Teams::config();
-        $products    = Product::orderBy('sort_order')->get();
-
-        $teamGroups = collect($teamsConfig)->map(function ($team) use ($products) {
-            return [
-                'name'     => $team['name'],
-                'products' => $products->where('team', $team['order_team'])->values(),
-            ];
-        });
+        // One flat list, no team grouping (explicit request, 2026-09-06: "the
+        // product management should be one table only for products") — every
+        // TSA now handles every product (see ExpandProductRosterToAllTsas),
+        // so a Team Closing/Team Opening split here no longer reflects who
+        // actually works a product. `team` stays a required field on each
+        // product underneath (still the Add/Edit form's own select below) —
+        // every report (Leads Report, TSA Performance, Analytics, Charts,
+        // Dashboard, Insights) still reads it exactly as before; this is a
+        // display-only change scoped to this page, not a schema change.
+        $products = Product::orderBy('sort_order')->get();
 
         $unassigned = $products->reject(fn($p) => collect($teamsConfig)->pluck('order_team')->contains($p->team));
 
         $trashedProducts = Product::onlyTrashed()->orderBy('display_name')->get();
 
-        return compact('teamGroups', 'teamsConfig', 'unassigned', 'trashedProducts');
+        return compact('products', 'teamsConfig', 'unassigned', 'trashedProducts');
     }
 
     /** Which named route store()/update()/etc. above send the browser back
@@ -69,7 +71,7 @@ class ProductManagementController extends Controller
         $product = Product::create([
             'display_name'  => $data['display_name'],
             'match_keyword' => $data['match_keyword'] ?: null,
-            'team'          => $data['team'],
+            'team'          => $this->defaultTeam(),
             'sort_order'    => $nextSort,
         ]);
 
@@ -88,10 +90,13 @@ class ProductManagementController extends Controller
     {
         $data = $this->validateProduct($request);
 
+        // team is deliberately untouched here — the modal no longer has a
+        // field for it, so leave whatever's already saved as-is. Still
+        // correctable via the bulk "Move" action on the list page if a
+        // specific product's report attribution ever needs fixing.
         $product->update([
             'display_name'  => $data['display_name'],
             'match_keyword' => $data['match_keyword'] ?: null,
-            'team'          => $data['team'],
         ]);
 
         // Same reasoning as store() — an added alias should immediately pull the
@@ -272,13 +277,24 @@ class ProductManagementController extends Controller
 
     private function validateProduct(Request $request): array
     {
-        $teamsConfig = Teams::config();
-        $validTeams  = collect($teamsConfig)->pluck('order_team')->all();
-
         return $request->validate([
             'display_name'  => 'required|string|max:150',
             'match_keyword' => 'nullable|string|max:500',
-            'team'          => 'required|string|in:' . implode(',', $validTeams),
         ]);
+    }
+
+    /** Every product still needs SOME `team` value under the hood (the
+     *  column is non-nullable, and every report — Leads Report, TSA
+     *  Performance, Analytics, Charts, Dashboard, Insights — still reads
+     *  it), but the Add/Edit modal no longer asks for one (explicit
+     *  request, 2026-09-06: every TSA now handles every product, so
+     *  picking a team when adding a product no longer means anything to
+     *  the person filling out the form). New products default to the
+     *  first configured team; Product Management's own bulk "Move" action
+     *  is still there if a specific product's team ever needs correcting
+     *  for report purposes. */
+    private function defaultTeam(): string
+    {
+        return collect(Teams::config())->first()['order_team'];
     }
 }

@@ -289,17 +289,22 @@
         </button>
     </div>
 
-    @foreach($teamGroups as $group)
+    {{-- One flat list, no team grouping (explicit request, 2026-09-06) —
+         every TSA now handles every product, so a Team Closing/Team Opening
+         split here no longer reflects who actually works a product. Each
+         row still shows its team as a small badge (the field itself is
+         still required on Add/Edit and still drives every report), just no
+         longer used to split this page into separate sections. --}}
     <div class="panel">
         <div class="panel-head">
-            <h3>{{ $group['name'] }}</h3>
-            <p>{{ $group['products']->count() }} {{ \Illuminate\Support\Str::plural('product', $group['products']->count()) }}</p>
+            <h3>All Products</h3>
+            <p>{{ $products->count() }} {{ \Illuminate\Support\Str::plural('product', $products->count()) }}</p>
         </div>
 
-        @if($group['products']->isEmpty())
-        <div class="empty-row">No products for this team yet</div>
+        @if($products->isEmpty())
+        <div class="empty-row">No products yet</div>
         @else
-        @foreach($group['products'] as $product)
+        @foreach($products as $product)
         <div class="row {{ $product->is_hidden ? 'hidden-row' : '' }}">
             <input type="checkbox" class="row-checkbox productCheckbox" data-id="{{ $product->id }}">
             <div class="row-who">
@@ -336,7 +341,6 @@
         @endforeach
         @endif
     </div>
-    @endforeach
 
     @if($trashedProducts->isNotEmpty())
     <details class="panel">
@@ -383,14 +387,6 @@
                 <div class="field">
                     <label>Display name</label>
                     <input type="text" id="productNameInput" name="display_name" required>
-                </div>
-                <div class="field">
-                    <label>Team</label>
-                    <select name="team" id="productTeamSelect" required>
-                        @foreach($teamsConfig as $team)
-                        <option value="{{ $team['order_team'] }}">{{ $team['name'] }}</option>
-                        @endforeach
-                    </select>
                 </div>
                 <div class="field">
                     <label>Match keywords <span class="opt">(optional, comma-separated)</span></label>
@@ -496,7 +492,6 @@
     const form        = document.getElementById('productForm');
     const methodInput = document.getElementById('productFormMethod');
     const nameInput   = document.getElementById('productNameInput');
-    const teamSelect  = document.getElementById('productTeamSelect');
     const keywordInput = document.getElementById('productKeywordInput');
     const keywordSearch = document.getElementById('productKeywordSearch');
     const keywordResults = document.getElementById('productKeywordResults');
@@ -512,7 +507,6 @@
         methodInput.value = '';
         nameInput.value = '';
         keywordInput.value = '';
-        teamSelect.selectedIndex = 0;
         modalTitle.textContent = 'Add a new product';
         modalSubtitle.textContent = 'Recognized starting with the next sync';
         submitBtn.textContent = 'Add Product';
@@ -603,7 +597,6 @@
             form.action = storeUrl + '/' + id;
             methodInput.value = 'PUT';
             nameInput.value = btn.dataset.displayName || '';
-            teamSelect.value = btn.dataset.team || '';
             keywordInput.value = btn.dataset.matchKeyword || '';
             modalTitle.textContent = 'Edit product';
             modalSubtitle.textContent = 'Changes apply starting with the next sync';

@@ -17,49 +17,50 @@ class ProductManagementControllerTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    public function test_index_groups_products_by_team(): void
+    /** Was grouped into two team sections (teamGroups) before 2026-09-06 —
+     *  now one flat list, since every TSA now handles every product (see
+     *  ExpandProductRosterToAllTsas). Products still keep their own `team`
+     *  value under the hood (still required on Add/Edit, still drives every
+     *  report) — this is a display-only change scoped to this page. */
+    public function test_index_returns_a_flat_list_of_every_product(): void
     {
         $response = $this->get(route('product-management'));
 
         $response->assertOk();
-        $response->assertViewHas('teamGroups');
+        $response->assertViewHas('products');
+
+        $products = $response->viewData('products');
+        $this->assertGreaterThan(1, $products->pluck('team')->unique()->count(), 'the flat list should still include products from more than one team');
     }
 
-    public function test_store_creates_a_product(): void
+    /** team is no longer submitted by the Add form (explicit request,
+     *  2026-09-06 — every TSA now handles every product, so picking one on
+     *  add no longer means anything) — the column still needs SOME value
+     *  under the hood (non-nullable, still read by every report), so a
+     *  new product silently defaults to the first configured team. */
+    public function test_store_creates_a_product_with_a_default_team(): void
     {
         $response = $this->post(route('product-management.store'), [
             'display_name'  => 'NutriLay',
             'match_keyword' => '',
-            'team'          => 'SH Naturals',
         ]);
 
         $response->assertRedirect(route('product-management'));
         $this->assertDatabaseHas('products', [
             'display_name'  => 'NutriLay',
             'match_keyword' => null,
-            'team'          => 'SH Naturals',
         ]);
-    }
-
-    public function test_store_rejects_a_team_not_in_config(): void
-    {
-        $response = $this->post(route('product-management.store'), [
-            'display_name' => 'Mystery Product',
-            'team'         => 'Not A Real Team',
-        ]);
-
-        $response->assertSessionHasErrors('team');
-        $this->assertDatabaseMissing('products', ['display_name' => 'Mystery Product']);
+        $this->assertNotNull(Product::where('display_name', 'NutriLay')->value('team'));
     }
 
     public function test_update_changes_a_product(): void
     {
         $product = Product::where('display_name', 'SINUXYL')->first();
+        $originalTeam = $product->team;
 
         $response = $this->put(route('product-management.update', $product), [
             'display_name'  => 'Sinuxyl Nasal Spray',
             'match_keyword' => 'SINUXYL',
-            'team'          => 'SH Naturals',
         ]);
 
         $response->assertRedirect(route('product-management'));
@@ -67,6 +68,7 @@ class ProductManagementControllerTest extends TestCase
             'id'            => $product->id,
             'display_name'  => 'Sinuxyl Nasal Spray',
             'match_keyword' => 'SINUXYL',
+            'team'          => $originalTeam,
         ]);
     }
 
