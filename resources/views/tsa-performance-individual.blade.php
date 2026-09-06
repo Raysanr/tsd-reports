@@ -242,9 +242,15 @@
                         style="min-width:110px">
                         Total<br>Catered Leads
                     </th>
+                    {{-- Was "Total {{ $teamName }} Leads/Hour" — relabeled
+                         (bug fix, 2026-09-06) since $products now spans
+                         every team's products, not just this TSA's own
+                         (see the controller's own comment on why: every TSA
+                         handles every product now, and a real cross-team
+                         upsell needs a column to appear in). --}}
                     <th class="bg-slate-200 dark:bg-slate-600 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:110px">
-                        Total {{ $teamName }}<br>Leads/Hour
+                        Total<br>Leads/Hour
                     </th>
                     <th class="bg-cyan-100 dark:bg-cyan-900 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-cyan-900 dark:text-cyan-200 uppercase tracking-wide whitespace-nowrap"
                         style="min-width:90px">

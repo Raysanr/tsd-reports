@@ -366,12 +366,22 @@ class TsaPerformanceController extends Controller
             ? self::DEFAULT_SHIFT_PRODUCTIVITY_MINUTES
             : null;
 
-        // Per-product-per-hour grid — one column per this team's product, matching
-        // the sheet layout: how many of THIS TSA's leads that hour were each product.
-        // Reuses ProductPerformance::buildRow (same product-tag matching as Team
-        // Report's per-product breakdown) so a lead is never counted differently here
-        // than anywhere else in the app.
-        $products = Product::where('team', $teamsConfig[$team]['order_team'])->orderBy('sort_order')->get();
+        // Per-product-per-hour grid — one column per EVERY product, not just
+        // this TSA's own team's (bug fix, 2026-09-06: every TSA now handles
+        // every product — see ExpandProductRosterToAllTsas — so a real
+        // cross-team upsell had no column to appear in at all here, even
+        // though ProductPerformance::matchingOrders()'s own explicit-match
+        // logic already handles it correctly once given the chance).
+        // Confirmed live: Joana (moved to SH Naturals) had 7 real upsells
+        // that day, 6 of them Pterylief Eye Drops (an Eyecare product) —
+        // this page's Day Total correctly counted all 7, but the
+        // Per-Product Hourly Breakdown only had SH Naturals' own 6 product
+        // columns, so those 6 Pterylief upsells were invisible in this one
+        // table specifically. Reuses ProductPerformance::buildRow (same
+        // product-tag matching as Team Report's per-product breakdown) so a
+        // lead is never counted differently here than anywhere else in the
+        // app.
+        $products = Product::orderBy('sort_order')->get();
 
         // Real per-hour call-duration totals synced from Google Drive (see
         // SyncCallRecordings) — keyed by hour-of-day the same way $ordersByHour is,
