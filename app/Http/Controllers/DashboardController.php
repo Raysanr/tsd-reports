@@ -380,30 +380,36 @@ class DashboardController extends Controller
 
             $tsaLeaderboard = $tsaTallyByKey
                 ->map(function (array $tally, string $tsaKey) use ($includeRestocking, $dayOrders) {
+                    // tally()'s own 'upsell_confirmation'/'upsell_sales' are
+                    // ALWAYS inclusive of a genuinely-tagged Restocking order
+                    // (Order::isBroadRealUpsell()'s tag-fallback branch — see
+                    // its own doc comment — recovers it regardless of any
+                    // toggle; status 11 was never excluded from tally()'s own
+                    // reject() filter). This is the correct base for the
+                    // toggle ON case: confirmed live, POS's own tag filter
+                    // for Joana shows 7 upsells including exactly 1
+                    // Restocking order, matching tally()'s own inclusive 7.
                     $upsellCount = $tally['upsell_confirmation'];
                     $upsellSales = $tally['upsell_sales'];
 
-                    // Same Include Restocking toggle as Total Cross-Sell Sales above —
-                    // restocking_upsell_amount is the isolated add-on price, same
-                    // convention as everywhere else Restocking is counted.
-                    //
-                    // Bug fix (2026-09-06): this used to assume tally()'s own
-                    // 'upsell_confirmation' NEVER includes a Restocking-status
-                    // order, and added every is_restocking_upsell order here on
-                    // top — but Order::isBroadRealUpsell() (what tally() actually
-                    // filters by) already recovers a genuinely-tagged Restocking
-                    // order via its own tag-fallback branch (status 11 isn't
-                    // excluded from tally()'s reject() filter), so that order was
-                    // silently counted TWICE whenever this toggle was on —
-                    // confirmed live: Joana showed 8 upsells here vs. TSA
-                    // Performance's correct 7 for the same day. Only orders
-                    // isBroadRealUpsell() does NOT already count belong here.
-                    if ($includeRestocking) {
-                        $tsaRestocking = $dayOrders->where('tsa_name', $tsaKey)
+                    // Toggle OFF (bug fix, 2026-09-06): subtract back out
+                    // whichever of THIS tally already-counted orders are
+                    // Restocking-tagged upsells, so OFF genuinely excludes
+                    // them (6 for Joana) instead of always matching ON (a
+                    // previous fix on this same day stopped double-counting
+                    // when ON, but left OFF unable to ever actually exclude
+                    // anything, since tally() itself has no toggle
+                    // awareness — this scopes the exclusion to just the
+                    // Dashboard leaderboard's own two displayed numbers,
+                    // without touching tally()'s shared internals, which
+                    // Leads Report/TSA Performance/Analytics/Charts/Insights
+                    // all also depend on with no toggle concept of their own).
+                    if (!$includeRestocking) {
+                        $tsaRestockingUpsells = $dayOrders->where('tsa_name', $tsaKey)
                             ->where('is_restocking_upsell', true)
-                            ->reject(fn (Order $o) => Order::isBroadRealUpsell($o));
-                        $upsellCount += $tsaRestocking->count();
-                        $upsellSales += (float) $tsaRestocking->sum('restocking_upsell_amount');
+                            ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
+                        $upsellCount -= $tsaRestockingUpsells->count();
+                        $upsellSales -= (float) $tsaRestockingUpsells->sum(fn (Order $o) => $o->realUpsellAmount());
                     }
 
                     return (object) [
