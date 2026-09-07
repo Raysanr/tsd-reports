@@ -633,13 +633,28 @@ class LeadsReportController extends Controller
 
         $column = $request->query('column');
 
-        // Same cross-team match pool as index()/indexAll() — a combo can bundle
-        // this product under a different team's primary order (see the
-        // matchingOrders() docblock), so the pool can't be pre-filtered to one team.
-        $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
-        $matchPool  = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->whereIn('team', $orderTeams)
-            ->get();
+        // Scoped to the requesting page's own team only (2026-09-07 — same
+        // decision as index()/indexAll()/Dashboard, see LeadsReportController's
+        // shift-window comment for the full history): a per-team page's cell
+        // counts are now team-scoped (Order.team is purely hour-derived, so
+        // "this team's own orders" and "orders created inside this team's own
+        // hour window" are the same set), so this drilldown must match that
+        // exact pool or it lists MORE orders than the cell it's explaining
+        // ever counted (confirmed live: a "5" cell opening a list of orders
+        // spanning far more than 5, since this used to ignore team entirely).
+        // The ALL view's own team param is 'all' (or omitted/unrecognized),
+        // which keeps the original cross-team pool — correct there, since
+        // indexAll() itself matches every team's orders combined.
+        $requestedTeam = $request->query('team');
+        $orderTeam     = $teamsConfig[$requestedTeam]['order_team'] ?? null;
+
+        $matchPoolQuery = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to]);
+        if ($orderTeam) {
+            $matchPoolQuery->where('team', $orderTeam);
+        } else {
+            $matchPoolQuery->whereIn('team', collect($teamsConfig)->pluck('order_team')->all());
+        }
+        $matchPool = $matchPoolQuery->get();
 
         $teamProducts = Product::where('team', $product->team)->get();
         $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);

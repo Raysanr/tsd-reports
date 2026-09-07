@@ -193,4 +193,50 @@ class LeadsReportDrilldownTest extends TestCase
         $response->assertSee('data-dd-cell-product="' . $product->id . '"', false);
         $response->assertSee('data-dd-endpoint="' . route('leads-report.drilldown') . '"', false);
     }
+
+    /** Bug fix (2026-09-07): drilldown() used to always match the
+     *  cross-team pool regardless of a `team` param, so a per-team page's
+     *  cell (now team-scoped, since Order.team is purely hour-derived —
+     *  see LeadsReportController's shift-window comment) would open a
+     *  popover listing MORE orders than the cell it was explaining ever
+     *  counted. Confirmed live: a "5" cell opened a list spanning far more
+     *  than 5 orders, including ones from a different team entirely. */
+    public function test_a_team_param_scopes_the_drilldown_to_that_teams_own_orders(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        $this->order('dd-14', 'SH Naturals', '2026-07-24 16:00:00', ['SINUXYL']);
+        // A different team's order that would still text-match SINUXYL via
+        // the cross-team bundle exception — must NOT appear once scoped.
+        $this->order('dd-15', 'Eyecare Team', '2026-07-24 10:00:00', [], product: 'Sinuxyl');
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'team' => 'sh-naturals',
+            'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-14'], $ids->all());
+    }
+
+    /** The ALL view's own team value ('all') keeps the original cross-team
+     *  pool — correct there, since indexAll() itself matches every team's
+     *  orders combined, unlike a per-team page. */
+    public function test_a_team_param_of_all_keeps_the_cross_team_pool(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        $this->order('dd-16', 'SH Naturals', '2026-07-24 16:00:00', ['SINUXYL']);
+        $this->order('dd-17', 'Eyecare Team', '2026-07-24 10:00:00', [], product: 'Sinuxyl');
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'product' => $product->id, 'team' => 'all',
+            'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertEqualsCanonicalizing(['dd-16', 'dd-17'], $ids->all());
+    }
 }
