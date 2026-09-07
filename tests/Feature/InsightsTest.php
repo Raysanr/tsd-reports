@@ -927,6 +927,56 @@ class InsightsTest extends TestCase
         $this->assertSame($totalMatch[1], $closingMatch[2]);
     }
 
+    /** Bug fix (2026-09-07): this report's own Opening/Closing lead split
+     *  used 6am-3pm, disagreeing with the new Order.team time-based
+     *  attribution rule (midnight-3pm) used everywhere else in the app —
+     *  a lead created at 1am used to fall into NEITHER bucket here (opening
+     *  needed >=6, closing needed the complementary !opening branch which
+     *  still required an hour that existed in $byHour at all — in practice
+     *  a 1am lead was silently excluded from both Opening and Closing's own
+     *  counts, though still included in the report's overall total). Now
+     *  reconciled to the same midnight-3pm boundary everywhere. */
+    public function test_eod_report_counts_a_1am_lead_as_opening_not_excluded(): void
+    {
+        for ($i = 0; $i < 10; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => now()->subDay(), 'pancake_inserted_at' => now()->subDay()]);
+        }
+        // 3 confirmed-via-call leads today at 8pm (Closing) — satisfies
+        // this report's own MIN_DAY_VOLUME (10) and MIN_ANSWERED_FOR_RATE
+        // (3) thresholds without touching the 1am Opening count this test
+        // is actually about. Explicit hour (not bare now()) so this test's
+        // own expected counts don't depend on what wall-clock hour the
+        // suite happens to run at.
+        for ($i = 0; $i < 3; $i++) {
+            $this->order(['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(20, 0), 'pancake_inserted_at' => today()->setTime(20, 0)]);
+        }
+        // The one lead this test is actually about: 1am TODAY, inside the
+        // new midnight-3pm Opening window but OUTSIDE the old 6am-3pm one.
+        $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(1, 0), 'pancake_inserted_at' => today()->setTime(1, 0)]);
+        for ($i = 0; $i < 8; $i++) {
+            $this->order(['raw_tags' => ['SINUXYL'], 'pancake_created_at' => today()->setTime(20, 0), 'pancake_inserted_at' => today()->setTime(20, 0)]);
+        }
+
+        $cards = (new InsightsGenerator())->generate();
+
+        $report = $cards->firstWhere('category', 'Overview');
+        $this->assertNotNull($report);
+        preg_match('/Opening:\*\* (\d+) leads/', $report['message'], $openingMatch);
+        preg_match('/Closing:\*\* (\d+) leads/', $report['message'], $closingMatch);
+        preg_match('/Umabot sa \*\*(\d+) incoming leads/', $report['message'], $totalMatch);
+        $this->assertNotEmpty($openingMatch);
+        $this->assertNotEmpty($closingMatch);
+        $this->assertNotEmpty($totalMatch);
+        // The 1am lead must land in Opening (1); Closing has the 3
+        // confirmed-via-call + 8 uncalled leads at 8pm (11); both must
+        // still sum to the stated total (12) — under the old 6am-3pm rule
+        // this 1am lead was invisible to both buckets even though it was
+        // in the total.
+        $this->assertSame(1, (int) $openingMatch[1]);
+        $this->assertSame(11, (int) $closingMatch[1]);
+        $this->assertSame((int) $totalMatch[1], (int) $openingMatch[1] + (int) $closingMatch[1]);
+    }
+
     public function test_eod_report_capacity_excludes_a_scheduled_tsa_with_zero_leads_that_day(): void
     {
         // Explicit request, 2026-09-02, reported against a TSA Performance

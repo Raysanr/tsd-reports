@@ -1173,7 +1173,11 @@ class InsightsGenerator
         // own doc comment for the full reasoning.
         $countedOrders = ProductPerformance::countedOrdersFor($products, $refOrders);
         $byHour = $countedOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
-        $isOpeningHour = fn ($h) => $h >= 6 && $h < 15;
+        // Midnight-3pm (2026-09-07, reconciled to match TeamShiftWindow's
+        // own Order.team boundary everywhere else in the app — this used
+        // to be 6am-3pm, its own separate definition, which would have
+        // disagreed with the new Order.team attribution rule).
+        $isOpeningHour = fn ($h) => $h < 15;
         $openingLeads = $byHour->filter(fn ($orders, $h) => $isOpeningHour($h))->flatten(1)->count();
         $closingLeads = $byHour->filter(fn ($orders, $h) => !$isOpeningHour($h))->flatten(1)->count();
         // Capacity-shortfall signal (NOT shown as "excess" in the bullets below —
