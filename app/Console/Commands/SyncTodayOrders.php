@@ -446,15 +446,26 @@ class SyncTodayOrders extends Command
             // Time-based team attribution (explicit request, 2026-09-07,
             // replacing "which TSA/product handled it" — see
             // TeamShiftWindow's own doc comment for the full reasoning).
-            // Uses $workedAt's own hour, the SAME value that becomes this
-            // row's pancake_created_at below, so team attribution can
-            // never disagree with the hour column every report already
-            // buckets this order under. A null $workedAt (only possible
-            // when Pancake's raw payload has no inserted_at/created_at at
-            // all — see resolveWorkedAt()'s own doc comment) means there's
-            // no hour to compute a team from, same as any other
-            // unresolvable case.
-            $team = $workedAt ? \App\Support\TeamShiftWindow::forHour((int) $workedAt->format('G')) : null;
+            //
+            // Uses $carbonPHT (Pancake's own true, original order-creation
+            // timestamp — stored as pancake_inserted_at below), NOT
+            // $workedAt (revised same day, second time — see this class's
+            // own team-attribution history): $workedAt can run hours later
+            // than the order's real creation time whenever a lead sits
+            // untouched before a TSA tags/works it (e.g. truly created
+            // 8:56am, not tagged until 3:20pm) — that's exactly the
+            // behavior "worked at" is FOR (crediting whoever eventually
+            // worked a backlog lead, on the day/hour they worked it), but
+            // it actively disagreed with Leads Report's own hour bucketing,
+            // which always used pancake_inserted_at (via effective_created_at)
+            // to match Pancake POS's own "Created At" filter. A lead created
+            // 8:56am with team='SH Naturals' (from a 3:20pm tag) counted on
+            // Closing's Grand Total (team-scoped) but bucketed under 8am on
+            // its own hourly table (inserted-at-scoped) — same report,
+            // internally disagreeing with itself. Team now matches "when
+            // was this lead actually created," the same question Leads
+            // Report's own day/hour grouping already answers, everywhere.
+            $team = $carbonPHT ? \App\Support\TeamShiftWindow::forHour((int) $carbonPHT->format('G')) : null;
 
             // Fix 2: For upsell orders, only count the added items (not the original product)
             if ($isUpsell) {
@@ -842,8 +853,9 @@ class SyncTodayOrders extends Command
         // Nobody claimed this lead (e.g. a brand-new order swept by the
         // midnight "UNCATERED LEADS" bulk action before any human touched
         // it). No TSA name to attribute — team is computed separately from
-        // $workedAt's own hour regardless of whether a TSA is ever found
-        // here (see TeamShiftWindow, called from flushOrders() directly).
+        // $carbonPHT's own hour (the order's true creation time) regardless
+        // of whether a TSA is ever found here (see TeamShiftWindow, called
+        // from flushOrders() directly).
         return ['name' => null, 'matched_tag' => null];
     }
 

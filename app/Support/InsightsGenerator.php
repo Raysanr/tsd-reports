@@ -1172,11 +1172,17 @@ class InsightsGenerator
         // "incoming leads" line for the same day/team) — see that method's
         // own doc comment for the full reasoning.
         $countedOrders = ProductPerformance::countedOrdersFor($products, $refOrders);
-        $byHour = $countedOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
-        // Midnight-3pm (2026-09-07, reconciled to match TeamShiftWindow's
-        // own Order.team boundary everywhere else in the app — this used
-        // to be 6am-3pm, its own separate definition, which would have
-        // disagreed with the new Order.team attribution rule).
+        // effective_created_at (pancake_inserted_at), not pancake_created_at
+        // (2026-09-07, revised same day — second time): matches
+        // TeamShiftWindow::forHour()'s own input everywhere else in the
+        // app, since Order.team switched from the worked-at time to the
+        // true creation time for the same reason (see TeamShiftWindow's own
+        // doc comment) — using pancake_created_at here would disagree with
+        // Order.team again for any lead tagged well after it was created.
+        $byHour = $countedOrders->groupBy(fn (Order $o) => (int) $o->effective_created_at->format('G'));
+        // Midnight-3pm, reconciled to match TeamShiftWindow's own
+        // Order.team boundary everywhere else in the app (this used to be
+        // 6am-3pm, its own separate definition).
         $isOpeningHour = fn ($h) => $h < 15;
         $openingLeads = $byHour->filter(fn ($orders, $h) => $isOpeningHour($h))->flatten(1)->count();
         $closingLeads = $byHour->filter(fn ($orders, $h) => !$isOpeningHour($h))->flatten(1)->count();
@@ -1204,7 +1210,7 @@ class InsightsGenerator
         // rather than re-deriving two independent excess figures that could
         // fail to add back up to $refRow['excess'].
         $excessOrders = ProductPerformance::ordersForColumn($countedOrders, 'excess');
-        $excessByHour = $excessOrders->groupBy(fn (Order $o) => (int) $o->pancake_created_at->format('G'));
+        $excessByHour = $excessOrders->groupBy(fn (Order $o) => (int) $o->effective_created_at->format('G'));
         $openingExcess = $excessByHour->filter(fn ($orders, $h) => $isOpeningHour($h))->flatten(1)->count();
         $closingExcess = $excessByHour->filter(fn ($orders, $h) => !$isOpeningHour($h))->flatten(1)->count();
 

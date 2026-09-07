@@ -10,15 +10,22 @@ use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
- * Bug fix (2026-09-07): Order.team switched from "which TSA/product
- * handled it" to "what hour it was created" (TeamShiftWindow::forHour()) —
- * replaces the old product-keyword-inference test this file used to
- * contain, since that mechanism (inferTeamFromProduct()) no longer
- * exists. team is derived from pancake_created_at's own hour, which is
- * itself populated from resolveWorkedAt()'s result (the tag-add time when
- * one exists, otherwise the raw insertion time) — NOT the literal Pancake
- * order-creation timestamp. tsa_name/matched_tag (who worked the order)
- * are completely unaffected by this change — see
+ * Bug fix (2026-09-07, revised same day — second time): Order.team
+ * switched from "which TSA/product handled it" to "what hour it was
+ * created" (TeamShiftWindow::forHour()) — replaces the old
+ * product-keyword-inference test this file used to contain, since that
+ * mechanism (inferTeamFromProduct()) no longer exists.
+ *
+ * team is derived from $carbonPHT — Pancake's own true, original
+ * order-creation timestamp — NOT from resolveWorkedAt()'s "worked-at"
+ * result (which can run hours later than the real creation time whenever
+ * a lead sits untouched before being tagged). This was originally
+ * workedAt-based, but that disagreed with Leads Report's own hour
+ * bucketing (which always used the true creation time, to match Pancake
+ * POS's own "Created At" filter) — confirmed live, a lead truly created
+ * 8:56am but tagged at 3:20pm got team='SH Naturals' from the tag while
+ * Leads Report's hourly table bucketed it under 8am. tsa_name/matched_tag
+ * (who worked the order) are completely unaffected by this change — see
  * SyncTodayOrdersAccountBasedTsaAttributionTest for that coverage, none
  * of which needed updating for this fix.
  */
@@ -77,21 +84,22 @@ class SyncTodayOrdersProductTeamInferenceTest extends TestCase
         $this->assertSame('SH Naturals', $order->team);
     }
 
-    public function test_team_follows_the_workedat_tag_time_not_the_raw_insertion_time(): void
+    public function test_team_follows_the_raw_insertion_time_not_the_workedat_tag_time(): void
     {
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
 
-        // Order inserted at 1:00 AM Sep 5 (would be Opening if raw
-        // insertion time were used), but the TSA's own name tag wasn't
-        // actually added until 4:00 PM the same day per histories ->
-        // resolveWorkedAt() anchors to that tag-add time instead ->
-        // Closing, not Opening. updated_at is set to the tag-add time too,
-        // so the order genuinely falls within pancake:sync-today's own
-        // --date=2026-09-05 activity window (see SyncTodayOrders::
-        // flushOrders()'s own updated_at-based "which day is this order's
-        // activity" filter) — using the 1am insertion time for updated_at
-        // instead would put the order outside that window entirely.
+        // Order inserted at 1:00 AM Sep 5 (Opening's own window), but the
+        // TSA's own name tag wasn't added until 4:00 PM the same day per
+        // histories -> resolveWorkedAt() anchors tsa_name/pancake_created_at
+        // (worked-at) to that 4pm tag-add time, but team must still follow
+        // the RAW 1am insertion time -> Opening, not Closing. updated_at is
+        // set to the tag-add time so the order genuinely falls within
+        // pancake:sync-today's own --date=2026-09-05 activity window (see
+        // SyncTodayOrders::flushOrders()'s own updated_at-based "which day
+        // is this order's activity" filter) — using the 1am insertion time
+        // for updated_at instead would put the order outside that window
+        // entirely.
         $this->fakeOnePage([
             'id' => 9103, 'status' => 0, 'total_price' => 500,
             'inserted_at' => '2026-09-04T17:00:00', // UTC -> 1:00 AM Asia/Manila on 2026-09-05
@@ -110,6 +118,6 @@ class SyncTodayOrdersProductTeamInferenceTest extends TestCase
         $order = Order::where('pancake_order_id', '9103')->first();
         $this->assertNotNull($order);
         $this->assertSame('Gemma', $order->tsa_name);
-        $this->assertSame('SH Naturals', $order->team, 'team must follow the tag-add time (4pm, Closing), not the raw insertion time (which this fixture deliberately set to a different hour)');
+        $this->assertSame('Eyecare Team', $order->team, 'team must follow the raw insertion time (1am, Opening), not the tag-add/worked-at time (which this fixture deliberately set to a different hour)');
     }
 }
