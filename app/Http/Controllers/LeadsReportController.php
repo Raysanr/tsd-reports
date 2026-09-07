@@ -4,10 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\Product;
-use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
+use App\Support\TeamShiftWindow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -117,20 +117,31 @@ class LeadsReportController extends Controller
         }
 
         // Shift-start blanking (explicit request): hours before this team's
-        // first working TSA's shift start that day show no Called/disposition/
+        // own time-based window starts that day show no Called/disposition/
         // rate/Excess data at all (New Leads is untouched — leads keep arriving
-        // regardless of whether anyone's working yet), and the shift-start hour
+        // regardless of whether anyone's working yet), and the window-start hour
         // itself absorbs the WHOLE day-so-far backlog's disposition breakdown
         // in one lump — a TSA starting their shift works through everything
         // that piled up overnight, not just that hour's own new leads, so
         // Called Leads can exceed that hour's New Leads and Excess can go
-        // negative there by design. Hours after the shift starts are
+        // negative there by design. Hours after the window starts are
         // unaffected. Only meaningful for a single calendar day's hourly view:
         // a multi-day 'dates' range aggregates every day's same hour-of-day
-        // into one row, where "the shift hasn't started yet" no longer has one
+        // into one row, where "the window hasn't started yet" no longer has one
         // answer — skipped there (dateFrom !== dateTo), unchanged behavior.
+        //
+        // Cutoff hour is now TeamShiftWindow's own fixed boundary (0 for
+        // Eyecare/Opening, 15 for SH Naturals/Closing) — 2026-09-07, replacing
+        // a per-TSA shift_start-based cutoff (each TSA's own configured
+        // clock-in time) that no longer matches reality: Order.team is
+        // purely hour-derived now, so e.g. an 8am order can NEVER be SH
+        // Naturals' regardless of when its earliest-starting TSA clocks in,
+        // and showing "New Leads" rows for 1am-2pm on Closing's own page
+        // (as the old shift_start-based cutoff did, since SH Naturals' TSAs
+        // could be configured to start well before 3pm) was exactly this
+        // confusion, confirmed live.
         $applyShiftCutoff = $mode === 'last24h' || $dateFrom === $dateTo;
-        $teamShifts       = $applyShiftCutoff ? TsaShift::where('team', $orderTeam)->get() : collect();
+        $shiftCutoffHour  = TeamShiftWindow::startHourFor($orderTeam);
 
         $slotHourOf = $mode === 'last24h'
             ? fn($slot) => (int) explode(' ', $slot['key'])[1]
@@ -271,13 +282,13 @@ class LeadsReportController extends Controller
 
         $productTables = $products->map(function ($product) use (
             $slots, $matchPoolBySlot, $matchPoolTotal, $dailyTotalRowsByProductId, $products,
-            $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+            $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
         ) {
             $hourlyRows = $applyShiftCutoff
                 ? $this->buildHourlyRows(
                     $slots, $matchPoolBySlot,
                     fn(Collection $orders) => ProductPerformance::buildRow($product, $orders, $products),
-                    $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+                    $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
                 )
                 : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $product) {
                     $row = $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id);
@@ -352,7 +363,7 @@ class LeadsReportController extends Controller
                 fn (Collection $orders) => ProductPerformance::sumRows(
                     $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
-                $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
+                $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
             )
             : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
                 $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
@@ -371,11 +382,11 @@ class LeadsReportController extends Controller
 
     /** Builds the hourly rows for one product's table (or Grand Total, via a
      *  tally()-only $computeRow) — plain per-hour rows when $applyShiftCutoff is
-     *  false, or blank-before-shift-start / lump-at-shift-start otherwise. See
-     *  the shift-cutoff comment in index() for the full reasoning. */
+     *  false, or blank-before-window-start / lump-at-window-start otherwise.
+     *  See the shift-cutoff comment in index() for the full reasoning. */
     private function buildHourlyRows(
         array $slots, Collection $ordersBySlot, \Closure $computeRow,
-        bool $applyShiftCutoff, Collection $teamShifts,
+        bool $applyShiftCutoff, int $shiftCutoffHour,
         \Closure $slotHourOf, \Closure $slotDateOf, \Closure $slotKeyForHour
     ): array {
         if (!$applyShiftCutoff) {
@@ -396,34 +407,23 @@ class LeadsReportController extends Controller
             return $rows;
         }
 
-        // Earliest active TSA's shift-start hour per calendar date, cached so
-        // a multi-slot (last24h) window only computes it once per real day.
-        $cutoffCache = [];
-        $cutoffFor = function (Carbon $date) use ($teamShifts, &$cutoffCache) {
-            $key = $date->toDateString();
-            if (!array_key_exists($key, $cutoffCache)) {
-                $starts = $teamShifts
-                    ->reject(fn($s) => !$s->shift_start || $s->isOffOn($date))
-                    ->map(fn($s) => (int) date('G', strtotime($s->shift_start)));
-                // No active TSA that day (everyone off, or nobody configured
-                // with a shift_start) — no cutoff, show every hour normally
-                // rather than blanking a whole day with no rule to apply.
-                $cutoffCache[$key] = $starts->isEmpty() ? null : $starts->min();
-            }
-            return $cutoffCache[$key];
-        };
-
+        // $shiftCutoffHour is a fixed constant now (0 for Eyecare/Opening, 15
+        // for SH Naturals/Closing — see TeamShiftWindow::startHourFor()), not
+        // a per-date/per-TSA lookup, so there's no cache or "no active TSA
+        // that day" fallback to compute anymore: Opening's cutoff of 0 means
+        // $hour < $cutoff is never true (every hour is normal), and Closing's
+        // cutoff of 15 blanks every pre-3pm hour on every date uniformly.
         $rows = [];
         foreach ($slots as $slot) {
             $hourOrders = $ordersBySlot->get($slot['key'], collect());
             $date       = $slotDateOf($slot);
             $hour       = $slotHourOf($slot);
-            $cutoff     = $cutoffFor($date);
+            $cutoff     = $shiftCutoffHour;
 
             $row = $computeRow($hourOrders);
 
-            if ($cutoff !== null && $hour < $cutoff) {
-                // Before the team's first shift starts that day: no calls have
+            if ($hour < $cutoff) {
+                // Before the team's own window starts that day: no calls have
                 // happened yet — every disposition/rate/Excess field blanks
                 // (tally/buildRow's own zero-orders shape already nulls rates
                 // and zeroes every count), keeping only this hour's own real
@@ -431,7 +431,7 @@ class LeadsReportController extends Controller
                 $realTotal = $row['total'];
                 $row = $computeRow(collect());
                 $row['total'] = $realTotal;
-            } elseif ($cutoff !== null && $hour === $cutoff) {
+            } elseif ($hour === $cutoff) {
                 $backlog = collect();
                 for ($h = 0; $h <= $cutoff; $h++) {
                     $backlog = $backlog->merge($ordersBySlot->get($slotKeyForHour($date, $h), collect()));

@@ -34,4 +34,17 @@ class TeamShiftWindow
 
         return $hour < 15 ? self::OPENING_TEAM : self::CLOSING_TEAM;
     }
+
+    /** The hour-of-day (0-23) at which $team's window starts — Leads
+     *  Report's hourly tables use this as their display cutoff (2026-09-07,
+     *  replacing an older per-TSA shift_start-based cutoff that disagreed
+     *  with this same boundary once Order.team became time-derived). */
+    public static function startHourFor(string $team): int
+    {
+        return match ($team) {
+            self::OPENING_TEAM => 0,
+            self::CLOSING_TEAM => 15,
+            default => throw new \InvalidArgumentException("Unknown team: {$team}."),
+        };
+    }
 }

@@ -40,4 +40,20 @@ class TeamShiftWindowTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         TeamShiftWindow::forHour(24);
     }
+
+    public function test_opening_starts_at_midnight(): void
+    {
+        $this->assertSame(0, TeamShiftWindow::startHourFor('Eyecare Team'));
+    }
+
+    public function test_closing_starts_at_3pm(): void
+    {
+        $this->assertSame(15, TeamShiftWindow::startHourFor('SH Naturals'));
+    }
+
+    public function test_rejects_an_unknown_team(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        TeamShiftWindow::startHourFor('Some Other Team');
+    }
 }
