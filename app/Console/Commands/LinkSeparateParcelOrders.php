@@ -70,7 +70,12 @@ class LinkSeparateParcelOrders extends Command
 
             foreach ($siblings as $sibling) {
                 if ($sibling->tsa_name !== null) continue;
-                $sibling->update(['tsa_name' => $sourceOrder->tsa_name, 'team' => $sourceOrder->team]);
+                // team is deliberately NOT copied here (2026-09-07) — each
+                // order computes its own team independently from its own
+                // pancake_created_at hour (TeamShiftWindow); two siblings
+                // of the same sale can correctly land in different teams
+                // if their own worked-at times straddle the 3pm boundary.
+                $sibling->update(['tsa_name' => $sourceOrder->tsa_name]);
                 $linked++;
             }
         }

@@ -29,7 +29,13 @@ class LinkSeparateParcelOrdersTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_fills_in_a_missing_tsa_and_team_from_a_tagged_sibling_order(): void
+    /** Bug fix (2026-09-07): team is no longer copied between siblings —
+     *  each order computes its own team independently from its own
+     *  pancake_created_at hour (TeamShiftWindow), so two siblings of the
+     *  same sale can correctly land in DIFFERENT teams if their own
+     *  worked-at times straddle the 3pm boundary. Only tsa_name (who
+     *  worked the sale) is still inherited. */
+    public function test_fills_in_a_missing_tsa_name_but_leaves_team_alone(): void
     {
         Order::factory()->create([
             'pancake_order_id'   => 'base-1',
@@ -40,20 +46,24 @@ class LinkSeparateParcelOrdersTest extends TestCase
             'pancake_created_at' => '2026-08-11 14:00:00',
         ]);
 
+        // This sibling's own team ("SH Naturals") was already independently
+        // computed from ITS OWN pancake_created_at hour by SyncTodayOrders
+        // — must survive untouched even though the base order above is a
+        // different team.
         $orphan = Order::factory()->create([
             'pancake_order_id'   => 'upsell-1',
             'customer_phone'     => '09171234567',
-            'team'               => null,
+            'team'               => 'SH Naturals',
             'tsa_name'           => null,
             'raw_tags'           => [],
-            'pancake_created_at' => '2026-08-11 14:05:00',
+            'pancake_created_at' => '2026-08-11 16:05:00',
         ]);
 
         $this->artisan('pancake:link-parcels')->assertSuccessful();
 
         $orphan->refresh();
         $this->assertSame('Joana', $orphan->tsa_name);
-        $this->assertSame('Eyecare Team', $orphan->team);
+        $this->assertSame('SH Naturals', $orphan->team, 'team must NOT be copied from the sibling — each order keeps its own independently-computed team');
     }
 
     public function test_tolerates_the_seperate_misspelling(): void
