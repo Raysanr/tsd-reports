@@ -138,19 +138,23 @@ class LeadsReportStaleTagConflictTest extends TestCase
      * from TWO different teams under one order — e.g. a Pterygium order (Eyecare's
      * own team, its primary item) bundling Sinuxyl units (SH Naturals).
      *
-     * Behavior REVISED 2026-09-07 (twice — see LeadsReportController's own
-     * shift-window comment for the full history): once Order.team became
-     * purely hour-derived, this page's per-team pool was scoped to ONLY
-     * this team's own orders (`where('team', $orderTeam)`, not the older
-     * cross-team `whereIn`), so that a product's Total Leads/Grand Total
-     * here matches exactly what was created in this team's own hour
-     * window — explicit request, confirmed: "team-hour is now the only
-     * rule, no bundle exception survives it on this page." The bundled
-     * Sinuxyl half of an Eyecare-hour combo order no longer counts toward
-     * SH Naturals' own SINUXYL row at all (it still shows on Eyecare's own
-     * page, via Pterygium, the order's real primary item and true team).
+     * Behavior REVISED 2026-09-07 (five times — see LeadsReportController's
+     * own shift-window comment for the full history). The per-team MATCH
+     * POOL is scoped to only this team's own orders (`where('team',
+     * $orderTeam)`), so a product's row on a page only ever counts orders
+     * actually created in that team's own hour window — a bundled Sinuxyl
+     * half only shows on SH Naturals' page when the order's OWN team is SH
+     * Naturals (this fixture's order is Eyecare-hour, so it never appears
+     * there at all). But every product is browsable on every team's page,
+     * and Grand Total is a plain sum of the visible rows (final revision,
+     * explicit request: "when the per row is added it is still not
+     * accurate... it should be [the full row sum]") — so on Eyecare's OWN
+     * page, this one order legitimately contributes to BOTH its real
+     * primary item's row (PTERYGIUM) and the bundled item's row (SINUXYL,
+     * via the cross-team explicit bundle match), and Grand Total there is
+     * 2, not deduped down to 1.
      */
-    public function test_a_cross_team_combo_orders_bundled_product_no_longer_counts_for_the_other_team(): void
+    public function test_a_cross_team_combo_orders_bundled_product_counts_once_per_matching_row(): void
     {
         $shift = TsaShift::where('team', 'Eyecare Team')->first();
 
@@ -182,16 +186,22 @@ class LeadsReportStaleTagConflictTest extends TestCase
         });
         $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
 
-        // Eyecare's own report still counts it (its actual team + primary item).
+        // Eyecare's own report still counts it (its actual team + primary
+        // item) — AND, since every product is browsable there too, SINUXYL's
+        // own row also picks it up via the cross-team bundle match. Grand
+        // Total is a plain row sum (2026-09-07, fifth revision), so this
+        // one order legitimately contributes to BOTH rows and Grand Total
+        // is 2, not deduped down to 1 — explicit, confirmed trade-off.
         $eyecareResponse = $this->get(route('leads-report', [
             'team' => 'eyecare', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
         ]));
         $eyecareResponse->assertOk();
         $eyecareResponse->assertViewHas('productTables', function ($tables) {
             $pterygium = $tables->firstWhere(fn($t) => $t['product']->display_name === 'PTERYGIUM');
-            return $pterygium['total']['total'] === 1;
+            $sinuxyl   = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
+            return $pterygium['total']['total'] === 1 && $sinuxyl['total']['total'] === 1;
         });
-        $eyecareResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+        $eyecareResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 2);
     }
 
     /**
@@ -249,21 +259,10 @@ class LeadsReportStaleTagConflictTest extends TestCase
      * (the only place a cross-team conflict is even checkable, since only it
      * passes every product regardless of team — see indexAll()), this order
      * used to count toward BOTH Pterygium and Sinuxyl, inflating the row sum
-     * above Grand Total by exactly one lead.
-     *
-     * Behavior REVISED 2026-09-07: indexAll() now matches each product only
-     * against orders from ITS OWN team (same decision as index()'s per-team
-     * pages — see LeadsReportController's shift-window comment for the full
-     * history). This order's `team` value ('SH Naturals') is a pre-redesign
-     * artifact — under the retired "whichever TSA claimed it" rule, not the
-     * current hour-derived one — and disagrees with EVERY real product on
-     * this order (Pterygium is Eyecare's, not SH Naturals'), so it now
-     * counts toward NOTHING at all here: not Sinuxyl (stale tag, correctly
-     * still rejected), not Pterygium either (order's own team doesn't match
-     * Pterygium's team). Accepted as an old-data edge case, confirmed
-     * explicitly — every order going forward has an hour-derived team that
-     * always lines up with some real product's team, so this specific gap
-     * can't recur for new data.
+     * above Grand Total by exactly one lead. Still true (2026-09-07, fifth
+     * revision): indexAll() matches against every team's orders combined
+     * again — see LeadsReportController's shift-window comment for the full
+     * history of the team-grouping detour and back.
      */
     public function test_a_cross_team_stale_tag_does_not_double_count_on_the_all_view(): void
     {
@@ -292,8 +291,8 @@ class LeadsReportStaleTagConflictTest extends TestCase
             $sinuxyl   = $rows->firstWhere(fn($r) => $r['display_name'] === 'SINUXYL');
             $pterygium = $rows->firstWhere(fn($r) => $r['display_name'] === 'PTERYGIUM');
 
-            return $sinuxyl['total'] === 0 && $pterygium['total'] === 0;
+            return $sinuxyl['total'] === 0 && $pterygium['total'] === 1;
         });
-        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
     }
 }

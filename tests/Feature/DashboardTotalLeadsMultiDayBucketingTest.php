@@ -45,10 +45,10 @@ class DashboardTotalLeadsMultiDayBucketingTest extends TestCase
         ]);
 
         // Cross-team combo landing on a DIFFERENT day than the plain order
-        // above — counts once, under PTERYGIUM (its own real team, see
+        // above — counts once under PTERYGIUM and once under SINUXYL (see
         // DashboardTotalLeadsMatchesLeadsReportTest's own combo case), so a
-        // day-bucketed pass must still find it on day two and add 1, not 0
-        // from a boundary mistake.
+        // day-bucketed pass must still find it on day two and add 2, not 0
+        // or 1 from a boundary mistake.
         Order::create([
             'pancake_order_id' => 'day-two-combo', 'team' => 'Eyecare Team', 'tsa_name' => $eyeShift->tsa_key,
             'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
@@ -79,7 +79,7 @@ class DashboardTotalLeadsMultiDayBucketingTest extends TestCase
         $dayOneTotal  = $dayOneOnly->viewData('stats')['total_leads'];
         $dayTwoTotal  = $dayTwoOnly->viewData('stats')['total_leads'];
 
-        $this->assertSame(2, $rangeTotal); // 1 (day one) + 1 (day two's combo, under Pterygium)
+        $this->assertSame(3, $rangeTotal); // 1 (day one) + 2 (day two's combo)
         $this->assertSame($rangeTotal, $dayOneTotal + $dayTwoTotal);
     }
 }

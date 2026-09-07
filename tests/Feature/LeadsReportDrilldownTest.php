@@ -240,13 +240,25 @@ class LeadsReportDrilldownTest extends TestCase
         $this->assertEqualsCanonicalizing(['dd-16', 'dd-17'], $ids->all());
     }
 
-    /** Explicit request (2026-09-07): the Grand Total row's own cells are now
-     *  clickable too — omitting `product` combines every product THIS TEAM
-     *  OWNS, the same countedOrdersFor() dedupe Grand Total's own number is
-     *  built from, so "which orders" can never drift from what the cell
-     *  actually counted. */
+    /** Explicit request (2026-09-07, fifth revision — see
+     *  LeadsReportController::index()'s own shift-window comment for the
+     *  full history): the Grand Total row's own cells are now clickable
+     *  too — omitting `product` combines every product THIS TEAM OWNS, the
+     *  same plain row-sum Grand Total's own number is built from (not
+     *  deduped by distinct order), so "which orders" can never drift from
+     *  what the cell actually counted.
+     *
+     *  Deletes the migration-seeded SINUXYL/AUDICURE/PTERYGIUM rows first
+     *  and creates fresh ones instead of adding alongside them — the
+     *  default product catalog (database/migrations/..._create_products_
+     *  table.php) already seeds these same display names with no
+     *  match_keyword (falls back to matching the bare display name), so
+     *  creating a second row with the identical name/keyword produces a
+     *  genuine duplicate that double-matches every order — confirmed via a
+     *  real test failure this way. */
     public function test_a_missing_product_param_combines_every_owned_product_for_grand_total(): void
     {
+        Product::whereIn('display_name', ['SINUXYL', 'AUDICURE', 'PTERYGIUM'])->forceDelete();
         Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
         Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
         Product::create(['display_name' => 'PTERYGIUM', 'match_keyword' => 'PTERYGIUM', 'team' => 'Eyecare Team', 'sort_order' => 2]);
@@ -265,12 +277,16 @@ class LeadsReportDrilldownTest extends TestCase
         $this->assertEqualsCanonicalizing(['dd-18', 'dd-19'], $ids->all());
     }
 
-    /** A cross-team combo order counts exactly ONCE in the Grand Total
-     *  drilldown, matching sumRows()'s own dedupe — not once per matching
-     *  product, which would double-list the same order. */
-    public function test_grand_total_drilldown_does_not_double_list_a_multi_product_order(): void
+    /** Explicit request (2026-09-07, fifth revision): a cross-team combo
+     *  order legitimately counts TWICE in the Grand Total drilldown —
+     *  once per matching product — matching Grand Total's own plain
+     *  row-sum definition (NOT deduped by distinct order, unlike an
+     *  earlier revision of this same feature). See the removed
+     *  countedOrdersFor()-based test this one replaces. */
+    public function test_grand_total_drilldown_lists_a_multi_product_order_once_per_matching_product(): void
     {
-        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Product::whereIn('display_name', ['SINUXYL', 'AUDICURE'])->forceDelete();
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
         Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
 
         Order::create([
@@ -286,7 +302,7 @@ class LeadsReportDrilldownTest extends TestCase
 
         $response->assertOk();
         $ids = collect($response->json())->pluck('id');
-        $this->assertSame(['dd-21'], $ids->all());
+        $this->assertSame(['dd-21', 'dd-21'], $ids->all());
     }
 
     /** A `column` param on the Grand Total (no-product) drilldown narrows to
@@ -294,6 +310,7 @@ class LeadsReportDrilldownTest extends TestCase
      *  single product. */
     public function test_a_column_param_narrows_the_grand_total_drilldown_too(): void
     {
+        Product::whereIn('display_name', ['SINUXYL', 'AUDICURE'])->forceDelete();
         Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
         Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
 

@@ -156,12 +156,12 @@ class LeadsReportGrandTotalTest extends TestCase
         $grandTotal  = $response->viewData('grandTotal');
 
         $this->assertSame($productRows->sum('total'), $grandTotal['total']);
-        // The combo order counts once, under PTERYGIUM only — its own team
-        // (2026-09-07 revision: each product only matches its own team's
-        // orders here too, so the bundled Sinuxyl half no longer
-        // double-counts under SINUXYL as well). Row sum equals the plain
-        // distinct-order count (2) now.
-        $this->assertSame(2, $grandTotal['total']);
+        // The combo order counts under both PTERYGIUM and SINUXYL, so the true
+        // row sum (3) is one more than the distinct-order count (2) would be
+        // (2026-09-07, fifth revision: matched against every team's orders
+        // combined, not team-grouped — see index()'s own shift-window
+        // comment for the full history).
+        $this->assertSame(3, $grandTotal['total']);
     }
 
     /** Explicit request: SH Naturals' Grand Total + Eyecare's Grand Total must

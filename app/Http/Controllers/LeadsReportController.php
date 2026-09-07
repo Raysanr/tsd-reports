@@ -371,20 +371,20 @@ class LeadsReportController extends Controller
         // untracked-product order exists in range; that's the accepted
         // trade-off of this explicit choice, not an oversight.
         //
-        // Every product's row is visible (browsable), but Grand Total only
-        // sums rows for products this page's OWN team owns (2026-09-07,
-        // fourth revision — see this method's own shift-window comment for
-        // the full history). Without this, a genuine cross-team bundle
-        // order (e.g. an Eyecare-hour order bundling Pterygium + Sinuxyl)
-        // would count TWICE on Eyecare's own page: once under PTERYGIUM
-        // (its own item, direct match) and again under SINUXYL (the
-        // bundled item, via ProductPerformance's own explicit cross-team
-        // match) — confirmed live, inflating Grand Total to 2 instead of 1.
-        // Scoping the sum back to same-team rows keeps SH Naturals total +
-        // Eyecare total == the All view's total, and keeps each team's own
-        // Grand Total counting every real order exactly once.
-        $ownTeamTables = $productTables->filter(fn ($t) => $t['product']->team === $orderTeam)->values();
-        $grandTotal    = ProductPerformance::sumRows($ownTeamTables->pluck('total'));
+        // Every product's row is visible (browsable), and Grand Total is
+        // simply their sum — explicit request (2026-09-07, fifth revision —
+        // see this method's own shift-window comment for the full history):
+        // "when the per row is added it is still not accurate... it should
+        // be [the full row sum]". A genuine cross-team combo order (e.g. an
+        // Eyecare-hour order bundling Pterygium + Sinuxyl) can count TWICE
+        // here — once under PTERYGIUM (its own item) and again under
+        // SINUXYL (the bundled item, via ProductPerformance's own explicit
+        // cross-team match) — confirmed accepted: same "a combo legitimately
+        // counts toward more than one row" trade-off Dashboard/TSA
+        // Performance's own distinct-order tallies already live with
+        // elsewhere, not treated as double-counting here since each row's
+        // own number is independently correct for that product.
+        $grandTotal = ProductPerformance::sumRows($productTables->pluck('total'));
 
         // Same per-hour breakdown as each product table above, but summing
         // that hour's per-product rows (same reasoning as the all-range
@@ -400,23 +400,16 @@ class LeadsReportController extends Controller
         // expects raw orders, so it's only used on the cutoff branch, which
         // is always a single day and never the memory risk.
         //
-        // Uses $ownTeamProducts (this page's own team only), not $products
-        // (every product) — same reasoning as $grandTotal just above: a
-        // cross-team bundle order would otherwise double-count into the
-        // same hour's total via both its own item's row and the bundled
-        // item's row.
-        $ownTeamProducts = $ownTeamTables->pluck('product');
-
         $grandTotalHourlyRows = $applyShiftCutoff
             ? $this->buildHourlyRows(
                 $slots, $matchPoolBySlot,
                 fn (Collection $orders) => ProductPerformance::sumRows(
-                    $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                    $products->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
                 $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf
             )
-            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
-                $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $products) {
+                $rows = $products->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
                 return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
@@ -536,20 +529,18 @@ class LeadsReportController extends Controller
             $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
                 ->whereIn('team', $orderTeams)
                 ->get();
-            // Each product only matches orders from ITS OWN team (2026-09-07,
-            // same decision as index()'s per-team pages — see that method's
-            // shift-window comment for the full history): $dayOrders itself
-            // still spans every team so the per-day fetch is a single query,
-            // but a Sinuxyl unit bundled into an Eyecare-hour Pterygium order
-            // no longer double-counts under both products here either — it
-            // shows once, under Pterygium (the order's real team), keeping
-            // SH Naturals' + Eyecare's own per-team Grand Totals equal to
-            // this view's own Grand Total (an enforced invariant).
-            $dayOrdersByTeam = $dayOrders->groupBy('team');
+            // Matched against every team's orders combined (2026-09-07,
+            // fifth revision — see index()'s own shift-window comment for
+            // the full history): each per-team page's own Grand Total is
+            // now a plain row sum too (not deduped), so a Sinuxyl unit
+            // bundled into an Eyecare-hour Pterygium order legitimately
+            // double-counts there as well — matching that same behavior
+            // here (instead of a team-grouped, no-double-count match) is
+            // what keeps SH Naturals' + Eyecare's own per-team Grand Totals
+            // equal to this view's own Grand Total (an enforced invariant):
+            // both sides need to double-count the SAME way, or they drift.
             foreach ($products as $product) {
-                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow(
-                    $product, $dayOrdersByTeam->get($product->team, collect()), $products
-                ));
+                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
             }
         }
 
@@ -667,33 +658,36 @@ class LeadsReportController extends Controller
         }
         $matchPool = $matchPoolQuery->get();
 
-        // No `product` param = the Grand Total row's own cell (2026-09-07):
-        // matches every product THIS TEAM OWNS combined, the same
-        // countedOrdersFor() dedupe ProductPerformance::sumRows()'s own
-        // Grand Total is built from elsewhere — so "which orders" can never
-        // drift from what the Grand Total cell's own number counted. Falls
-        // back to every product when no team is resolvable (the ALL view's
-        // own Grand Total), matching indexAll()'s own cross-team scope.
+        // No `product` param = the Grand Total row's own cell (2026-09-07,
+        // fifth revision — see index()'s own shift-window comment for the
+        // full history): Grand Total is the PLAIN sum of every visible
+        // product's row (not deduped by distinct order), so a genuine
+        // cross-team combo order legitimately counts twice toward it — once
+        // per matching product. To keep "which orders" from drifting off
+        // what the cell's own number counted, this lists that same order
+        // once per product it matched too, rather than deduping it down to
+        // one entry. Uses every VISIBLE product (every product, not just
+        // this team's own — 2026-09-07, "every product is browsable on
+        // every team's page"), matching $products in index()/indexAll()
+        // exactly. Built as one (order, matchedProduct) pair per row up
+        // front — rather than reusing $matchingOrders()'s shared Eloquent
+        // instances across products and tagging them with a mutable
+        // attribute — since the SAME order object can be the result of
+        // matching two different products here, and a later product's tag
+        // would silently overwrite an earlier one on that same instance.
         if ($productId) {
             $product      = Product::findOrFail($productId);
             $teamProducts = Product::where('team', $product->team)->get();
-            $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
-            $matchReasonFor = fn (Order $o) => ProductPerformance::matchReason($product, $o);
+            $pairs        = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts)
+                ->map(fn ($o) => ['order' => $o, 'product' => $product]);
         } else {
-            $teamProducts = $orderTeam ? Product::where('team', $orderTeam)->get() : Product::all();
-            $matching     = ProductPerformance::countedOrdersFor($teamProducts, $matchPool);
-            // Grand Total combines every owned product, so each order's own
-            // "which product matched" varies per row — find the first
-            // owned product it actually matches (same product-then-tag
-            // priority matchingOrders() itself checks) purely to explain it
-            // in the popover; a bundle order can genuinely match more than
-            // one, this just names one real match, not every one.
-            $matchReasonFor = function (Order $o) use ($teamProducts) {
-                $matchedProduct = $teamProducts->first(
-                    fn ($p) => ProductPerformance::matchingOrders($p, collect([$o]), $teamProducts)->isNotEmpty()
-                );
-                return $matchedProduct ? ProductPerformance::matchReason($matchedProduct, $o) : 'unknown';
-            };
+            $allProducts = Product::all();
+            $pairs       = collect();
+            foreach ($allProducts as $p) {
+                foreach (ProductPerformance::matchingOrders($p, $matchPool, $allProducts) as $o) {
+                    $pairs->push(['order' => $o, 'product' => $p]);
+                }
+            }
         }
 
         // A disposition/count column (Called Leads, Confirmed via Call, Excess,
@@ -701,36 +695,37 @@ class LeadsReportController extends Controller
         // so "which orders" can never drift from what the cell's own number
         // counted. Omitted entirely = the plain product Total cell.
         if ($column) {
-            $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
-        } elseif ($productId) {
+            $pairs = $pairs->filter(function ($pair) use ($column) {
+                return ProductPerformance::ordersForColumn(collect([$pair['order']]), (string) $column)->isNotEmpty();
+            });
+        } else {
             // Same exclusions ordersForColumn() already applies for every
             // other column — see this method's own docblock for why the
             // Total cell now matches instead of being the one exception.
             // Canceled (6) carve-out (2026-08-24) matches
             // ProductPerformance::tally()'s own fix — a genuine upsell that
             // happened before an order was later canceled still counts, see
-            // that method's own comment. Not needed on the productId-less
-            // (Grand Total) branch — countedOrdersFor() already applies the
-            // same exclusion set itself.
-            $matching = $matching->reject(fn ($o) => $o->status_code === 7
-                || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
-                || $o->excluded_upsell_seller
-                || $o->is_duplicated_by_logistics);
+            // that method's own comment.
+            $pairs = $pairs->reject(fn ($pair) => $pair['order']->status_code === 7
+                || ($pair['order']->status_code === 6 && !Order::isBroadRealUpsell($pair['order']))
+                || $pair['order']->excluded_upsell_seller
+                || $pair['order']->is_duplicated_by_logistics);
         }
 
-        $result = $matching
-            ->sortByDesc(fn($o) => $o->effective_created_at)
+        $result = $pairs
+            ->sortByDesc(fn ($pair) => $pair['order']->effective_created_at)
             ->values()
-            ->map(fn($o) => [
-                'id'         => $o->pancake_order_id,
-                'status'     => $o->status_label ?? "Unknown ({$o->status_code})",
-                'product'    => $o->product,
-                'time'       => optional($o->effective_created_at)->format('M j, g:i A'),
+            ->map(fn ($pair) => [
+                'id'         => $pair['order']->pancake_order_id,
+                'status'     => $pair['order']->status_label ?? "Unknown ({$pair['order']->status_code})",
+                'product'    => $pair['order']->product,
+                'time'       => optional($pair['order']->effective_created_at)->format('M j, g:i A'),
                 // Diagnostic only, same reasoning as this method's own docblock:
                 // shows WHICH signal (ID/cart item/base item/bundle/tag) actually
-                // matched this order to $product, so a false positive is visible
-                // right in the popover instead of needing a manual Pancake lookup.
-                'matched_via' => $matchReasonFor($o),
+                // matched this order to $pair['product'], so a false positive is
+                // visible right in the popover instead of needing a manual
+                // Pancake lookup.
+                'matched_via' => ProductPerformance::matchReason($pair['product'], $pair['order']),
             ]);
 
         return response()->json($result);
