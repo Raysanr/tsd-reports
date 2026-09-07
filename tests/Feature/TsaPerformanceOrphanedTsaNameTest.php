@@ -54,6 +54,24 @@ use Tests\TestCase;
  * current comment. The orphaned/cross-team orders below are back to
  * contributing to Grand Total via their Unassigned row, same as any other
  * order.
+ *
+ * REVERSED again 2026-09-07 (explicit follow-up to the Dashboard
+ * Leaderboard's own cross-team-credit fix the same day — "make it reflect
+ * too in the tsa performance," confirmed against a real production case:
+ * Angel Margallo, Team Closing, genuinely closing Opening-hour leads whose
+ * Order.team says Eyecare, should show her real 14 upsells here too, not
+ * 11): a KNOWN TSA's own tsa_name now overrides the order's own `team`
+ * column again, same as before the 2026-08-21 revision above — a real TSA
+ * on a different team gets credit on HER OWN team's page via
+ * $ordersByTsaNameAcrossTeams (see index()'s own comment), not dumped into
+ * the order's own team's Unassigned bucket. This explicitly REOPENS the
+ * exact double-counting risk the 2026-08-21 revision closed (the same order
+ * can now appear on both her own team's page AND, via indexAll()'s own
+ * per-team loop, the order's true team's section) — accepted this time as
+ * a deliberate tradeoff, not an oversight; see indexAll()'s own updated
+ * comment for how the ALL view's per-team sections handle this. Only a
+ * tsa_name matching NOBODY on any team's current roster (truly orphaned —
+ * renamed/removed, or never a real TSA) still falls back to Unassigned.
  */
 class TsaPerformanceOrphanedTsaNameTest extends TestCase
 {
@@ -103,15 +121,12 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $this->assertSame(1, $unassigned['total']);
     }
 
-    public function test_a_tsa_name_belonging_to_a_different_teams_roster_is_now_treated_as_unassigned_here(): void
+    public function test_a_tsa_name_belonging_to_a_different_teams_roster_now_gets_credit_on_her_own_team_page(): void
     {
-        // Julie is a real Eyecare TSA. An order FILED under SH Naturals (its own
-        // `team` column) but tagged with her name must land in SH Naturals'
-        // Unassigned bucket — her own roster team no longer overrides the
-        // order's own team column (see this file's class doc comment for why:
-        // crediting her under SH Naturals here, or under Eyecare via the ALL
-        // view's per-team loop, would count this ONE order on two different
-        // team pages, breaking "SH Naturals + Eyecare = ALL").
+        // Julie is a real Eyecare TSA. An order FILED under SH Naturals (its
+        // own `team` column) but tagged with her name — a lead she genuinely
+        // closed while catering across teams — must land on HER OWN
+        // Eyecare page now (2026-09-07), not SH Naturals' Unassigned bucket.
         $date = '2026-08-04';
         Order::create([
             'pancake_order_id' => 'cross-team-1', 'team' => 'SH Naturals',
@@ -126,16 +141,16 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $tsaRows = $response->viewData('tsaRows');
         $unassigned = $tsaRows->firstWhere('tsa_key', 'unassigned');
 
-        $this->assertNotNull($unassigned, 'a TSA not on this team\'s own roster falls back to Unassigned here');
-        $this->assertSame(1, $unassigned['total']);
+        // SH Naturals' own page: no longer shows this order at all, credited
+        // or unassigned — it belongs entirely to Julie's own row on her own
+        // team's page instead.
+        $this->assertSame(0, $unassigned['total'] ?? 0);
 
-        // And she must NOT also pick up credit on her own team's page — the
-        // order's `team` column says SH Naturals, so Eyecare's page (which
-        // strictly follows that column too) never sees it at all.
         $eyecareResponse = $this->get(route('tsa-performance', ['team' => 'eyecare', 'date_from' => $date, 'date_to' => $date]));
         $eyecareResponse->assertOk();
         $julieRow = $eyecareResponse->viewData('tsaRows')->firstWhere('tsa_key', 'Julie');
-        $this->assertSame(0, $julieRow['total'] ?? 0);
+        $this->assertNotNull($julieRow);
+        $this->assertSame(1, $julieRow['total']);
     }
 
     public function test_sh_naturals_plus_eyecare_grand_totals_equal_the_all_views_grand_total(): void
@@ -181,8 +196,19 @@ class TsaPerformanceOrphanedTsaNameTest extends TestCase
         $allTotal = $all->viewData('grandTotal')['total'];
 
         // 4 = the 2 plain orders + the orphaned order + the cross-team order
-        // — all four now land somewhere in $tsaRows (two real TSA rows, two
-        // Unassigned rows), so all four contribute to Grand Total.
+        // — all four land somewhere in $tsaRows (Gemma's row, Joana's row,
+        // one Unassigned row for the truly orphaned name, and Julie's own
+        // row for the cross-team one — 2026-09-07: no longer a second
+        // Unassigned row, see this file's class comment), so all four
+        // contribute to Grand Total. Still holds for THIS specific scenario
+        // (SH's own total + Eyecare's own total = ALL's total) because the
+        // cross-team order relocated entirely onto Julie's own (Eyecare) row
+        // rather than being duplicated anywhere — that's not a general
+        // guarantee anymore though (see indexAll()'s own updated Grand Total
+        // comment): a TSA with activity on BOTH her own team's hours AND a
+        // cross-team lead in the SAME range would now show that combined
+        // total on her own page, which no longer cleanly decomposes into
+        // "this team's contribution" vs "that team's contribution."
         $this->assertSame(4, $allTotal);
         $this->assertSame($allTotal, $shTotal + $eyeTotal);
     }

@@ -324,19 +324,19 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
      * The end-to-end version of the parity test above: hits BOTH real routes
      * (dashboard, tsa-performance?team=all) for the same seeded orders.
      *
-     * REVISED 2026-09-07: no longer asserts the two pages agree on a
-     * cross-team order — they now deliberately diverge on it (see
-     * test_leaderboard_upsell_count_includes_a_cross_team_order()'s own doc
-     * comment for the full reasoning). The Dashboard Leaderboard credits
-     * whoever's tsa_name is on the order, any team; TSA Performance's ALL
-     * view still excludes it, under its own separate, unchanged 2026-08-21
-     * invariant ("SH Naturals' total + Eyecare's total must equal ALL's
-     * total" — crediting a cross-team order to a TSA here without also
-     * putting it in the OTHER team's own section would break that sum).
-     * Still proves the Deleted order is excluded from both, since that part
-     * of the original bug fix is untouched.
+     * REVISED 2026-09-07, twice the same day: first to assert the two pages
+     * deliberately DIVERGE on a cross-team order (Dashboard credits it,
+     * TSA Performance didn't yet) — then REVISED AGAIN a few hours later,
+     * same day, once the identical cross-team-credit fix was extended to
+     * TsaPerformanceController's own index()/indexAll() (explicit follow-up
+     * request: "so is if its fixed the angel should be like 14?" / "so like
+     * angel too should be 14 in the upsell w/ confirmation like that not 11
+     * only"). Both pages now agree again — see
+     * TsaPerformanceOrphanedTsaNameTest's own class comment for that
+     * method's full history. Still proves the Deleted order is excluded
+     * from both, since that part of the original bug fix is untouched.
      */
-    public function test_leaderboard_upsell_count_differs_from_tsa_performance_on_a_cross_team_order(): void
+    public function test_leaderboard_upsell_count_matches_tsa_performance_on_a_cross_team_order(): void
     {
         $shift = TsaShift::where('team', 'Eyecare Team')->first();
 
@@ -382,15 +382,14 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         $tsaPerfRow = $tsaPerfResponse->viewData('tsaRows')->firstWhere('tsa_key', $shift->tsa_key);
         $this->assertNotNull($tsaPerfRow);
 
-        // Dashboard Leaderboard: both real orders count (own-team + cross-
-        // team), the Deleted one doesn't.
+        // Both pages now agree: both real orders count (own-team + cross-
+        // team), the Deleted one doesn't, on the Dashboard Leaderboard...
         $this->assertSame(2, $leaderboardRow->upsell_count);
         $this->assertSame(900.0, (float) $leaderboardRow->upsell_sales);
 
-        // TSA Performance's ALL view: only the own-team order counts — the
-        // cross-team one is excluded under its own separate invariant.
-        $this->assertSame(1, $tsaPerfRow['upsell_confirmation']);
-        $this->assertSame(500.0, (float) $tsaPerfRow['upsell_sales']);
+        // ...and on TSA Performance's ALL view too.
+        $this->assertSame(2, $tsaPerfRow['upsell_confirmation']);
+        $this->assertSame(900.0, (float) $tsaPerfRow['upsell_sales']);
     }
 
     public function test_top_tsa_spotlight_also_includes_returned_upsells(): void
