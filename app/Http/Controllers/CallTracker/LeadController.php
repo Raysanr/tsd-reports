@@ -76,9 +76,7 @@ class LeadController extends Controller
         // product-filter branch below's own doc comment on the "no product
         // matched" case), so hiding them here too means nobody sees or
         // calls these customers until the item is added to Product
-        // Management — Unmatched Orders (UnmatchedOrdersController) is this
-        // app's own dedicated place for reviewing exactly this category,
-        // not a gap this change creates.
+        // Management.
         $query = Lead::with(['product', 'tsa'])
             ->whereNotNull('product_id')
             ->orderByRaw('pinned_at IS NULL')

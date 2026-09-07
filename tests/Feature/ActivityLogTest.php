@@ -219,19 +219,6 @@ class ActivityLogTest extends TestCase
         ]);
     }
 
-    public function test_unmatched_orders_reinfer_writes_an_activity_log_entry(): void
-    {
-        $admin = User::factory()->create();
-        $this->actingAs($admin);
-
-        $this->post(route('unmatched-orders.reinfer'));
-
-        $this->assertDatabaseHas('activity_logs', [
-            'user_id' => $admin->id,
-            'action'  => 'unmatched-orders.reinfer',
-        ]);
-    }
-
     public function test_saving_rest_days_writes_an_activity_log_entry(): void
     {
         $admin = User::factory()->create();

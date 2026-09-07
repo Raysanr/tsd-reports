@@ -75,11 +75,6 @@ class ProductManagementController extends Controller
             'sort_order'    => $nextSort,
         ]);
 
-        // New keywords can claim previously unattributable (team-NULL) leads —
-        // re-infer immediately so they appear in reports without waiting for a
-        // manual command run. Only scans unclaimed team-NULL rows, so it's cheap.
-        \Artisan::call('orders:reinfer-teams');
-
         $message = "Added \"{$data['display_name']}\".";
         ActivityLogger::log('product.created', $product, $message);
 
@@ -98,10 +93,6 @@ class ProductManagementController extends Controller
             'display_name'  => $data['display_name'],
             'match_keyword' => $data['match_keyword'] ?: null,
         ]);
-
-        // Same reasoning as store() — an added alias should immediately pull the
-        // matching team-NULL leads into this team's reports.
-        \Artisan::call('orders:reinfer-teams');
 
         $message = "Updated \"{$data['display_name']}\".";
         ActivityLogger::log('product.updated', $product, $message);
@@ -194,9 +185,6 @@ class ProductManagementController extends Controller
                 break;
             case 'move':
                 Product::whereIn('id', $data['ids'])->update(['team' => $data['team']]);
-                // Same reasoning as store()/update() — a team change can affect which
-                // team-NULL leads this product's keywords now claim.
-                \Artisan::call('orders:reinfer-teams');
                 $teamName = collect($teamsConfig)->firstWhere('order_team', $data['team'])['name'] ?? $data['team'];
                 $message = "Moved {$count} {$noun} to {$teamName}.";
                 break;
