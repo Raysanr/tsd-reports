@@ -460,32 +460,44 @@ class ProductPerformance
         return array_merge($summed, self::rates($summed));
     }
 
-    /** One tally() row per TSA (keyed by tsa_key), built the SAME way
-     *  TsaPerformanceController::indexAll() builds its own $tsaRows — group
-     *  by each order's own team column FIRST, then by tsa_name within that
-     *  team's own subset, and ONLY if tsa_name matches a REAL, CURRENT
-     *  roster key for that exact team (a stale/renamed/wrong-team tsa_name
-     *  falls out entirely here, same as indexAll()'s own Unassigned
-     *  fallback). Extracted 2026-09-02 so any other page needing a per-TSA
-     *  breakdown (the Dashboard's own TSA Leaderboard, in particular) calls
-     *  this SAME function instead of reconstructing the grouping by hand —
-     *  a hand-rolled copy of "group by team first" drifted out of sync with
-     *  this one twice already (Dashboard leaderboard vs TSA Performance:
-     *  Katherine 16 vs 15, then Grace 8 vs 7, both confirmed live,
-     *  2026-09-02) even though both were built to the same intent, because
-     *  matching intent in two separate implementations doesn't guarantee
-     *  matching behavior on every real edge case. $shifts: every TsaShift
-     *  row to build a row for (already filtered to the teams in scope by
-     *  the caller). Returns tsa_key => tally() row (no Unassigned row —
-     *  callers that need it build that separately from whatever's left
-     *  over, same as indexAll() does). */
+    /** One tally() row per TSA (keyed by tsa_key), matching by tsa_name ACROSS
+     *  EVERY TEAM, not scoped to the TSA's own configured team. Extracted
+     *  2026-09-02 so any other page needing a per-TSA breakdown (the
+     *  Dashboard's own TSA Leaderboard, ChartsController's TSA rankings)
+     *  calls this SAME function instead of reconstructing the grouping by
+     *  hand — a hand-rolled copy drifted out of sync twice already (Dashboard
+     *  leaderboard vs TSA Performance: Katherine 16 vs 15, then Grace 8 vs 7,
+     *  both confirmed live, 2026-09-02).
+     *
+     *  Originally grouped by each order's own team column FIRST (same as
+     *  TsaPerformanceController::indexAll()'s own $tsaRows), so an order
+     *  attributed to a different team than the TSA's own configured team was
+     *  invisible to them. Changed 2026-09-07 (real production report: Angel
+     *  Margallo, Team Closing, showed 11 upsells on the Leaderboard for
+     *  2026-09-06 instead of 14 — the missing 3, e.g. orders #1364719/
+     *  #1364674/#1364669, were leads she genuinely closed that landed with
+     *  Order.team = Eyecare, since "the team closing is can cater the opening
+     *  leads" and Order.team is computed from the order's own hour window
+     *  (TeamShiftWindow), independently of who actually closed it). Explicit
+     *  decision: whoever's tsa_name is on the order gets full credit here,
+     *  regardless of team — deliberately DIFFERENT from
+     *  TsaPerformanceController::indexAll()'s own team-first grouping, which
+     *  keeps its own separate 2026-08-21 invariant ("SH Naturals' total +
+     *  Eyecare's total must equal ALL's total") and was NOT changed by this
+     *  fix — the two are intentionally allowed to diverge now: this function
+     *  answers "how much did this TSA personally close," indexAll() answers
+     *  "how much did this team's own bucket produce."
+     *
+     *  $shifts: every TsaShift row to build a row for (already filtered to
+     *  the teams in scope by the caller). Returns tsa_key => tally() row (no
+     *  Unassigned row — an order whose tsa_name doesn't match any shift here
+     *  simply isn't counted in any of these rows, same as before). */
     public static function tsaRows(Collection $orders, Collection $shifts): Collection
     {
-        $ordersByTeam = $orders->groupBy('team');
+        $ordersByTsaName = $orders->groupBy('tsa_name');
 
-        return $shifts->mapWithKeys(function (TsaShift $shift) use ($ordersByTeam) {
-            $teamOrders = $ordersByTeam->get($shift->team, collect());
-            $tsaOrders  = $teamOrders->where('tsa_name', $shift->tsa_key);
+        return $shifts->mapWithKeys(function (TsaShift $shift) use ($ordersByTsaName) {
+            $tsaOrders = $ordersByTsaName->get($shift->tsa_key, collect());
 
             return [$shift->tsa_key => self::tally($tsaOrders)];
         });

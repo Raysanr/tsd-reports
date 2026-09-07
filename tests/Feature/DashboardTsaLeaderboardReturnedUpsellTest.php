@@ -134,8 +134,24 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
      * tagged with a TSA's name. This leaderboard never got the equivalent
      * fix, so a cross-team order (tsa_name = this TSA, but team = the OTHER
      * team) still inflated her count here.
+     *
+     * REVERSED 2026-09-07 (real production report: Angel Margallo, Team
+     * Closing, showed 11 upsells instead of 14 for 2026-09-06 — the missing
+     * 3, e.g. orders #1364719/#1364674/#1364669, were leads she genuinely
+     * closed that landed with Order.team = Eyecare, since "the team closing
+     * is can cater the opening leads" and Order.team is computed from the
+     * order's own hour window, independently of who actually closed it;
+     * explicit decision: "Credit the TSA regardless of team"). A cross-team
+     * order now DOES count here — this test's own name/behavior is exactly
+     * the rule that got reversed. ProductPerformance::tsaRows() now groups by
+     * tsa_name directly, across every team's orders (see that function's own
+     * doc comment) — deliberately DIFFERENT from
+     * TsaPerformanceController::indexAll(), which was NOT changed and keeps
+     * excluding cross-team orders under its own separate 2026-08-21
+     * invariant (see DashboardTsaLeaderboardReturnedUpsellTest's other test
+     * below, also updated the same day, for that intentional divergence).
      */
-    public function test_leaderboard_upsell_count_excludes_a_cross_team_order(): void
+    public function test_leaderboard_upsell_count_includes_a_cross_team_order(): void
     {
         $shift = TsaShift::where('team', 'Eyecare Team')->first();
 
@@ -151,8 +167,9 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         ]);
 
         // Tagged with this TSA's name, but its OWN team column is the OTHER
-        // team — a real order shape confirmed live (a combo SKU bundling
-        // another team's product can still carry this TSA's tag).
+        // team — a real order shape confirmed live (a TSA on one team
+        // genuinely catering/closing a lead that landed on the other team's
+        // hour window). Now counts toward her Leaderboard total too.
         Order::create([
             'pancake_order_id'   => 'cross-team-upsell-1',
             'team'               => 'SH Naturals',
@@ -170,8 +187,71 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         $response->assertViewHas('tsaLeaderboard', function ($leaderboard) use ($shift) {
             $row = $leaderboard->firstWhere('tsa_name', $shift->tsa_key);
             return $row
-                && $row->upsell_count === 1
-                && (float) $row->upsell_sales === 700.0;
+                && $row->upsell_count === 2
+                && (float) $row->upsell_sales === 1200.0;
+        });
+    }
+
+    /**
+     * Real production shape (2026-09-07): Angel Margallo, Team Closing,
+     * showed 11 upsells on the Dashboard Leaderboard for 2026-09-06 instead
+     * of the real 14 — the missing 3 (orders #1364719/#1364674/#1364669)
+     * were leads she genuinely closed that landed with Order.team = Eyecare
+     * ("the team closing is can cater the opening leads"). Also proves the
+     * Team Closing filter itself (not just the ALL view) picks these up —
+     * DashboardController::index() must widen the order pool feeding
+     * tsaRows() to every team while still scoping WHICH TSAs get a row to
+     * the selected team's own roster (see $shiftsForLeaderboard's own
+     * comment) — a naive "just fetch every team's orders" fix would also
+     * leak an Eyecare-only TSA's own row onto a Team Closing-filtered page,
+     * which is a different bug (see DashboardTeamFilterTest.php).
+     */
+    public function test_a_closing_tsa_catering_opening_leads_gets_full_credit_on_the_closing_filtered_view(): void
+    {
+        $angel = TsaShift::where('team', 'SH Naturals')->first();
+
+        // Her own 11 real Closing-hour upsells.
+        for ($i = 0; $i < 11; $i++) {
+            Order::create([
+                'pancake_order_id'   => "angel-own-team-{$i}",
+                'team'               => 'SH Naturals',
+                'tsa_name'           => $angel->tsa_key,
+                'is_upsell'          => true,
+                'amount'             => 700.0,
+                'status_code'        => 2,
+                'pancake_created_at' => now(),
+                'synced_at'          => now(),
+            ]);
+        }
+
+        // 3 Opening-hour leads she genuinely closed — Order.team follows the
+        // lead's own hour window (Eyecare), not who closed it.
+        foreach (['1364719', '1364674', '1364669'] as $orderId) {
+            Order::create([
+                'pancake_order_id'   => $orderId,
+                'team'               => 'Eyecare Team',
+                'tsa_name'           => $angel->tsa_key,
+                'is_upsell'          => true,
+                'amount'             => 500.0,
+                'status_code'        => 2,
+                'pancake_created_at' => now(),
+                'synced_at'          => now(),
+            ]);
+        }
+
+        $response = $this->get(route('dashboard', ['team' => 'sh-naturals']));
+
+        $response->assertOk();
+        $response->assertViewHas('tsaLeaderboard', function ($leaderboard) use ($angel) {
+            $row = $leaderboard->firstWhere('tsa_name', $angel->tsa_key);
+            return $row
+                && $row->upsell_count === 14
+                && (float) $row->upsell_sales === 9200.0;
+        });
+
+        // The card itself must agree, same 2026-09-07 fix.
+        $response->assertViewHas('stats', function ($stats) {
+            return $stats['total_orders'] === 14 && (float) $stats['total_sales'] === 9200.0;
         });
     }
 
@@ -242,17 +322,21 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
 
     /**
      * The end-to-end version of the parity test above: hits BOTH real routes
-     * (dashboard, tsa-performance?team=all) for the same seeded orders and
-     * asserts the actual rendered numbers agree — not comparing against
-     * ProductPerformance::tally() in isolation, but against what TSA
-     * Performance's own controller/view genuinely produces. Includes a
-     * cross-team order (tagged with this TSA's name, but its own team
-     * column is the OTHER team) specifically because that's the shape that
-     * exposed the original bug — a hand-rolled grouping can accidentally
-     * still include it under the wrong assumption of "same intent, so it
-     * must produce the same result."
+     * (dashboard, tsa-performance?team=all) for the same seeded orders.
+     *
+     * REVISED 2026-09-07: no longer asserts the two pages agree on a
+     * cross-team order — they now deliberately diverge on it (see
+     * test_leaderboard_upsell_count_includes_a_cross_team_order()'s own doc
+     * comment for the full reasoning). The Dashboard Leaderboard credits
+     * whoever's tsa_name is on the order, any team; TSA Performance's ALL
+     * view still excludes it, under its own separate, unchanged 2026-08-21
+     * invariant ("SH Naturals' total + Eyecare's total must equal ALL's
+     * total" — crediting a cross-team order to a TSA here without also
+     * putting it in the OTHER team's own section would break that sum).
+     * Still proves the Deleted order is excluded from both, since that part
+     * of the original bug fix is untouched.
      */
-    public function test_leaderboard_upsell_count_matches_the_real_tsa_performance_all_view(): void
+    public function test_leaderboard_upsell_count_differs_from_tsa_performance_on_a_cross_team_order(): void
     {
         $shift = TsaShift::where('team', 'Eyecare Team')->first();
 
@@ -298,13 +382,15 @@ class DashboardTsaLeaderboardReturnedUpsellTest extends TestCase
         $tsaPerfRow = $tsaPerfResponse->viewData('tsaRows')->firstWhere('tsa_key', $shift->tsa_key);
         $this->assertNotNull($tsaPerfRow);
 
-        $this->assertSame($tsaPerfRow['upsell_confirmation'], $leaderboardRow->upsell_count);
-        $this->assertSame((float) $tsaPerfRow['upsell_sales'], (float) $leaderboardRow->upsell_sales);
-        // Both real-order-shape orders (own-team + cross-team) counted, the
-        // Deleted one didn't, and the cross-team order specifically did NOT
-        // leak in despite carrying this TSA's name.
-        $this->assertSame(1, $leaderboardRow->upsell_count);
-        $this->assertSame(500.0, (float) $leaderboardRow->upsell_sales);
+        // Dashboard Leaderboard: both real orders count (own-team + cross-
+        // team), the Deleted one doesn't.
+        $this->assertSame(2, $leaderboardRow->upsell_count);
+        $this->assertSame(900.0, (float) $leaderboardRow->upsell_sales);
+
+        // TSA Performance's ALL view: only the own-team order counts — the
+        // cross-team one is excluded under its own separate invariant.
+        $this->assertSame(1, $tsaPerfRow['upsell_confirmation']);
+        $this->assertSame(500.0, (float) $tsaPerfRow['upsell_sales']);
     }
 
     public function test_top_tsa_spotlight_also_includes_returned_upsells(): void

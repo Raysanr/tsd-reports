@@ -334,24 +334,45 @@ class DashboardController extends Controller
             // reusing $dayOrders (already fetched for that) instead of a second query.
             $shiftsByKey = TsaShift::all()->keyBy('tsa_key');
 
-            // ProductPerformance::tsaRows() — the SAME per-TSA "group by team
-            // first, then by tsa_name within that team's own roster" grouping
-            // TsaPerformanceController::indexAll() itself uses to build the
-            // exact rows TSA Performance renders (extracted 2026-09-02
-            // specifically so this leaderboard and TSA Performance can no
-            // longer independently drift out of sync — two prior attempts to
-            // keep a hand-rolled copy of this grouping "equivalent by
-            // construction" both still produced a real mismatch confirmed
-            // live: Katherine 16 vs 15, then Grace 8 vs 7). Calling the exact
-            // same function TSA Performance calls, on the exact same $orders
-            // input, is the only way to guarantee this leaderboard can never
-            // show a different number for the same TSA/day again — not
-            // "should match," but literally cannot disagree, since there is
-            // now only one implementation of this grouping in the codebase.
-            $tsaTallyByKey = ProductPerformance::tsaRows($dayOrders, $shiftsByKey->values());
+            // A TSA's Leaderboard row must include every order THEY closed,
+            // even one Pancake/TeamShiftWindow attributed to a DIFFERENT
+            // team's Order.team than the TSA's own configured team (root-
+            // caused 2026-09-07, real production report: Angel Margallo,
+            // Team Closing, showed 11 upsells instead of 14 for 2026-09-06 —
+            // the missing 3 were leads she genuinely closed that landed with
+            // Order.team = Eyecare, since "the team closing is can cater the
+            // opening leads" and Order.team is computed from the order's own
+            // hour window, independently of who actually closed it). $dayOrders
+            // above is deliberately scoped to whereIn('team', $orderTeams) —
+            // just the SELECTED team's filter — for the Total Leads funnel and
+            // the Hourly Activity/Leads charts below, which legitimately
+            // should reflect only that team's own hour window. The Leaderboard
+            // needs the opposite: every team's orders in range, so
+            // ProductPerformance::tsaRows()'s own tsa_name-first matching (see
+            // that function's doc comment for the 2026-09-07 change) can find
+            // a TSA's orders regardless of which team's bucket Order.team put
+            // them in. Still scoped to the SELECTED team's own roster via
+            // $shiftsByKey->filter() below though — passing $shiftsByKey-
+            // >values() (every TSA on every team) here would put e.g. an
+            // Eyecare TSA's own row onto a page filtered to Team Closing,
+            // which isn't cross-team credit, it's the team filter silently
+            // doing nothing (confirmed live via a failing test in
+            // DashboardTeamFilterTest.php: filtering to sh-naturals with an
+            // Eyecare-team-only order in play still counted it, because
+            // that TSA's real TsaShift row exists globally and this used to
+            // pass every one of them into tsaRows() regardless of filter).
+            $dayOrdersAllTeams = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
+                ->get();
+
+            $shiftsForLeaderboard = $selectedTeam === 'all'
+                ? $shiftsByKey->values()
+                : $shiftsByKey->filter(fn (TsaShift $s) => in_array($s->team, $orderTeams, true))->values();
+
+            $tsaTallyByKey = ProductPerformance::tsaRows($dayOrdersAllTeams, $shiftsForLeaderboard);
 
             $tsaLeaderboard = $tsaTallyByKey
-                ->map(function (array $tally, string $tsaKey) use ($includeRestocking, $dayOrders) {
+                ->map(function (array $tally, string $tsaKey) use ($includeRestocking, $dayOrdersAllTeams) {
                     // tally()'s own 'upsell_confirmation'/'upsell_sales' are
                     // ALWAYS inclusive of a genuinely-tagged Restocking order
                     // (Order::isBroadRealUpsell()'s tag-fallback branch — see
@@ -377,7 +398,7 @@ class DashboardController extends Controller
                     // Leads Report/TSA Performance/Analytics/Charts/Insights
                     // all also depend on with no toggle concept of their own).
                     if (!$includeRestocking) {
-                        $tsaRestockingUpsells = $dayOrders->where('tsa_name', $tsaKey)
+                        $tsaRestockingUpsells = $dayOrdersAllTeams->where('tsa_name', $tsaKey)
                             ->where('is_restocking_upsell', true)
                             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
                         $upsellCount -= $tsaRestockingUpsells->count();
@@ -417,8 +438,30 @@ class DashboardController extends Controller
             // upsell_sales already reflect the Include Restocking toggle per-row
             // (lines above), so summing them here carries that same toggle state
             // through automatically.
-            $totalOrders = (int) $tsaLeaderboard->sum('upsell_count');
-            $grossSales  = (float) $tsaLeaderboard->sum('upsell_sales');
+            //
+            // PLUS a real upsell order whose tsa_name has no matching TsaShift row
+            // at all (never configured — e.g. Angel/Grace/Hannah before their
+            // roster row existed, or a plain typo) — tsaRows() can't build a row
+            // for a TSA that isn't in $shiftsByKey, so it's structurally invisible
+            // to the Leaderboard sum above. Explicit decision (2026-09-07, same
+            // report as the cross-team fix above): this revenue is still real and
+            // must still count on the card, just not attributed to anyone on the
+            // Leaderboard — added back in here so a missing roster row can never
+            // silently shrink Total Cross-Sell Sales, only hide WHO gets credit
+            // for it. Scoped by $orderTeams (the selected team filter), same as
+            // every other KPI on this page — unlike a known TSA's own cross-team
+            // catering, an orphaned order has no TSA identity to look past that
+            // filter with.
+            $orphanedUpsells = $dayOrdersAllTeams
+                ->whereIn('team', $orderTeams)
+                ->whereNotNull('tsa_name')
+                ->reject(fn (Order $o) => $shiftsByKey->has($o->tsa_name))
+                ->filter(fn (Order $o) => Order::isBroadRealUpsell($o))
+                ->when(!$includeRestocking, fn ($c) => $c->reject(fn (Order $o) => $o->is_restocking_upsell));
+
+            $totalOrders = (int) $tsaLeaderboard->sum('upsell_count') + $orphanedUpsells->count();
+            $grossSales  = (float) $tsaLeaderboard->sum('upsell_sales')
+                + (float) $orphanedUpsells->sum(fn (Order $o) => $o->realUpsellAmount());
             $stats['total_sales']  = $grossSales;
             $stats['total_orders'] = $totalOrders;
             $stats['aov']          = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
