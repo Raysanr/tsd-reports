@@ -39,9 +39,13 @@ class LeadsReportGrandTotalTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    private function sumOfProductTotals($tables): int
+    /** Every product is visible in $tables (2026-09-07, browsable cross-team
+     *  upsells), but Grand Total only sums rows this page's own team owns —
+     *  see LeadsReportController::index()'s matching comment. */
+    private function sumOfProductTotals($tables, string $orderTeam): int
     {
-        return $tables->sum(fn ($t) => $t['total']['total']);
+        return $tables->filter(fn ($t) => $t['product']->team === $orderTeam)
+            ->sum(fn ($t) => $t['total']['total']);
     }
 
     public function test_per_team_grand_total_equals_the_sum_of_the_product_rows_with_a_cross_team_combo_order(): void
@@ -76,7 +80,7 @@ class LeadsReportGrandTotalTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) use ($response) {
             $grandTotal = $response->viewData('grandTotal');
-            return $grandTotal['total'] === $this->sumOfProductTotals($tables)
+            return $grandTotal['total'] === $this->sumOfProductTotals($tables, 'SH Naturals')
                 && $grandTotal['total'] === 2; // plain-sinuxyl + the combo's Sinuxyl half
         });
     }
@@ -103,12 +107,16 @@ class LeadsReportGrandTotalTest extends TestCase
         $grandTotalHourlyRows = $response->viewData('grandTotalHourlyRows');
 
         // For every hour Grand Total shows a row, its total must equal that
-        // same hour's sum across every product's hourly row.
+        // same hour's sum across this team's OWN product rows only (every
+        // product is visible in $productTables, but Grand Total stays
+        // scoped to same-team rows — see index()'s matching comment).
         foreach ($grandTotalHourlyRows as $ghRow) {
-            $sumThatHour = $productTables->sum(function ($table) use ($ghRow) {
-                $match = collect($table['hourlyRows'])->firstWhere('label', $ghRow['label']);
-                return $match['row']['total'] ?? 0;
-            });
+            $sumThatHour = $productTables
+                ->filter(fn ($table) => $table['product']->team === 'SH Naturals')
+                ->sum(function ($table) use ($ghRow) {
+                    $match = collect($table['hourlyRows'])->firstWhere('label', $ghRow['label']);
+                    return $match['row']['total'] ?? 0;
+                });
             $this->assertSame($sumThatHour, $ghRow['row']['total'], "Mismatch at hour {$ghRow['label']}");
         }
     }

@@ -191,7 +191,14 @@ class LeadsReportController extends Controller
         // cutoff logic genuinely needs real orders then, and one day's
         // worth was never the memory risk to begin with.
         $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
-        $products   = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
+
+        // Every product is browsable on every team's page (2026-09-07) — a
+        // team can genuinely upsell a product it doesn't own (see
+        // ExpandProductRosterToAllTsas). Grand Total below stays scoped to
+        // this team's OWN products only, so it doesn't double-count a
+        // cross-team combo order that already lands in an owned product's
+        // row via ProductPerformance's own explicit cross-team bundle match.
+        $products = Product::orderBy('sort_order')->get();
 
         // Exactly one of these two ends up populated, matching $applyShiftCutoff
         // below — declared here so the closure that reads both further down
@@ -311,8 +318,18 @@ class LeadsReportController extends Controller
         // Dashboard/TSA Performance's own distinct-order tally whenever an
         // untracked-product order exists in range; that's the accepted
         // trade-off of this explicit choice, not an oversight.
-        $visibleProducts = $productTables->pluck('product');
-        $grandTotal       = ProductPerformance::sumRows($productTables->pluck('total'));
+        //
+        // Every product's row is visible on this page (2026-09-07, so a
+        // cross-team upsell is browsable here too), but Grand Total only
+        // sums rows for products this page's OWN team owns — otherwise a
+        // cross-team combo order would be counted twice on this same page:
+        // once via the owning team's product row (which already picks up
+        // the order through ProductPerformance's own cross-team explicit
+        // bundle match), and again via the other team's product row that's
+        // now also visible here. Scoping the sum back to same-team rows
+        // keeps SH Naturals total + Eyecare total == the All view's total.
+        $ownTeamTables = $productTables->filter(fn ($t) => $t['product']->team === $orderTeam)->values();
+        $grandTotal       = ProductPerformance::sumRows($ownTeamTables->pluck('total'));
 
         // Same per-hour breakdown as each product table above, but summing
         // that hour's per-product rows (same reasoning as the all-range
@@ -327,16 +344,18 @@ class LeadsReportController extends Controller
         // longer exists in that shape — buildHourlyRows() itself still
         // expects raw orders, so it's only used on the cutoff branch, which
         // is always a single day and never the memory risk.
+        $ownTeamProducts = $ownTeamTables->pluck('product');
+
         $grandTotalHourlyRows = $applyShiftCutoff
             ? $this->buildHourlyRows(
                 $slots, $matchPoolBySlot,
                 fn (Collection $orders) => ProductPerformance::sumRows(
-                    $visibleProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                    $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
                 $applyShiftCutoff, $teamShifts, $slotHourOf, $slotDateOf, $slotKeyForHour
             )
-            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $visibleProducts) {
-                $rows = $visibleProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
+                $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
                 return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
