@@ -71,4 +71,28 @@ class TsaPerformanceCrossTeamUpsellVisibilityTest extends TestCase
         // fix too — confirming this fix didn't change that separate number.
         $response->assertViewHas('summary', fn ($summary) => $summary['upsell_confirmation'] === 1);
     }
+
+    /** Bug fix (2026-09-07): the 2026-09-06 fix above broadened $products to
+     *  every product, but never excluded hidden ones — unlike Leads
+     *  Report's own per-team view, this grid has no "hidden but has
+     *  leads" carve-out, so a plain exclusion is correct here. */
+    public function test_a_hidden_product_does_not_get_a_column_on_the_tsas_individual_page(): void
+    {
+        $hidden = Product::where('team', 'SH Naturals')->first();
+        $hidden->is_hidden = true;
+        $hidden->save();
+
+        $joana = TsaShift::where('tsa_key', 'Joana')->first();
+        $joana->update(['team' => 'SH Naturals']);
+
+        $team = collect(config('teams'))->search(fn ($t) => $t['order_team'] === 'SH Naturals');
+
+        $response = $this->get(route('tsa-performance.individual', [
+            'team' => $team, 'tsaKey' => 'Joana',
+            'date_from' => now()->toDateString(), 'date_to' => now()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('products', fn ($products) => !$products->contains('id', $hidden->id));
+    }
 }

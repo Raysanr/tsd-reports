@@ -381,7 +381,10 @@ class TsaPerformanceController extends Controller
         // product-tag matching as Team Report's per-product breakdown) so a
         // lead is never counted differently here than anywhere else in the
         // app.
-        $products = Product::orderBy('sort_order')->get();
+        // is_hidden excluded (bug fix, 2026-09-07) — this grid has no
+        // "hidden but has leads" carve-out the way Leads Report's own
+        // per-team view does, so a plain exclusion here is correct.
+        $products = Product::where('is_hidden', false)->orderBy('sort_order')->get();
 
         // Real per-hour call-duration totals synced from Google Drive (see
         // SyncCallRecordings) — keyed by hour-of-day the same way $ordersByHour is,
