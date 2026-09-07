@@ -10,7 +10,13 @@
      top, no gap into the table below it) matching leads-report.blade.php's
      own per-product cards; without it, this renders as a bare filter row
      above its own separately-bordered table (leads-report-all's combined
-     table, which has no title). --}}
+     table, which has no title). $ddTeam is optional (defaults to 'all') —
+     each per-team sub-table passes its own team slug (2026-09-07) so a
+     drilldown click there matches that team's own hour-scoped pool, same as
+     index()'s own per-team page — leaving it 'all' (the combined table's
+     correct value) would otherwise re-match the cross-team pool and list
+     more orders than that team's own row actually counted. --}}
+@php $ddTeam = $ddTeam ?? 'all'; @endphp
 @if(isset($cardTitle))
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
     <div class="px-5 py-3.5 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
@@ -24,7 +30,7 @@
     </div>
     <div class="flex flex-col lg:flex-row gap-4">
     <div class="overflow-x-auto flex-1 min-w-0" id="{{ $tableId }}" data-scroll-shadow
-         data-dd-team="all" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
+         data-dd-team="{{ $ddTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
 @else
 <div class="flex items-center justify-end gap-3 mb-2">

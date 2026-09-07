@@ -507,60 +507,88 @@ class LeadsReportController extends Controller
             ->sortBy(fn($p) => array_search($p->team, $orderTeams))
             ->values();
 
-        // Fetched and matched one calendar day at a time, not the whole range at
-        // once — same memory-crash fix already applied to Dashboard's own wide-
-        // range Grand Total (2026-08-28) and this exact page's per-team view
-        // (below), for the identical reason: reproduced live, this single
-        // unbucketed fetch alone used 126.5MB of a 128MB limit on a 31-day ALL-
-        // teams range, with the per-product matching pass on top of it pushing
-        // peak usage to 128.5MB — right at the edge, one busier day or a
-        // slightly wider range away from the same fatal-error 500 the per-team
-        // view was already hitting. Mathematically identical result to a single
-        // whole-range fetch: sumRows() defines Grand Total as literally "sum of
-        // the rows," and summing each day's per-product sums equals summing
-        // everything at once (addition is associative) — see the per-team
-        // view's own comment on this same property. See the effective
-        // (creation-date-first) column reasoning in the per-team branch above.
-        // Keyed by each product's own id throughout, never positional index —
-        // safer against $products/$dailyProductRows ever drifting out of sync
-        // in count or order.
-        $rowsByProductId = $products->mapWithKeys(fn ($p) => [$p->id => collect()]);
-        for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
-            $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
-                ->whereIn('team', $orderTeams)
-                ->get();
-            // Matched against every team's orders combined (2026-09-07,
-            // fifth revision — see index()'s own shift-window comment for
-            // the full history): each per-team page's own Grand Total is
-            // now a plain row sum too (not deduped), so a Sinuxyl unit
-            // bundled into an Eyecare-hour Pterygium order legitimately
-            // double-counts there as well — matching that same behavior
-            // here (instead of a team-grouped, no-double-count match) is
-            // what keeps SH Naturals' + Eyecare's own per-team Grand Totals
-            // equal to this view's own Grand Total (an enforced invariant):
-            // both sides need to double-count the SAME way, or they drift.
-            foreach ($products as $product) {
-                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
+        // Per-team breakdown built FIRST (2026-09-07, sixth revision — see
+        // index()'s own shift-window comment for the full history): each
+        // team's own section here must match its own dedicated page
+        // (index()) exactly, which shows EVERY product (browsable cross-team
+        // sales) matched against ONLY that team's own hour-scoped pool
+        // (where('team', $orderTeam)) — e.g. PTERYGIUM (an Eyecare product)
+        // can show a real, nonzero row under Team Closing if a Pterygium
+        // unit was genuinely sold during Closing's own hours, separately
+        // from PTERYGIUM's own (different) total under Team Opening.
+        // Fetched and matched one calendar day at a time, not the whole
+        // range at once — same memory-crash fix already applied to
+        // Dashboard's own wide-range Grand Total (2026-08-28), for the
+        // identical reason (see this method's git history for the original
+        // comment on that root cause).
+        $teamTables = collect($teamsConfig)
+            ->map(function ($t, $teamSlug) use ($products, $from, $to) {
+                $rowsByProductId = $products->mapWithKeys(fn ($p) => [$p->id => collect()]);
+                for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
+                    $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
+                        ->where('team', $t['order_team'])
+                        ->get();
+                    foreach ($products as $product) {
+                        $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
+                    }
+                }
+
+                $rows = $products
+                    ->map(fn ($product) => [
+                        'product' => $product,
+                        'row'     => array_merge(
+                            ProductPerformance::sumRows($rowsByProductId[$product->id]),
+                            ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+                        ),
+                    ])
+                    ->reject(fn ($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
+                    ->pluck('row')
+                    ->values();
+
+                return [
+                    // Dated (explicit follow-up request, 2026-09-04: "backtrack
+                    // the data like yesterday it is sh naturals and eyecare") —
+                    // this whole page's rows are scoped to $from/$to above, so
+                    // each team section's own label must match what it was
+                    // actually called across that range, not today's name.
+                    'label'    => Teams::nameForOrderTeamRange($t['order_team'], $from, $to),
+                    'rows'     => $rows,
+                    // The $teamsConfig key (e.g. 'sh-naturals'), not order_team
+                    // — this is what drilldown()'s own `team` query param
+                    // expects (2026-09-07), so a click on this section's row
+                    // matches its own hour-scoped pool, not the cross-team one.
+                    'teamSlug' => $teamSlug,
+                ];
+            })
+            ->filter(fn ($t) => $t['rows']->isNotEmpty() && $t['rows']->sum('total') > 0)
+            ->map(fn ($t) => $t + ['grandTotal' => ProductPerformance::sumRows($t['rows'])])
+            ->values();
+
+        // Combined table above the per-team sections — one row per product,
+        // its total being the SUM of that same product's row across both
+        // team sections above (2026-09-07, sixth revision): a product can
+        // appear in both sections with two different numbers (its own real
+        // sales, plus any cross-hour sales counted on the other team's own
+        // page), so the combined view's own number for that product is
+        // their sum — not a separate, independently-matched total, which
+        // would disagree with $teamTables (confirmed live: this used to be
+        // computed as "each product matches only its own team's pool,"
+        // silently dropping the cross-hour half $teamTables now shows).
+        // Keyed by product_id, not display_name — two different Product
+        // rows could theoretically share a display_name, product_id never
+        // collides.
+        $rowsByProductId = collect();
+        foreach ($teamTables as $teamTable) {
+            foreach ($teamTable['rows'] as $row) {
+                $rowsByProductId[$row['product_id']] = ($rowsByProductId[$row['product_id']] ?? collect())->push($row);
             }
         }
 
-        // Same hidden-product rule as the per-team view above: dropped only when
-        // there's genuinely nothing to show for the selected range — summed
-        // across every day first so a product with leads on SOME days isn't
-        // dropped just because any single day had none.
-        //
-        // sumRows() only sums the fixed additive $keys list it knows about —
-        // it drops product_id/display_name/team, which buildRow() normally
-        // adds after tally() (see buildRow()'s own lines). Re-attached here
-        // since every day's already-built row already carried the same
-        // values (they don't vary per day, only per product) — real bug
-        // caught by the test suite: the view crashed with "Undefined array
-        // key display_name" without this.
         $productRowsWithProduct = $products
             ->map(fn ($product) => [
                 'product' => $product,
                 'row' => array_merge(
-                    ProductPerformance::sumRows($rowsByProductId[$product->id]),
+                    ProductPerformance::sumRows($rowsByProductId->get($product->id, collect())),
                     ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
                 ),
             ])
@@ -576,29 +604,11 @@ class LeadsReportController extends Controller
         // in favor of this simpler definition). An untracked-product order is
         // simply not counted here; can disagree with Dashboard/TSA
         // Performance's own tally() whenever one exists in range — accepted.
+        // Equals the sum of both $teamTables' own Grand Totals by
+        // construction (SH Naturals + Eyecare == ALL, an enforced invariant —
+        // see LeadsReportGrandTotalTest), since $productRows is itself built
+        // from exactly those two sections' own rows.
         $grandTotal = ProductPerformance::sumRows($productRows);
-
-        // Per-team breakdown below the combined table above — same $productRows
-        // already computed, just grouped by each row's own 'team' (buildRow()
-        // sets this from Product::team, e.g. "Eyecare Team" — the raw order_team
-        // string, NOT $teams' short display label "Eyecare"), so this is a free
-        // regrouping of data that exists already rather than a second query/
-        // tally pass. $teamsConfig carries both, keyed the same as $teamsConfig
-        // itself; ordered to match config order, skipping a team with nothing
-        // to show for this range.
-        $teamTables = collect($teamsConfig)
-            ->map(fn ($t) => [
-                // Dated (explicit follow-up request, 2026-09-04: "backtrack
-                // the data like yesterday it is sh naturals and eyecare") —
-                // this whole page's rows are scoped to $from/$to above, so
-                // each team section's own label must match what it was
-                // actually called across that range, not today's name.
-                'label' => Teams::nameForOrderTeamRange($t['order_team'], $from, $to),
-                'rows'  => $productRows->where('team', $t['order_team'])->values(),
-            ])
-            ->filter(fn ($t) => $t['rows']->isNotEmpty())
-            ->map(fn ($t) => $t + ['grandTotal' => ProductPerformance::sumRows($t['rows'])])
-            ->values();
 
         return view('leads-report-all', [
             'dateFrom'    => $dateFrom, 'dateTo' => $dateTo, 'mode' => $mode, 'rangeLabel' => $rangeLabel,

@@ -102,6 +102,7 @@
     'exportName' => 'leads-report-' . \Illuminate\Support\Str::slug($teamTable['label']),
     'exportTitle' => 'Leads Report — ' . $teamTable['label'],
     'snapshotDateLabel' => $snapshotDateLabel, 'cardTitle' => $teamTable['label'],
+    'ddTeam' => $teamTable['teamSlug'],
 ])
 </div>
 @endforeach
