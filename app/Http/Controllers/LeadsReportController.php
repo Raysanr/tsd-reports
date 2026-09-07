@@ -116,32 +116,49 @@ class LeadsReportController extends Controller
             $slotKeyOf = fn($o) => (int) $o->effective_created_at->format('G');
         }
 
-        // Shift-start blanking (explicit request): hours before this team's
-        // own time-based window starts that day show no Called/disposition/
-        // rate/Excess data at all (New Leads is untouched — leads keep arriving
-        // regardless of whether anyone's working yet), and the window-start hour
-        // itself absorbs the WHOLE day-so-far backlog's disposition breakdown
-        // in one lump — a TSA starting their shift works through everything
-        // that piled up overnight, not just that hour's own new leads, so
-        // Called Leads can exceed that hour's New Leads and Excess can go
-        // negative there by design. Hours after the window starts are
-        // unaffected. Only meaningful for a single calendar day's hourly view:
-        // a multi-day 'dates' range aggregates every day's same hour-of-day
-        // into one row, where "the window hasn't started yet" no longer has one
-        // answer — skipped there (dateFrom !== dateTo), unchanged behavior.
+        // Shift-window blanking (explicit request, revised 2026-09-07): hours
+        // outside this team's own time-based window (before it starts, or
+        // after it ends) show NOTHING for this team's table — not even New
+        // Leads — since a "New Lead" at e.g. 6am on Closing's page cannot be
+        // a Closing lead at all once team is purely hour-derived. A same-
+        // team-owned PRODUCT can still legitimately sell during the other
+        // team's hours (ProductPerformance::matchingOrders() trusts an
+        // order's own item over its hour-derived team), so rather than drop
+        // those orders, they fold into the window's own edge hour instead:
+        // every pre-start order lumps into the start hour, every post-end
+        // order lumps into the end hour — same "absorb the whole batch, not
+        // just that hour's own count" treatment either way, so Called Leads
+        // can exceed New Leads and Excess can go negative there by design.
+        // Hours strictly inside the window are unaffected. Only meaningful
+        // for a single calendar day's hourly view: a multi-day 'dates' range
+        // aggregates every day's same hour-of-day into one row, where "the
+        // window hasn't started/ended yet" no longer has one answer —
+        // skipped there (dateFrom !== dateTo), unchanged behavior.
         //
-        // Cutoff hour is now TeamShiftWindow's own fixed boundary (0 for
-        // Eyecare/Opening, 15 for SH Naturals/Closing) — 2026-09-07, replacing
-        // a per-TSA shift_start-based cutoff (each TSA's own configured
-        // clock-in time) that no longer matches reality: Order.team is
-        // purely hour-derived now, so e.g. an 8am order can NEVER be SH
-        // Naturals' regardless of when its earliest-starting TSA clocks in,
-        // and showing "New Leads" rows for 1am-2pm on Closing's own page
-        // (as the old shift_start-based cutoff did, since SH Naturals' TSAs
-        // could be configured to start well before 3pm) was exactly this
-        // confusion, confirmed live.
+        // Window bounds are TeamShiftWindow's own fixed boundary (0-14 for
+        // Eyecare/Opening, 15-23 for SH Naturals/Closing) — 2026-09-07,
+        // replacing an older per-TSA shift_start-based cutoff (each TSA's
+        // own configured clock-in time) that no longer matched reality:
+        // Order.team is purely hour-derived now, so e.g. an 8am order can
+        // NEVER be SH Naturals' regardless of when its earliest-starting TSA
+        // clocks in, and showing "New Leads" rows for 1am-2pm on Closing's
+        // own page (as the old shift_start-based cutoff did, since SH
+        // Naturals' TSAs could be configured to start well before 3pm) was
+        // exactly this confusion, confirmed live — as was Opening's mirrored
+        // "3:00pm-4:00pm" row from a same-team product sold during Closing's
+        // hours.
         $applyShiftCutoff = $mode === 'last24h' || $dateFrom === $dateTo;
         $shiftCutoffHour  = TeamShiftWindow::startHourFor($orderTeam);
+
+        // Mirror of the start cutoff at the other edge (2026-09-07): a
+        // same-team-owned product can still legitimately be sold during the
+        // OTHER team's window (ProductPerformance::matchingOrders() trusts
+        // an order's own item over its hour-derived team), which used to
+        // surface as an impossible post-window row — e.g. Opening's table
+        // showing a "3:00pm-4:00pm" row. Folded into the window's last real
+        // hour instead (2pm for Opening, 11pm for Closing), same as the
+        // start-of-window backlog lump.
+        $shiftEndHour = TeamShiftWindow::endHourFor($orderTeam);
 
         $slotHourOf = $mode === 'last24h'
             ? fn($slot) => (int) explode(' ', $slot['key'])[1]
@@ -282,13 +299,13 @@ class LeadsReportController extends Controller
 
         $productTables = $products->map(function ($product) use (
             $slots, $matchPoolBySlot, $matchPoolTotal, $dailyTotalRowsByProductId, $products,
-            $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
+            $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf, $slotDateOf, $slotKeyForHour
         ) {
             $hourlyRows = $applyShiftCutoff
                 ? $this->buildHourlyRows(
                     $slots, $matchPoolBySlot,
                     fn(Collection $orders) => ProductPerformance::buildRow($product, $orders, $products),
-                    $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
+                    $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf, $slotDateOf, $slotKeyForHour
                 )
                 : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $product) {
                     $row = $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id);
@@ -363,7 +380,7 @@ class LeadsReportController extends Controller
                 fn (Collection $orders) => ProductPerformance::sumRows(
                     $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
-                $applyShiftCutoff, $shiftCutoffHour, $slotHourOf, $slotDateOf, $slotKeyForHour
+                $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf, $slotDateOf, $slotKeyForHour
             )
             : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
                 $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
@@ -386,7 +403,7 @@ class LeadsReportController extends Controller
      *  See the shift-cutoff comment in index() for the full reasoning. */
     private function buildHourlyRows(
         array $slots, Collection $ordersBySlot, \Closure $computeRow,
-        bool $applyShiftCutoff, int $shiftCutoffHour,
+        bool $applyShiftCutoff, int $shiftCutoffHour, int $shiftEndHour,
         \Closure $slotHourOf, \Closure $slotDateOf, \Closure $slotKeyForHour
     ): array {
         if (!$applyShiftCutoff) {
@@ -407,12 +424,15 @@ class LeadsReportController extends Controller
             return $rows;
         }
 
-        // $shiftCutoffHour is a fixed constant now (0 for Eyecare/Opening, 15
-        // for SH Naturals/Closing — see TeamShiftWindow::startHourFor()), not
-        // a per-date/per-TSA lookup, so there's no cache or "no active TSA
-        // that day" fallback to compute anymore: Opening's cutoff of 0 means
-        // $hour < $cutoff is never true (every hour is normal), and Closing's
-        // cutoff of 15 blanks every pre-3pm hour on every date uniformly.
+        // $shiftCutoffHour/$shiftEndHour are fixed constants now (0/14 for
+        // Eyecare/Opening, 15/23 for SH Naturals/Closing — see
+        // TeamShiftWindow::startHourFor()/endHourFor()), not a per-date/
+        // per-TSA lookup, so there's no cache or "no active TSA that day"
+        // fallback to compute anymore: Opening's start-cutoff of 0 means
+        // $hour < $cutoff is never true (every early hour is normal), and
+        // Closing's start-cutoff of 15 blanks every pre-3pm hour on every
+        // date uniformly — mirrored at the other edge by $shiftEndHour for
+        // whichever hours fall past this team's own window.
         $rows = [];
         foreach ($slots as $slot) {
             $hourOrders = $ordersBySlot->get($slot['key'], collect());
@@ -423,30 +443,53 @@ class LeadsReportController extends Controller
             $row = $computeRow($hourOrders);
 
             if ($hour < $cutoff) {
-                // Before the team's own window starts that day: no calls have
-                // happened yet — every disposition/rate/Excess field blanks
-                // (tally/buildRow's own zero-orders shape already nulls rates
-                // and zeroes every count), keeping only this hour's own real
-                // New Leads total.
-                $realTotal = $row['total'];
+                // Before the team's own window starts that day: this row
+                // doesn't belong to this team's table at all under the new
+                // hour-based team rule (2026-09-07) — fully blanked, INCLUDING
+                // New Leads (which used to survive here: "leads keep arriving
+                // regardless of whether anyone's working yet" was true when a
+                // team was a real place people clocked into, but a same-team-
+                // owned PRODUCT can still legitimately sell during the other
+                // team's hours — see ProductPerformance::matchingOrders()'s
+                // cross-team-sale trust — and showing that as this team's own
+                // "New Lead" at e.g. 6am implied a backlog that can't exist
+                // once team is purely hour-derived; confirmed live: plain
+                // GINSENG SERUM/SINUXYL/AUDICURE sales at 6am-2pm showing up
+                // on SH Naturals' own hourly table). It's folded into the
+                // cutoff-hour's own backlog lump below instead, not dropped.
                 $row = $computeRow(collect());
-                $row['total'] = $realTotal;
             } elseif ($hour === $cutoff) {
                 $backlog = collect();
                 for ($h = 0; $h <= $cutoff; $h++) {
                     $backlog = $backlog->merge($ordersBySlot->get($slotKeyForHour($date, $h), collect()));
                 }
-                $realTotal = $row['total'];
+                // New Leads now reflects the WHOLE backlog batch too (not just
+                // this hour's own count, 2026-09-07) — every pre-cutoff order
+                // folds into this one row instead of surfacing at its own,
+                // now-blanked hour. Every other field (Called Leads,
+                // disposition breakdown, rates) already reflected the same
+                // backlog; Excess naturally falls out of the same real total.
                 $row = $computeRow($backlog);
-                // New Leads stays just this hour's own count; every other
-                // field (Called Leads, disposition breakdown, rates) reflects
-                // the WHOLE backlog batch just caught up on — Excess is
-                // recomputed against the real (smaller) total accordingly, so
-                // it can go negative here by design.
-                $row['total']  = $realTotal;
-                $row['excess'] = $row['total'] - $row['catered'];
+            } elseif ($hour > $shiftEndHour) {
+                // Mirror of the pre-cutoff branch at the window's other edge
+                // (2026-09-07) — fully blanked, folded into the end-hour's
+                // own lump below instead of surfacing an impossible
+                // post-window row (e.g. Opening's table showing a
+                // "3:00pm-4:00pm" row from a same-team product legitimately
+                // sold during Closing's hours).
+                $row = $computeRow(collect());
+            } elseif ($hour === $shiftEndHour) {
+                $overflow = collect();
+                for ($h = $shiftEndHour; $h <= 23; $h++) {
+                    $overflow = $overflow->merge($ordersBySlot->get($slotKeyForHour($date, $h), collect()));
+                }
+                // Same lump treatment as the start-of-window backlog above,
+                // just gathering forward instead of backward — every
+                // post-window stray order folds into this, the window's own
+                // last hour.
+                $row = $computeRow($overflow);
             }
-            // else: hour > cutoff — normal per-hour row, unchanged.
+            // else: cutoff < hour < shiftEndHour — normal per-hour row, unchanged.
 
             if ($row['total'] === 0) continue;
             $rows[] = ['label' => $slot['label'], 'row' => $row];

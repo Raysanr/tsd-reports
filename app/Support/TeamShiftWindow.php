@@ -47,4 +47,21 @@ class TeamShiftWindow
             default => throw new \InvalidArgumentException("Unknown team: {$team}."),
         };
     }
+
+    /** The LAST hour-of-day (0-23) still inside $team's window — the mirror
+     *  of startHourFor() at the other edge (2026-09-07): Opening's window
+     *  ends at 2pm (14), Closing's at 11pm (23). Leads Report's hourly
+     *  tables use this to fold a same-team-product sale that happens to
+     *  land in the OTHER team's hours (e.g. an Eyecare product sold at
+     *  4pm — legitimate, ProductPerformance::matchingOrders() trusts an
+     *  order's own item over its hour-derived team) into this last valid
+     *  hour, instead of surfacing an impossible post-window row. */
+    public static function endHourFor(string $team): int
+    {
+        return match ($team) {
+            self::OPENING_TEAM => 14,
+            self::CLOSING_TEAM => 23,
+            default => throw new \InvalidArgumentException("Unknown team: {$team}."),
+        };
+    }
 }

@@ -8,17 +8,21 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Explicit request: hours before the team's own time-based window starts
- * show no Called/disposition/rate/Excess data (nobody's working yet — New
- * Leads is untouched), and the window-start hour absorbs the WHOLE
- * day-so-far backlog's disposition breakdown in one lump, so Called Leads can
- * exceed that hour's own New Leads and Excess can go negative there by
- * design. See LeadsReportController::buildHourlyRows().
+ * Explicit request, revised 2026-09-07: hours OUTSIDE the team's own
+ * time-based window (before it starts, or after it ends) show NOTHING for
+ * this team's table — not even New Leads, since a "New Lead" outside the
+ * window can't really belong to this team once Order.team is purely
+ * hour-derived. A same-team-owned product can still legitimately sell
+ * during the other team's hours, so those orders fold into the window's
+ * own edge hour (start hour for pre-window strays, end hour for
+ * post-window strays) instead of being dropped or surfacing an impossible
+ * row — Called Leads can exceed New Leads and Excess can go negative there
+ * by design. See LeadsReportController::buildHourlyRows().
  *
- * Cutoff hour is now TeamShiftWindow's own fixed boundary (2026-09-07) — 15
- * (3pm) for SH Naturals/Closing, 0 (midnight) for Eyecare/Opening — not a
- * per-TSA shift_start lookup, since Order.team is purely hour-derived now
- * and every SH Naturals order's own pancake_created_at is already >= 3pm.
+ * Window bounds are TeamShiftWindow's own fixed boundary (2026-09-07) — SH
+ * Naturals/Closing is 15-23 (3pm-11pm), Eyecare/Opening is 0-14
+ * (12am-2pm) — not a per-TSA shift_start lookup, since Order.team is
+ * purely hour-derived now.
  */
 class LeadsReportShiftCutoffTest extends TestCase
 {
@@ -30,11 +34,11 @@ class LeadsReportShiftCutoffTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    private function order(string $id, string $time, ?string $disposition): void
+    private function order(string $id, string $time, ?string $disposition, string $team = 'SH Naturals'): void
     {
         Order::create([
             'pancake_order_id'    => $id,
-            'team'                => 'SH Naturals',
+            'team'                => $team,
             'tsa_name'            => 'Gemma',
             'product'             => 'SINUXYL',
             'disposition'         => $disposition,
@@ -46,10 +50,11 @@ class LeadsReportShiftCutoffTest extends TestCase
         ]);
     }
 
-    public function test_hours_before_shift_start_show_leads_but_no_disposition_data(): void
+    public function test_hours_before_the_window_starts_show_no_row_at_all(): void
     {
-        // 1pm: a lead that already has a disposition set — still forced
-        // blank at its own hour, since Closing's window hasn't started yet.
+        // 1pm: a lead that already has a disposition set — still fully
+        // blanked (including New Leads) at its own hour, folded into 3pm
+        // instead, since Closing's window hasn't started yet.
         $this->order('cutoff-1', '2026-07-22 13:15:00', 'CONFIRMED VIA CALL');
 
         $response = $this->get(route('leads-report', [
@@ -61,10 +66,7 @@ class LeadsReportShiftCutoffTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             $onePm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '1:00pm'));
 
-            return $onePm['row']['total'] === 1
-                && $onePm['row']['total_called'] === 0
-                && $onePm['row']['confirmed_via_call'] === 0
-                && $onePm['row']['pick_up_rate'] === null;
+            return $onePm === null;
         });
     }
 
@@ -85,12 +87,14 @@ class LeadsReportShiftCutoffTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             $threePm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '3:00pm'));
 
-            // New Leads = just this hour's own (1), but Called Leads reflects
-            // the whole backlog (the 2 already-called 1pm leads) — 2 > 1, and
-            // Excess (1 - 2) goes negative.
-            return $threePm['row']['total'] === 1
-                && $threePm['row']['total_called'] === 2
-                && $threePm['row']['excess'] === -1;
+            // New Leads now reflects the WHOLE backlog (3 total: 2 from 1pm
+            // + 1 from 3pm itself), Called Leads is the 2 already-called 1pm
+            // leads, and Excess (3 - 2) stays positive here — the earlier
+            // "negative excess" example depended on New Leads staying at
+            // just the cutoff hour's own count, which no longer happens now
+            // that pre-window leads fold in instead of vanishing.
+            return $threePm['row']['total'] === 3
+                && $threePm['row']['total_called'] === 2;
         });
     }
 
@@ -131,11 +135,39 @@ class LeadsReportShiftCutoffTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             $eightAm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '8:00am'));
 
-            // 8am is still blanked-not-cutoff (New Leads visible, no
-            // disposition data) rather than treated as a normal hour, even
-            // though a TSA is configured to start at 8am — the cutoff no
-            // longer reads shift_start at all.
-            return $eightAm['row']['total'] === 1 && $eightAm['row']['total_called'] === 0;
+            // 8am no longer shows a row at all, even though a TSA is
+            // configured to start at 8am — the cutoff no longer reads
+            // shift_start at all.
+            return $eightAm === null;
+        });
+    }
+
+    /** Bug fix (2026-09-07): mirror of the start-of-window fold at the
+     *  other edge — Opening's table used to show an impossible row past
+     *  2pm (e.g. "3:00pm-4:00pm") whenever a same-team-owned product was
+     *  legitimately sold during Closing's hours. Confirmed live. */
+    public function test_hours_after_the_window_ends_fold_into_the_last_hour(): void
+    {
+        // Opening's window is 12am-2pm — a straggler SINUXYL... no, use an
+        // Eyecare-owned product name via team assignment instead: the
+        // product itself is SINUXYL (fixed by the order() helper), so seed
+        // this as an Eyecare-team order to exercise Opening's own page.
+        $this->order('cutoff-9', '2026-07-22 14:30:00', 'CONFIRMED VIA CALL', 'Eyecare Team');
+        // A stray sale during Closing's hours (4pm) that still matches this
+        // product — folds into 2pm instead of showing its own row.
+        $this->order('cutoff-10', '2026-07-22 16:00:00', null, 'Eyecare Team');
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'eyecare', 'range' => 'dates', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productTables', function ($tables) {
+            $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
+            $fourPm  = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '4:00pm'));
+            $twoPm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '2:00pm'));
+
+            return $fourPm === null && $twoPm['row']['total'] === 2;
         });
     }
 }
