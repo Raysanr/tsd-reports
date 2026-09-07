@@ -239,4 +239,73 @@ class LeadsReportDrilldownTest extends TestCase
         $ids = collect($response->json())->pluck('id');
         $this->assertEqualsCanonicalizing(['dd-16', 'dd-17'], $ids->all());
     }
+
+    /** Explicit request (2026-09-07): the Grand Total row's own cells are now
+     *  clickable too — omitting `product` combines every product THIS TEAM
+     *  OWNS, the same countedOrdersFor() dedupe Grand Total's own number is
+     *  built from, so "which orders" can never drift from what the cell
+     *  actually counted. */
+    public function test_a_missing_product_param_combines_every_owned_product_for_grand_total(): void
+    {
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
+        Product::create(['display_name' => 'PTERYGIUM', 'match_keyword' => 'PTERYGIUM', 'team' => 'Eyecare Team', 'sort_order' => 2]);
+
+        $this->order('dd-18', 'SH Naturals', '2026-07-24 16:00:00', ['SINUXYL']);
+        $this->order('dd-19', 'SH Naturals', '2026-07-24 17:00:00', ['AUDICURE']);
+        // A different team's own order — must not appear once team-scoped.
+        $this->order('dd-20', 'Eyecare Team', '2026-07-24 10:00:00', ['PTERYGIUM']);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'team' => 'sh-naturals', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertEqualsCanonicalizing(['dd-18', 'dd-19'], $ids->all());
+    }
+
+    /** A cross-team combo order counts exactly ONCE in the Grand Total
+     *  drilldown, matching sumRows()'s own dedupe — not once per matching
+     *  product, which would double-list the same order. */
+    public function test_grand_total_drilldown_does_not_double_list_a_multi_product_order(): void
+    {
+        $product = Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
+
+        Order::create([
+            'pancake_order_id' => 'dd-21', 'team' => 'SH Naturals', 'raw_tags' => [],
+            'product' => 'Sinuxyl', 'bundle_description' => '1 Sinuxyl + 1 Audicure',
+            'status_code' => 9, 'pancake_created_at' => '2026-07-24 16:00:00',
+            'pancake_inserted_at' => '2026-07-24 16:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'team' => 'sh-naturals', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-21'], $ids->all());
+    }
+
+    /** A `column` param on the Grand Total (no-product) drilldown narrows to
+     *  that disposition across every owned product, same as it does for a
+     *  single product. */
+    public function test_a_column_param_narrows_the_grand_total_drilldown_too(): void
+    {
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
+
+        Order::create(['pancake_order_id' => 'dd-22', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'], 'disposition' => 'Confirmed via Call', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 16:00:00', 'pancake_inserted_at' => '2026-07-24 16:00:00', 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'dd-23', 'team' => 'SH Naturals', 'raw_tags' => ['AUDICURE'], 'disposition' => 'Call Back', 'status_code' => 9, 'pancake_created_at' => '2026-07-24 17:00:00', 'pancake_inserted_at' => '2026-07-24 17:00:00', 'synced_at' => now()]);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'team' => 'sh-naturals', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'column' => 'confirmed_via_call',
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-22'], $ids->all());
+    }
 }

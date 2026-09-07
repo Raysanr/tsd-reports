@@ -635,9 +635,6 @@ class LeadsReportController extends Controller
     {
         $teamsConfig = Teams::config();
         $productId   = $request->query('product');
-        abort_if(!$productId, 422);
-
-        $product = Product::findOrFail($productId);
 
         $dateFrom = $request->query('date_from');
         $dateTo   = $request->query('date_to', $dateFrom);
@@ -670,8 +667,34 @@ class LeadsReportController extends Controller
         }
         $matchPool = $matchPoolQuery->get();
 
-        $teamProducts = Product::where('team', $product->team)->get();
-        $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+        // No `product` param = the Grand Total row's own cell (2026-09-07):
+        // matches every product THIS TEAM OWNS combined, the same
+        // countedOrdersFor() dedupe ProductPerformance::sumRows()'s own
+        // Grand Total is built from elsewhere — so "which orders" can never
+        // drift from what the Grand Total cell's own number counted. Falls
+        // back to every product when no team is resolvable (the ALL view's
+        // own Grand Total), matching indexAll()'s own cross-team scope.
+        if ($productId) {
+            $product      = Product::findOrFail($productId);
+            $teamProducts = Product::where('team', $product->team)->get();
+            $matching     = ProductPerformance::matchingOrders($product, $matchPool, $teamProducts);
+            $matchReasonFor = fn (Order $o) => ProductPerformance::matchReason($product, $o);
+        } else {
+            $teamProducts = $orderTeam ? Product::where('team', $orderTeam)->get() : Product::all();
+            $matching     = ProductPerformance::countedOrdersFor($teamProducts, $matchPool);
+            // Grand Total combines every owned product, so each order's own
+            // "which product matched" varies per row — find the first
+            // owned product it actually matches (same product-then-tag
+            // priority matchingOrders() itself checks) purely to explain it
+            // in the popover; a bundle order can genuinely match more than
+            // one, this just names one real match, not every one.
+            $matchReasonFor = function (Order $o) use ($teamProducts) {
+                $matchedProduct = $teamProducts->first(
+                    fn ($p) => ProductPerformance::matchingOrders($p, collect([$o]), $teamProducts)->isNotEmpty()
+                );
+                return $matchedProduct ? ProductPerformance::matchReason($matchedProduct, $o) : 'unknown';
+            };
+        }
 
         // A disposition/count column (Called Leads, Confirmed via Call, Excess,
         // etc.) — same categorization ProductPerformance::tally() itself uses,
@@ -679,14 +702,16 @@ class LeadsReportController extends Controller
         // counted. Omitted entirely = the plain product Total cell.
         if ($column) {
             $matching = ProductPerformance::ordersForColumn($matching, (string) $column);
-        } else {
+        } elseif ($productId) {
             // Same exclusions ordersForColumn() already applies for every
             // other column — see this method's own docblock for why the
             // Total cell now matches instead of being the one exception.
             // Canceled (6) carve-out (2026-08-24) matches
             // ProductPerformance::tally()'s own fix — a genuine upsell that
             // happened before an order was later canceled still counts, see
-            // that method's own comment.
+            // that method's own comment. Not needed on the productId-less
+            // (Grand Total) branch — countedOrdersFor() already applies the
+            // same exclusion set itself.
             $matching = $matching->reject(fn ($o) => $o->status_code === 7
                 || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
                 || $o->excluded_upsell_seller
@@ -705,7 +730,7 @@ class LeadsReportController extends Controller
                 // shows WHICH signal (ID/cart item/base item/bundle/tag) actually
                 // matched this order to $product, so a false positive is visible
                 // right in the popover instead of needing a manual Pancake lookup.
-                'matched_via' => ProductPerformance::matchReason($product, $o),
+                'matched_via' => $matchReasonFor($o),
             ]);
 
         return response()->json($result);

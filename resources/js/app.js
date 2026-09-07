@@ -648,11 +648,14 @@ document.addEventListener('click', async (e) => {
         if (!wrapper) return;
 
         // Toggle: clicking the same cell again closes it instead of
-        // re-fetching/re-showing the identical popover. ddCellProduct is only set
-        // by Leads Report's per-product-row Total Leads cells (see below) — folded
-        // in so each row's cell counts as a distinct cell from the others, which
-        // ddTsa/ddHour/ddColumn alone can't tell apart there (none of them vary
-        // per row on that page).
+        // re-fetching/re-showing the identical popover. ddCellProduct is set by
+        // Leads Report's per-product-row cells (see below), but NOT its own
+        // Grand Total row (2026-09-07 — that row combines every product, so
+        // there's no single product to name) — folded in so each product row's
+        // cell counts as a distinct cell from the others, which ddTsa/ddHour/
+        // ddColumn alone can't tell apart there (none of them vary per row on
+        // that page). The Grand Total row's own Total cell is the one cell with
+        // no column AND no product — still unique on the page, so no collision.
         const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn, cell.dataset.ddCellProduct].join('|');
         const wasOpenForThisCell = popover?.dataset.forCell === cellKey;
         closePopover();
@@ -663,10 +666,17 @@ document.addEventListener('click', async (e) => {
         // is about — the one thing that actually varies per cell on that page.
         const params = new URLSearchParams({
             team:      wrapper.dataset.ddTeam,
-            product:   cell.dataset.ddCellProduct || wrapper.dataset.ddProduct,
             date_from: wrapper.dataset.ddDateFrom,
             date_to:   wrapper.dataset.ddDateTo,
         });
+        // Omitted entirely (not just empty) when neither is set — e.g. the
+        // Grand Total row's own cells, which combine every product — same
+        // "undefined stringifies to the literal text 'undefined'" fix
+        // already applied to tsa/column/hour below (2026-09-07).
+        const cellProduct = cell.dataset.ddCellProduct || wrapper.dataset.ddProduct;
+        if (cellProduct !== undefined && cellProduct !== '') {
+            params.set('product', cellProduct);
+        }
         // tsa/column/hour: omitted entirely (not just empty) when a cell doesn't
         // set the attribute — e.g. Leads Report's plain Total Leads cell sets
         // neither tsa nor column. Root-caused 2026-08-17: URLSearchParams

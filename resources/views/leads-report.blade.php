@@ -211,17 +211,22 @@
         <tfoot>
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $grandTotal['total'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['total']) data-drilldown title="Click to see the orders behind this total" @endif>{{ $grandTotal['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $grandTotal['catered'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['catered']) data-drilldown data-dd-column="catered" title="Click to see the orders behind this total" @endif>{{ $grandTotal['catered'] ?: '' }}</td>
                 @foreach($answeredCols->merge($unansweredCols) as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $grandTotal[$col['key']] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal[$col['key']]) data-drilldown data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>
                     {{ $grandTotal[$col['key']] ?: '' }}
                 </td>
                 @endforeach
-                <td class="border border-slate-700 px-2 py-3 text-center">
+                <td class="border border-slate-700 px-2 py-3 text-center {{ $grandTotal['restocking'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['restocking']) data-drilldown data-dd-column="restocking" title="Click to see the orders behind this total" @endif>
                     {{ $grandTotal['restocking'] ?: '' }}
                 </td>
-                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300 {{ $grandTotal['excess'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['excess']) data-drilldown data-dd-column="excess" title="Click to see the orders behind this total" @endif>
                     {{ $grandTotal['excess'] ?: '' }}
                 </td>
                 <td class="border border-slate-700 px-3 py-3 text-center text-blue-300">
@@ -261,7 +266,8 @@
         </div>
     </div>
     <div class="flex flex-col lg:flex-row gap-4">
-    <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable" data-scroll-shadow>
+    <div class="overflow-x-auto flex-1 min-w-0" id="grandTotalTable" data-scroll-shadow
+         data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
         <thead>
             <tr>
@@ -307,16 +313,22 @@
 
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total'] ?: '' }}</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['total_called'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $grandTotal['total'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['total']) data-drilldown title="Click to see the orders behind this total" @endif>{{ $grandTotal['total'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $grandTotal['total_called'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['total_called']) data-drilldown data-dd-column="total_called" title="Click to see the orders behind this total" @endif>{{ $grandTotal['total_called'] ?: '' }}</td>
                 @foreach($answeredCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">{{ $grandTotal[$col['key']] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $grandTotal[$col['key']] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal[$col['key']]) data-drilldown data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $grandTotal[$col['key']] ?: '' }}</td>
                 @endforeach
                 @foreach($unansweredCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center">{{ $grandTotal[$col['key']] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center {{ $grandTotal[$col['key']] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal[$col['key']]) data-drilldown data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $grandTotal[$col['key']] ?: '' }}</td>
                 @endforeach
-                <td class="border border-slate-700 px-2 py-3 text-center">{{ $grandTotal['restocking'] ?: '' }}</td>
-                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300">{{ $grandTotal['excess'] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center {{ $grandTotal['restocking'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['restocking']) data-drilldown data-dd-column="restocking" title="Click to see the orders behind this total" @endif>{{ $grandTotal['restocking'] ?: '' }}</td>
+                <td class="border border-slate-700 px-2 py-3 text-center text-rose-300 {{ $grandTotal['excess'] ? 'cursor-pointer hover:bg-yellow-950/40' : '' }}"
+                    @if($grandTotal['excess']) data-drilldown data-dd-column="excess" title="Click to see the orders behind this total" @endif>{{ $grandTotal['excess'] ?: '' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-blue-300">{{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-orange-300">{{ $grandTotal['conversion_rate'] !== null ? $grandTotal['conversion_rate'].'%' : '—' }}</td>
                 <td class="border border-slate-700 px-2 py-3 text-center text-yellow-300">{{ $grandTotal['upselling_rate'] !== null ? $grandTotal['upselling_rate'].'%' : '—' }}</td>
