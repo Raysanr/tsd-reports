@@ -325,4 +325,66 @@ class LeadsReportDrilldownTest extends TestCase
         $ids = collect($response->json())->pluck('id');
         $this->assertSame(['dd-22'], $ids->all());
     }
+
+    /** Explicit request (2026-09-07): the per-hour rows on a product's own
+     *  hourly table (and Grand Total's own hourly table) are now clickable
+     *  too — an `hour` param narrows the match pool to just that hour's own
+     *  orders, matching what buildHourlyRows() itself shows there. Safe now
+     *  that each displayed hour is genuinely just its own real orders (no
+     *  more shift-cutoff backlog-lumping — see that method's own comment). */
+    public function test_an_hour_param_narrows_to_that_hours_own_orders(): void
+    {
+        Product::whereIn('display_name', ['SINUXYL'])->forceDelete();
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+
+        $this->order('dd-24', 'SH Naturals', '2026-07-24 16:15:00', ['SINUXYL']);
+        $this->order('dd-25', 'SH Naturals', '2026-07-24 17:20:00', ['SINUXYL']);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'team' => 'sh-naturals', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'hour' => 16,
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertSame(['dd-24'], $ids->all());
+    }
+
+    /** The Grand Total's own hourly row (no product) combines this narrowing
+     *  with the multi-product match — an hour param there still only
+     *  matches that hour's own orders, across every owned product. */
+    public function test_an_hour_param_narrows_the_grand_total_drilldown_too(): void
+    {
+        Product::whereIn('display_name', ['SINUXYL', 'AUDICURE'])->forceDelete();
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        Product::create(['display_name' => 'AUDICURE', 'match_keyword' => 'AUDICURE', 'team' => 'SH Naturals', 'sort_order' => 1]);
+
+        $this->order('dd-26', 'SH Naturals', '2026-07-24 16:10:00', ['SINUXYL']);
+        $this->order('dd-27', 'SH Naturals', '2026-07-24 16:40:00', ['AUDICURE']);
+        $this->order('dd-28', 'SH Naturals', '2026-07-24 17:00:00', ['SINUXYL']);
+
+        $response = $this->getJson(route('leads-report.drilldown', [
+            'team' => 'sh-naturals', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24', 'hour' => 16,
+        ]));
+
+        $response->assertOk();
+        $ids = collect($response->json())->pluck('id');
+        $this->assertEqualsCanonicalizing(['dd-26', 'dd-27'], $ids->all());
+    }
+
+    /** The per-product hourly table's own rows now render drilldown markup
+     *  (2026-09-07) — used to deliberately stay plain (see this method's own
+     *  git history); confirms the wiring actually reaches the page. */
+    public function test_the_hourly_rows_render_drilldown_markup(): void
+    {
+        Product::whereIn('display_name', ['SINUXYL'])->forceDelete();
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        $this->order('dd-29', 'SH Naturals', '2026-07-24 16:15:00', ['SINUXYL']);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('data-dd-hour="16"', false);
+    }
 }

@@ -106,12 +106,19 @@ class LeadsReportController extends Controller
                 $slots[] = [
                     'key'   => $day->format('Y-m-d') . ' ' . $hour,
                     'label' => $day->format('M j') . ' · ' . HourFormatter::rangeLabel($hour),
+                    // Carried through to each hourly row (2026-09-07) so its
+                    // own drilldown popover queries the exact real date this
+                    // slot represents — last24h's own slots can straddle
+                    // yesterday/today, so the page-wide $dateFrom/$dateTo
+                    // alone isn't enough to know which day this ONE hour is.
+                    'hour'  => $hour,
+                    'date'  => $day->toDateString(),
                 ];
             }
             $slotKeyOf = fn($o) => $o->effective_created_at->format('Y-m-d G');
         } else {
             for ($hour = 0; $hour <= 23; $hour++) {
-                $slots[] = ['key' => $hour, 'label' => HourFormatter::rangeLabel($hour)];
+                $slots[] = ['key' => $hour, 'label' => HourFormatter::rangeLabel($hour), 'hour' => $hour, 'date' => null];
             }
             $slotKeyOf = fn($o) => (int) $o->effective_created_at->format('G');
         }
@@ -445,7 +452,7 @@ class LeadsReportController extends Controller
                 // already scoped it down to this one).
                 if ($row['total'] === 0) continue;
 
-                $rows[] = ['label' => $slot['label'], 'row' => $row];
+                $rows[] = ['label' => $slot['label'], 'row' => $row, 'hour' => $slot['hour'], 'date' => $slot['date']];
             }
             return $rows;
         }
@@ -483,7 +490,7 @@ class LeadsReportController extends Controller
 
             $row = $computeRow($hourOrders);
             if ($row['total'] === 0) continue;
-            $rows[] = ['label' => $slot['label'], 'row' => $row];
+            $rows[] = ['label' => $slot['label'], 'row' => $row, 'hour' => $slot['hour'], 'date' => $slot['date']];
         }
         return $rows;
     }
@@ -667,6 +674,19 @@ class LeadsReportController extends Controller
             $matchPoolQuery->whereIn('team', collect($teamsConfig)->pluck('order_team')->all());
         }
         $matchPool = $matchPoolQuery->get();
+
+        // An hourly row's own cell (2026-09-07) — narrows the pool to just
+        // that hour's own orders, using effective_created_at (the same
+        // column the hourly table itself buckets by, and now the only
+        // column relevant since buildHourlyRows() stopped lumping several
+        // real hours' worth of orders into one displayed row — each shown
+        // hour is genuinely just that hour's own orders, so this can
+        // reproduce it exactly). Omitted entirely = the TOTAL/Grand Total
+        // cell's own whole-range query, unaffected.
+        $hour = $request->query('hour');
+        if ($hour !== null && $hour !== '') {
+            $matchPool = $matchPool->filter(fn ($o) => (int) $o->effective_created_at->format('G') === (int) $hour)->values();
+        }
 
         // No `product` param = the Grand Total row's own cell (2026-09-07,
         // fifth revision — see index()'s own shift-window comment for the

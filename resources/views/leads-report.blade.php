@@ -292,22 +292,29 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($grandTotalHourlyRows as $hour)
+            @foreach($grandTotalHourlyRows as $hourRow)
+            @php($ddHourAttrs = 'data-dd-hour="' . $hourRow['hour'] . '"' . ($hourRow['date'] ? ' data-dd-cell-date="' . $hourRow['date'] . '"' : ''))
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hour['label'] }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total'] ?: '' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total_called'] ?: '' }}</td>
+                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hourRow['label'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $hourRow['row']['total'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row']['total']) data-drilldown {!! $ddHourAttrs !!} title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['total'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $hourRow['row']['total_called'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row']['total_called']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="total_called" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['total_called'] ?: '' }}</td>
                 @foreach($answeredCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $hourRow['row'][$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row'][$col['key']]) data-drilldown {!! $ddHourAttrs !!} data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $hourRow['row'][$col['key']] ?: '' }}</td>
                 @endforeach
                 @foreach($unansweredCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200 {{ $hourRow['row'][$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row'][$col['key']]) data-drilldown {!! $ddHourAttrs !!} data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $hourRow['row'][$col['key']] ?: '' }}</td>
                 @endforeach
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['restocking'] ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['restocking'] ?: '' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['excess'] }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['restocking'] ? 'text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : 'text-slate-300 dark:text-slate-600' }}"
+                    @if($hourRow['row']['restocking']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="restocking" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['restocking'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['excess'] ? 'text-rose-700 dark:text-rose-400 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : 'text-slate-300 dark:text-slate-600' }}"
+                    @if($hourRow['row']['excess']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="excess" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['excess'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['pick_up_rate'] !== null ? $hourRow['row']['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['conversion_rate'] !== null ? $hourRow['row']['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['upselling_rate'] !== null ? $hourRow['row']['upselling_rate'].'%' : '—' }}</td>
             </tr>
             @endforeach
 
@@ -359,13 +366,12 @@
     <div class="py-12 text-center font-mono text-xs text-slate-400">No leads for {{ $rangeLabel }}</div>
     @else
     <div class="flex flex-col lg:flex-row gap-4">
-    {{-- data-dd-* only matter for this table's own TOTAL row below (whole-range,
-         one product) — the hourly rows above deliberately stay non-interactive:
-         the shift-cutoff backlog-lumping in buildHourlyRows() means a single
-         hour's displayed row can represent several real hours' worth of orders
-         at once, which the drilldown endpoint has no way to reproduce
-         correctly without risking a popover that doesn't actually match what's
-         shown. --}}
+    {{-- Every cell here is drilldown-enabled, including the hourly rows
+         (2026-09-07) — buildHourlyRows() no longer lumps several real hours'
+         worth of orders into one displayed row (see its own comment), so each
+         shown hour genuinely IS just that hour's own orders, safely
+         reproducible via data-dd-hour (+ data-dd-cell-date for 'last24h' mode,
+         where one row can belong to yesterday or today). --}}
     <div class="overflow-x-auto flex-1 min-w-0" id="productTable-{{ $loop->index }}" data-scroll-shadow
          data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('leads-report.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1300px">
@@ -392,22 +398,29 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($table['hourlyRows'] as $hour)
+            @foreach($table['hourlyRows'] as $hourRow)
+            @php($ddHourAttrs = 'data-dd-cell-product="' . $table['product']->id . '" data-dd-hour="' . $hourRow['hour'] . '"' . ($hourRow['date'] ? ' data-dd-cell-date="' . $hourRow['date'] . '"' : ''))
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hour['label'] }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total'] ?: '' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100">{{ $hour['row']['total_called'] ?: '' }}</td>
+                <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-primary whitespace-nowrap">{{ $hourRow['label'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $hourRow['row']['total'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row']['total']) data-drilldown {!! $ddHourAttrs !!} title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['total'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $hourRow['row']['total_called'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row']['total_called']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="total_called" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['total_called'] ?: '' }}</td>
                 @foreach($answeredCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }}">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center {{ !empty($col['highlight']) ? 'text-green-700 dark:text-green-400 font-semibold' : 'text-slate-700 dark:text-slate-200' }} {{ $hourRow['row'][$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row'][$col['key']]) data-drilldown {!! $ddHourAttrs !!} data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $hourRow['row'][$col['key']] ?: '' }}</td>
                 @endforeach
                 @foreach($unansweredCols as $col)
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ $hour['row'][$col['key']] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center text-slate-700 dark:text-slate-200 {{ $hourRow['row'][$col['key']] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}"
+                    @if($hourRow['row'][$col['key']]) data-drilldown {!! $ddHourAttrs !!} data-dd-column="{{ $col['key'] }}" title="Click to see the orders behind this total" @endif>{{ $hourRow['row'][$col['key']] ?: '' }}</td>
                 @endforeach
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['restocking'] ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['restocking'] ?: '' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['excess'] ? 'text-rose-700 dark:text-rose-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['excess'] }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['pick_up_rate'] !== null ? $hour['row']['pick_up_rate'].'%' : '—' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['conversion_rate'] !== null ? $hour['row']['conversion_rate'].'%' : '—' }}</td>
-                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hour['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hour['row']['upselling_rate'] !== null ? $hour['row']['upselling_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['restocking'] ? 'text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : 'text-slate-300 dark:text-slate-600' }}"
+                    @if($hourRow['row']['restocking']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="restocking" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['restocking'] ?: '' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['excess'] ? 'text-rose-700 dark:text-rose-400 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : 'text-slate-300 dark:text-slate-600' }}"
+                    @if($hourRow['row']['excess']) data-drilldown {!! $ddHourAttrs !!} data-dd-column="excess" title="Click to see the orders behind this total" @endif>{{ $hourRow['row']['excess'] }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['pick_up_rate'] !== null ? 'text-blue-700 dark:text-blue-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['pick_up_rate'] !== null ? $hourRow['row']['pick_up_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['conversion_rate'] !== null ? 'text-orange-700 dark:text-orange-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['conversion_rate'] !== null ? $hourRow['row']['conversion_rate'].'%' : '—' }}</td>
+                <td class="border border-slate-200 dark:border-slate-700 px-2 py-2.5 text-center font-semibold {{ $hourRow['row']['upselling_rate'] !== null ? 'text-yellow-700 dark:text-yellow-400' : 'text-slate-300 dark:text-slate-600' }}">{{ $hourRow['row']['upselling_rate'] !== null ? $hourRow['row']['upselling_rate'].'%' : '—' }}</td>
             </tr>
             @endforeach
 

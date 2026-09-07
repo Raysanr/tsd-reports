@@ -656,7 +656,7 @@ document.addEventListener('click', async (e) => {
         // ddColumn alone can't tell apart there (none of them vary per row on
         // that page). The Grand Total row's own Total cell is the one cell with
         // no column AND no product — still unique on the page, so no collision.
-        const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn, cell.dataset.ddCellProduct].join('|');
+        const cellKey = [cell.dataset.ddTsa, cell.dataset.ddHour, cell.dataset.ddColumn, cell.dataset.ddCellProduct, cell.dataset.ddCellDate].join('|');
         const wasOpenForThisCell = popover?.dataset.forCell === cellKey;
         closePopover();
         if (wasOpenForThisCell) return;
@@ -664,10 +664,17 @@ document.addEventListener('click', async (e) => {
         // ddCellProduct overrides the wrapper's own ddProduct (a page-wide product
         // FILTER, meaningless to Leads Report) with the specific product THIS row
         // is about — the one thing that actually varies per cell on that page.
+        // ddCellDate similarly overrides the wrapper's own page-wide date range
+        // to a single day (2026-09-07) — needed for Leads Report's per-hour rows
+        // under 'last24h' mode, where a single hourly row can belong to
+        // yesterday or today depending on the current hour (see index()'s own
+        // $slots construction); a TOTAL/Grand Total cell has no ddCellDate and
+        // keeps querying the wrapper's own full page-wide range.
+        const cellDate = cell.dataset.ddCellDate;
         const params = new URLSearchParams({
             team:      wrapper.dataset.ddTeam,
-            date_from: wrapper.dataset.ddDateFrom,
-            date_to:   wrapper.dataset.ddDateTo,
+            date_from: cellDate || wrapper.dataset.ddDateFrom,
+            date_to:   cellDate || wrapper.dataset.ddDateTo,
         });
         // Omitted entirely (not just empty) when neither is set — e.g. the
         // Grand Total row's own cells, which combine every product — same
