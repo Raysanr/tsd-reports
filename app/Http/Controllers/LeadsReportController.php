@@ -223,8 +223,6 @@ class LeadsReportController extends Controller
         // day) still fetches its one day's orders directly below since the
         // cutoff logic genuinely needs real orders then, and one day's
         // worth was never the memory risk to begin with.
-        $orderTeams = collect($teamsConfig)->pluck('order_team')->all();
-
         // Every product is browsable on every team's page (2026-09-07) — a
         // team can genuinely upsell a product it doesn't own (see
         // ExpandProductRosterToAllTsas). Grand Total below stays scoped to
@@ -241,9 +239,25 @@ class LeadsReportController extends Controller
         $matchPoolTotal            = null;
         $dailyTotalRowsByProductId = null;
 
+        // Scoped to THIS team's own orders only (2026-09-07, both branches
+        // below) — since Order.team is now purely derived from
+        // pancake_created_at's hour (TeamShiftWindow), "this team's own
+        // orders" and "orders created inside this team's own hour window"
+        // are the exact same set, so this single filter enforces both at
+        // once: a product's Total Leads/Grand Total on this page now only
+        // counts leads actually created in this team's window, matching the
+        // hourly table exactly (explicit request — a 9am GINSENG SERUM
+        // sale, though a real SH Naturals product, should no longer count
+        // on Closing's page at all, only on Opening's, since 9am is
+        // Opening's hour). This DROPS the older cross-team combo pool
+        // (whereIn both teams) that used to let e.g. a noon Pterygium
+        // order's bundled Sinuxyl half count toward SH Naturals' SINUXYL
+        // row too — accepted trade-off of this same decision, confirmed
+        // explicitly: team-hour is now the only rule, no bundle exception
+        // survives it on this page.
         if ($applyShiftCutoff) {
             $matchPool       = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-                ->whereIn('team', $orderTeams)
+                ->where('team', $orderTeam)
                 ->get();
             $matchPoolBySlot = $matchPool->groupBy($slotKeyOf);
             $matchPoolTotal  = $matchPool;
@@ -263,7 +277,7 @@ class LeadsReportController extends Controller
 
             for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
                 $dayOrders    = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
-                    ->whereIn('team', $orderTeams)
+                    ->where('team', $orderTeam)
                     ->get();
                 $dayOrdersBySlot = $dayOrders->groupBy($slotKeyOf);
 
@@ -508,8 +522,20 @@ class LeadsReportController extends Controller
             $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
                 ->whereIn('team', $orderTeams)
                 ->get();
+            // Each product only matches orders from ITS OWN team (2026-09-07,
+            // same decision as index()'s per-team pages — see that method's
+            // shift-window comment for the full history): $dayOrders itself
+            // still spans every team so the per-day fetch is a single query,
+            // but a Sinuxyl unit bundled into an Eyecare-hour Pterygium order
+            // no longer double-counts under both products here either — it
+            // shows once, under Pterygium (the order's real team), keeping
+            // SH Naturals' + Eyecare's own per-team Grand Totals equal to
+            // this view's own Grand Total (an enforced invariant).
+            $dayOrdersByTeam = $dayOrders->groupBy('team');
             foreach ($products as $product) {
-                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
+                $rowsByProductId[$product->id]->push(ProductPerformance::buildRow(
+                    $product, $dayOrdersByTeam->get($product->team, collect()), $products
+                ));
             }
         }
 

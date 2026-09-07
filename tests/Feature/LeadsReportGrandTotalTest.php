@@ -80,8 +80,12 @@ class LeadsReportGrandTotalTest extends TestCase
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) use ($response) {
             $grandTotal = $response->viewData('grandTotal');
+            // Only plain-sinuxyl (1) — the combo order's own team is Eyecare,
+            // so its bundled Sinuxyl half no longer counts on SH Naturals'
+            // own page (2026-09-07 revision: team-hour is the only rule, no
+            // cross-team bundle exception survives on a per-team page).
             return $grandTotal['total'] === $this->sumOfProductTotals($tables, 'SH Naturals')
-                && $grandTotal['total'] === 2; // plain-sinuxyl + the combo's Sinuxyl half
+                && $grandTotal['total'] === 1;
         });
     }
 
@@ -152,9 +156,12 @@ class LeadsReportGrandTotalTest extends TestCase
         $grandTotal  = $response->viewData('grandTotal');
 
         $this->assertSame($productRows->sum('total'), $grandTotal['total']);
-        // The combo order counts under both PTERYGIUM and SINUXYL, so the true
-        // row sum (3) is one more than the distinct-order count (2) would be.
-        $this->assertSame(3, $grandTotal['total']);
+        // The combo order counts once, under PTERYGIUM only — its own team
+        // (2026-09-07 revision: each product only matches its own team's
+        // orders here too, so the bundled Sinuxyl half no longer
+        // double-counts under SINUXYL as well). Row sum equals the plain
+        // distinct-order count (2) now.
+        $this->assertSame(2, $grandTotal['total']);
     }
 
     /** Explicit request: SH Naturals' Grand Total + Eyecare's Grand Total must

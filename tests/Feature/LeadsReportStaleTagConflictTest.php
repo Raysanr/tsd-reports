@@ -136,14 +136,21 @@ class LeadsReportStaleTagConflictTest extends TestCase
     /**
      * Confirmed in production (order #1333736): a combo SKU can bundle products
      * from TWO different teams under one order — e.g. a Pterygium order (Eyecare's
-     * own team, its primary item) bundling Sinuxyl units (SH Naturals). An order
-     * only ever carries the ONE team its primary item belongs to, so before this
-     * fix SH Naturals' own SINUXYL row could never see it (POS showed 89, this
-     * report showed 88). ProductPerformance::buildRow() now trusts an explicit
-     * product/bundle_description text match across team lines, and
-     * LeadsReportController passes it a cross-team pool to check against.
+     * own team, its primary item) bundling Sinuxyl units (SH Naturals).
+     *
+     * Behavior REVISED 2026-09-07 (twice — see LeadsReportController's own
+     * shift-window comment for the full history): once Order.team became
+     * purely hour-derived, this page's per-team pool was scoped to ONLY
+     * this team's own orders (`where('team', $orderTeam)`, not the older
+     * cross-team `whereIn`), so that a product's Total Leads/Grand Total
+     * here matches exactly what was created in this team's own hour
+     * window — explicit request, confirmed: "team-hour is now the only
+     * rule, no bundle exception survives it on this page." The bundled
+     * Sinuxyl half of an Eyecare-hour combo order no longer counts toward
+     * SH Naturals' own SINUXYL row at all (it still shows on Eyecare's own
+     * page, via Pterygium, the order's real primary item and true team).
      */
-    public function test_a_cross_team_combo_orders_bundled_product_counts_for_the_other_team_too(): void
+    public function test_a_cross_team_combo_orders_bundled_product_no_longer_counts_for_the_other_team(): void
     {
         $shift = TsaShift::where('team', 'Eyecare Team')->first();
 
@@ -163,22 +170,19 @@ class LeadsReportStaleTagConflictTest extends TestCase
 
         $today = now()->toDateString();
 
-        // SH Naturals' own report should now count the Sinuxyl half of the bundle...
+        // SH Naturals' own report no longer sees the Sinuxyl half of the
+        // bundle at all — the order's own team is Eyecare, not SH Naturals.
         $shResponse = $this->get(route('leads-report', [
             'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
         ]));
         $shResponse->assertOk();
         $shResponse->assertViewHas('productTables', function ($tables) {
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
-            return $sinuxyl['total']['total'] === 1;
+            return $sinuxyl['total']['total'] === 0;
         });
-        // ...and Grand Total, defined as the sum of the rows above it (not a
-        // separately-tallied distinct-order count — see LeadsReportGrandTotalTest's
-        // own doc comment for the full history), reflects that too — even
-        // though the order itself belongs to Eyecare Team, not SH Naturals.
-        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+        $shResponse->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
 
-        // Eyecare's own report still counts it too (its actual team + primary item).
+        // Eyecare's own report still counts it (its actual team + primary item).
         $eyecareResponse = $this->get(route('leads-report', [
             'team' => 'eyecare', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
         ]));
@@ -244,8 +248,22 @@ class LeadsReportStaleTagConflictTest extends TestCase
      * "Call in Progress (Sinuxyl Inhaler)" disposition tag. On the ALL view
      * (the only place a cross-team conflict is even checkable, since only it
      * passes every product regardless of team — see indexAll()), this order
-     * counted toward BOTH Pterygium and Sinuxyl, inflating the row sum above
-     * Grand Total by exactly one lead.
+     * used to count toward BOTH Pterygium and Sinuxyl, inflating the row sum
+     * above Grand Total by exactly one lead.
+     *
+     * Behavior REVISED 2026-09-07: indexAll() now matches each product only
+     * against orders from ITS OWN team (same decision as index()'s per-team
+     * pages — see LeadsReportController's shift-window comment for the full
+     * history). This order's `team` value ('SH Naturals') is a pre-redesign
+     * artifact — under the retired "whichever TSA claimed it" rule, not the
+     * current hour-derived one — and disagrees with EVERY real product on
+     * this order (Pterygium is Eyecare's, not SH Naturals'), so it now
+     * counts toward NOTHING at all here: not Sinuxyl (stale tag, correctly
+     * still rejected), not Pterygium either (order's own team doesn't match
+     * Pterygium's team). Accepted as an old-data edge case, confirmed
+     * explicitly — every order going forward has an hour-derived team that
+     * always lines up with some real product's team, so this specific gap
+     * can't recur for new data.
      */
     public function test_a_cross_team_stale_tag_does_not_double_count_on_the_all_view(): void
     {
@@ -274,8 +292,8 @@ class LeadsReportStaleTagConflictTest extends TestCase
             $sinuxyl   = $rows->firstWhere(fn($r) => $r['display_name'] === 'SINUXYL');
             $pterygium = $rows->firstWhere(fn($r) => $r['display_name'] === 'PTERYGIUM');
 
-            return $sinuxyl['total'] === 0 && $pterygium['total'] === 1;
+            return $sinuxyl['total'] === 0 && $pterygium['total'] === 0;
         });
-        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 1);
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 0);
     }
 }

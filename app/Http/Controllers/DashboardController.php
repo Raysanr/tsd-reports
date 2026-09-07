@@ -292,15 +292,15 @@ class DashboardController extends Controller
             // (not literally every product) — otherwise, on a single-team
             // view, the OTHER team's products would also get matched below
             // and bleed their own counts into this team's Total Leads.
-            // $matchPool, unlike $dayOrders, is deliberately NOT team-scoped
-            // even on a single-team view — same reason Leads Report's own
-            // $matchPool isn't (LeadsReportController::index()'s comment): a
-            // cross-team combo order (e.g. an Eyecare-owned order bundling
-            // SH Naturals' Sinuxyl) needs to be visible to SINUXYL's own row
-            // even though its `team` column is Eyecare, not SH Naturals —
-            // $dayOrders alone (already team-filtered) would never surface it,
-            // which is exactly why Dashboard's single-team Total Leads used to
-            // disagree with Leads Report's for a range containing one.
+            // Each product only matches orders from ITS OWN team (2026-09-07
+            // — same decision as LeadsReportController::index()/indexAll(),
+            // see that file's shift-window comment for the full history):
+            // once Order.team became purely hour-derived, a cross-team combo
+            // order (e.g. an Eyecare-hour order bundling SH Naturals'
+            // Sinuxyl) no longer counts toward SINUXYL's own row here either
+            // — it shows once, under its own real team's product, keeping
+            // this number equal to Leads Report's own Grand Total (an
+            // enforced invariant — see DashboardTotalLeadsMatchesLeadsReportTest).
             $allProducts = $selectedTeam === 'all'
                 ? Product::orderBy('sort_order')->get()
                 : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
@@ -329,13 +329,13 @@ class DashboardController extends Controller
                 $dayStart = $cursor->copy()->startOfDay();
                 $dayEnd   = $cursor->copy()->endOfDay();
 
-                $dayMatchPool = $selectedTeam === 'all'
-                    ? Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dayStart, $dayEnd])
-                        ->whereIn('team', $orderTeams)->get()
-                    : Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dayStart, $dayEnd])
-                        ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+                $dayMatchPool = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dayStart, $dayEnd])
+                    ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+                $dayMatchPoolByTeam = $dayMatchPool->groupBy('team');
 
-                $dayProductRows = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $dayMatchPool, $allProducts));
+                $dayProductRows = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow(
+                    $p, $dayMatchPoolByTeam->get($p->team, collect()), $allProducts
+                ));
                 $dailyTotals->push(ProductPerformance::sumRows($dayProductRows));
             }
             $leadsGrandTotal = ProductPerformance::sumRows($dailyTotals);

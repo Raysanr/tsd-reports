@@ -14,9 +14,15 @@ use Tests\TestCase;
  * ProductPerformance::sumRows() over the same per-product rows (see
  * DashboardController::index()'s and LeadsReportController::index()/
  * indexAll()'s own matching comments for the full same-day back-and-forth
- * that landed here). A cross-team combo order (e.g. a Pterygium order
- * bundling Sinuxyl units) counts once per product it matches — TWICE here,
- * not once — since that's exactly what "sum of the visible rows" means.
+ * that landed here).
+ *
+ * Revised 2026-09-07: both sides now match each product only against
+ * orders from ITS OWN team (see LeadsReportController's shift-window
+ * comment for the full history of that decision). A cross-team combo
+ * order (e.g. a Pterygium order bundling Sinuxyl units) counts once, under
+ * its own real team's product, not twice — the older "counts under both
+ * products" behavior this test used to assert was retired along with the
+ * cross-team match pool both controllers used to share.
  *
  * This replaces an earlier version of this test (then named
  * DashboardTotalLeadsMatchesTsaPerformanceTest) that asserted the opposite:
@@ -48,8 +54,8 @@ class DashboardTotalLeadsMatchesLeadsReportTest extends TestCase
         ]);
 
         // Cross-team combo: an Eyecare-owned order bundling a SINUXYL half —
-        // counts once under PTERYGIUM and once under SINUXYL, so it adds 2 to
-        // sumRows(), not 1.
+        // counts once, under PTERYGIUM (its own real team), not under
+        // SINUXYL too (2026-09-07: team-hour is the only rule now).
         Order::create([
             'pancake_order_id' => 'combo-order-dash', 'team' => 'Eyecare Team', 'tsa_name' => $eyeShift->tsa_key,
             'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
@@ -73,7 +79,9 @@ class DashboardTotalLeadsMatchesLeadsReportTest extends TestCase
         $totalLeads = $dashboard->viewData('stats')['total_leads'];
         $grandTotal = $leadsReport->viewData('grandTotal')['total'];
 
-        $this->assertSame(3, $totalLeads); // sum of rows: the combo order counts twice
+        // 2: plain-sinuxyl (1) + the combo order counted once, under its own
+        // real team's product (PTERYGIUM), not twice.
+        $this->assertSame(2, $totalLeads);
         $this->assertSame($grandTotal, $totalLeads);
     }
 
@@ -91,10 +99,10 @@ class DashboardTotalLeadsMatchesLeadsReportTest extends TestCase
         $totalLeads = $dashboard->viewData('stats')['total_leads'];
         $grandTotal = $leadsReport->viewData('grandTotal')['total'];
 
-        // SH Naturals' own SINUXYL row finds the combo order too (cross-team
-        // match pool, not team-scoped) even though the order's own `team` is
-        // Eyecare — same as the plain SH Naturals order, so 2 total.
-        $this->assertSame(2, $totalLeads);
+        // SH Naturals' own SINUXYL row no longer finds the combo order — its
+        // own `team` is Eyecare, not SH Naturals, so only plain-sinuxyl (1)
+        // counts on SH Naturals' own view now.
+        $this->assertSame(1, $totalLeads);
         $this->assertSame($grandTotal, $totalLeads);
     }
 }
