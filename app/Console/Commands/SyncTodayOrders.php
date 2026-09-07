@@ -3,7 +3,6 @@
 namespace App\Console\Commands;
 
 use App\Models\Order;
-use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
 use App\Models\TsaShift;
@@ -31,10 +30,6 @@ class SyncTodayOrders extends Command
     // seller account confirms it's a TSA. Keywords must be specific enough to avoid
     // matching non-TSA accounts with common names.
     private array $sellerMap = [];
-
-    // Loaded once in handle() (same reasoning as $tsaMap/$sellerMap above — avoids
-    // re-querying the products table on every single order in inferTeamFromProduct()).
-    private ?\Illuminate\Support\Collection $products = null;
 
     /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above). */
     private function loadTsaMaps(): void
@@ -97,7 +92,6 @@ class SyncTodayOrders extends Command
     private function doSync(Carbon $runStart): int
     {
         $this->loadTsaMaps();
-        $this->products = Product::orderBy('sort_order')->get();
 
         $apiKey = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $shopId = Setting::get('shop_id', '');
@@ -449,6 +443,19 @@ class SyncTodayOrders extends Command
             // look up anyway, so it already falls back to insertion time on its own.
             $workedAt = self::resolveWorkedAt($raw, $disposition ?? $tsaInfo['matched_tag'], $carbonPHT);
 
+            // Time-based team attribution (explicit request, 2026-09-07,
+            // replacing "which TSA/product handled it" — see
+            // TeamShiftWindow's own doc comment for the full reasoning).
+            // Uses $workedAt's own hour, the SAME value that becomes this
+            // row's pancake_created_at below, so team attribution can
+            // never disagree with the hour column every report already
+            // buckets this order under. A null $workedAt (only possible
+            // when Pancake's raw payload has no inserted_at/created_at at
+            // all — see resolveWorkedAt()'s own doc comment) means there's
+            // no hour to compute a team from, same as any other
+            // unresolvable case.
+            $team = $workedAt ? \App\Support\TeamShiftWindow::forHour((int) $workedAt->format('G')) : null;
+
             // Fix 2: For upsell orders, only count the added items (not the original product)
             if ($isUpsell) {
                 $this->warnIfAmbiguousUpsellItems($raw);
@@ -489,7 +496,7 @@ class SyncTodayOrders extends Command
                 // LinkSeparateParcelOrders. Same field/fallback SyncPancakeLeads
                 // already uses for the same purpose.
                 'customer_phone'          => $raw['bill_phone_number'] ?? ($raw['customer']['phone_numbers'][0] ?? null),
-                'team'                    => $tsaInfo['team'],
+                'team'                    => $team,
                 'tsa_name'                => $tsaInfo['name'],
                 'disposition'             => $disposition,
                 'product'                 => $productName,
@@ -832,56 +839,12 @@ class SyncTodayOrders extends Command
             }
         }
 
-        // Fix #15: last resort — no TSA tag AND no seller match means nobody ever
-        // claimed this lead (e.g. a brand-new order swept by the midnight "UNCATERED
-        // LEADS" bulk action before any human touched it). It still has a real product
-        // in its cart though (captured separately as $productName from
-        // extractUpsellProduct()), so match that against each team's product list to
-        // recover the TEAM — never a TSA name, since genuinely nobody claimed it — so
-        // the lead counts as Excess for the right team instead of vanishing from every
-        // report (confirmed via production data: 46 such orders on one date alone,
-        // 41 of them clearly SH Naturals products by cart contents).
-        if ($team = $this->inferTeamFromProduct($productName)) {
-            return ['name' => null, 'team' => $team, 'matched_tag' => null];
-        }
-
-        // Cart name alone matched nothing — a combo SKU's generic name only ever
-        // names its primary component, so try the full bundle description text
-        // (e.g. "1 Ginseng Serum + 5 Scar Cream") before falling through to tags.
-        if ($team = $this->inferTeamFromProduct($bundleDescription)) {
-            return ['name' => null, 'team' => $team, 'matched_tag' => null];
-        }
-
-        // Cart name matched nothing — try the order's tags too (a lead sometimes
-        // carries a product tag like "CLEARSIGHT" even when nobody claimed it).
-        foreach ($tagNames as $tag) {
-            if ($team = $this->inferTeamFromProduct($tag)) {
-                return ['name' => null, 'team' => $team, 'matched_tag' => null];
-            }
-        }
-
-        return ['name' => null, 'team' => null, 'matched_tag' => null];
-    }
-
-    private function inferTeamFromProduct(?string $productName): ?string
-    {
-        if (!$productName) return null;
-
-        // Sourced from the products table (Product Management page) instead of
-        // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
-        // $this->products is loaded once in handle() (same reasoning as $tsaMap/
-        // $sellerMap) so this doesn't re-query on every single order.
-        // matchesText (not stripos on one keyword): honors every configured alias
-        // and ignores spacing/punctuation, so a cart named "Clear Sight 3.0" maps
-        // to CLEARSIGHT's team instead of leaving the lead team-NULL and therefore
-        // invisible to every report (122 such leads in the 14 days before this fix).
-        foreach ($this->products as $product) {
-            if ($product->matchesText($productName)) {
-                return $product->team;
-            }
-        }
-
-        return null;
+        // Nobody claimed this lead (e.g. a brand-new order swept by the
+        // midnight "UNCATERED LEADS" bulk action before any human touched
+        // it). No TSA name to attribute — team is computed separately from
+        // $workedAt's own hour regardless of whether a TSA is ever found
+        // here (see TeamShiftWindow, called from flushOrders() directly).
+        return ['name' => null, 'matched_tag' => null];
     }
 
     /**
