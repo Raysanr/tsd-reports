@@ -8,16 +8,30 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Explicit request, revised 2026-09-07: hours OUTSIDE the team's own
- * time-based window (before it starts, or after it ends) show NOTHING for
- * this team's table — not even New Leads, since a "New Lead" outside the
- * window can't really belong to this team once Order.team is purely
- * hour-derived. A same-team-owned product can still legitimately sell
- * during the other team's hours, so those orders fold into the window's
- * own edge hour (start hour for pre-window strays, end hour for
- * post-window strays) instead of being dropped or surfacing an impossible
- * row — Called Leads can exceed New Leads and Excess can go negative there
- * by design. See LeadsReportController::buildHourlyRows().
+ * Explicit request, revised 2026-09-07 (twice — see history below): hours
+ * OUTSIDE the team's own time-based window (before it starts, or after it
+ * ends) show NOTHING for this team's table — not even New Leads, since a
+ * "New Lead" outside the window can't really belong to this team once
+ * Order.team is purely hour-derived. Each hour INSIDE the window shows only
+ * its own real orders — a genuine 3:10pm order shows only in the
+ * 3:00pm-4:00pm row on Closing's page, nowhere else.
+ *
+ * History: an earlier version of this fix folded every outside-window
+ * order into the window's nearest edge hour (start hour for pre-window
+ * strays, end hour for post-window strays), reasoning that a same-team-
+ * owned product can still legitimately sell during the other team's hours
+ * (ProductPerformance::matchingOrders() trusts an order's own item over its
+ * hour-derived team) and those orders needed somewhere to go. That was
+ * wrong in practice: on a real day, "outside the window" isn't a small
+ * backlog — it's the OTHER team's entire, ordinary working day, so the
+ * fold just relocated the exact same "whole day's leads dumped into one
+ * row" bug from many hours to a single edge hour (confirmed live: 295
+ * orders across Opening's working hours all landing in Closing's own
+ * 3:00pm-4:00pm row as "67 New Leads"). Simplified to no folding at all —
+ * outside-window orders just don't appear in this team's HOURLY breakdown
+ * (they still count in this team's own Grand Total day-sum via
+ * ProductPerformance::matchingOrders()'s existing cross-team trust, and
+ * still show on other views like TSA Performance).
  *
  * Window bounds are TeamShiftWindow's own fixed boundary (2026-09-07) — SH
  * Naturals/Closing is 15-23 (3pm-11pm), Eyecare/Opening is 0-14
@@ -53,8 +67,8 @@ class LeadsReportShiftCutoffTest extends TestCase
     public function test_hours_before_the_window_starts_show_no_row_at_all(): void
     {
         // 1pm: a lead that already has a disposition set — still fully
-        // blanked (including New Leads) at its own hour, folded into 3pm
-        // instead, since Closing's window hasn't started yet.
+        // excluded from Closing's hourly table, since Closing's window
+        // hasn't started yet (it never appears anywhere on this table).
         $this->order('cutoff-1', '2026-07-22 13:15:00', 'CONFIRMED VIA CALL');
 
         $response = $this->get(route('leads-report', [
@@ -70,12 +84,12 @@ class LeadsReportShiftCutoffTest extends TestCase
         });
     }
 
-    public function test_shift_start_hour_absorbs_the_backlog_and_can_show_negative_excess(): void
+    public function test_a_real_hour_inside_the_window_shows_only_its_own_orders(): void
     {
-        // Backlog from before the window: 2 leads at 1pm, both already called.
+        // A pre-window order at 1pm — must not leak into 3pm's own row.
         $this->order('cutoff-2', '2026-07-22 13:00:00', 'CONFIRMED VIA CALL');
         $this->order('cutoff-3', '2026-07-22 13:30:00', 'CONFIRMED VIA CALL');
-        // The window-start hour's own single new lead, not called.
+        // 3pm's own single real order — the only one that should show here.
         $this->order('cutoff-4', '2026-07-22 15:10:00', null);
 
         $response = $this->get(route('leads-report', [
@@ -87,18 +101,11 @@ class LeadsReportShiftCutoffTest extends TestCase
             $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
             $threePm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '3:00pm'));
 
-            // New Leads now reflects the WHOLE backlog (3 total: 2 from 1pm
-            // + 1 from 3pm itself), Called Leads is the 2 already-called 1pm
-            // leads, and Excess (3 - 2) stays positive here — the earlier
-            // "negative excess" example depended on New Leads staying at
-            // just the cutoff hour's own count, which no longer happens now
-            // that pre-window leads fold in instead of vanishing.
-            return $threePm['row']['total'] === 3
-                && $threePm['row']['total_called'] === 2;
+            return $threePm['row']['total'] === 1 && $threePm['row']['total_called'] === 0;
         });
     }
 
-    public function test_day_total_is_unaffected_by_the_hourly_redistribution(): void
+    public function test_day_total_is_unaffected_by_the_hourly_exclusion(): void
     {
         $this->order('cutoff-5', '2026-07-22 13:00:00', 'CONFIRMED VIA CALL');
         $this->order('cutoff-6', '2026-07-22 15:10:00', null);
@@ -109,7 +116,7 @@ class LeadsReportShiftCutoffTest extends TestCase
 
         $response->assertOk();
         // Grand Total (the day's overall summary, not the hourly rows) tallies
-        // the whole day directly — untouched by the cutoff redistribution.
+        // the whole day directly — untouched by the hourly window exclusion.
         $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 2 && $grandTotal['total_called'] === 1);
     }
 
@@ -142,19 +149,17 @@ class LeadsReportShiftCutoffTest extends TestCase
         });
     }
 
-    /** Bug fix (2026-09-07): mirror of the start-of-window fold at the
+    /** Bug fix (2026-09-07): mirror of the start-of-window exclusion at the
      *  other edge — Opening's table used to show an impossible row past
      *  2pm (e.g. "3:00pm-4:00pm") whenever a same-team-owned product was
      *  legitimately sold during Closing's hours. Confirmed live. */
-    public function test_hours_after_the_window_ends_fold_into_the_last_hour(): void
+    public function test_hours_after_the_window_ends_show_no_row_at_all(): void
     {
-        // Opening's window is 12am-2pm — a straggler SINUXYL... no, use an
-        // Eyecare-owned product name via team assignment instead: the
-        // product itself is SINUXYL (fixed by the order() helper), so seed
-        // this as an Eyecare-team order to exercise Opening's own page.
         $this->order('cutoff-9', '2026-07-22 14:30:00', 'CONFIRMED VIA CALL', 'Eyecare Team');
         // A stray sale during Closing's hours (4pm) that still matches this
-        // product — folds into 2pm instead of showing its own row.
+        // product (SINUXYL, an SH Naturals product, seeded here on an
+        // Eyecare-team order to reach Opening's own page) — must not appear
+        // anywhere on Opening's hourly table.
         $this->order('cutoff-10', '2026-07-22 16:00:00', null, 'Eyecare Team');
 
         $response = $this->get(route('leads-report', [
@@ -167,7 +172,32 @@ class LeadsReportShiftCutoffTest extends TestCase
             $fourPm  = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '4:00pm'));
             $twoPm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '2:00pm'));
 
-            return $fourPm === null && $twoPm['row']['total'] === 2;
+            return $fourPm === null && $twoPm['row']['total'] === 1;
+        });
+    }
+
+    /** Regression guard for the exact production bug (2026-09-07): many
+     *  real Eyecare-hour orders (Opening's own ordinary working day, not a
+     *  small backlog) that happen to match an SH-Naturals-owned product
+     *  must NOT all pile into Closing's 3pm row — each stays invisible on
+     *  Closing's hourly table, only the genuine 3pm order shows there. */
+    public function test_a_full_days_worth_of_pre_window_orders_does_not_pile_into_the_cutoff_hour(): void
+    {
+        foreach (range(6, 14) as $hour) {
+            $this->order("cutoff-bulk-{$hour}", "2026-07-22 {$hour}:00:00", 'CONFIRMED VIA CALL');
+        }
+        $this->order('cutoff-real-3pm', '2026-07-22 15:10:00', null);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productTables', function ($tables) {
+            $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
+            $threePm = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '3:00pm'));
+
+            return $threePm['row']['total'] === 1;
         });
     }
 }
