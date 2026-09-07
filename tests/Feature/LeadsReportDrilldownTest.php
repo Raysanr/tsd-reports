@@ -387,4 +387,35 @@ class LeadsReportDrilldownTest extends TestCase
         $response->assertOk();
         $response->assertSee('data-dd-hour="16"', false);
     }
+
+    /** Bug fix (2026-09-07): the ALL view's Grand Total footer (shared
+     *  partials.product-table, used for the combined table AND each
+     *  per-team section) never had drilldown wired at all — confirmed live
+     *  via a real browser click, where every OTHER cell on the page opened
+     *  a popover except this one. The per-team dedicated page's own Grand
+     *  Total (leads-report.blade.php) was fixed earlier, but that's a
+     *  separate template from this shared partial. */
+    public function test_the_all_views_grand_total_footer_renders_drilldown_markup(): void
+    {
+        Product::whereIn('display_name', ['SINUXYL'])->forceDelete();
+        Product::create(['display_name' => 'SINUXYL', 'match_keyword' => 'SINUXYL', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        $this->order('dd-30', 'SH Naturals', '2026-07-24 16:15:00', ['SINUXYL']);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => '2026-07-24', 'date_to' => '2026-07-24',
+        ]));
+
+        $response->assertOk();
+        // The Grand Total row has no product_id (it combines every product),
+        // so its Total cell has data-drilldown but no data-dd-cell-product —
+        // matched loosely since the exact attribute order/whitespace isn't
+        // the point, just that this tfoot row is drilldown-enabled at all.
+        $response->assertSee('Grand Total', false);
+        $response->assertSee('data-drilldown', false);
+        $crawlerHtml = $response->getContent();
+        $tfootStart  = strpos($crawlerHtml, '<tfoot>');
+        $tfootEnd    = strpos($crawlerHtml, '</tfoot>', $tfootStart);
+        $tfootHtml   = substr($crawlerHtml, $tfootStart, $tfootEnd - $tfootStart);
+        $this->assertStringContainsString('data-drilldown', $tfootHtml);
+    }
 }
