@@ -223,19 +223,18 @@ class LeadsReportController extends Controller
         // day) still fetches its one day's orders directly below since the
         // cutoff logic genuinely needs real orders then, and one day's
         // worth was never the memory risk to begin with.
-        // Reverted 2026-09-07 (third revision — see this method's own
-        // shift-window comment for the full history): a per-team page
-        // briefly showed every product's row (browsable cross-team sales),
-        // with Grand Total scoped to only this team's own products — but a
-        // foreign-team product's row (e.g. CLEAR SIGHT on SH Naturals' own
-        // page) showed a real, nonzero number with nothing marking it as
-        // excluded from Grand Total, reading as broken math ("why doesn't
-        // this add up"). Explicit request: the visible rows must always sum
-        // to exactly Grand Total. Back to team-scoped products only — a
-        // cross-team sale is still visible elsewhere (TSA Performance, the
-        // ALL view), just not mixed into a page whose Grand Total won't
-        // include it.
-        $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
+        // Every product is browsable on every team's page (2026-09-07,
+        // fourth revision — see this method's own shift-window comment for
+        // the full history): explicit request, every product's row must
+        // stay visible per team. This is now safe to combine with "Grand
+        // Total always equals the row sum" because the match pool below is
+        // ALREADY scoped to this team's own hour window ($matchPool/
+        // $dayOrders use where('team', $orderTeam), not the old cross-team
+        // whereIn) — a foreign-team product (e.g. CLEAR SIGHT on SH
+        // Naturals' own page) simply has nothing in that pool to match, so
+        // its row is a real, correct 0, not a hidden nonzero number. No
+        // separate Grand Total scoping needed: the row sum IS Grand Total.
+        $products = Product::orderBy('sort_order')->get();
 
         // Exactly one of these two ends up populated, matching $applyShiftCutoff
         // below — declared here so the closure that reads both further down
@@ -372,11 +371,20 @@ class LeadsReportController extends Controller
         // untracked-product order exists in range; that's the accepted
         // trade-off of this explicit choice, not an oversight.
         //
-        // $products (and so $productTables) is already scoped to this
-        // page's own team only (see that query's own comment above), so
-        // every visible row already belongs here — Grand Total is simply
-        // their sum, no further team filtering needed.
-        $grandTotal = ProductPerformance::sumRows($productTables->pluck('total'));
+        // Every product's row is visible (browsable), but Grand Total only
+        // sums rows for products this page's OWN team owns (2026-09-07,
+        // fourth revision — see this method's own shift-window comment for
+        // the full history). Without this, a genuine cross-team bundle
+        // order (e.g. an Eyecare-hour order bundling Pterygium + Sinuxyl)
+        // would count TWICE on Eyecare's own page: once under PTERYGIUM
+        // (its own item, direct match) and again under SINUXYL (the
+        // bundled item, via ProductPerformance's own explicit cross-team
+        // match) — confirmed live, inflating Grand Total to 2 instead of 1.
+        // Scoping the sum back to same-team rows keeps SH Naturals total +
+        // Eyecare total == the All view's total, and keeps each team's own
+        // Grand Total counting every real order exactly once.
+        $ownTeamTables = $productTables->filter(fn ($t) => $t['product']->team === $orderTeam)->values();
+        $grandTotal    = ProductPerformance::sumRows($ownTeamTables->pluck('total'));
 
         // Same per-hour breakdown as each product table above, but summing
         // that hour's per-product rows (same reasoning as the all-range
@@ -391,16 +399,24 @@ class LeadsReportController extends Controller
         // longer exists in that shape — buildHourlyRows() itself still
         // expects raw orders, so it's only used on the cutoff branch, which
         // is always a single day and never the memory risk.
+        //
+        // Uses $ownTeamProducts (this page's own team only), not $products
+        // (every product) — same reasoning as $grandTotal just above: a
+        // cross-team bundle order would otherwise double-count into the
+        // same hour's total via both its own item's row and the bundled
+        // item's row.
+        $ownTeamProducts = $ownTeamTables->pluck('product');
+
         $grandTotalHourlyRows = $applyShiftCutoff
             ? $this->buildHourlyRows(
                 $slots, $matchPoolBySlot,
                 fn (Collection $orders) => ProductPerformance::sumRows(
-                    $products->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                    $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
                 $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf
             )
-            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $products) {
-                $rows = $products->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
+                $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
                 return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
