@@ -223,13 +223,19 @@ class LeadsReportController extends Controller
         // day) still fetches its one day's orders directly below since the
         // cutoff logic genuinely needs real orders then, and one day's
         // worth was never the memory risk to begin with.
-        // Every product is browsable on every team's page (2026-09-07) — a
-        // team can genuinely upsell a product it doesn't own (see
-        // ExpandProductRosterToAllTsas). Grand Total below stays scoped to
-        // this team's OWN products only, so it doesn't double-count a
-        // cross-team combo order that already lands in an owned product's
-        // row via ProductPerformance's own explicit cross-team bundle match.
-        $products = Product::orderBy('sort_order')->get();
+        // Reverted 2026-09-07 (third revision — see this method's own
+        // shift-window comment for the full history): a per-team page
+        // briefly showed every product's row (browsable cross-team sales),
+        // with Grand Total scoped to only this team's own products — but a
+        // foreign-team product's row (e.g. CLEAR SIGHT on SH Naturals' own
+        // page) showed a real, nonzero number with nothing marking it as
+        // excluded from Grand Total, reading as broken math ("why doesn't
+        // this add up"). Explicit request: the visible rows must always sum
+        // to exactly Grand Total. Back to team-scoped products only — a
+        // cross-team sale is still visible elsewhere (TSA Performance, the
+        // ALL view), just not mixed into a page whose Grand Total won't
+        // include it.
+        $products = Product::where('team', $orderTeam)->orderBy('sort_order')->get();
 
         // Exactly one of these two ends up populated, matching $applyShiftCutoff
         // below — declared here so the closure that reads both further down
@@ -366,17 +372,11 @@ class LeadsReportController extends Controller
         // untracked-product order exists in range; that's the accepted
         // trade-off of this explicit choice, not an oversight.
         //
-        // Every product's row is visible on this page (2026-09-07, so a
-        // cross-team upsell is browsable here too), but Grand Total only
-        // sums rows for products this page's OWN team owns — otherwise a
-        // cross-team combo order would be counted twice on this same page:
-        // once via the owning team's product row (which already picks up
-        // the order through ProductPerformance's own cross-team explicit
-        // bundle match), and again via the other team's product row that's
-        // now also visible here. Scoping the sum back to same-team rows
-        // keeps SH Naturals total + Eyecare total == the All view's total.
-        $ownTeamTables = $productTables->filter(fn ($t) => $t['product']->team === $orderTeam)->values();
-        $grandTotal       = ProductPerformance::sumRows($ownTeamTables->pluck('total'));
+        // $products (and so $productTables) is already scoped to this
+        // page's own team only (see that query's own comment above), so
+        // every visible row already belongs here — Grand Total is simply
+        // their sum, no further team filtering needed.
+        $grandTotal = ProductPerformance::sumRows($productTables->pluck('total'));
 
         // Same per-hour breakdown as each product table above, but summing
         // that hour's per-product rows (same reasoning as the all-range
@@ -391,18 +391,16 @@ class LeadsReportController extends Controller
         // longer exists in that shape — buildHourlyRows() itself still
         // expects raw orders, so it's only used on the cutoff branch, which
         // is always a single day and never the memory risk.
-        $ownTeamProducts = $ownTeamTables->pluck('product');
-
         $grandTotalHourlyRows = $applyShiftCutoff
             ? $this->buildHourlyRows(
                 $slots, $matchPoolBySlot,
                 fn (Collection $orders) => ProductPerformance::sumRows(
-                    $ownTeamProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                    $products->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
                 $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $slotHourOf
             )
-            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $ownTeamProducts) {
-                $rows = $ownTeamProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $products) {
+                $rows = $products->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
                 return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;

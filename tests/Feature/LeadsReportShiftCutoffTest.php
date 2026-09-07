@@ -8,30 +8,29 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Explicit request, revised 2026-09-07 (twice — see history below): hours
- * OUTSIDE the team's own time-based window (before it starts, or after it
- * ends) show NOTHING for this team's table — not even New Leads, since a
- * "New Lead" outside the window can't really belong to this team once
- * Order.team is purely hour-derived. Each hour INSIDE the window shows only
- * its own real orders — a genuine 3:10pm order shows only in the
- * 3:00pm-4:00pm row on Closing's page, nowhere else.
+ * Explicit request, revised 2026-09-07 (three times — see history below):
+ * hours OUTSIDE the team's own time-based window (before it starts, or
+ * after it ends) show NOTHING for this team's table — not even New Leads,
+ * since a "New Lead" outside the window can't really belong to this team
+ * once Order.team is purely hour-derived. Each hour INSIDE the window
+ * shows only its own real orders — a genuine 3:10pm order shows only in
+ * the 3:00pm-4:00pm row on Closing's page, nowhere else.
  *
  * History: an earlier version of this fix folded every outside-window
- * order into the window's nearest edge hour (start hour for pre-window
- * strays, end hour for post-window strays), reasoning that a same-team-
- * owned product can still legitimately sell during the other team's hours
- * (ProductPerformance::matchingOrders() trusts an order's own item over its
- * hour-derived team) and those orders needed somewhere to go. That was
- * wrong in practice: on a real day, "outside the window" isn't a small
- * backlog — it's the OTHER team's entire, ordinary working day, so the
- * fold just relocated the exact same "whole day's leads dumped into one
- * row" bug from many hours to a single edge hour (confirmed live: 295
- * orders across Opening's working hours all landing in Closing's own
- * 3:00pm-4:00pm row as "67 New Leads"). Simplified to no folding at all —
- * outside-window orders just don't appear in this team's HOURLY breakdown
- * (they still count in this team's own Grand Total day-sum via
- * ProductPerformance::matchingOrders()'s existing cross-team trust, and
- * still show on other views like TSA Performance).
+ * order into the window's nearest edge hour, reasoning that a same-team-
+ * owned product could still legitimately sell during the other team's
+ * hours and those orders needed somewhere to go. That broke in practice —
+ * "outside the window" isn't a small backlog, it's the OTHER team's entire
+ * ordinary working day, so the fold just relocated the same bug (confirmed
+ * live: 295 orders all landing in one row as "67 New Leads"). Simplified
+ * to no folding — but a per-team page ALSO briefly showed every product's
+ * row regardless of team (browsable cross-team sales), which combined with
+ * the plain per-team pool caused a different, worse symptom: a foreign-
+ * team product's row showed a real, nonzero total that Grand Total quietly
+ * excluded, reading as broken math. Reverted that too — each team's page
+ * now only shows its OWN team's products, so this file's fixture orders
+ * only need to use a product belonging to the team under test (see the
+ * order() helper's own $product param).
  *
  * Window bounds are TeamShiftWindow's own fixed boundary (2026-09-07) — SH
  * Naturals/Closing is 15-23 (3pm-11pm), Eyecare/Opening is 0-14
@@ -48,13 +47,13 @@ class LeadsReportShiftCutoffTest extends TestCase
         $this->actingAs(User::factory()->create());
     }
 
-    private function order(string $id, string $time, ?string $disposition, string $team = 'SH Naturals'): void
+    private function order(string $id, string $time, ?string $disposition, string $team = 'SH Naturals', string $product = 'SINUXYL'): void
     {
         Order::create([
             'pancake_order_id'    => $id,
             'team'                => $team,
             'tsa_name'            => 'Gemma',
-            'product'             => 'SINUXYL',
+            'product'             => $product,
             'disposition'         => $disposition,
             'is_upsell'           => false,
             'status_code'         => 1,
@@ -151,16 +150,14 @@ class LeadsReportShiftCutoffTest extends TestCase
 
     /** Bug fix (2026-09-07): mirror of the start-of-window exclusion at the
      *  other edge — Opening's table used to show an impossible row past
-     *  2pm (e.g. "3:00pm-4:00pm") whenever a same-team-owned product was
-     *  legitimately sold during Closing's hours. Confirmed live. */
+     *  2pm (e.g. "3:00pm-4:00pm") whenever an Opening-team order landed
+     *  after 2pm (e.g. a backfill/edge-case timestamp). Confirmed live. */
     public function test_hours_after_the_window_ends_show_no_row_at_all(): void
     {
-        $this->order('cutoff-9', '2026-07-22 14:30:00', 'CONFIRMED VIA CALL', 'Eyecare Team');
-        // A stray sale during Closing's hours (4pm) that still matches this
-        // product (SINUXYL, an SH Naturals product, seeded here on an
-        // Eyecare-team order to reach Opening's own page) — must not appear
-        // anywhere on Opening's hourly table.
-        $this->order('cutoff-10', '2026-07-22 16:00:00', null, 'Eyecare Team');
+        $this->order('cutoff-9', '2026-07-22 14:30:00', 'CONFIRMED VIA CALL', 'Eyecare Team', 'PTERYGIUM');
+        // An Eyecare-team order landing at 4pm, past Opening's own window —
+        // must not appear anywhere on Opening's hourly table.
+        $this->order('cutoff-10', '2026-07-22 16:00:00', null, 'Eyecare Team', 'PTERYGIUM');
 
         $response = $this->get(route('leads-report', [
             'team' => 'eyecare', 'range' => 'dates', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
@@ -168,9 +165,9 @@ class LeadsReportShiftCutoffTest extends TestCase
 
         $response->assertOk();
         $response->assertViewHas('productTables', function ($tables) {
-            $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
-            $fourPm  = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '4:00pm'));
-            $twoPm   = collect($sinuxyl['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '2:00pm'));
+            $pterygium = $tables->firstWhere(fn($t) => $t['product']->display_name === 'PTERYGIUM');
+            $fourPm    = collect($pterygium['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '4:00pm'));
+            $twoPm     = collect($pterygium['hourlyRows'])->firstWhere(fn($h) => str_contains($h['label'], '2:00pm'));
 
             return $fourPm === null && $twoPm['row']['total'] === 1;
         });
