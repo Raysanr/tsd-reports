@@ -8,34 +8,47 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Explicit request, revised 2026-09-07 (three times — see history below):
+ * Explicit request, revised 2026-09-07 (seven times — see history below):
  * hours OUTSIDE the team's own time-based window (before it starts, or
  * after it ends) show NOTHING for this team's table — not even New Leads,
  * since a "New Lead" outside the window can't really belong to this team
- * once Order.team is purely hour-derived. Each hour INSIDE the window
- * shows only its own real orders — a genuine 3:10pm order shows only in
- * the 3:00pm-4:00pm row on Closing's page, nowhere else.
+ * once Order.team is purely hour-derived.
  *
- * History: an earlier version of this fix folded every outside-window
- * order into the window's nearest edge hour, reasoning that a same-team-
- * owned product could still legitimately sell during the other team's
- * hours and those orders needed somewhere to go. That broke in practice —
- * "outside the window" isn't a small backlog, it's the OTHER team's entire
- * ordinary working day, so the fold just relocated the same bug (confirmed
- * live: 295 orders all landing in one row as "67 New Leads"). Simplified
- * to no folding — but a per-team page ALSO briefly showed every product's
- * row regardless of team (browsable cross-team sales), which combined with
- * the plain per-team pool caused a different, worse symptom: a foreign-
- * team product's row showed a real, nonzero total that Grand Total quietly
+ * WITHIN that window, a backlog-catch-up lump is restored (seventh
+ * revision — explicit request: "there will be still -(negative) in the
+ * excess leads as before"): hours from the window's own start up to the
+ * earliest active TSA's own configured shift_start that day (never
+ * earlier than the window start) show New Leads only, blanked
+ * disposition/rate/Excess; the shift_start hour itself absorbs that
+ * WHOLE backlog's Called/disposition data in one lump, so Called Leads
+ * there can exceed that hour's own New Leads and Excess can go negative
+ * — same as before the redesign. If no TSA has a shift_start configured
+ * at or after the window's own start, there's no extra lump and the
+ * window-start hour behaves like any other real hour.
+ *
+ * History: an earlier version of the "outside window" fix folded every
+ * outside-window order into the window's nearest edge hour, reasoning
+ * that a same-team-owned product could still legitimately sell during
+ * the other team's hours and those orders needed somewhere to go. That
+ * broke in practice — "outside the window" isn't a small backlog, it's
+ * the OTHER team's entire ordinary working day, so the fold just
+ * relocated the same bug (confirmed live: 295 orders all landing in one
+ * row as "67 New Leads"). Simplified to no folding at the EDGES — but a
+ * per-team page ALSO briefly showed every product's row regardless of
+ * team (browsable cross-team sales), which combined with the plain
+ * per-team pool caused a different, worse symptom: a foreign-team
+ * product's row showed a real, nonzero total that Grand Total quietly
  * excluded, reading as broken math. Reverted that too — each team's page
  * now only shows its OWN team's products, so this file's fixture orders
  * only need to use a product belonging to the team under test (see the
- * order() helper's own $product param).
+ * order() helper's own $product param). The backlog lump WITHIN the
+ * window (this file's newest tests) is a separate, later, explicitly
+ * requested restoration of the original pre-redesign behavior.
  *
  * Window bounds are TeamShiftWindow's own fixed boundary (2026-09-07) — SH
  * Naturals/Closing is 15-23 (3pm-11pm), Eyecare/Opening is 0-14
- * (12am-2pm) — not a per-TSA shift_start lookup, since Order.team is
- * purely hour-derived now.
+ * (12am-2pm). The window bounds themselves are NOT per-TSA — only the
+ * WITHIN-window lump hour reads TsaShift.shift_start.
  */
 class LeadsReportShiftCutoffTest extends TestCase
 {
@@ -196,5 +209,81 @@ class LeadsReportShiftCutoffTest extends TestCase
 
             return $threePm['row']['total'] === 1;
         });
+    }
+
+    /** Explicit request (2026-09-07, seventh revision): restores the
+     *  original backlog-catch-up lump WITHIN the team's own window — a TSA
+     *  starting her shift mid-window absorbs that day's backlog (since the
+     *  window opened) in one lump, so Called Leads can exceed that hour's
+     *  own New Leads and Excess can go negative, same as before the
+     *  redesign. Bounded to stay inside the window: the lump can never
+     *  start before $shiftCutoffHour (3pm here), so hours before 3pm still
+     *  show nothing — the earlier "wrong hours leaking in" fix stays
+     *  intact. Hours between the window start and the TSA's own shift
+     *  start (3pm, 4pm here) still show their own real New Leads count
+     *  (leads keep arriving regardless of whether anyone's working yet),
+     *  just with disposition/rate/Excess blanked — same as the original
+     *  pre-redesign behavior. */
+    public function test_a_tsa_starting_mid_window_absorbs_that_days_backlog_since_the_window_opened(): void
+    {
+        \App\Models\TsaShift::where('tsa_key', 'Gemma')->update(['shift_start' => '17:00']);
+
+        // Backlog since the window opened (3pm): 2 leads at 3pm and 4pm,
+        // both already called — the calls don't show at their own hour.
+        $this->order('cutoff-11', '2026-07-22 15:10:00', 'CONFIRMED VIA CALL');
+        $this->order('cutoff-12', '2026-07-22 16:20:00', 'CONFIRMED VIA CALL');
+        // Gemma's own shift-start hour's single new lead, not yet called.
+        $this->order('cutoff-13', '2026-07-22 17:05:00', null);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('productTables', function ($tables) {
+            $sinuxyl = $tables->firstWhere(fn($t) => $t['product']->display_name === 'SINUXYL');
+            $hourlyRows = collect($sinuxyl['hourlyRows']);
+
+            // str_starts_with, not str_contains — "3:00pm – 4:00pm"'s own
+            // label text contains "4:00pm" as its END boundary too, which
+            // would otherwise make the 4pm lookup below wrongly match the
+            // 3pm row (and the 5pm lookup wrongly match the 4pm row).
+            $threePm = $hourlyRows->firstWhere(fn($h) => str_starts_with($h['label'], '3:00pm'));
+            $fourPm  = $hourlyRows->firstWhere(fn($h) => str_starts_with($h['label'], '4:00pm'));
+            $fivePm  = $hourlyRows->firstWhere(fn($h) => str_starts_with($h['label'], '5:00pm'));
+
+            // 3pm and 4pm each show their own real New Leads (1 apiece),
+            // but no disposition data — the TSA hasn't started yet, even
+            // though we're already inside Closing's own window.
+            if ($threePm['row']['total'] !== 1 || $threePm['row']['total_called'] !== 0) return false;
+            if ($fourPm['row']['total'] !== 1 || $fourPm['row']['total_called'] !== 0) return false;
+
+            // 5pm (Gemma's own shift start) absorbs the WHOLE 3pm-5pm
+            // backlog's disposition data: New Leads stays at just its own
+            // count (1), but Called Leads reflects the 2 already-called
+            // backlog leads — 2 > 1, so Excess (1 - 2) goes negative,
+            // exactly like before the redesign.
+            return $fivePm['row']['total'] === 1
+                && $fivePm['row']['total_called'] === 2
+                && $fivePm['row']['excess'] === -1;
+        });
+    }
+
+    /** The day's overall Grand Total stays a plain, un-lumped tally of
+     *  every real order regardless of the hourly redistribution above —
+     *  same invariant as the pre-lump-restoration tests. */
+    public function test_day_total_is_unaffected_by_the_restored_backlog_lump(): void
+    {
+        \App\Models\TsaShift::where('tsa_key', 'Gemma')->update(['shift_start' => '17:00']);
+
+        $this->order('cutoff-14', '2026-07-22 15:10:00', 'CONFIRMED VIA CALL');
+        $this->order('cutoff-15', '2026-07-22 17:05:00', null);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => '2026-07-22', 'date_to' => '2026-07-22',
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('grandTotal', fn($grandTotal) => $grandTotal['total'] === 2 && $grandTotal['total_called'] === 1);
     }
 }
