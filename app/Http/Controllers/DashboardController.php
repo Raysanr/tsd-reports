@@ -93,37 +93,6 @@ class DashboardController extends Controller
             $hasSyncedData = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)->exists();
 
-            // realUpsell(), not a bare is_upsell=true — see Order::scopeRealUpsell()'s
-            // own doc comment: is_upsell alone undercounts once a genuine upsell is
-            // later returned/cancelled in Pancake. Confirmed live against real Pancake
-            // POS + the logistics system, both of which still count a later-returned
-            // upsell toward the day's total.
-            //
-            // COALESCE(pancake_inserted_at, pancake_created_at), not plain
-            // pancake_created_at (root-caused 2026-08-16: Total Cross-Sell Sales
-            // disagreed with the TSA Leaderboard below by exactly one order's amount
-            // on a real production day — the 2026-08-11 change documented on
-            // $dayOrders below switched the Leaderboard/Total Leads/Hourly Activity
-            // to this POS-matching expression but missed this separate query, so an
-            // order whose pancake_inserted_at fell on a different calendar day than
-            // its pancake_created_at counted toward one card's total but not the
-            // other's for the same picked date).
-            //
-            // whereNotNull('tsa_name') (root-caused 2026-08-21: this card disagreed
-            // with the TSA Leaderboard below by exactly one order's amount again — a
-            // real upsell (upsell tag present) whose order carries no TSA name tag and
-            // no assigning_seller account match, so SyncTodayOrders::extractTsaInfo()
-            // resolves the order's team but leaves tsa_name null. This card had no
-            // tsa_name filter and counted it; the Leaderboard's own
-            // ->whereNotNull('tsa_name')->groupBy('tsa_name') structurally has no row
-            // to put it in and silently dropped it. Matching this card to the
-            // Leaderboard's own requirement keeps both scoped to the same order set).
-            $upsells = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)->whereNotNull('tsa_name')->realUpsell();
-
-            $totalOrders = (clone $upsells)->count();
-            $grossSales  = (clone $upsells)->sum('amount');
-
             // Show every order attributed to a known TSA — not just is_upsell=true —
             // so orders excluded from gross sales (e.g. status "Restocking") are still
             // visible here with their status label, instead of silently disappearing.
@@ -156,29 +125,32 @@ class DashboardController extends Controller
             // restocking_upsell_amount already holds just the isolated add-on price
             // for these rows (see SyncTodayOrders' extractUpsellAmount()), not the
             // order's full total.
-            // Same COALESCE date basis as $upsells above, for the same reason —
-            // Restocking's contribution to Total Cross-Sell Sales (via the Include
-            // Restocking toggle below) must agree with which day the Leaderboard
-            // credits it to. Same whereNotNull('tsa_name') as $upsells above too, for
-            // the same 2026-08-21 root cause — the Leaderboard folds restocking rows
-            // into a TSA's own bucket, so an unattributed restocking row has nowhere
-            // to land there either.
+            // Same COALESCE date basis the KPI cards use throughout this method, for
+            // the same reason — Restocking's own KPI card must agree with which day
+            // the Leaderboard credits it to. whereNotNull('tsa_name') for the same
+            // 2026-08-21 root cause described elsewhere in this file — the
+            // Leaderboard folds restocking rows into a TSA's own bucket, so an
+            // unattributed restocking row has nowhere to land there either.
+            //
+            // Total Cross-Sell Sales itself no longer computed here (root-caused
+            // 2026-09-07: "it should be only the total upsells of tsa in the tsa
+            // leaderboard will be only display to the Total Cross-Sell Sales in any
+            // dates" — this card used to run its OWN realUpsell()-scoped query,
+            // independently of the Leaderboard below, and the two silently used
+            // different upsell definitions (this used Order::isRealUpsell()'s narrow
+            // flags-only scope; the Leaderboard uses ProductPerformance::tally()'s
+            // Order::isBroadRealUpsell(), which additionally recovers orders via a
+            // raw-tag fallback) — so the two could disagree on a real production day.
+            // Fixed by deriving $totalOrders/$grossSales as a straight sum over
+            // $tsaLeaderboard's own rows further down instead, the same "call the one
+            // shared implementation, don't hand-roll a second copy" fix already
+            // applied to this exact leaderboard once before (see $tsaTallyByKey's own
+            // comment) — not "should match," but structurally cannot disagree, since
+            // there's only one number being computed now.
             $restocking = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
                 ->whereIn('team', $orderTeams)
                 ->whereNotNull('tsa_name')
                 ->where('is_restocking_upsell', true);
-
-            // Include Restocking toggle (see $includeRestocking's own comment above):
-            // folds Restocking's revenue/count into Total Cross-Sell Sales instead of
-            // leaving it excluded. restocking_upsell_amount (not amount) is the same
-            // isolated add-on price $stats['restocking_value'] below already uses —
-            // adding it here can never double it, since $upsells (is_upsell=true)
-            // structurally never overlaps with is_restocking_upsell=true rows (the
-            // comment above this block explains why those two are mutually exclusive).
-            if ($includeRestocking) {
-                $totalOrders += (clone $restocking)->count();
-                $grossSales  += (clone $restocking)->sum('restocking_upsell_amount');
-            }
 
             // Cancelled UPSELLS (explicit follow-up request, 2026-09-04: "same
             // kpi card as cancelled upsells" — a TSA added an upsell add-on
@@ -221,8 +193,6 @@ class DashboardController extends Controller
             $syncHealth = SyncHealth::status();
 
             $stats = [
-                'total_sales'      => $grossSales,
-                'total_orders'     => $totalOrders,
                 'restocking_count' => (clone $restocking)->count(),
                 'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
                 'cancelled_orders_count' => $cancelledOrdersAll->count(),
@@ -347,7 +317,6 @@ class DashboardController extends Controller
             $stats['catered_leads']  = $leadsGrandTotal['catered'];
             $stats['pick_up_rate']   = $leadTally['pick_up_rate'];
             $stats['upselling_rate'] = $leadTally['upselling_rate'];
-            $stats['aov']            = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
 
             // Last 20 runs, oldest→newest, for the sync activity trend below.
             $syncRuns = SyncRun::orderByDesc('ran_at')->limit(20)->get()->reverse()->values();
@@ -440,6 +409,19 @@ class DashboardController extends Controller
                     $row->upsell_rate  = $row->total_calls > 0 ? round($row->upsell_count / $row->total_calls * 100, 1) : 0.0;
                     return $row;
                 });
+
+            // Total Cross-Sell Sales / total order count — a straight sum over the
+            // leaderboard's own rows built above, not a separate query (see that
+            // block's own 2026-09-07 comment for why: this card and the Leaderboard
+            // used to be computed independently and could disagree). upsell_count/
+            // upsell_sales already reflect the Include Restocking toggle per-row
+            // (lines above), so summing them here carries that same toggle state
+            // through automatically.
+            $totalOrders = (int) $tsaLeaderboard->sum('upsell_count');
+            $grossSales  = (float) $tsaLeaderboard->sum('upsell_sales');
+            $stats['total_sales']  = $grossSales;
+            $stats['total_orders'] = $totalOrders;
+            $stats['aov']          = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
 
             // Top TSA by upsell sales — same ranking as the leaderboard below, surfaced
             // as a KPI-row spotlight so it's visible without scrolling.
