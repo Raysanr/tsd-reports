@@ -86,8 +86,13 @@ class SyncPancakeLeads extends Command
                 if ($id === '') continue;
 
                 // Already pulled in before (assigned or otherwise) — never
-                // re-process, this command is not a re-sync.
-                if (Lead::where('pancake_order_id', $id)->exists()) {
+                // re-process into a NEW lead, this command is not a re-sync.
+                // Its EXISTING row's disposition/callback_at can still catch
+                // up to a real Pancake tag added since it was pulled in
+                // though — see backfillCallbackFromTags()'s own comment.
+                $existing = Lead::where('pancake_order_id', $id)->first();
+                if ($existing) {
+                    $this->backfillCallbackFromTags($existing, $raw);
                     $skipped++;
                     continue;
                 }
@@ -193,6 +198,56 @@ class SyncPancakeLeads extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Surfaces a lead on the Callbacks tab when Pancake ITSELF already
+     * carries a "Not Answering"/"Unattended"/"Call Back" tag on the order —
+     * not just when a TSA logs that outcome through this app's own Log
+     * Outcome flow (explicit request, 2026-09-08: "all of the leads in the
+     * pos that has unattended and not answering tag is should be display in
+     * the callbacks page"). Before this, a lead someone tagged directly in
+     * Pancake (or that arrived already tagged, e.g. from an earlier sync
+     * this app never ran) sat with a blank disposition and no callback_at
+     * forever — updateDisposition()'s own auto-callback logic only ever
+     * runs when a TSA submits the Log Outcome form here.
+     *
+     * Runs every minute (this command's own schedule, see routes/
+     * console.php) over EVERY already-synced lead this run's date window
+     * touches, not just brand-new ones — so a tag added in Pancake well
+     * after the lead first arrived here still gets picked up on the very
+     * next sync tick, not just at creation time.
+     *
+     * Deliberately does NOT touch a lead already status='called' — that
+     * means a TSA has already logged a real, human outcome for it through
+     * this app (see updateDisposition()), which is a more informed record
+     * than a bare Pancake tag and must never be silently overwritten by it.
+     * Also does nothing once callback_at is already set — whichever path
+     * (a TSA's own Log Outcome, or an earlier run of this same backfill)
+     * got there first stands; this only ever fills in a genuinely blank
+     * callback, never reschedules an existing one.
+     */
+    private function backfillCallbackFromTags(Lead $lead, array $raw): void
+    {
+        if ($lead->status === 'called' || $lead->callback_at !== null) {
+            return;
+        }
+
+        $tagNames = collect($raw['tags'] ?? [])->pluck('name')->filter();
+        $matchedTag = $tagNames->first(
+            fn ($tag) => collect(LeadController::CALLBACK_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($tag, $kw) !== false)
+        );
+
+        if ($matchedTag === null) {
+            return;
+        }
+
+        $lead->update([
+            'disposition' => $matchedTag,
+            'callback_at' => now()->addDay(),
+        ]);
+
+        LeadActivity::log($lead, 'callback_scheduled', "Callback set for " . $lead->callback_at->format('M j, g:i A') . " (Pancake tag \"{$matchedTag}\", not a logged Outcome).");
     }
 
     /**

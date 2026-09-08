@@ -50,13 +50,21 @@ class NotificationController extends Controller
                     ->orWhereNull('pancake_created_at');
             });
 
+        // Callbacks is shared across every TSA now (explicit request,
+        // 2026-09-08, same reasoning as LeadController::index()'s own
+        // matching comment: a promised follow-up is team knowledge, not one
+        // TSA's private queue) — this badge must count everyone's due
+        // callbacks for a non-admin too, not just their own, or the number
+        // shown here would silently disagree with what the Callbacks page
+        // itself now displays.
         if (!$user->isAtLeastAdmin()) {
             $assignedQuery->where('tsa_id', $user->tsa_id);
-            $callbackQuery->where('tsa_id', $user->tsa_id);
         } elseif ($request->filled('tsa')) {
             // Unassigned leads have no tsa_id by definition — the TSA filter
             // only makes sense against assigned/callback leads.
             $assignedQuery->where('tsa_id', $request->integer('tsa'));
+        }
+        if ($request->filled('tsa')) {
             $callbackQuery->where('tsa_id', $request->integer('tsa'));
         }
 

@@ -325,4 +325,139 @@ class SyncPancakeLeadsTest extends TestCase
         $activity = LeadActivity::where('lead_id', $second->id)->where('type', 'assigned')->first();
         $this->assertStringNotContainsString('Likely duplicate', $activity->description);
     }
+
+    /**
+     * Root-caused 2026-09-08 (explicit request: "all of the leads in the pos
+     * that has unattended and not answering tag is should be display in the
+     * callbacks page") — a lead someone tagged "Not Answering"/"Unattended"
+     * directly in Pancake (not through this app's own Log Outcome flow)
+     * never picked up a callback_at, so it never surfaced on the Callbacks
+     * tab. This is the every-minute sync's own re-check of an
+     * ALREADY-EXISTING lead's current tags, not the new-lead creation path
+     * above.
+     */
+    public function test_an_existing_leads_pancake_tag_backfills_a_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9501', 'customer_name' => 'Already Synced',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9501, 'bill_full_name' => 'Already Synced', 'bill_phone_number' => '09171234567',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('NOT ANSWERING', $lead->disposition);
+        $this->assertNotNull($lead->callback_at);
+        $this->assertTrue($lead->callback_at->isFuture());
+        // status/tsa_id untouched — this only ever fills in the callback,
+        // never re-processes the lead as if it were brand new.
+        $this->assertSame('assigned', $lead->status);
+        $this->assertSame($gemma->id, $lead->tsa_id);
+
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'callback_scheduled')->first();
+        $this->assertNotNull($activity);
+        $this->assertStringContainsString('Pancake tag', $activity->description);
+    }
+
+    public function test_the_unattended_tag_also_backfills_a_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '9502', 'customer_name' => 'Unattended Lead',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9502, 'bill_full_name' => 'Unattended Lead', 'bill_phone_number' => '09171234568',
+            'tags' => [['name' => 'Unattended']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9502')->first();
+        $this->assertNotNull($lead->callback_at);
+    }
+
+    public function test_a_lead_already_called_is_never_overwritten_by_a_pancake_tag(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9503', 'customer_name' => 'Already Called',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called',
+            'disposition' => 'Confirmed via call',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9503, 'bill_full_name' => 'Already Called', 'bill_phone_number' => '09171234569',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('Confirmed via call', $lead->disposition);
+        $this->assertNull($lead->callback_at);
+    }
+
+    public function test_a_lead_with_an_existing_callback_is_never_rescheduled_by_a_pancake_tag(): void
+    {
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product  = Product::where('display_name', 'SINUXYL')->first();
+        $original = now()->addHours(3);
+        $lead = Lead::create([
+            'pancake_order_id' => '9504', 'customer_name' => 'Has Callback',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called',
+            'disposition' => 'Call Back', 'callback_at' => $original,
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9504, 'bill_full_name' => 'Has Callback', 'bill_phone_number' => '09171234570',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertEquals($original->timestamp, $lead->callback_at->timestamp);
+    }
+
+    public function test_a_lead_with_no_matching_tag_is_left_untouched(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9505', 'customer_name' => 'No Matching Tag',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9505, 'bill_full_name' => 'No Matching Tag', 'bill_phone_number' => '09171234571',
+            'tags' => [['name' => 'CONFIRMED VIA CALL']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertNull($lead->disposition);
+        $this->assertNull($lead->callback_at);
+    }
 }

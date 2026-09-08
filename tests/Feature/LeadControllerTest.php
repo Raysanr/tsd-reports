@@ -35,6 +35,44 @@ class LeadControllerTest extends TestCase
         $response->assertDontSee('Mariel Lead');
     }
 
+    /**
+     * Reversed for the Callbacks view specifically (explicit request,
+     * 2026-09-08: "i want to make it like it is visible to all of the TSA's
+     * the callbacks") — a promised follow-up call is shared team knowledge,
+     * not one TSA's private queue: if the TSA who originally promised the
+     * callback is out, any other logged-in TSA should still be able to see
+     * and pick it up. Every OTHER view (bare Leads, Overdue) is unchanged —
+     * see test_a_tsa_only_sees_their_own_leads() above, still passing.
+     */
+    public function test_callbacks_view_is_shared_across_every_tsa_not_just_the_viewers_own(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'cb-1', 'customer_name' => 'Gemma Callback',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'cb-2', 'customer_name' => 'Mariel Callback',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-cb@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($gemmaUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertSee('Gemma Callback');
+        // The real fix — before this, a TSA's own Callbacks view was
+        // silently scoped to just their own tsa_id, same as every other
+        // view.
+        $response->assertSee('Mariel Callback');
+    }
+
     public function test_a_leads_phone_number_carries_their_tsas_dialer_host_when_set(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
