@@ -324,57 +324,37 @@
                      customer's hidden bar read as a missing feature rather
                      than an intentional empty state) — mirrors Pancake
                      POS's own colored bar + hover tooltip next to the
-                     customer's gender, confirmed live against a real order
-                     that the raw customer object already carries succeed_
-                     order_count/returned_order_count/order_count (this
-                     customer's WHOLE history with this shop, not just this
-                     one order) — no new Pancake endpoint needed, see
-                     PancakeOrderTagApi::getOrderDetail()'s own comment on
-                     customer_order_stats. Return rate = returned ÷
-                     succeeded, matching Pancake's own math (their "25
-                     successful / 1 returned" reads as 4%, i.e. 1÷25, not
-                     1÷26) — 0 when succeed_count is 0 (avoids a genuine
-                     divide-by-zero for a brand-new customer, not just a
-                     display choice). A 0/0 customer's bar renders as a
-                     full-width slate-gray track (neither color has
-                     anything to fill), same "nothing to report yet" read
-                     as an empty progress bar anywhere else in this app. --}}
-                @if($liveOrder && $liveOrder['customer_order_stats'])
-                @php
-                    $stats = $liveOrder['customer_order_stats'];
-                    $totalForRate = $stats['succeed_count'] + $stats['returned_count'];
-                    $returnRate = $stats['succeed_count'] > 0 ? round($stats['returned_count'] / $stats['succeed_count'] * 100) : 0;
-                    $successPct = $totalForRate > 0 ? round($stats['succeed_count'] / $totalForRate * 100) : 0;
-                @endphp
-                {{-- Custom CSS-only tooltip (explicit follow-up request,
-                     2026-09-04: "make the current tooltip work more
-                     reliably") — a plain `title` attribute is the native
-                     browser tooltip, which has its own ~1s+ hover delay
-                     before it appears and can't be styled; group/group-hover
-                     shows this instantly on hover with no JS, matching
-                     Pancake's own dark popup exactly. `group` sits on the
-                     OUTER wrapper (not the bar itself) so the bar can keep
-                     `overflow-hidden` for its own rounded corners without
-                     clipping the tooltip box that pops up above it. --}}
-                <div class="group relative mt-2 w-full">
-                    <div class="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default">
-                        {{-- $totalForRate === 0 (a genuinely brand-new
-                             customer, nothing succeeded or returned yet)
-                             leaves the track bare gray — filling the
-                             remainder rose/red would misread as "100%
-                             returned" instead of "no data yet". --}}
-                        @if($totalForRate > 0)
-                        <div class="h-full bg-emerald-500 float-left" style="width: {{ $successPct }}%"></div>
-                        <div class="h-full bg-rose-500 float-left" style="width: {{ 100 - $successPct }}%"></div>
-                        @endif
-                    </div>
-                    <div class="hidden group-hover:block absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-black text-white text-xs px-3 py-2 shadow-lg pointer-events-none">
-                        Successful orders: {{ $stats['succeed_count'] }} / Returned orders: {{ $stats['returned_count'] }}
-                        <br>Return rate: {{ $returnRate }}%
+                     customer's gender.
+
+                     Rebuilt 2026-09-08 as an ASYNC panel, not server-
+                     rendered here: originally read straight off the order's
+                     own embedded 'customer' object, but that's scoped to
+                     ONE customer_id record and Pancake can silently spin up
+                     a fresh, empty one for a returning customer (real
+                     production reports, orders #1365574/#1365559/#1365556 —
+                     this showed 0/0 while POS's own tooltip showed real
+                     history for the same customer). PancakeOrderTagApi::
+                     getCustomerOrderStats() now computes this correctly by
+                     searching Pancake's own orders API by phone number
+                     instead — but that search is slow/unreliable (confirmed
+                     live: ~1s to 20+s, regardless of page size), so it can't
+                     run inline on every modal open without occasionally
+                     stalling the WHOLE modal for one small bar. calls.js'
+                     initCustomerStats() fetches LeadController::
+                     customerStats() once this partial has already rendered
+                     and fills the bar in when it resolves (or leaves it
+                     blank/gray if Pancake times out) — see that JS
+                     function's own comment. data-lead-id, same convention
+                     every other async panel on this page already uses. --}}
+                <div class="group relative mt-2 w-full" id="customerStatsBar" data-lead-id="{{ $lead->id }}">
+                    <div class="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default"
+                         data-customer-stats-track></div>
+                    <div class="hidden group-hover:block absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-black text-white text-xs px-3 py-2 shadow-lg pointer-events-none"
+                         data-customer-stats-tooltip>
+                        Loading order history…
                         <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900 dark:border-t-black"></span>
                     </div>
                 </div>
-                @endif
             </div>
 
 @if($liveOrder && $liveOrder['shipping_address'] && $canManage)

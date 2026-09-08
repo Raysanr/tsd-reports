@@ -232,14 +232,22 @@ class LeadShowTest extends TestCase
 
     /**
      * Explicit follow-up request (2026-09-04: "can fetch this like rts rate
-     * and successful rate of the leads like in the pos") — confirmed live
-     * against a real order: the customer sub-object already riding along in
-     * this same GET carries succeed_order_count/returned_order_count/
-     * order_count, the same 3 numbers Pancake POS's own hover tooltip
-     * reads. Return rate is returned ÷ succeeded (matching Pancake's own
-     * math: "25 successful / 1 returned" reads as 4%, i.e. 1÷25).
+     * and successful rate of the leads like in the pos") — originally read
+     * straight off the order's own embedded 'customer' sub-object
+     * (succeed_order_count/returned_order_count/order_count).
+     *
+     * Superseded 2026-09-08 (real production reports, orders #1365574/
+     * #1365559/#1365556: this showed 0/0 or a wrong ratio while Pancake's
+     * own POS tooltip showed real history for the same customer — root
+     * cause: that embedded object is scoped to ONE customer_id record, and
+     * Pancake can silently spin up a fresh, empty one for a returning
+     * customer). The bar is no longer computed inline on this page at all —
+     * see LeadShowCustomerStatsTest for the new async-endpoint coverage,
+     * and PancakeOrderTagApi::getCustomerOrderStats()'s own comment for the
+     * full root-cause writeup. This page now just renders a loading
+     * placeholder the client fills in.
      */
-    public function test_shows_the_customers_real_success_and_return_rate_from_pancake(): void
+    public function test_shows_a_loading_placeholder_for_the_success_rate_bar_not_a_synchronous_number(): void
     {
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
@@ -252,11 +260,7 @@ class LeadShowTest extends TestCase
             'pos.pages.fm/api/v1/shops/*/orders/s10*' => Http::response(['data' => [
                 'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1]],
                 'tags'  => [],
-                'customer' => [
-                    'succeed_order_count'  => 25,
-                    'returned_order_count' => 1,
-                    'order_count'          => 26,
-                ],
+                'bill_phone_number' => '09624806238',
             ]]),
         ]);
 
@@ -264,45 +268,12 @@ class LeadShowTest extends TestCase
         $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
 
         $response->assertOk();
-        $response->assertSee('Successful orders: 25 / Returned orders: 1', false);
-        $response->assertSee('Return rate: 4%', false);
-    }
-
-    /**
-     * Reversed (explicit follow-up, 2026-09-04: "show it always, even at
-     * 0/0" — a brand-new customer's hidden bar read as a missing feature,
-     * not an intentional empty state). Must render with no divide-by-zero
-     * error, and the track must stay bare gray rather than filling 100%
-     * rose/red, which would misread as "100% returned" instead of "no data
-     * yet".
-     */
-    public function test_shows_the_success_rate_bar_even_for_a_customer_with_no_order_history_yet(): void
-    {
-        Setting::set('pancake_api_key', 'test-key');
-        Setting::set('shop_id', '30037101');
-
-        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        $lead = Lead::create(['pancake_order_id' => 's11', 'customer_name' => 'Brand New Customer', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
-        Http::fake([
-            'pos.pages.fm/api/v1/shops/*/orders/s11*' => Http::response(['data' => [
-                'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1]],
-                'tags'  => [],
-                'customer' => [
-                    'succeed_order_count'  => 0,
-                    'returned_order_count' => 0,
-                    'order_count'          => 1,
-                ],
-            ]]),
-        ]);
-
-        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
-        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
-
-        $response->assertOk();
-        $response->assertSee('Successful orders: 0 / Returned orders: 0', false);
-        $response->assertSee('Return rate: 0%', false);
+        $response->assertSee('id="customerStatsBar"', false);
+        $response->assertSee('data-lead-id="' . $lead->id . '"', false);
+        $response->assertSee('Loading order history…');
+        // The page itself never resolved/rendered a real number — that's
+        // the client's job now, via GET /calls/leads/{lead}/customer-stats.
+        $response->assertDontSee('Successful orders:');
     }
 
     /** Explicit follow-up requests (2026-08-25): "add delivery to this like

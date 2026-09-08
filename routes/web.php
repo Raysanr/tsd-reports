@@ -180,6 +180,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/leads/{lead}/recordings/{fileId}/stream', [\App\Http\Controllers\CallTracker\LeadController::class, 'streamRecording'])->name('leads.recordings.stream');
         Route::get('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'notes'])->name('leads.notes');
         Route::get('/leads/{lead}/history', [\App\Http\Controllers\CallTracker\LeadController::class, 'history'])->name('leads.history');
+        Route::get('/leads/{lead}/customer-stats', [\App\Http\Controllers\CallTracker\LeadController::class, 'customerStats'])->name('leads.customer-stats');
         Route::post('/leads/{lead}/notes', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateNotes'])->name('leads.notes.update');
         Route::get('/leads/{lead}/delivery/provinces', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryProvinces'])->name('leads.delivery.provinces');
         Route::get('/leads/{lead}/delivery/districts', [\App\Http\Controllers\CallTracker\LeadController::class, 'deliveryDistricts'])->name('leads.delivery.districts');

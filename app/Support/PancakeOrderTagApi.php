@@ -244,27 +244,129 @@ class PancakeOrderTagApi
                 'creator'         => $order['creator'] ?? null,
                 'last_editor'     => $order['last_editor'] ?? null,
                 'assigning_seller' => $order['assigning_seller'] ?? null,
-                // Customer success/return history (explicit follow-up
-                // request, 2026-09-04: "is it possible that can fetch this
-                // like rts rate and successful rate of the leads like in
-                // the POS") — confirmed live against a real order's raw
-                // response: 'customer' already rides along in this same GET
-                // (no separate customer endpoint exists/was ever called
-                // anywhere in this app), just never extracted before. Same
-                // 3 counts Pancake POS's own hover tooltip reads: succeed_
-                // order_count, returned_order_count, order_count (the
-                // customer's WHOLE history with this shop, not just this
-                // one order).
-                'customer_order_stats' => isset($order['customer']) ? [
-                    'succeed_count'  => (int) ($order['customer']['succeed_order_count'] ?? 0),
-                    'returned_count' => (int) ($order['customer']['returned_order_count'] ?? 0),
-                    'total_count'    => (int) ($order['customer']['order_count'] ?? 0),
-                ] : null,
+                // Customer success/return history — deliberately NOT
+                // included here (moved out 2026-09-08, see
+                // getCustomerOrderStats()'s own doc comment for why the
+                // simple embedded-customer-object version was wrong in the
+                // first place): computing this by searching Pancake's own
+                // orders API is real but slow/unreliable (confirmed live —
+                // the same search can take anywhere from ~1s to 20+s,
+                // regardless of page_size), and getOrderDetail() itself is
+                // called synchronously on every lead modal open. Bundling a
+                // slow, sometimes-timing-out call in here would slow down
+                // (or occasionally break) loading the WHOLE modal just for
+                // one small stats bar. LeadController::customerStats() calls
+                // getCustomerOrderStats() on its own, separate, async
+                // endpoint instead — see that method's own comment.
+                'bill_phone_number' => $order['bill_phone_number'] ?? null,
             ];
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
             return null;
         }
+    }
+
+    /**
+     * Real success/return order history for a phone number, computed by
+     * searching Pancake's own orders API rather than trusting a single
+     * customer_id's own succeed_order_count/returned_order_count (see
+     * getOrderDetail()'s own comment for the 2026-09-08 root cause: Pancake
+     * can silently spin up a fresh, empty customer_id for a returning
+     * customer, whose own counter then starts back at zero).
+     *
+     * The `search` query param is NOT an exact phone match — confirmed live
+     * it also returns other customers' orders that merely share some other
+     * loosely-matched field, so every result is re-checked against this
+     * order's own bill_phone_number before counting it. 'Successful' means
+     * status_code 3 (Received) or 16 (Collected money) — the two terminal
+     * PAID states in Order::STATUS_PILL; 'returned' means 5 (Returned) —
+     * deliberately NOT 4 (Returning, still in transit) or 15 (Partial
+     * return, no confirmed real-world case yet, same caveat as
+     * Order::isRealUpsell()'s own doc comment).
+     *
+     * Does not exactly reproduce Pancake POS's own tooltip number (confirmed
+     * live against 3 real customers — this comes closer but isn't always
+     * identical, since POS's own internal definition couldn't be determined
+     * from the API alone) — this is real order data, not a guess, just not
+     * guaranteed bit-for-bit identical to Pancake's own internal figure.
+     *
+     * Cached 5 minutes per phone number, same convention as listTags()
+     * above — this is fetched every time a lead's modal opens, and a
+     * customer's order history doesn't change from one page load to the
+     * next moments apart.
+     */
+    public function getCustomerOrderStats(?string $phoneNumber): ?array
+    {
+        if (empty($phoneNumber)) {
+            return null;
+        }
+
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return null;
+        }
+
+        return Cache::remember("pancake_customer_order_stats_{$shopId}_{$phoneNumber}", 300, function () use ($apiKey, $shopId, $phoneNumber) {
+            try {
+                $succeedCount  = 0;
+                $returnedCount = 0;
+                $totalCount    = 0;
+                $page          = 1;
+                $totalPages    = 1;
+
+                // page_size 15, not the 50 first tried — confirmed live this
+                // endpoint is noticeably slower/less reliable at larger page
+                // sizes (a real 20s timeout at page_size=50 for an 11-result
+                // search, vs. a consistent ~1s response at page_size=11-15)
+                // even though the total payload difference is small; this
+                // endpoint returns full order objects (items/tags/histories/
+                // etc.), not a lightweight summary, so fewer rows per page
+                // matters more than the raw result count would suggest.
+                //
+                // Hard cap at 4 pages (60 orders) — the loosely-matched
+                // `search` param (see this method's own doc comment) can in
+                // principle return far more than one customer's real order
+                // count for a common/reused phone number; a customer's real
+                // order history rarely exceeds a few dozen, so this bounds
+                // worst-case latency instead of chasing every page Pancake
+                // claims exists.
+                $maxPages = 4;
+
+                do {
+                    $response = Http::timeout(20)->get(self::BASE_URL . "/shops/{$shopId}/orders", [
+                        'api_key'     => $apiKey,
+                        'search'      => $phoneNumber,
+                        'page_size'   => 15,
+                        'page_number' => $page,
+                    ]);
+
+                    if (!$response->successful() || $response->json('success') === false) {
+                        return null;
+                    }
+
+                    $body        = $response->json();
+                    $totalPages  = min((int) ($body['total_pages'] ?? 1), $maxPages);
+                    $matching    = collect($body['data'] ?? [])
+                        ->filter(fn ($o) => ($o['bill_phone_number'] ?? null) === $phoneNumber);
+
+                    $totalCount    += $matching->count();
+                    $succeedCount  += $matching->whereIn('status', [3, 16])->count();
+                    $returnedCount += $matching->where('status', 5)->count();
+
+                    $page++;
+                } while ($page <= $totalPages);
+
+                return [
+                    'succeed_count'  => $succeedCount,
+                    'returned_count' => $returnedCount,
+                    'total_count'    => $totalCount,
+                ];
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: getCustomerOrderStats threw', ['phone_number' => $phoneNumber, 'message' => $e->getMessage()]);
+                return null;
+            }
+        });
     }
 
     /**

@@ -1118,6 +1118,7 @@ function loadLeadDetailInto(leadId, body) {
             initDeliveryPanel();
             initLineItemsPanel();
             initHistoryPanel();
+            initCustomerStats();
         });
 }
 
@@ -1993,6 +1994,78 @@ function initHistoryPanel() {
     historyPanelInterval = setInterval(refresh, 8000);
 }
 
+// Success/return order-history bar (explicit follow-up request, 2026-09-08:
+// "fetch it in the background, not blocking the modal") — _detail.blade.php
+// no longer computes this server-side inline; it renders a bare gray track
+// + "Loading order history…" tooltip, and this fills it in once
+// LeadController::customerStats() resolves. That endpoint's own
+// PancakeOrderTagApi::getCustomerOrderStats() call can take anywhere from
+// ~1s to 20+s (confirmed live, searching Pancake's orders API by phone
+// number), so this deliberately does NOT block loadLeadDetailInto()'s own
+// promise chain — it's fired and left to resolve on its own, same as
+// initHistoryPanel()'s own polling never blocks the initial render either.
+// A stale response landing after the modal's moved to a different lead is
+// caught by re-checking the DOM's own data-lead-id, not a request ID or
+// AbortController — good enough here since this fires once per open, not
+// on a timer like the history panel.
+function initCustomerStats() {
+    const bar = document.getElementById('customerStatsBar');
+    if (!bar) return;
+
+    const leadId = bar.dataset.leadId;
+
+    fetch(`/calls/leads/${leadId}/customer-stats`, { headers: { Accept: 'application/json' } })
+        .then((res) => res.json())
+        .then((data) => {
+            const current = document.getElementById('customerStatsBar');
+            // Modal closed, or moved on to a different lead, since this
+            // fetch started — the stats would be for the wrong customer.
+            if (!current || current.dataset.leadId !== leadId) return;
+
+            const track   = current.querySelector('[data-customer-stats-track]');
+            const tooltip = current.querySelector('[data-customer-stats-tooltip]');
+            if (!track || !tooltip) return;
+
+            const stats = data.success ? data.stats : null;
+            if (!stats) {
+                // Pancake unreachable/timed out, or no pancake_order_id at
+                // all — leave the bare gray track with a plain label rather
+                // than a permanent "Loading…" that never resolves.
+                tooltip.textContent = 'Order history unavailable';
+                return;
+            }
+
+            const totalForRate = stats.succeed_count + stats.returned_count;
+            // Same math as the old server-rendered version: return rate =
+            // returned ÷ succeeded (not ÷ total), matching Pancake's own
+            // POS convention.
+            const returnRate  = stats.succeed_count > 0 ? Math.round((stats.returned_count / stats.succeed_count) * 100) : 0;
+            const successPct  = totalForRate > 0 ? Math.round((stats.succeed_count / totalForRate) * 100) : 0;
+
+            // totalForRate === 0 (genuinely nothing succeeded or returned
+            // yet) leaves the track bare gray — filling the remainder red
+            // would misread as "100% returned" instead of "no data yet".
+            if (totalForRate > 0) {
+                track.innerHTML = `
+                    <div class="h-full bg-emerald-500 float-left" style="width: ${successPct}%"></div>
+                    <div class="h-full bg-rose-500 float-left" style="width: ${100 - successPct}%"></div>
+                `;
+            }
+
+            tooltip.innerHTML = `
+                Successful orders: ${stats.succeed_count} / Returned orders: ${stats.returned_count}
+                <br>Return rate: ${returnRate}%
+                <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900 dark:border-t-black"></span>
+            `;
+        })
+        .catch(() => {
+            const current = document.getElementById('customerStatsBar');
+            if (!current || current.dataset.leadId !== leadId) return;
+            const tooltip = current.querySelector('[data-customer-stats-tooltip]');
+            if (tooltip) tooltip.textContent = 'Order history unavailable';
+        });
+}
+
 // Inline "+ Add tag" chip in the POS Tags card — writes a real tag straight
 // to Pancake (LeadController::addTag(), new 2026-08-25) the moment one's
 // picked, distinct from updateDisposition()'s own tag-writing (that's
@@ -2714,6 +2787,7 @@ initInlineTagsPanel();
 initDeliveryPanel();
 initLineItemsPanel();
 initHistoryPanel();
+initCustomerStats();
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

@@ -382,6 +382,41 @@ class LeadController extends Controller
         ]);
     }
 
+    /**
+     * Success/return order-history bar's own data, fetched separately from
+     * show()'s own initial payload (explicit follow-up request, 2026-09-08:
+     * "fetch it in the background, not blocking the modal") — Pancake
+     * Enterprise::getCustomerOrderStats() searches its orders API by phone
+     * number and can take anywhere from ~1s to 20+s (confirmed live,
+     * regardless of page_size), so bundling it into show()'s own
+     * synchronous getOrderDetail() call would occasionally stall opening
+     * the WHOLE lead modal for one small stats bar. calls.js fetches this
+     * once the modal has already rendered and fills the bar in when it
+     * resolves — see initCustomerStats()'s own comment.
+     *
+     * A second getOrderDetail() call here (not reused from show()'s own
+     * request) is deliberate, not wasteful: this is a genuinely separate
+     * HTTP round-trip from a separate page load, and getOrderDetail() only
+     * returns bill_phone_number now — a fast, single-order GET, not the
+     * slow phone-search itself.
+     */
+    public function customerStats(Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        $liveOrder = $lead->pancake_order_id ? $api->getOrderDetail($lead->pancake_order_id) : null;
+        $stats = $liveOrder ? $api->getCustomerOrderStats($liveOrder['bill_phone_number'] ?? null) : null;
+
+        return response()->json([
+            'success' => true,
+            'stats'   => $stats,
+        ]);
+    }
+
     /** Pin/unpin — same ownership guard as show() (a TSA only manages their
      *  own leads, an admin can manage any). Sorts to the top of the Leads
      *  table via index()'s own orderByRaw('pinned_at IS NULL') above. */
