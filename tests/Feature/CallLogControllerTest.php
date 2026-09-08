@@ -135,14 +135,18 @@ class CallLogControllerTest extends TestCase
         $this->assertSame(840, $gemmaRow['longest_gap_seconds']);
     }
 
-    /** Bug fix (2026-09-05): logCallClick() creates a CallEvent with
-     *  duration_seconds = null every time a TSA clicks "call" in the UI
-     *  (see that method's own doc comment) — the gap-timing loop used to
-     *  treat a null duration as 0 seconds via `?? 0`, understating the
-     *  idle gap before it, and total_calls counted these phantom
-     *  click-attempts as real calls. Both are now excluded — this report
-     *  should only count calls with a MacroDroid-confirmed duration. */
-    public function test_a_duration_less_call_click_event_does_not_corrupt_gap_math_or_totals(): void
+    /**
+     * Reversed 2026-09-08 (explicit follow-up: "i want when they click in
+     * number the tsa it should be reflect to the call log right?") — a
+     * logCallClick() row (direction='outgoing', duration_seconds=null) now
+     * counts as a real call immediately, not only once MacroDroid
+     * separately confirms a duration. Was excluded 2026-09-05 for the
+     * opposite reason (see this class's own updated doc comment for the
+     * full history) — real production case that prompted the reversal:
+     * several TSAs' genuine dialing activity a whole day never showed up
+     * here at all, since MacroDroid's phone-side automation never fired.
+     */
+    public function test_a_call_click_with_no_confirmed_duration_now_counts_as_a_real_call(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
@@ -150,12 +154,13 @@ class CallLogControllerTest extends TestCase
 
         // Call 1: a real MacroDroid-confirmed call, 9:00:00 - 9:01:00 (60s).
         $call1 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => $today->copy()->addMinute()]);
-        // A phantom logCallClick() row at 9:02:00 — no duration, must not be
-        // treated as an instant 0-second call sitting between call 1 and call 2.
-        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => null, 'occurred_at' => $today->copy()->addMinutes(2)]);
-        // Call 2: a real MacroDroid-confirmed call, starts 9:10:00 (9 idle
-        // minutes after call 1 ended at 9:01:00 — NOT measured from the
-        // phantom row), ends 9:10:30.
+        // A click-to-call row at 9:02:00 — no confirmed duration yet, but
+        // still counts, and its OWN occurred_at is its dial/start moment
+        // (not an end time the way it is for every confirmed row).
+        $click = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => null, 'occurred_at' => $today->copy()->addMinutes(2)]);
+        // Call 2: a real MacroDroid-confirmed call, starts 9:10:00 (8 idle
+        // minutes after the click at 9:02:00, since the click is now a
+        // real event in the chronological sequence), ends 9:10:30.
         $call2 = CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(10)->addSeconds(30)]);
 
         $response = $this->actingAs($admin)->get(route('calls.call-log', [
@@ -164,21 +169,23 @@ class CallLogControllerTest extends TestCase
 
         $response->assertOk();
 
-        // total_calls only counts the 2 real, duration-confirmed calls —
-        // the phantom click row is excluded.
+        // total_calls counts all 3 — the click included.
         $rows = collect($response->viewData('rows'));
         $gemmaRow = $rows->firstWhere('tsa.id', $gemma->id);
-        $this->assertSame(2, $gemmaRow['total_calls']);
+        $this->assertSame(3, $gemmaRow['total_calls']);
 
-        // The gap before call 2 is measured from call 1's real end (9:01:00)
-        // to call 2's real start (9:10:00) = 9 minutes, not shortened by the
-        // phantom row sitting in between.
+        // The gap before the click is measured from call 1's real end
+        // (9:01:00) to the click's own occurred_at (9:02:00) = 1 minute.
         $gapBeforeSeconds = $response->viewData('gapBeforeSeconds');
-        $this->assertSame(540, $gapBeforeSeconds[$call2->id]); // 9 minutes
+        $this->assertSame(60, $gapBeforeSeconds[$click->id]);
+        // The gap before call 2 is measured from the click's own
+        // occurred_at (9:02:00, treated as both its start and end) to
+        // call 2's real start (9:10:00) = 8 minutes.
+        $this->assertSame(480, $gapBeforeSeconds[$call2->id]);
 
-        // The "Recent calls" raw list also excludes the phantom row.
+        // The "Recent calls" raw list includes the click too.
         $events = $response->viewData('events');
-        $this->assertCount(2, $events);
+        $this->assertCount(3, $events);
     }
 
     /** Explicit request (2026-08-24): filter by team, same ALL/SH Naturals/

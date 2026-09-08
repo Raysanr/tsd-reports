@@ -14,11 +14,18 @@ use Illuminate\Support\Facades\Auth;
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift.
  * The load-reimbursement report — per-TSA call count/duration for a date
- * range, built from real call events their own phone's automation reports
- * (see CallEventController). This is the practical stand-in for "deduct
- * their SIM load": no telco exposes a way to read a personal prepaid
- * balance, so this is what an admin uses to work out how much load to pay
- * back each TSA instead.
+ * range, built from real call events (see CallEventController's own
+ * webhook, and LeadController::logCallClick()'s in-app click-to-dial
+ * counterpart — both feed the same CallEvent table). This is the
+ * practical stand-in for "deduct their SIM load": no telco exposes a way
+ * to read a personal prepaid balance, so this is what an admin uses to
+ * work out how much load to pay back each TSA instead.
+ *
+ * Counts a click-to-call the moment it happens (2026-09-08, see index()'s
+ * own query comment for the full history) — not only once MacroDroid's
+ * own phone-side automation separately confirms a real duration, since
+ * that automation not firing reliably was making genuinely worked calls
+ * disappear from this report entirely.
  */
 class CallLogController extends Controller
 {
@@ -68,24 +75,32 @@ class CallLogController extends Controller
             $selectedTsa  = $user->tsa_id;
         }
 
-        // Bug fix (2026-09-05): excludes logCallClick()'s duration-less
-        // "call was attempted" placeholder rows (see that method's own doc
-        // comment) — those are always direction='outgoing' with a null
-        // duration, the exact shape that used to get silently treated as an
-        // instant 0-second call in the gap-timing loop below, understating
-        // idle gaps, and inflated total_calls with clicks that might not
-        // have even connected. A real MISSED call also has a null duration
-        // (MacroDroid has no length to report for a call nobody answered)
-        // and must still count — only excluding null-duration OUTGOING rows
-        // keeps that real signal while dropping the phantom one. Accepted
-        // tradeoff: a genuine outgoing call whose MacroDroid duration
-        // report failed to arrive is also excluded here — same acceptable
-        // miscount logCallClick()'s own doc comment already accepts for the
-        // double-counting side of this same tradeoff.
+        // Reversed 2026-09-08 (explicit follow-up request: "i want when
+        // they click in number the tsa it should be reflect to the call
+        // log right?") — logCallClick()'s duration-less "call was
+        // attempted" rows (direction='outgoing', duration_seconds=null)
+        // now count as real calls immediately, the moment a TSA clicks to
+        // dial, rather than waiting for MacroDroid's own separate webhook
+        // to confirm a real duration. Confirmed live the same day: several
+        // TSAs' real dialing activity (clicked, then manually pressed "End
+        // Call" in the app) never showed up here at all, since MacroDroid
+        // never fired its own confirming event for any of those calls —
+        // this page read as "no calls today" for TSAs who were genuinely
+        // working the whole time.
+        //
+        // Was excluded 2026-09-05 for the opposite reason (a click alone
+        // doesn't prove a call connected, and treating its occurred_at —
+        // the CLICK/dial time — as an instant 0-second call understated
+        // idle gaps) — explicitly accepted now as a tradeoff: a TSA who
+        // clicks without the call actually connecting still counts here,
+        // in exchange for real dialing activity no longer silently
+        // disappearing when the phone-side automation doesn't report back.
+        // The gap-timing loop below already treats a null-duration row's
+        // occurred_at as both its own start AND end (duration_seconds ?? 0),
+        // which happens to be exactly correct for a click row too —
+        // occurred_at IS the dial/start moment for these, not a call's end
+        // the way it is for every other row.
         $events = CallEvent::with(['tsa', 'lead'])
-            ->where(function ($q) {
-                $q->where('direction', '!=', 'outgoing')->orWhereNotNull('duration_seconds');
-            })
             ->whereBetween('occurred_at', [$from, $to])
             ->when($orderTeam, fn ($q) => $q->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
             ->when($selectedTsa, fn ($q) => $q->where('tsa_id', $selectedTsa))
@@ -111,12 +126,15 @@ class CallLogController extends Controller
 
             for ($i = 1; $i < $chronological->count(); $i++) {
                 $previousCallEndedAt = $chronological[$i - 1]->occurred_at;
-                // ?? 0 here is for a real MISSED call (duration_seconds is
-                // legitimately null — nobody answered, so it has no length):
-                // its start and end are the same instant. Every OUTGOING/
-                // INCOMING row reaching this point is guaranteed non-null by
-                // the query above (a null-duration outgoing row is a
-                // logCallClick() phantom, already excluded).
+                // ?? 0 here covers TWO different null-duration shapes now
+                // (2026-09-08, see this method's own query comment above):
+                // a real MISSED call (nobody answered, genuinely no length,
+                // start=end) and a logCallClick() row (duration never
+                // confirmed by MacroDroid) — for the latter, occurred_at
+                // IS already the dial/start moment, not an end time the
+                // way it is for every confirmed row, so treating it as
+                // "starts and ends at itself" is exactly correct, not a
+                // fallback approximation.
                 $thisCallStartedAt   = $chronological[$i]->occurred_at->copy()->subSeconds($chronological[$i]->duration_seconds ?? 0);
                 $gapSeconds = max(0, $thisCallStartedAt->timestamp - $previousCallEndedAt->timestamp);
 
