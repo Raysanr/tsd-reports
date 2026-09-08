@@ -226,6 +226,16 @@ class SyncPancakeLeads extends Command
      * (a TSA's own Log Outcome, or an earlier run of this same backfill)
      * got there first stands; this only ever fills in a genuinely blank
      * callback, never reschedules an existing one.
+     *
+     * callback_at = now(), NOT now()->addDay() (root-caused 2026-09-08, real
+     * production check the same day: 99 leads backfilled with +1 day showed
+     * ZERO of them on the Callbacks page, since that view only ever shows
+     * callback_at <= now() — "due now or already past due", see
+     * LeadController::index()'s own comment). now()->addDay() is the right
+     * default for a TSA who genuinely just hasn't decided WHEN to call back
+     * yet (updateDisposition()'s own fallback, a real but different case) —
+     * a lead Pancake itself already flagged Not Answering/Unattended needs
+     * calling today, not tomorrow, which is the entire point of this fix.
      */
     private function backfillCallbackFromTags(Lead $lead, array $raw): void
     {
@@ -244,10 +254,10 @@ class SyncPancakeLeads extends Command
 
         $lead->update([
             'disposition' => $matchedTag,
-            'callback_at' => now()->addDay(),
+            'callback_at' => now(),
         ]);
 
-        LeadActivity::log($lead, 'callback_scheduled', "Callback set for " . $lead->callback_at->format('M j, g:i A') . " (Pancake tag \"{$matchedTag}\", not a logged Outcome).");
+        LeadActivity::log($lead, 'callback_scheduled', 'Callback due now (Pancake tag "' . $matchedTag . '", not a logged Outcome).');
     }
 
     /**

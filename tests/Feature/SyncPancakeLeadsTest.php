@@ -7,6 +7,7 @@ use App\Models\LeadActivity;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -357,7 +358,12 @@ class SyncPancakeLeadsTest extends TestCase
         $lead->refresh();
         $this->assertSame('NOT ANSWERING', $lead->disposition);
         $this->assertNotNull($lead->callback_at);
-        $this->assertTrue($lead->callback_at->isFuture());
+        // Due NOW, not +1 day (root-caused 2026-09-08: an earlier version of
+        // this fix used +1 day, the same fallback updateDisposition() uses
+        // for a TSA who hasn't picked a time — but the Callbacks view only
+        // ever shows callback_at <= now(), so every backfilled lead was
+        // invisible on today's Callbacks page until the NEXT day).
+        $this->assertTrue($lead->callback_at->lte(now()));
         // status/tsa_id untouched — this only ever fills in the callback,
         // never re-processes the lead as if it were brand new.
         $this->assertSame('assigned', $lead->status);
@@ -366,6 +372,39 @@ class SyncPancakeLeadsTest extends TestCase
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'callback_scheduled')->first();
         $this->assertNotNull($activity);
         $this->assertStringContainsString('Pancake tag', $activity->description);
+    }
+
+    /**
+     * The actual end-to-end proof the earlier version of this fix lacked —
+     * confirming the backfilled lead genuinely appears on the real
+     * Callbacks page (not just that callback_at got set to SOME value).
+     * This is the exact gap that let the +1-day bug ship: every unit-level
+     * assertion above passed with the wrong due time, since none of them
+     * hit the real view's own callback_at <= now() filter.
+     */
+    public function test_a_pancake_tag_backfilled_lead_actually_shows_on_the_callbacks_page(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '9506', 'customer_name' => 'Should Appear Today',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9506, 'bill_full_name' => 'Should Appear Today', 'bill_phone_number' => '09171234572',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $user = User::factory()->create(['role' => 'admin']);
+        $response = $this->actingAs($user)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertSee('Should Appear Today');
     }
 
     public function test_the_unattended_tag_also_backfills_a_callback(): void
