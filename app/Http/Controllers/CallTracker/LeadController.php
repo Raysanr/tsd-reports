@@ -44,8 +44,13 @@ class LeadController extends Controller
     /** Disposition keywords that mean "we didn't actually reach/confirm this
      *  lead" and so need a follow-up attempt — see updateDisposition()'s own
      *  comment on why Unattended/Not Answering join Call Back here. Matched
-     *  case-insensitively as a substring, same as the keywords list itself. */
-    private const CALLBACK_TRIGGER_KEYWORDS = ['call back', 'unattended', 'not answering'];
+     *  case-insensitively as a substring, same as the keywords list itself.
+     *  Public (not private): SyncPancakeLeads::backfillCallbackFromTags()
+     *  reuses this exact same list so a lead whose callback-worthy state
+     *  came from a real Pancake TAG (not a TSA's own logged Outcome) is
+     *  still recognized by the identical keyword set — one definition, not
+     *  two hand-kept-in-sync copies. */
+    public const CALLBACK_TRIGGER_KEYWORDS = ['call back', 'unattended', 'not answering'];
 
     public static function overdueThresholdHours(): int
     {
@@ -82,9 +87,26 @@ class LeadController extends Controller
             ->orderByRaw('pinned_at IS NULL')
             ->latest('pancake_created_at');
 
-        // A TSA only ever sees their own queue; an admin can optionally
-        // narrow to one TSA via ?tsa=, defaulting to everyone's.
-        if (!$user->isAtLeastAdmin()) {
+        // A TSA only ever sees their own queue on the default Leads/Overdue
+        // views; an admin can optionally narrow to one TSA via ?tsa=,
+        // defaulting to everyone's.
+        //
+        // Callbacks is the one exception (explicit request, 2026-09-08: "i
+        // want to make it like it is visible to all of the TSA's the
+        // callbacks") — a promised follow-up call is shared team knowledge,
+        // not one TSA's private queue: if Gemma is out and a customer she
+        // promised to call back is due, any other TSA logged in should be
+        // able to see and pick it up, not just Gemma herself (and an admin
+        // who happened to be scrolled to a specific TSA via ?tsa= would
+        // otherwise silently miss every OTHER TSA's due callbacks too). A
+        // TSA can still narrow the shared Callbacks queue down via ?tsa=
+        // the same way an admin can, just never has it forced narrow by
+        // default the way every other view does.
+        if ($view === 'callbacks') {
+            if ($request->filled('tsa')) {
+                $query->where('tsa_id', $request->integer('tsa'));
+            }
+        } elseif (!$user->isAtLeastAdmin()) {
             $query->where('tsa_id', $user->tsa_id);
         } elseif ($request->filled('tsa')) {
             $query->where('tsa_id', $request->integer('tsa'));
@@ -379,41 +401,6 @@ class LeadController extends Controller
         return response()->json([
             'success' => true,
             'html' => view('calls.leads._history', ['lead' => $lead, 'liveOrder' => $liveOrder])->render(),
-        ]);
-    }
-
-    /**
-     * Success/return order-history bar's own data, fetched separately from
-     * show()'s own initial payload (explicit follow-up request, 2026-09-08:
-     * "fetch it in the background, not blocking the modal") — Pancake
-     * Enterprise::getCustomerOrderStats() searches its orders API by phone
-     * number and can take anywhere from ~1s to 20+s (confirmed live,
-     * regardless of page_size), so bundling it into show()'s own
-     * synchronous getOrderDetail() call would occasionally stall opening
-     * the WHOLE lead modal for one small stats bar. calls.js fetches this
-     * once the modal has already rendered and fills the bar in when it
-     * resolves — see initCustomerStats()'s own comment.
-     *
-     * A second getOrderDetail() call here (not reused from show()'s own
-     * request) is deliberate, not wasteful: this is a genuinely separate
-     * HTTP round-trip from a separate page load, and getOrderDetail() only
-     * returns bill_phone_number now — a fast, single-order GET, not the
-     * slow phone-search itself.
-     */
-    public function customerStats(Lead $lead, PancakeOrderTagApi $api)
-    {
-        $user = Auth::user();
-
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
-            abort(403);
-        }
-
-        $liveOrder = $lead->pancake_order_id ? $api->getOrderDetail($lead->pancake_order_id) : null;
-        $stats = $liveOrder ? $api->getCustomerOrderStats($liveOrder['bill_phone_number'] ?? null) : null;
-
-        return response()->json([
-            'success' => true,
-            'stats'   => $stats,
         ]);
     }
 

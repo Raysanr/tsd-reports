@@ -230,52 +230,6 @@ class LeadShowTest extends TestCase
         $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
     }
 
-    /**
-     * Explicit follow-up request (2026-09-04: "can fetch this like rts rate
-     * and successful rate of the leads like in the pos") — originally read
-     * straight off the order's own embedded 'customer' sub-object
-     * (succeed_order_count/returned_order_count/order_count).
-     *
-     * Superseded 2026-09-08 (real production reports, orders #1365574/
-     * #1365559/#1365556: this showed 0/0 or a wrong ratio while Pancake's
-     * own POS tooltip showed real history for the same customer — root
-     * cause: that embedded object is scoped to ONE customer_id record, and
-     * Pancake can silently spin up a fresh, empty one for a returning
-     * customer). The bar is no longer computed inline on this page at all —
-     * see LeadShowCustomerStatsTest for the new async-endpoint coverage,
-     * and PancakeOrderTagApi::getCustomerOrderStats()'s own comment for the
-     * full root-cause writeup. This page now just renders a loading
-     * placeholder the client fills in.
-     */
-    public function test_shows_a_loading_placeholder_for_the_success_rate_bar_not_a_synchronous_number(): void
-    {
-        Setting::set('pancake_api_key', 'test-key');
-        Setting::set('shop_id', '30037101');
-
-        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        $lead = Lead::create(['pancake_order_id' => 's10', 'customer_name' => 'Repeat Customer', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
-        Http::fake([
-            'pos.pages.fm/api/v1/shops/*/orders/s10*' => Http::response(['data' => [
-                'items' => [['variation_info' => ['name' => 'Sinuxyl', 'retail_price' => 800], 'quantity' => 1]],
-                'tags'  => [],
-                'bill_phone_number' => '09624806238',
-            ]]),
-        ]);
-
-        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
-        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
-
-        $response->assertOk();
-        $response->assertSee('id="customerStatsBar"', false);
-        $response->assertSee('data-lead-id="' . $lead->id . '"', false);
-        $response->assertSee('Loading order history…');
-        // The page itself never resolved/rendered a real number — that's
-        // the client's job now, via GET /calls/leads/{lead}/customer-stats.
-        $response->assertDontSee('Successful orders:');
-    }
-
     /** Explicit follow-up requests (2026-08-25): "add delivery to this like
      *  in the POS", then "make it editable like in the POS" — an editable
      *  form pre-filled from the same order fetch as Products/POS Tags,

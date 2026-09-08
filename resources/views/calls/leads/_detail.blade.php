@@ -317,44 +317,6 @@
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Customer</p>
                 <p class="font-semibold text-slate-800 dark:text-slate-100">{{ $lead->customer_name ?: '—' }}</p>
                 <p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{{ $lead->phone_number ?: '—' }}</p>
-                {{-- Success/return rate bar (explicit follow-up request,
-                     2026-09-04: "can fetch this like rts rate and
-                     successful rate of the leads like in the pos", then
-                     "show it always, even at 0/0" once a brand-new
-                     customer's hidden bar read as a missing feature rather
-                     than an intentional empty state) — mirrors Pancake
-                     POS's own colored bar + hover tooltip next to the
-                     customer's gender.
-
-                     Rebuilt 2026-09-08 as an ASYNC panel, not server-
-                     rendered here: originally read straight off the order's
-                     own embedded 'customer' object, but that's scoped to
-                     ONE customer_id record and Pancake can silently spin up
-                     a fresh, empty one for a returning customer (real
-                     production reports, orders #1365574/#1365559/#1365556 —
-                     this showed 0/0 while POS's own tooltip showed real
-                     history for the same customer). PancakeOrderTagApi::
-                     getCustomerOrderStats() now computes this correctly by
-                     searching Pancake's own orders API by phone number
-                     instead — but that search is slow/unreliable (confirmed
-                     live: ~1s to 20+s, regardless of page size), so it can't
-                     run inline on every modal open without occasionally
-                     stalling the WHOLE modal for one small bar. calls.js'
-                     initCustomerStats() fetches LeadController::
-                     customerStats() once this partial has already rendered
-                     and fills the bar in when it resolves (or leaves it
-                     blank/gray if Pancake times out) — see that JS
-                     function's own comment. data-lead-id, same convention
-                     every other async panel on this page already uses. --}}
-                <div class="group relative mt-2 w-full" id="customerStatsBar" data-lead-id="{{ $lead->id }}">
-                    <div class="w-full h-1.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden cursor-default"
-                         data-customer-stats-track></div>
-                    <div class="hidden group-hover:block absolute z-30 bottom-full left-1/2 -translate-x-1/2 mb-2 whitespace-nowrap rounded-lg bg-slate-900 dark:bg-black text-white text-xs px-3 py-2 shadow-lg pointer-events-none"
-                         data-customer-stats-tooltip>
-                        Loading order history…
-                        <span class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900 dark:border-t-black"></span>
-                    </div>
-                </div>
             </div>
 
 @if($liveOrder && $liveOrder['shipping_address'] && $canManage)
