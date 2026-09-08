@@ -151,4 +151,42 @@ class SyncCallRecordingsFastPathTest extends TestCase
         $this->assertSame(5, $row->total_seconds);
         $this->assertSame(1, $row->call_count);
     }
+
+    /**
+     * Root-caused 2026-09-08 (real production case: Angel Margallo's real
+     * Pancake tag/tsa_key is "Angelica" — 851 real orders already
+     * attributed under that exact string, so tsa_key itself is correct and
+     * must not change — but her real Drive folder is just "ANGEL", one of
+     * her OTHER tag_keywords entries. Grace Olivo is the identical shape:
+     * tsa_key "Joanna" vs. folder "GRACE"). Before
+     * GoogleDriveClient::folderBelongsToTsa() existed, resolveTsaFolder()
+     * only ever tried display_name/tsa_key, so neither TSA's real,
+     * currently-uploading recordings ever synced — this proves the fix:
+     * a folder named after a tag_keywords entry that is NEITHER
+     * display_name NOR tsa_key is still found.
+     */
+    public function test_resolves_a_tsa_folder_named_after_a_secondary_tag_keyword_not_just_tsa_key_or_display_name(): void
+    {
+        $this->configureDrive();
+        TsaShift::where('team', 'Eyecare Team')->where('tsa_key', 'Julie')
+            ->update(['tsa_key' => 'Joanna', 'display_name' => 'Grace Olivo', 'tag_keywords' => 'JOANNA,GRACE']);
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                // No month folder — same flat fallback as the earlier test
+                // above, just with a folder name that matches neither
+                // "Joanna" (tsa_key) nor "Grace Olivo" (display_name).
+                $this->folderListResponse([$this->folder('grace-root', 'GRACE')])
+            ),
+            'https://www.googleapis.com/drive/v3/files?q=%27grace-root%27*' => Http::response(
+                $this->folderListResponse([$this->file('rec-4', '09171234567 2026-08-29 10-00-00.m4a')])
+            ),
+            'https://www.googleapis.com/drive/v3/files/rec-4*' => Http::response('not-a-real-m4a'),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), "q=%27grace-root%27"));
+    }
 }

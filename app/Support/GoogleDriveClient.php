@@ -135,6 +135,37 @@ class GoogleDriveClient
     private const MAX_WALK_DEPTH = 4;
 
     /**
+     * True when a Drive folder's name could plausibly be THIS TSA's own —
+     * checked against display_name, tsa_key, AND every one of her
+     * tag_keywords (root-caused 2026-09-08, real production case: Angel
+     * Margallo's real Pancake tag/tsa_key is "Angelica" — 851 real orders
+     * already attributed under that exact string — but her real Drive
+     * folder is just "ANGEL", her tag_keywords' OTHER entry; Grace Olivo's
+     * is the identical shape, tsa_key "Joanna" vs. folder "GRACE"). Before
+     * this, resolveTsaFolder() only ever tried display_name/tsa_key, so a
+     * TSA whose team happens to label her Drive folder by a DIFFERENT one
+     * of her own real aliases than her tsa_key had zero recordings ever
+     * sync, with no error — the sync just silently never found her folder.
+     * tag_keywords already exists specifically to hold every name/alias a
+     * TSA is legitimately tagged under (see buildTagKeywords()'s own doc
+     * comment) — reusing it here for folder-matching needs no new data.
+     */
+    private function folderBelongsToTsa(string $folderName, TsaShift $tsa): bool
+    {
+        if ($this->namesMatch($folderName, $tsa->display_name) || $this->namesMatch($folderName, $tsa->tsa_key)) {
+            return true;
+        }
+
+        foreach ($tsa->tag_keywords_array as $keyword) {
+            if ($this->namesMatch($folderName, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * TSA folders now sit under a MONTH folder under their team's root
      * (confirmed live, 2026-08-25: TSD 2026 RECORDING > TEAM SH NATURALS >
      * AUGUST > <tsa_key or display_name>) — an outer layer added on top of
@@ -162,7 +193,7 @@ class GoogleDriveClient
 
         $tsaParentId = $monthFolder['id'] ?? $teamRootId;
         $tsaFolder   = collect($this->listChildren($token, $tsaParentId))->first(
-            fn ($f) => $this->namesMatch($f['name'], $tsa->display_name) || $this->namesMatch($f['name'], $tsa->tsa_key)
+            fn ($f) => $this->folderBelongsToTsa($f['name'], $tsa)
         );
 
         // Month folder existed but didn't have this TSA (e.g. genuinely no
@@ -170,7 +201,7 @@ class GoogleDriveClient
         // before giving up, same fallback reasoning as above.
         if (!$tsaFolder && $monthFolder) {
             $tsaFolder = collect($this->listChildren($token, $teamRootId))->first(
-                fn ($f) => $this->namesMatch($f['name'], $tsa->display_name) || $this->namesMatch($f['name'], $tsa->tsa_key)
+                fn ($f) => $this->folderBelongsToTsa($f['name'], $tsa)
             );
         }
 
