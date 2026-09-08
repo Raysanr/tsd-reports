@@ -70,8 +70,13 @@ class LogoutLeadRedistributorTest extends TestCase
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         // Every other SH Naturals TSA also logged out — Mariel already is
-        // by seed default; Kathleen needs setting explicitly.
-        TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
+        // by seed default; Kathleen needs setting explicitly. Every
+        // Eyecare TSA logged out too (2026-09-08: the cross-team fallback
+        // means "nobody working" now has to mean nobody on EITHER team,
+        // not just her own — seeded TSAs default to 'login', so this test
+        // would otherwise silently redistribute cross-team instead of
+        // proving the true "nothing available anywhere" case).
+        TsaShift::where('id', '!=', $gemma->id)->update(['status' => 'logout']);
 
         $lead = $this->leadFor($gemma);
 
@@ -80,7 +85,15 @@ class LogoutLeadRedistributorTest extends TestCase
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
 
-    public function test_only_teammates_on_the_same_team_are_eligible(): void
+    /**
+     * Reversed 2026-09-08 (explicit follow-up: "even not same team?") —
+     * same-team is still tried FIRST always, but when nobody on her own
+     * team is available, this now falls back to an online TSA on the
+     * OTHER team rather than leaving the backlog stuck. See
+     * LogoutLeadRedistributor's own doc comment for the full history —
+     * this test used to assert the opposite (cross-team never eligible).
+     */
+    public function test_falls_back_to_the_other_team_when_no_same_team_teammate_is_available(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
         $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
@@ -93,9 +106,29 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
 
-        // No SH Naturals teammate is working — Julie's on a different team,
-        // not eligible regardless of her own status.
-        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
+        $lead->refresh();
+        $this->assertSame($julie->id, $lead->tsa_id);
+
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
+        $this->assertStringContainsString('cross-team fallback', $activity->description);
+    }
+
+    /** Same-team still wins over cross-team whenever a same-team teammate
+     *  genuinely IS available — the fallback only ever kicks in when her
+     *  own team has nobody left. */
+    public function test_same_team_teammate_is_still_preferred_over_the_cross_team_fallback(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+        $mariel->update(['status' => 'login']);
+        $julie->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
     }
 
     public function test_a_redundant_logout_does_not_re_trigger_redistribution(): void
@@ -193,8 +226,14 @@ class LogoutLeadRedistributorTest extends TestCase
         $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
         $mariel->update(['status' => 'login', 'active' => false]);
         // Kathleen (the other SH Naturals TSA) also logged out, so Mariel
-        // (working but inactive) is the only remaining candidate.
+        // (working but inactive) is the only remaining SH Naturals
+        // candidate. Every Eyecare TSA logged out too (2026-09-08, same
+        // reasoning as test_backlog_stays_put_when_no_teammates_are_
+        // currently_working above) — otherwise the cross-team fallback
+        // would silently redistribute there instead of proving inactive
+        // teammates are correctly excluded.
         TsaShift::where('tsa_key', 'Kathleen')->update(['status' => 'logout']);
+        TsaShift::where('team', 'Eyecare Team')->update(['status' => 'logout']);
 
         $lead = $this->leadFor($gemma);
 

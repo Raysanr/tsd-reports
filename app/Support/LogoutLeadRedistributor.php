@@ -19,6 +19,15 @@ use App\Support\PancakeOrderTagApi;
  * those leads off to her currently-working teammates instead of leaving
  * them stalled in her queue until she's back.
  *
+ * Cross-team fallback added 2026-09-08 (explicit follow-up: "even not
+ * same team?"): same-team stays the first choice always; only when
+ * NOBODY on her own team is currently available does this fall back to
+ * an active, logged-in TSA on the OTHER team — no product_tsa
+ * eligibility check for that cross-team candidate (explicit answer: "any
+ * online TSA on the other team, regardless of product setup"), since
+ * this is a last-resort "someone answers the phone" handoff rather than
+ * a claim she's trained on that exact product.
+ *
  * Deliberately stateless — no new table, no persistent "IOU". Every
  * logout event is its own independent snapshot: whoever's backlog exists
  * AND whoever's an eligible teammate AT THAT MOMENT is what gets split,
@@ -72,6 +81,23 @@ class LogoutLeadRedistributor
             ->where('active', true)
             ->where('status', '!=', TsaShift::STATUS_LOGOUT)
             ->get();
+
+        // Cross-team fallback (explicit follow-up request, 2026-09-08:
+        // "even not same team?") — only kicks in when literally nobody on
+        // her OWN team is currently available; same-team stays the first
+        // choice every time. No product_tsa eligibility check for the
+        // cross-team candidate (explicit answer to the same follow-up:
+        // "any online TSA on the other team, regardless of product
+        // setup") — this is a last-resort "someone answers the phone"
+        // handoff, not a claim that the receiving TSA is trained on this
+        // exact product the way normal round-robin assignment requires.
+        if ($teammates->isEmpty()) {
+            $teammates = TsaShift::where('team', '!=', $tsa->team)
+                ->where('active', true)
+                ->where('status', '!=', TsaShift::STATUS_LOGOUT)
+                ->get();
+        }
+
         if ($teammates->isEmpty()) {
             return 0;
         }
@@ -79,6 +105,11 @@ class LogoutLeadRedistributor
         $moved = 0;
         foreach ($backlog->values() as $i => $lead) {
             $newTsa = $teammates[$i % $teammates->count()];
+            // Worth surfacing in the audit trail when this specific move
+            // used the cross-team fallback above, not the normal same-team
+            // path — makes it obvious later why a TSA on a different team
+            // ended up with this lead.
+            $crossTeamNote = $newTsa->team !== $tsa->team ? ' (no teammate of her own was available — cross-team fallback)' : '';
 
             // Resets assigned_at to now(), same convention LeadController::
             // transfer() already uses — the new TSA's overdue-threshold
@@ -88,7 +119,7 @@ class LogoutLeadRedistributor
 
             LeadActivity::log(
                 $lead, 'transferred',
-                "Auto-reassigned from {$tsa->display_name} to {$newTsa->display_name} — {$tsa->display_name} logged out with this lead still uncalled.",
+                "Auto-reassigned from {$tsa->display_name} to {$newTsa->display_name} — {$tsa->display_name} logged out with this lead still uncalled.{$crossTeamNote}",
                 null
             );
 
