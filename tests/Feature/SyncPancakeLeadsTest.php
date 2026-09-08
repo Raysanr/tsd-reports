@@ -499,4 +499,77 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertNull($lead->disposition);
         $this->assertNull($lead->callback_at);
     }
+
+    /**
+     * Root-caused 2026-09-08 (real production case: order #1365830 was
+     * tagged "Not Answering" — correctly triggered a callback via
+     * backfillCallbackFromTags() — then someone called it directly in
+     * Pancake and it's now tagged "Confirmed Via Call" instead; the lead
+     * sat stuck showing as a due callback forever on the Callbacks page,
+     * since nothing ever re-checked it once the real tag moved on).
+     * status stays non-'called' the whole time here (this is the exact
+     * signal that distinguishes a backfill-set callback from a TSA's own
+     * logged Outcome — see this method's own doc comment) — a real TSA
+     * Log Outcome always sets status='called' in the same write, so it can
+     * never be silently cleared by this.
+     */
+    public function test_a_backfilled_callback_is_cleared_once_the_real_tag_no_longer_justifies_it(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9506', 'customer_name' => 'Now Confirmed',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'disposition' => 'NOT ANSWERING', 'callback_at' => now(),
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9506, 'bill_full_name' => 'Now Confirmed', 'bill_phone_number' => '09171234572',
+            'tags' => [['name' => 'CONFIRMED VIA CALL']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertNull($lead->disposition);
+        $this->assertNull($lead->callback_at);
+        // status/tsa_id untouched — clearing the callback doesn't turn
+        // this into "called" on its own; a real TSA still needs to log
+        // the actual outcome for that.
+        $this->assertSame('assigned', $lead->status);
+    }
+
+    /**
+     * The other half of the same fix: a TSA's own manually-scheduled
+     * callback (status='called', a real logged Outcome via
+     * updateDisposition()) must NEVER be auto-cleared just because the
+     * order's current Pancake tags don't happen to include a trigger
+     * keyword anymore — that's a human decision, not this sync's to undo.
+     */
+    public function test_a_tsas_own_logged_callback_is_never_auto_cleared(): void
+    {
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product  = Product::where('display_name', 'SINUXYL')->first();
+        $original = now()->addHours(3);
+        $lead = Lead::create([
+            'pancake_order_id' => '9507', 'customer_name' => 'TSA Scheduled',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called',
+            'disposition' => 'Call Back', 'callback_at' => $original,
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9507, 'bill_full_name' => 'TSA Scheduled', 'bill_phone_number' => '09171234573',
+            'tags' => [['name' => 'CONFIRMED VIA CALL']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('Call Back', $lead->disposition);
+        $this->assertEquals($original->timestamp, $lead->callback_at->timestamp);
+    }
 }

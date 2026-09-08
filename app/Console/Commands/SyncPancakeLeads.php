@@ -221,11 +221,12 @@ class SyncPancakeLeads extends Command
      * Deliberately does NOT touch a lead already status='called' — that
      * means a TSA has already logged a real, human outcome for it through
      * this app (see updateDisposition()), which is a more informed record
-     * than a bare Pancake tag and must never be silently overwritten by it.
-     * Also does nothing once callback_at is already set — whichever path
-     * (a TSA's own Log Outcome, or an earlier run of this same backfill)
-     * got there first stands; this only ever fills in a genuinely blank
-     * callback, never reschedules an existing one.
+     * than a bare Pancake tag and must never be silently overwritten OR
+     * cleared by it. This is also exactly the signal used below to tell a
+     * backfill-set callback apart from a TSA's own: updateDisposition()
+     * always sets status='called' in the SAME write as callback_at, so a
+     * callback still sitting on a NON-'called' lead can only ever have come
+     * from this method — safe to auto-clear, never a human's own choice.
      *
      * callback_at = now(), NOT now()->addDay() (root-caused 2026-09-08, real
      * production check the same day: 99 leads backfilled with +1 day showed
@@ -236,10 +237,21 @@ class SyncPancakeLeads extends Command
      * yet (updateDisposition()'s own fallback, a real but different case) —
      * a lead Pancake itself already flagged Not Answering/Unattended needs
      * calling today, not tomorrow, which is the entire point of this fix.
+     *
+     * Auto-CLEARS a backfill-set callback too (root-caused 2026-09-08, same
+     * day: order #1365830 was tagged "Not Answering" — correctly triggered
+     * a callback — then someone called it directly in Pancake and it's now
+     * tagged "Confirmed Via Call" instead; the lead sat stuck showing as a
+     * due callback forever, since nothing ever re-checked it once the real
+     * tag moved on). Every sync tick, a lead whose callback_at is still set
+     * from THIS method (status !== 'called', see above) gets re-checked
+     * against its CURRENT real tags — if none of them match a trigger
+     * keyword anymore, the callback is cleared, same as it would be if a
+     * TSA had logged a real Outcome on it.
      */
     private function backfillCallbackFromTags(Lead $lead, array $raw): void
     {
-        if ($lead->status === 'called' || $lead->callback_at !== null) {
+        if ($lead->status === 'called') {
             return;
         }
 
@@ -247,6 +259,16 @@ class SyncPancakeLeads extends Command
         $matchedTag = $tagNames->first(
             fn ($tag) => collect(LeadController::CALLBACK_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($tag, $kw) !== false)
         );
+
+        if ($lead->callback_at !== null) {
+            // Already has a (backfill-set, per the status check above)
+            // callback — only act if the real tags no longer justify it.
+            if ($matchedTag === null) {
+                $lead->update(['disposition' => null, 'callback_at' => null]);
+                LeadActivity::log($lead, 'callback_scheduled', 'Callback cleared — Pancake tags no longer include Not Answering/Unattended/Call Back.');
+            }
+            return;
+        }
 
         if ($matchedTag === null) {
             return;
