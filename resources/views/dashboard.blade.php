@@ -331,7 +331,16 @@
 @if($teamComparison->isNotEmpty())
 @php
     $teamColors = ['#0891B2', '#059669']; // cyan, emerald — fixed order, never cycled per-team
-    $bestRate   = $teamComparison->max('upsell_rate');
+    // "Leading" = highest REVENUE, not upsell rate (root-caused 2026-09-08,
+    // real production report: Team Closing showed "Leading" at 37.5% rate
+    // off just 16 calls/6 upsells/₱4,700, while Team Opening — 152 calls,
+    // 55 upsells, ₱47,600 — sat unbadged purely because its rate (36.2%)
+    // was a hair lower. A rate computed off a tiny sample can beat a much
+    // larger, genuinely more productive day by a fraction of a point —
+    // explicit correction: "the leading should be the team that is leading
+    // in sales," i.e. real revenue, matching what "Revenue" already shows
+    // on each card below.
+    $bestRevenue = $teamComparison->max('revenue');
 @endphp
 <div class="mt-6">
     <div class="flex items-center justify-between mb-3">
@@ -345,7 +354,7 @@
         @foreach($teamComparison as $i => $team)
         @php
             $color    = $teamColors[$i % count($teamColors)];
-            $isLeader = $team['upsell_rate'] > 0 && $team['upsell_rate'] === $bestRate;
+            $isLeader = $team['revenue'] > 0 && $team['revenue'] === $bestRevenue;
         @endphp
         <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
             <div class="h-1.5" style="background:{{ $color }}"></div>
