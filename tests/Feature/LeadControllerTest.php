@@ -295,6 +295,54 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Unassigned Lead');
     }
 
+    /**
+     * Explicit request, 2026-09-08: "can you make it there's a status
+     * filter too in this" — the real Pancake order-status pill column
+     * (New/Confirmed/Shipped/etc, Order::STATUS_PILL), a different concept
+     * from the $status filter above (Lead's own local status). Uses
+     * 'order_status', a different query param, so the two never collide —
+     * see LeadController::index()'s own comment.
+     */
+    public function test_order_status_filter_narrows_to_leads_whose_real_pancake_order_matches(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'os-1', 'customer_name' => 'New Order Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Lead::create(['pancake_order_id' => 'os-2', 'customer_name' => 'Confirmed Order Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        Order::create(['pancake_order_id' => 'os-1', 'status_code' => 0, 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'os-2', 'status_code' => 1, 'synced_at' => now()]);
+
+        // 1 = Confirmed, per Order::STATUS_PILL.
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['order_status' => 1]));
+
+        $response->assertOk();
+        $response->assertDontSee('New Order Lead');
+        $response->assertSee('Confirmed Order Lead');
+    }
+
+    /** Works on Overdue/Callbacks too, unlike the Lead-status filter above —
+     *  an order's real Pancake status is an independent fact regardless of
+     *  which queue view is showing it. */
+    public function test_order_status_filter_also_works_on_the_callbacks_view(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'os-3', 'customer_name' => 'New Callback', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'callback_at' => now()->subHour()]);
+        Lead::create(['pancake_order_id' => 'os-4', 'customer_name' => 'Confirmed Callback', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'callback_at' => now()->subHour()]);
+
+        Order::create(['pancake_order_id' => 'os-3', 'status_code' => 0, 'synced_at' => now()]);
+        Order::create(['pancake_order_id' => 'os-4', 'status_code' => 1, 'synced_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'callbacks', 'order_status' => 1]));
+
+        $response->assertOk();
+        $response->assertDontSee('New Callback');
+        $response->assertSee('Confirmed Callback');
+    }
+
     public function test_an_admin_sees_every_tsas_leads(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

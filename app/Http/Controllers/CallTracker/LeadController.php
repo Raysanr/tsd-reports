@@ -197,6 +197,28 @@ class LeadController extends Controller
             $query->where('status', '!=', 'called');
         }
 
+        // Order status filter (explicit request, 2026-09-08: "can you make
+        // it there's a status filter too in this" — asked about the real
+        // Pancake order-status pill column, e.g. New/Confirmed/Shipped, NOT
+        // the $status filter just above, which is Lead's own local status
+        // — 'order_status', a different query param, so the two never
+        // collide). Applies on every view (Leads, Overdue, Callbacks alike)
+        // — unlike $status above, a Pancake order's real status is an
+        // independent fact about the order regardless of which queue view
+        // is showing it, so there's no view-specific reason to gate this
+        // one the way the Lead-status filter is.
+        //
+        // Lead/Order have no real relationship (see this controller's
+        // $orderStatuses comment further below — just a shared
+        // pancake_order_id string), so this is a subquery against the
+        // locally-synced orders table rather than a join or scope on Lead
+        // itself — same "trust the periodic sync, no live Pancake fetch
+        // here" convention that table's own Status column already uses.
+        $orderStatus = $request->string('order_status')->toString();
+        if ($orderStatus !== '' && is_numeric($orderStatus)) {
+            $query->whereIn('pancake_order_id', Order::where('status_code', (int) $orderStatus)->pluck('pancake_order_id'));
+        }
+
         // Search re-opened to a TSA too (explicit follow-up, 2026-09-02:
         // "add product, status, search in the tsa(normal user) in leads") —
         // was admin-only since this filter form's very first version; no
@@ -314,6 +336,12 @@ class LeadController extends Controller
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
             'selectedStatus'        => $status,
+            // Order status filter dropdown options — Order::STATUS_PILL
+            // itself, the exact same source of truth the Status pill column
+            // already renders from, so the filter can never offer a status
+            // the column itself wouldn't recognize.
+            'orderStatusOptions'    => Order::STATUS_PILL,
+            'selectedOrderStatus'   => $orderStatus !== '' && is_numeric($orderStatus) ? (int) $orderStatus : null,
             'dateFrom'              => $dateFromInput ?: $rangeFrom->toDateString(),
             'dateTo'                => $dateToInput ?: $rangeTo->toDateString(),
             'overdueThresholdHours' => self::overdueThresholdHours(),

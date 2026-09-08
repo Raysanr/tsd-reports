@@ -255,6 +255,61 @@
             </div>
         </div>
 
+        {{-- Order status filter (explicit request, 2026-09-08: "can you
+             make it there's a status filter too in this" — the real
+             Pancake order-status pill column, e.g. New/Confirmed/Shipped,
+             a DIFFERENT concept from the Lead-status filter right below —
+             see LeadController::index()'s own comment on 'order_status' vs
+             'status'). Shows on every view (Leads, Overdue, Callbacks
+             alike), unlike the Lead-status filter below which is gated to
+             the bare Leads view only. Options come straight from
+             Order::STATUS_PILL (passed as $orderStatusOptions), the exact
+             same source of truth the Status column itself already renders
+             from. --}}
+        <div class="relative" data-filter-wrap>
+            <input type="hidden" name="order_status" value="{{ $selectedOrderStatus ?? '' }}" data-filter-input>
+            <button type="button" data-filter-trigger
+                    class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
+                {{-- Same bg-*-100/text-*-700 pill-badge classes leads/
+                     _table.blade.php's own Status column already renders
+                     with these exact color names (not a new -500 dot) —
+                     Tailwind's content scanner only ever sees a class name
+                     as "used" from a literal occurrence somewhere in the
+                     source, and that file is the one already proving these
+                     specific color+shade combinations survive the build. --}}
+                @if($selectedOrderStatus !== null && isset($orderStatusOptions[$selectedOrderStatus]))
+                <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-{{ $orderStatusOptions[$selectedOrderStatus]['color'] }}-700"></span>
+                @else
+                <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                @endif
+                <span>{{ $orderStatusOptions[$selectedOrderStatus]['label'] ?? 'All Order Statuses' }}</span>
+                <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            <div class="hidden fixed z-50 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-56 max-h-96 overflow-y-auto" data-filter-panel>
+                <div class="py-1">
+                    <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="">
+                        <svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">All Order Statuses</span>
+                        @if($selectedOrderStatus === null)
+                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        @endif
+                    </div>
+                    @foreach($orderStatusOptions as $code => $pill)
+                    <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $code }}">
+                        <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-{{ $pill['color'] }}-700"></span>
+                        <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $pill['label'] }}</span>
+                        @if($selectedOrderStatus === $code)
+                        <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                        @endif
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+
         {{-- Status filter, brought back (explicit request, 2026-08-21) — see
              LeadController::index()'s own comment for why this only applies
              on the bare Leads view, not Overdue/Callbacks. Upgraded to the
