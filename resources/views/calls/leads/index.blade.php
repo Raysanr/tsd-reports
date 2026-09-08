@@ -262,23 +262,53 @@
              see LeadController::index()'s own comment on 'order_status' vs
              'status'). Shows on every view (Leads, Overdue, Callbacks
              alike), unlike the Lead-status filter below which is gated to
-             the bare Leads view only. Options come straight from
+             the bare Leads view only. Labels come straight from
              Order::STATUS_PILL (passed as $orderStatusOptions), the exact
              same source of truth the Status column itself already renders
-             from. --}}
+             from — only the icon set below is new to this dropdown.
+
+             Per-status ICON, not a bg-{{ $pill['color'] }}-700 colored dot
+             (explicit follow-up, same day: "why it is dots that not
+             completed instead of icon like this" — several dots were
+             silently missing in the first version: Tailwind's build only
+             keeps a utility class it finds as a literal string SOMEWHERE
+             in the scanned source, and 'amber-700'/'indigo-700' never
+             appear anywhere else in this codebase, so the compiled CSS
+             simply had no rule for them — same class of bug already fixed
+             once in TsaPerformanceController's own color-safelisting
+             history). A neutral slate icon per status sidesteps that
+             failure mode entirely — every icon here reuses the exact
+             w-5 h-5 text-slate-400 outline-Heroicon treatment already
+             proven safe by every OTHER option row in this same dropdown
+             family (All TSAs/All Teams/All Products above), just a
+             different path per status instead of one shared icon. --}}
+        @php
+            $orderStatusIcons = [
+                0  => 'M12 6v6l4 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // New — clock (fresh, just arrived)
+                17 => 'M12 6v6l4 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // Waiting for confirmation — clock
+                11 => 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z', // Awaiting stock — box
+                12 => 'M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z', // Awaiting print — printer
+                13 => 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z', // Printed — document with checkmark-ish
+                20 => 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z', // Ordered — box (same family as Awaiting stock)
+                1  => 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // Confirmed — check circle
+                8  => 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z', // Packing — box
+                9  => 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // Pending shipment — check circle
+                2  => 'M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 00-3.213-9.193 2.056 2.056 0 00-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 00-10.026 0 1.106 1.106 0 00-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12', // Shipped — truck
+                3  => 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // Received — check circle
+                16 => 'M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z', // Collected money — card
+                4  => 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3', // Returning — u-turn back
+                15 => 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3', // Partial return — u-turn back
+                5  => 'M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3', // Returned — u-turn back
+                6  => 'M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z', // Canceled — x circle
+                7  => 'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0', // Deleted recently — trash
+            ];
+        @endphp
         <div class="relative" data-filter-wrap>
             <input type="hidden" name="order_status" value="{{ $selectedOrderStatus ?? '' }}" data-filter-input>
             <button type="button" data-filter-trigger
                     class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
-                {{-- Same bg-*-100/text-*-700 pill-badge classes leads/
-                     _table.blade.php's own Status column already renders
-                     with these exact color names (not a new -500 dot) —
-                     Tailwind's content scanner only ever sees a class name
-                     as "used" from a literal occurrence somewhere in the
-                     source, and that file is the one already proving these
-                     specific color+shade combinations survive the build. --}}
-                @if($selectedOrderStatus !== null && isset($orderStatusOptions[$selectedOrderStatus]))
-                <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-{{ $orderStatusOptions[$selectedOrderStatus]['color'] }}-700"></span>
+                @if($selectedOrderStatus !== null && isset($orderStatusIcons[$selectedOrderStatus]))
+                <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="{{ $orderStatusIcons[$selectedOrderStatus] }}"/></svg>
                 @else
                 <svg class="w-4 h-4 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                 @endif
@@ -299,7 +329,7 @@
                     </div>
                     @foreach($orderStatusOptions as $code => $pill)
                     <div class="filter-option flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800" data-value="{{ $code }}">
-                        <span class="w-2.5 h-2.5 rounded-full shrink-0 bg-{{ $pill['color'] }}-700"></span>
+                        <svg class="w-5 h-5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="{{ $orderStatusIcons[$code] ?? 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z' }}"/></svg>
                         <span class="flex-1 text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono">{{ $pill['label'] }}</span>
                         @if($selectedOrderStatus === $code)
                         <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
