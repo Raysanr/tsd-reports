@@ -2714,6 +2714,31 @@ initInlineTagsPanel();
 initDeliveryPanel();
 initLineItemsPanel();
 initHistoryPanel();
+// Guarded by its own element's presence (see its own comment) — a silent
+// no-op on every page except leads/index.blade.php, so this is safe to
+// call unconditionally here alongside the other page-load inits.
+initLiveLeadsSearch();
+
+// Leads/Overdue/Callbacks search box (explicit request, 2026-09-09: "auto
+// search ... dont need to click the search button") — debounce-submits
+// the surrounding GET form as the TSA types, same 250ms convention as
+// every other search box in this file (Outcome/Upsell/inline-tag
+// pickers above). A full page reload on each submit (not a fetch/AJAX
+// swap) — same as clicking the Search button always did — so this stays
+// a plain enhancement of the existing form, not a new search mechanism.
+function initLiveLeadsSearch() {
+    const input = document.querySelector('[data-live-search]');
+    if (!input) return;
+
+    const form = input.closest('form');
+    if (!form) return;
+
+    let debounce = null;
+    input.addEventListener('input', () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => form.submit(), 250);
+    });
+}
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.closeUpsellModal();

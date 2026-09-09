@@ -98,7 +98,7 @@
 </script>
 
 <div class="mb-6 flex items-center gap-3 flex-wrap">
-    <form method="GET" class="flex items-center gap-3 flex-wrap">
+    <form method="GET" id="leadsFilterForm" class="flex items-center gap-3 flex-wrap">
         @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
 
         @php
@@ -436,8 +436,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
             </svg>
             <input type="text" name="q" value="{{ $q }}" placeholder="Search name, phone, order ID…"
+                   data-live-search
                    class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 w-64">
         </div>
+        {{-- Kept as a fallback (explicit request, 2026-09-09: "auto search
+             ... dont need to click the search button") — typing now
+             submits on its own (see initLiveLeadsSearch() in calls.js), so
+             this button is no longer required, just still here for anyone
+             who prefers pressing it or is on a slow connection and wants
+             to control exactly when the reload happens. --}}
         <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">Search</button>
 
         @if(auth()->user()->isAtLeastAdmin())
