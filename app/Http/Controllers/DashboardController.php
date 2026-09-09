@@ -69,8 +69,17 @@ class DashboardController extends Controller
         // always the 2 calendar days immediately before it — same "erase
         // oldest, shift left, write new day" usage as the physical board,
         // not 3 freely-retargetable date pickers.
+        //
+        // Oldest-to-newest left to right (explicit follow-up, 2026-09-10:
+        // "the left side should be always like yesterday" — meaning the
+        // FURTHER-back day, since "yesterday" here means "the day before
+        // the other one shown", not literally D-1) — 2-days-ago on the
+        // left, yesterday on the right, immediately followed by today's
+        // large block: reading the row left-to-right walks forward through
+        // time, same as the physical whiteboard's own left-to-right date
+        // columns.
         $telesalesToday = now()->toDateString();
-        $telesalesPriorDates = [now()->subDay()->toDateString(), now()->subDays(2)->toDateString()];
+        $telesalesPriorDates = [now()->subDays(2)->toDateString(), now()->subDay()->toDateString()];
         $telesalesByDate = TelesalesSummary::whereIn('summary_date', [$telesalesToday, ...$telesalesPriorDates])
             ->get()
             ->keyBy(fn ($row) => $row->summary_date->toDateString());

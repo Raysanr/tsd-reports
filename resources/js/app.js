@@ -1666,6 +1666,13 @@ const __baseSoftRefresh = window.softRefresh;
 window.softRefresh = async function (...args) {
     const result = await __baseSoftRefresh.apply(this, args);
     initScrollShadows();
+    // Re-stamp the Telesales Department card's friendly date labels — a
+    // softRefresh (team/date filter change on the Dashboard) replaces
+    // <main>'s whole innerHTML with fresh server-rendered markup, whose
+    // <span data-tss-date-label> starts empty again (see tssFormatDateLabel
+    // below); this only runs once on true first page load via the separate
+    // DOMContentLoaded listener otherwise.
+    document.querySelectorAll('[data-tss-small], [data-tss-today]').forEach(tssFormatDateLabel);
     return result;
 };
 
@@ -1697,7 +1704,9 @@ function tssCsrfToken() {
 
 function tssSetFieldValue(container, name, value) {
     const el = tssField(container, name);
-    if (el) el.value = value ?? '';
+    if (!el) return;
+    el.value = value ?? '';
+    if (el.hasAttribute('data-money-field') && el.value !== '') tssFormatMoneyInput(el);
 }
 
 async function tssLoadDate(container, date) {
@@ -1745,6 +1754,49 @@ function tssField(container, name) {
     return container.querySelector(`[data-field="${name}"]`);
 }
 
+// Money fields (Gross Sales, Net Income, Top Seller/Team Gross & Net) are
+// plain text inputs, not type="number" — the browser rejects commas
+// outright in a number field, and there's no live way to insert them as the
+// user types one, so live comma-formatting (explicit request, 2026-09-10:
+// "even like 3,000 it should be like this") requires text + manual
+// formatting instead. tssMoneyValue() strips the display commas back out
+// before a value is read for submission — the backend's numeric validation
+// (DashboardController::storeTelesalesSummary) has no idea about commas and
+// must never see them.
+function tssMoneyValue(container, name) {
+    const el = tssField(container, name);
+    return el ? el.value.replace(/,/g, '') : '';
+}
+
+// Formats a raw numeric string as the user types: strips everything but
+// digits/one decimal point, inserts thousand separators into the integer
+// part, and preserves the cursor position relative to the END of the
+// string (typing always happens at the end for a plain amount field — this
+// avoids the cursor visibly jumping to the wrong spot every time a comma is
+// inserted/removed as digits are added).
+function tssFormatMoneyInput(input) {
+    const raw = input.value;
+    const cursorFromEnd = raw.length - input.selectionEnd;
+
+    // Keep digits, at most one leading minus (Net Income can go negative),
+    // and at most one decimal point with up to 2 digits after it.
+    let cleaned = raw.replace(/[^\d.-]/g, '');
+    const isNegative = cleaned.startsWith('-');
+    cleaned = cleaned.replace(/-/g, '');
+    const firstDot = cleaned.indexOf('.');
+    if (firstDot !== -1) {
+        cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
+    }
+
+    const [intPart, decPart] = cleaned.split('.');
+    const withCommas = (intPart || '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const formatted = (isNegative ? '-' : '') + withCommas + (decPart !== undefined ? '.' + decPart : '');
+
+    input.value = formatted;
+    const newPos = Math.max(0, formatted.length - cursorFromEnd);
+    input.setSelectionRange(newPos, newPos);
+}
+
 async function tssPost(body, button) {
     button.disabled = true;
     try {
@@ -1775,8 +1827,8 @@ async function tssPost(body, button) {
 async function tssSaveSmall(small, button) {
     const body = new URLSearchParams();
     body.set('summary_date', small.dataset.date);
-    body.set('gross_sales', tssField(small, 'gross_sales').value || '0');
-    body.set('net_income', tssField(small, 'net_income').value || '0');
+    body.set('gross_sales', tssMoneyValue(small, 'gross_sales') || '0');
+    body.set('net_income', tssMoneyValue(small, 'net_income') || '0');
     body.set('overall_working_tsas', '0');
     await tssPost(body, button);
 }
@@ -1784,14 +1836,14 @@ async function tssSaveSmall(small, button) {
 async function tssSaveToday(today, button) {
     const body = new URLSearchParams();
     body.set('summary_date', today.dataset.date);
-    body.set('gross_sales', tssField(today, 'gross_sales').value || '0');
-    body.set('net_income', tssField(today, 'net_income').value || '0');
+    body.set('gross_sales', tssMoneyValue(today, 'gross_sales') || '0');
+    body.set('net_income', tssMoneyValue(today, 'net_income') || '0');
     body.set('top_seller_name', tssField(today, 'top_seller_name').value);
-    body.set('top_seller_gross_sales', tssField(today, 'top_seller_gross_sales').value || '0');
-    body.set('top_seller_net_income', tssField(today, 'top_seller_net_income').value || '0');
+    body.set('top_seller_gross_sales', tssMoneyValue(today, 'top_seller_gross_sales') || '0');
+    body.set('top_seller_net_income', tssMoneyValue(today, 'top_seller_net_income') || '0');
     body.set('top_team_name', tssField(today, 'top_team_name').value);
-    body.set('top_team_gross_sales', tssField(today, 'top_team_gross_sales').value || '0');
-    body.set('top_team_net_income', tssField(today, 'top_team_net_income').value || '0');
+    body.set('top_team_gross_sales', tssMoneyValue(today, 'top_team_gross_sales') || '0');
+    body.set('top_team_net_income', tssMoneyValue(today, 'top_team_net_income') || '0');
     body.set('overall_working_tsas', tssField(today, 'overall_working_tsas').value || '0');
     body.set('sub_team_counts', JSON.stringify(tssReadSubTeamRows(today)));
     await tssPost(body, button);
@@ -1844,6 +1896,51 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Live comma-formatting for every money field (explicit request, 2026-09-10:
+// "even like 3,000 it should be like this") — reformats on every keystroke
+// so the separators appear as soon as the value crosses a thousand, not
+// just after the field loses focus.
+document.addEventListener('input', (e) => {
+    if (e.target.matches('[data-money-field]')) tssFormatMoneyInput(e.target);
+});
+
+// Friendly date label (explicit request, 2026-09-10: "September 09, 2026"
+// instead of the native date input's own "09/09/2026" display) — the
+// native <input type="date"> is kept as the real control (its text just
+// made invisible via CSS, see the two partials' own comments), so this
+// only ever updates the overlay <span data-tss-date-label> sitting on top
+// of it, never the input's own value.
+function tssFormatDateLabel(container) {
+    const dateInput = container.querySelector('[data-tss-date-input]');
+    const label = container.querySelector('[data-tss-date-label]');
+    if (!dateInput || !label || !dateInput.value) return;
+
+    // Parsed as local calendar date, not UTC — new Date('2026-09-09') would
+    // otherwise parse as UTC midnight, which underflows to Sept 8 in any
+    // timezone behind UTC (e.g. US timezones), same class of bug the shared
+    // date-picker partial's own toLocalISO() comment documents.
+    const [y, m, d] = dateInput.value.split('-').map(Number);
+    const parsed = new Date(y, m - 1, d);
+    label.textContent = parsed.toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
+}
+
+function tssFormatAllDateLabels() {
+    document.querySelectorAll('[data-tss-small], [data-tss-today]').forEach(tssFormatDateLabel);
+}
+
+// Bare 'DOMContentLoaded' alone risks silently never firing this: app.js is
+// loaded as a Vite module script, which defers execution until after the
+// HTML is parsed — by the time this line runs, the event may already have
+// fired (timing is genuinely borderline per spec, and was confirmed live to
+// leave every date label permanently blank on first page load in at least
+// one real environment). readyState check covers both orderings: run now
+// if the DOM is already ready, otherwise wait for the event like normal.
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tssFormatAllDateLabels);
+} else {
+    tssFormatAllDateLabels();
+}
+
 document.addEventListener('change', (e) => {
     const dateInput = e.target.closest('[data-tss-date-input]');
     if (!dateInput) return;
@@ -1851,5 +1948,6 @@ document.addEventListener('change', (e) => {
     const container = dateInput.closest('[data-tss-small], [data-tss-today]');
     if (!container || !dateInput.value) return;
 
+    tssFormatDateLabel(container);
     tssLoadDate(container, dateInput.value);
 });

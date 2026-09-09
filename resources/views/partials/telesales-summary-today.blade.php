@@ -2,9 +2,13 @@
     $subTeamCounts = $summary->sub_team_counts ?? [];
 @endphp
 <div class="tss-today rounded-xl border-2 border-black overflow-hidden flex-1 flex flex-col min-h-0" data-tss-today data-date="{{ $date }}">
-    <div class="bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center border-b border-black shrink-0">
+    {{-- Same transparent-native-input-with-overlay-label trick as the small
+         columns (see that partial's own comment) — friendly-formatted date
+         text, still backed by a real, clickable <input type="date">. --}}
+    <div class="relative bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center border-b border-black shrink-0">
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
-               class="bg-transparent text-center text-sm font-bold font-mono text-slate-700 dark:text-slate-200 border-0 p-0 focus:ring-0 cursor-pointer">
+               class="w-full bg-transparent text-center text-sm font-bold font-mono border-0 p-0 focus:ring-0 cursor-pointer" style="color: transparent">
+        <span data-tss-date-label class="absolute inset-0 flex items-center justify-center text-sm font-bold font-mono text-slate-700 dark:text-slate-200 pointer-events-none"></span>
     </div>
 
     {{-- Gross Sales / Daily Net Income --}}
@@ -13,7 +17,7 @@
             <p class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Gross Sales</p>
             <div class="flex items-center justify-center gap-1">
                 <span class="text-base font-mono text-slate-400">₱</span>
-                <input type="number" step="0.01" min="0" data-field="gross_sales"
+                <input type="text" inputmode="decimal" data-field="gross_sales" data-money-field
                        value="{{ $summary?->gross_sales }}" placeholder="0.00"
                        class="w-32 bg-white dark:bg-slate-800 border border-black rounded-md px-2 py-1 text-center text-lg font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
             </div>
@@ -22,7 +26,7 @@
             <p class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Daily Net Income</p>
             <div class="flex items-center justify-center gap-1">
                 <span class="text-base font-mono text-slate-400">₱</span>
-                <input type="number" step="0.01" data-field="net_income"
+                <input type="text" inputmode="decimal" data-field="net_income" data-money-field
                        value="{{ $summary?->net_income }}" placeholder="0.00"
                        class="w-32 bg-white dark:bg-slate-800 border border-black rounded-md px-2 py-1 text-center text-lg font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
             </div>
@@ -38,12 +42,12 @@
                    class="w-full bg-transparent text-center text-sm font-bold font-mono text-slate-800 dark:text-slate-100 border-0 border-b border-dashed border-black px-0 py-0.5 mb-1 focus:ring-0 focus:border-primary">
             <div class="flex items-center justify-center gap-3 text-xs font-mono">
                 <label class="flex items-center gap-1 text-slate-400">Gross ₱
-                    <input type="number" step="0.01" min="0" data-field="top_seller_gross_sales"
+                    <input type="text" inputmode="decimal" data-field="top_seller_gross_sales" data-money-field
                            value="{{ $summary?->top_seller_gross_sales }}" placeholder="0.00"
                            class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-slate-700 dark:text-slate-200 focus:ring-1 focus:ring-primary">
                 </label>
                 <label class="flex items-center gap-1 text-slate-400">Net ₱
-                    <input type="number" step="0.01" data-field="top_seller_net_income"
+                    <input type="text" inputmode="decimal" data-field="top_seller_net_income" data-money-field
                            value="{{ $summary?->top_seller_net_income }}" placeholder="0.00"
                            class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-slate-700 dark:text-slate-200 focus:ring-1 focus:ring-primary">
                 </label>
@@ -57,12 +61,12 @@
                    class="w-full bg-transparent text-center text-sm font-bold font-mono text-slate-800 dark:text-slate-100 border-0 border-b border-dashed border-black px-0 py-0.5 mb-1 focus:ring-0 focus:border-primary">
             <div class="flex items-center justify-center gap-3 text-xs font-mono">
                 <label class="flex items-center gap-1 text-slate-400">Gross ₱
-                    <input type="number" step="0.01" min="0" data-field="top_team_gross_sales"
+                    <input type="text" inputmode="decimal" data-field="top_team_gross_sales" data-money-field
                            value="{{ $summary?->top_team_gross_sales }}" placeholder="0.00"
                            class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-slate-700 dark:text-slate-200 focus:ring-1 focus:ring-primary">
                 </label>
                 <label class="flex items-center gap-1 text-slate-400">Net ₱
-                    <input type="number" step="0.01" data-field="top_team_net_income"
+                    <input type="text" inputmode="decimal" data-field="top_team_net_income" data-money-field
                            value="{{ $summary?->top_team_net_income }}" placeholder="0.00"
                            class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-slate-700 dark:text-slate-200 focus:ring-1 focus:ring-primary">
                 </label>

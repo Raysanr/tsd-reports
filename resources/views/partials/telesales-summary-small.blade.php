@@ -4,16 +4,26 @@
      tssLoadSmall() in app.js, which AJAX-loads that date's saved summary (or
      blanks the fields if nothing's saved yet) via GET /telesales-summary. --}}
 <div class="tss-small rounded-lg border border-black bg-amber-50/40 dark:bg-amber-950/10 px-2.5 py-2 flex flex-col" data-tss-small data-date="{{ $date }}">
-    <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
-           class="w-full bg-transparent text-center text-xs font-bold font-mono text-slate-600 dark:text-slate-300 border-0 border-b border-black rounded-none px-0 py-0 pb-1.5 mb-1.5 focus:ring-0 focus:border-primary cursor-pointer">
+    {{-- Native <input type="date"> stays the real, clickable/focusable
+         control (still opens the browser's own date picker) — its own text
+         is just made invisible (color:transparent) so the friendly-
+         formatted <span> layered on top of it (data-tss-date-label,
+         updated live in app.js's tssFormatDateLabel()) is what's actually
+         seen: "September 09, 2026" instead of the native "09/09/2026"
+         (explicit request, 2026-09-10). --}}
+    <div class="relative w-full pb-1.5 mb-1.5 border-b border-black">
+        <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
+               class="w-full bg-transparent text-center text-xs font-bold font-mono border-0 rounded-none px-0 py-0 focus:ring-0 cursor-pointer" style="color: transparent">
+        <span data-tss-date-label class="absolute inset-0 flex items-center justify-center text-xs font-bold font-mono text-slate-600 dark:text-slate-300 pointer-events-none"></span>
+    </div>
 
     <div class="flex items-center justify-between gap-1 mb-1">
         <span class="text-[10px] font-mono font-semibold text-slate-400 uppercase shrink-0">Gross Sales</span>
         <div class="flex items-center gap-0.5">
             <span class="text-xs font-mono text-slate-400">₱</span>
-            <input type="number" step="0.01" min="0" data-field="gross_sales"
+            <input type="text" inputmode="decimal" data-field="gross_sales" data-money-field
                    value="{{ $summary?->gross_sales }}" placeholder="0.00"
-                   class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-right text-xs font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
+                   class="w-24 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-right text-xs font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
         </div>
     </div>
 
@@ -21,9 +31,9 @@
         <span class="text-[10px] font-mono font-semibold text-slate-400 uppercase shrink-0">Net Income</span>
         <div class="flex items-center gap-0.5">
             <span class="text-xs font-mono text-slate-400">₱</span>
-            <input type="number" step="0.01" data-field="net_income"
+            <input type="text" inputmode="decimal" data-field="net_income" data-money-field
                    value="{{ $summary?->net_income }}" placeholder="0.00"
-                   class="w-20 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-right text-xs font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
+                   class="w-24 bg-white dark:bg-slate-800 border border-black rounded px-1.5 py-0.5 text-right text-xs font-bold font-mono text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary transition-colors" style="font-variant-numeric: tabular-nums">
         </div>
     </div>
 
