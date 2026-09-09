@@ -10,7 +10,7 @@
      ago — changing a slot's date AJAX-loads whatever's saved for that date
      via GET /telesales-summary (DashboardController::showTelesalesSummary),
      no full page reload, no server round-trip through the whole Dashboard. --}}
-<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col h-full" id="telesalesSummaryCard">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-black shadow-sm overflow-hidden flex flex-col h-full" id="telesalesSummaryCard">
     {{-- Header (explicit follow-up, 2026-09-09): title+subtitle centered on
          screen at all times, not just in the exported snapshot — the camera
          button is absolutely positioned so it doesn't pull the centered
@@ -18,7 +18,7 @@
          applies for the PNG export itself (see app.js's snapshot-hide
          handling) — an exported image has nothing to click, so neither
          belongs there even though both stay visible live. --}}
-    <div class="relative px-4 py-3 border-b border-slate-100 dark:border-slate-700 bg-gradient-to-r from-amber-50 to-white dark:from-amber-950/20 dark:to-slate-900 text-center shrink-0">
+    <div class="relative px-4 py-3 border-b border-black bg-gradient-to-r from-amber-50 to-white dark:from-amber-950/20 dark:to-slate-900 text-center shrink-0">
         <h2 class="text-base font-bold text-slate-700 dark:text-slate-200 font-mono tracking-wide">Telesales Department</h2>
         <p data-snapshot-hide class="text-xs font-mono text-slate-400 mt-0.5">Click any value to edit</p>
         <button type="button" data-export-png="telesalesSummaryCard" data-export-name="telesales-department" data-snapshot-hide
