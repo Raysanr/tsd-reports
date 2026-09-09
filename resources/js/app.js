@@ -454,6 +454,25 @@ document.addEventListener('click', async (e) => {
     const wasDark = document.documentElement.classList.contains('dark');
     if (wasDark) document.documentElement.classList.remove('dark');
 
+    // Browser zoom (Ctrl/Cmd +/-, not to be confused with OS display scaling)
+    // sets a CSS `zoom` factor on the page that html2canvas measures DOM
+    // boxes/fonts against incorrectly at anything other than 100% — confirmed
+    // live: at 75% zoom, captured text overlapped/ran together ("GROSSSALES",
+    // "TSAname") and in one real report came out fully mirrored/upside-down.
+    // This was the actual root cause of every earlier "mirrored snapshot"
+    // report in this feature's history — never reproducible in automated
+    // testing because Playwright has no browser-zoom equivalent, so every
+    // prior test ran at an implicit 100%. Reset to 100% for the capture,
+    // restored in `finally` — same pattern as the dark-mode strip above,
+    // and for the same reason: a capture error must never leave the page
+    // visibly rezoomed for the user.
+    const prevZoom = document.documentElement.style.zoom;
+    document.documentElement.style.zoom = '1';
+    // Force a layout flush before anything below reads offsetWidth/offsetHeight
+    // (swapInputsForSnapshot) — a bare style write doesn't guarantee the new
+    // zoom has actually been applied to computed layout by the very next line.
+    void document.documentElement.offsetHeight;
+
     // The chart panel next to this table can be resized live by the user
     // (the drag handle in pie-chart-panel.blade.php) purely for on-screen
     // viewing, but a snapshot should always come out at the same normal
@@ -502,6 +521,47 @@ document.addEventListener('click', async (e) => {
     });
 
     if (chartPanel && restoreWidth) await animatePanelWidth('');
+
+    // html2canvas can't reliably paint live form controls: a <input type="date">
+    // renders its native picker chrome mirrored/garbled, and text/number inputs
+    // render their placeholder instead of the actually-typed value with the
+    // browser's default black instead of the input's own computed color (confirmed
+    // live on the Telesales Department card's snapshot button — dates came out
+    // backwards, "TSA name"/"Team name" placeholders showed instead of the typed
+    // names, and every value rendered flat bold black instead of green for a
+    // positive Net Income). Every table on this page is plain text/no inputs, so
+    // this never surfaced before the Dashboard's editable summary card. Fixed
+    // generically here (not special-cased to one card) by swapping each live
+    // <input> for a plain <span> carrying its current value/placeholder and
+    // computed text color right before capture, then restoring the originals
+    // in `finally` — html2canvas paints text nodes correctly, just not form
+    // control internals.
+    //
+    // Root cause of the first fix attempt still rendering garbled/mirrored
+    // text: getComputedStyle(input).font — the shorthand — computes to an
+    // EMPTY STRING for <input type="number">/<input type="date"> in Chrome
+    // (confirmed live via page.evaluate: {font: '', fontFamily: '"Fira
+    // Code"...'}), even though every individual font-* longhand resolves
+    // normally. `font: ${computed.font}` therefore emitted the literal
+    // invalid declaration `font: ;`, silently dropped by the browser, so the
+    // swapped <span> carried NO font at all. html2canvas's glyph-rendering
+    // path apparently mishandles that gap when a monospace font (Fira Code)
+    // was in use elsewhere in the same capture, producing upside-down/
+    // mirrored glyphs instead of just falling back to a default font. Fixed
+    // by setting font-family/font-size/font-weight/font-style individually
+    // (swapInputsForSnapshot below) instead of relying on the shorthand.
+    const restoreInputs = swapInputsForSnapshot(table);
+
+    // [data-snapshot-hide] — a generic opt-in for any export target that
+    // wants its snapshot to look different from the live page (explicit
+    // request, 2026-09-09: the Telesales Department card's "Click any value
+    // to edit" hint and camera button don't belong in a static exported
+    // image — nothing in a PNG can be clicked). Hidden/restored the same way
+    // as the input swap above — display:none instead of remove(), so
+    // nothing needs to be re-created afterward.
+    const hiddenForSnapshot = Array.from(table.querySelectorAll('[data-snapshot-hide]'));
+    const hiddenDisplays = hiddenForSnapshot.map((el) => el.style.display);
+    hiddenForSnapshot.forEach((el) => { el.style.display = 'none'; });
 
     try {
         await loadHtml2Canvas();
@@ -598,13 +658,88 @@ document.addEventListener('click', async (e) => {
     } catch (err) {
         console.error('Table snapshot failed:', err);
     } finally {
+        restoreInputs();
+        hiddenForSnapshot.forEach((el, i) => { el.style.display = hiddenDisplays[i]; });
         if (chartPanel && restoreWidth) await animatePanelWidth(restoreWidth);
         if (chartPanel) chartPanel.style.transition = ''; // don't leave the drag handle feeling laggy afterward
         if (wasDark) document.documentElement.classList.add('dark');
+        document.documentElement.style.zoom = prevZoom;
         btn.disabled = false;
         btn.classList.remove('opacity-40');
     }
 });
+
+// Swaps every <input>/<textarea>/<select> inside `root` for a plain <span>
+// showing its current value (or its own placeholder, styled at reduced
+// opacity, when empty — matching what the field visually shows on screen)
+// right before an html2canvas capture — see the doc comment at this
+// function's call site for why. Returns a restore() callback that puts the
+// originals back exactly where they were, via a marker comment node, so
+// this never has to guess at surrounding siblings/index.
+function swapInputsForSnapshot(root) {
+    const fields = Array.from(root.querySelectorAll('input, textarea, select'));
+    if (fields.length === 0) return () => {};
+
+    const swaps = fields.map((field) => {
+        const computed = getComputedStyle(field);
+        const hasValue = field.value !== '' && field.value !== null;
+        let text = hasValue
+            ? (field.tagName === 'SELECT' ? field.options[field.selectedIndex]?.text ?? '' : field.value)
+            : (field.placeholder || '');
+
+        // type="date" stores/reports its value as ISO (YYYY-MM-DD), but the
+        // browser always DISPLAYS it locale-formatted (e.g. MM/DD/YYYY) — the
+        // swapped <span> must match what was actually on screen, not the raw
+        // value attribute, or the snapshot's dates read differently than the
+        // live page did right before the button was clicked.
+        if (hasValue && field.type === 'date') {
+            const [y, m, d] = field.value.split('-');
+            text = `${m}/${d}/${y}`;
+        }
+
+        // white-space: nowrap — an <input>'s text never wraps regardless of its
+        // width (it scrolls/clips instead), but a plain <span> defaults to
+        // `white-space: normal` and WILL wrap at the swapped-in fixed width,
+        // which the original field's layout (siblings placed right after it,
+        // e.g. the "- 5" count and remove button following a team-name field)
+        // never accounted for — confirmed live: "Team Gretchen" wrapped to 2
+        // lines and collided with the "Add team" button below it once swapped.
+        const span = document.createElement('span');
+        span.textContent = text;
+        span.style.cssText = `
+            display: inline-block;
+            width: ${field.offsetWidth}px;
+            height: ${field.offsetHeight}px;
+            line-height: ${field.offsetHeight}px;
+            box-sizing: border-box;
+            padding: ${computed.paddingTop} ${computed.paddingRight} ${computed.paddingBottom} ${computed.paddingLeft};
+            border: ${computed.borderWidth} ${computed.borderStyle} ${computed.borderColor};
+            border-radius: ${computed.borderRadius};
+            background: ${computed.backgroundColor};
+            color: ${computed.color};
+            font-family: ${computed.fontFamily};
+            font-size: ${computed.fontSize};
+            font-weight: ${computed.fontWeight};
+            font-style: ${computed.fontStyle};
+            text-align: ${computed.textAlign};
+            opacity: ${hasValue ? '1' : '0.5'};
+            vertical-align: middle;
+            white-space: nowrap;
+        `;
+
+        field.parentNode.insertBefore(span, field);
+        field.style.display = 'none';
+
+        return { field, span };
+    });
+
+    return function restore() {
+        swaps.forEach(({ field, span }) => {
+            field.style.display = '';
+            span.remove();
+        });
+    };
+}
 
 // ─── TSA Performance: click a leads-count cell to see its orders ─────────────
 // Every [data-drilldown] <td> in tsa-performance.blade.php carries which
@@ -1533,3 +1668,188 @@ window.softRefresh = async function (...args) {
     initScrollShadows();
     return result;
 };
+
+// TELESALES SUMMARY CARD (Dashboard's whiteboard-style editable Recent
+// Orders replacement, 2026-09-09) — event-delegated from document, not
+// direct listeners on each entry, since softRefresh (the team/date filter
+// forms elsewhere on the Dashboard) replaces <main>'s content wholesale and
+// would silently drop any directly-attached listener (same reasoning as the
+// Include Restocking toggle's own delegated listener in dashboard.blade.php).
+//
+// Fixed 3-slot layout matching the physical whiteboard exactly (explicit
+// request, 2026-09-09: "no scroll because it is like this in the picture
+// only") — 2 small prior-day columns ([data-tss-small], gross/net only) and
+// one large today block ([data-tss-today], full fields) — never an
+// open-ended add/delete history list.
+//
+// Follow-up request (2026-09-09): each slot's date is independently
+// editable via a native <input type="date"> (data-tss-date-input) instead
+// of fixed to whatever the server computed on page load — changing it
+// AJAX-loads that date's saved summary via GET /telesales-summary
+// (tssLoadDate below) so switching, say, the left small column from "Sep 8"
+// to "Sep 3" shows Sep 3's real numbers instead of silently keeping Sep 8's
+// values under a relabeled date. data-date always mirrors the date input's
+// current value — it exists only so save/load helpers below don't need to
+// re-read the <input> in every call site.
+function tssCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+}
+
+function tssSetFieldValue(container, name, value) {
+    const el = tssField(container, name);
+    if (el) el.value = value ?? '';
+}
+
+async function tssLoadDate(container, date) {
+    container.dataset.date = date;
+    const isToday = container.hasAttribute('data-tss-today');
+
+    try {
+        const res = await fetch(`/telesales-summary?date=${encodeURIComponent(date)}`, {
+            headers: { 'Accept': 'application/json' },
+        });
+        const data = await res.json();
+        const summary = data.summary || null;
+
+        tssSetFieldValue(container, 'gross_sales', summary?.gross_sales ?? '');
+        tssSetFieldValue(container, 'net_income', summary?.net_income ?? '');
+
+        if (isToday) {
+            tssSetFieldValue(container, 'top_seller_name', summary?.top_seller_name ?? '');
+            tssSetFieldValue(container, 'top_seller_gross_sales', summary?.top_seller_gross_sales ?? '');
+            tssSetFieldValue(container, 'top_seller_net_income', summary?.top_seller_net_income ?? '');
+            tssSetFieldValue(container, 'top_team_name', summary?.top_team_name ?? '');
+            tssSetFieldValue(container, 'top_team_gross_sales', summary?.top_team_gross_sales ?? '');
+            tssSetFieldValue(container, 'top_team_net_income', summary?.top_team_net_income ?? '');
+            tssSetFieldValue(container, 'overall_working_tsas', summary?.overall_working_tsas ?? '');
+
+            const rowsContainer = container.querySelector('[data-subteam-rows]');
+            if (rowsContainer) {
+                rowsContainer.querySelectorAll('[data-subteam-row]').forEach(row => row.remove());
+                (summary?.sub_team_counts || []).forEach(row => tssAddSubTeamRow(rowsContainer, row.name, row.count));
+            }
+        }
+    } catch {
+        window.showToast('Failed to load that date — request error.', 'error');
+    }
+}
+
+function tssReadSubTeamRows(container) {
+    return Array.from(container.querySelectorAll('[data-subteam-row]')).map(row => ({
+        name: row.querySelector('[data-subteam-name]').value.trim(),
+        count: parseInt(row.querySelector('[data-subteam-count]').value, 10) || 0,
+    })).filter(r => r.name !== '');
+}
+
+function tssField(container, name) {
+    return container.querySelector(`[data-field="${name}"]`);
+}
+
+async function tssPost(body, button) {
+    button.disabled = true;
+    try {
+        const res = await fetch('/telesales-summary', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': tssCsrfToken(),
+                'Accept': 'application/json',
+            },
+            body,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            window.showToast(data.message || 'Failed to save — check the values and try again.', 'error');
+            return false;
+        }
+        window.showToast('Saved.', 'success');
+        return true;
+    } catch {
+        window.showToast('Failed to save: request error.', 'error');
+        return false;
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function tssSaveSmall(small, button) {
+    const body = new URLSearchParams();
+    body.set('summary_date', small.dataset.date);
+    body.set('gross_sales', tssField(small, 'gross_sales').value || '0');
+    body.set('net_income', tssField(small, 'net_income').value || '0');
+    body.set('overall_working_tsas', '0');
+    await tssPost(body, button);
+}
+
+async function tssSaveToday(today, button) {
+    const body = new URLSearchParams();
+    body.set('summary_date', today.dataset.date);
+    body.set('gross_sales', tssField(today, 'gross_sales').value || '0');
+    body.set('net_income', tssField(today, 'net_income').value || '0');
+    body.set('top_seller_name', tssField(today, 'top_seller_name').value);
+    body.set('top_seller_gross_sales', tssField(today, 'top_seller_gross_sales').value || '0');
+    body.set('top_seller_net_income', tssField(today, 'top_seller_net_income').value || '0');
+    body.set('top_team_name', tssField(today, 'top_team_name').value);
+    body.set('top_team_gross_sales', tssField(today, 'top_team_gross_sales').value || '0');
+    body.set('top_team_net_income', tssField(today, 'top_team_net_income').value || '0');
+    body.set('overall_working_tsas', tssField(today, 'overall_working_tsas').value || '0');
+    body.set('sub_team_counts', JSON.stringify(tssReadSubTeamRows(today)));
+    await tssPost(body, button);
+}
+
+function tssAddSubTeamRow(container, name = '', count = '') {
+    const row = document.createElement('div');
+    row.className = 'group flex items-center gap-2 text-sm font-mono';
+    row.setAttribute('data-subteam-row', '');
+    row.innerHTML = `
+        <input type="text" data-subteam-name value="${name}" placeholder="Team name"
+               class="text-right font-semibold text-slate-700 dark:text-slate-200 bg-transparent border-0 border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-primary px-0 py-0 focus:ring-0" style="width: 16ch">
+        <span class="text-slate-400">-</span>
+        <input type="number" min="0" data-subteam-count value="${count}" placeholder="0"
+               class="w-10 text-center font-bold text-slate-700 dark:text-slate-200 bg-transparent border-0 border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-primary px-0 py-0 focus:ring-0" style="font-variant-numeric: tabular-nums">
+        <button type="button" data-subteam-remove class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-opacity cursor-pointer">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        </button>`;
+    container.insertBefore(row, container.querySelector('[data-subteam-add]'));
+}
+
+document.addEventListener('click', (e) => {
+    const smallSaveBtn = e.target.closest('[data-tss-small-save]');
+    if (smallSaveBtn) {
+        const small = smallSaveBtn.closest('[data-tss-small]');
+        if (small) tssSaveSmall(small, smallSaveBtn);
+        return;
+    }
+
+    const todaySaveBtn = e.target.closest('[data-tss-today-save]');
+    if (todaySaveBtn) {
+        const today = todaySaveBtn.closest('[data-tss-today]');
+        if (today) tssSaveToday(today, todaySaveBtn);
+        return;
+    }
+
+    const addBtn = e.target.closest('[data-subteam-add]');
+    if (addBtn) {
+        const container = addBtn.closest('[data-subteam-rows]');
+        if (container) tssAddSubTeamRow(container);
+        return;
+    }
+
+    const removeBtn = e.target.closest('[data-subteam-remove]');
+    if (removeBtn) {
+        removeBtn.closest('[data-subteam-row]')?.remove();
+        return;
+    }
+});
+
+document.addEventListener('change', (e) => {
+    const dateInput = e.target.closest('[data-tss-date-input]');
+    if (!dateInput) return;
+
+    const container = dateInput.closest('[data-tss-small], [data-tss-today]');
+    if (!container || !dateInput.value) return;
+
+    tssLoadDate(container, dateInput.value);
+});

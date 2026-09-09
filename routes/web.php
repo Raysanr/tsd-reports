@@ -51,6 +51,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         ->middleware('role:super_admin,admin,normal');
     Route::get('/sync/status',     [DashboardController::class,      'syncStatus'])->name('dashboard.sync.status')
         ->middleware('role:super_admin,admin,normal');
+    Route::post('/telesales-summary',              [DashboardController::class, 'storeTelesalesSummary'])->name('telesales-summary.store')
+        ->middleware('role:super_admin,admin,normal');
+    Route::get('/telesales-summary',               [DashboardController::class, 'showTelesalesSummary'])->name('telesales-summary.show')
+        ->middleware('role:super_admin,admin,normal');
+    Route::delete('/telesales-summary/{telesalesSummary}', [DashboardController::class, 'destroyTelesalesSummary'])->name('telesales-summary.destroy')
+        ->middleware('role:super_admin,admin,normal');
     Route::get('/leads-report',    [LeadsReportController::class,    'index'])->name('leads-report');
     Route::get('/leads-report/drilldown', [LeadsReportController::class, 'drilldown'])->name('leads-report.drilldown');
     // Old URL kept alive for bookmarks/history — permanent redirect to the new name.

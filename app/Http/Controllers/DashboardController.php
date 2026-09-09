@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\SyncRun;
+use App\Models\TelesalesSummary;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\ProductPerformance;
@@ -58,6 +59,24 @@ class DashboardController extends Controller
         $dbError               = null;
         $hasSyncedData         = false;
         $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
+
+        // Whiteboard-style editable summary card (explicit request, 2026-09-09:
+        // replaces the old Recent Orders table with a manually-entered daily
+        // recap matching the physical "Telesales Department" whiteboard photo
+        // EXACTLY — 2 small prior-day columns + 1 large "today" block, fixed,
+        // no scrolling, not an open-ended history list). The large block is
+        // always literally today (server date); the 2 small columns are
+        // always the 2 calendar days immediately before it — same "erase
+        // oldest, shift left, write new day" usage as the physical board,
+        // not 3 freely-retargetable date pickers.
+        $telesalesToday = now()->toDateString();
+        $telesalesPriorDates = [now()->subDay()->toDateString(), now()->subDays(2)->toDateString()];
+        $telesalesByDate = TelesalesSummary::whereIn('summary_date', [$telesalesToday, ...$telesalesPriorDates])
+            ->get()
+            ->keyBy(fn ($row) => $row->summary_date->toDateString());
+
+        $telesalesTodaySummary = $telesalesByDate->get($telesalesToday);
+        $telesalesPriorSummaries = collect($telesalesPriorDates)->map(fn ($date) => $telesalesByDate->get($date));
 
         $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
@@ -651,8 +670,87 @@ class DashboardController extends Controller
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'hourlyLeads', 'teamComparison',
             'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
-            'teams', 'selectedTeam', 'includeRestocking'
+            'teams', 'selectedTeam', 'includeRestocking',
+            'telesalesToday', 'telesalesTodaySummary', 'telesalesPriorDates', 'telesalesPriorSummaries'
         ));
+    }
+
+    /**
+     * Saves one whiteboard-style daily summary row — upserted by summary_date
+     * (editing an existing date overwrites it rather than creating a
+     * duplicate). sub_team_counts arrives as a JSON-encoded string from the
+     * form (a dynamic list of {name, count} rows, not fixed columns — see
+     * the migration's own doc comment for why) and is decoded/validated here
+     * before storage.
+     */
+    public function storeTelesalesSummary(Request $request)
+    {
+        $validated = $request->validate([
+            'summary_date'             => ['required', 'date'],
+            'gross_sales'              => ['required', 'numeric', 'min:0'],
+            'net_income'               => ['required', 'numeric'],
+            'top_seller_name'          => ['nullable', 'string', 'max:255'],
+            'top_seller_gross_sales'   => ['nullable', 'numeric', 'min:0'],
+            'top_seller_net_income'    => ['nullable', 'numeric'],
+            'top_team_name'            => ['nullable', 'string', 'max:255'],
+            'top_team_gross_sales'     => ['nullable', 'numeric', 'min:0'],
+            'top_team_net_income'      => ['nullable', 'numeric'],
+            'sub_team_counts'          => ['nullable', 'string'],
+            'overall_working_tsas'     => ['required', 'integer', 'min:0'],
+        ]);
+
+        $subTeamCounts = [];
+        if (!empty($validated['sub_team_counts'])) {
+            $decoded = json_decode($validated['sub_team_counts'], true);
+            if (is_array($decoded)) {
+                $subTeamCounts = collect($decoded)
+                    ->filter(fn ($row) => is_array($row) && !empty($row['name']))
+                    ->map(fn ($row) => ['name' => (string) $row['name'], 'count' => (int) ($row['count'] ?? 0)])
+                    ->values()
+                    ->all();
+            }
+        }
+
+        $summary = TelesalesSummary::updateOrCreate(
+            ['summary_date' => $validated['summary_date']],
+            [
+                'gross_sales'             => $validated['gross_sales'],
+                'net_income'              => $validated['net_income'],
+                'top_seller_name'         => $validated['top_seller_name'] ?? null,
+                'top_seller_gross_sales'  => $validated['top_seller_gross_sales'] ?? 0,
+                'top_seller_net_income'   => $validated['top_seller_net_income'] ?? 0,
+                'top_team_name'           => $validated['top_team_name'] ?? null,
+                'top_team_gross_sales'    => $validated['top_team_gross_sales'] ?? 0,
+                'top_team_net_income'     => $validated['top_team_net_income'] ?? 0,
+                'sub_team_counts'         => $subTeamCounts,
+                'overall_working_tsas'    => $validated['overall_working_tsas'],
+            ]
+        );
+
+        return response()->json(['success' => true, 'summary' => $summary]);
+    }
+
+    /**
+     * Looks up one date's whiteboard summary — polled by each of the 3 card
+     * slots' own date picker (explicit request, 2026-09-09: "make it like
+     * the dated can be like editable... there's date picker") so re-pointing
+     * a slot at a different date loads whatever's already saved for it
+     * (or blank fields, if nothing's been entered yet for that date) without
+     * a full page reload.
+     */
+    public function showTelesalesSummary(Request $request)
+    {
+        $date = $request->validate(['date' => ['required', 'date']])['date'];
+
+        return response()->json(['summary' => TelesalesSummary::whereDate('summary_date', $date)->first()]);
+    }
+
+    /** Deletes one whiteboard summary row, e.g. an entry added by mistake. */
+    public function destroyTelesalesSummary(TelesalesSummary $telesalesSummary)
+    {
+        $telesalesSummary->delete();
+
+        return response()->json(['success' => true]);
     }
 
     /**

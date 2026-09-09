@@ -233,80 +233,12 @@
 {{-- RECENT ORDERS + HOURLY ACTIVITY — side by side, same height (stacks on mobile). --}}
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
 
-<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden flex flex-col">
-        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Recent Orders</h2>
-            @if(!$recentOrders->isEmpty())
-            @include('partials.table-actions', ['target' => 'recentOrdersTable', 'name' => 'recent-orders'])
-            @endif
-        </div>
-
-        @if($recentOrders->isEmpty())
-        <div class="flex-1 py-16 flex flex-col items-center justify-center text-center gap-3">
-            <svg class="w-10 h-10 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
-            </svg>
-            <p class="text-sm font-mono text-slate-400">Recent orders will appear here once synced</p>
-        </div>
-        @else
-        {{-- max-height fixed, not viewport/sibling-relative: with items-stretch on
-             the parent grid, an unbounded flex-1 here means this table's own
-             content (now up to 25 rows) can grow taller than Hourly Activity's
-             chart and drag THAT card's height up to match instead of the
-             intended other way around — a fixed cap breaks that feedback loop,
-             scrolling the rest internally. 600px matches the Hourly Activity
-             chart's own hardcoded max-width (it's a square SVG). --}}
-        <div class="flex-1 overflow-y-auto" style="max-height:600px" id="recentOrdersTable">
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="bg-slate-50 dark:bg-slate-800 text-xs font-mono text-slate-400 uppercase tracking-wide">
-                    <th class="px-5 py-2.5 text-left">Order ID</th>
-                    <th class="px-4 py-2.5 text-left">TSA</th>
-                    <th class="px-4 py-2.5 text-left">Product</th>
-                    <th class="px-4 py-2.5 text-left">Disposition</th>
-                    <th class="px-4 py-2.5 text-left">Status</th>
-                    <th class="px-4 py-2.5 text-right">Amount</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-                @foreach($recentOrders as $order)
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors {{ $order->is_void_status ? 'opacity-60' : '' }}">
-                    <td class="px-5 py-3 font-mono text-xs text-primary font-semibold">
-                        #{{ $order->pancake_order_id }}
-                    </td>
-                    <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-200">
-                        {{ $order->tsa_name ?? '—' }}
-                    </td>
-                    <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400">
-                        {{ $order->product ?? '—' }}
-                    </td>
-                    <td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">
-                        {{ $order->disposition ?? '—' }}
-                    </td>
-                    <td class="px-4 py-3">
-                        @if($order->status_label)
-                        <span @class([
-                            'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono whitespace-nowrap',
-                            'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-400' => $order->status_code === 11,
-                            'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'     => $order->is_void_status && $order->status_code !== 11,
-                            'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400' => !$order->is_void_status,
-                        ])>
-                            {{ $order->status_label }}
-                        </span>
-                        @else
-                        <span class="text-xs text-slate-300 dark:text-slate-600">—</span>
-                        @endif
-                    </td>
-                    <td class="px-4 py-3 font-mono text-xs font-semibold text-right {{ $order->is_void_status ? 'text-slate-400' : 'text-accent' }}">
-                        ₱{{ number_format($order->amount, 2) }}
-                    </td>
-                </tr>
-                @endforeach
-            </tbody>
-        </table>
-        </div>
-        @endif
-    </div>
+@include('partials.telesales-summary-card', [
+    'telesalesToday' => $telesalesToday,
+    'telesalesTodaySummary' => $telesalesTodaySummary,
+    'telesalesPriorDates' => $telesalesPriorDates,
+    'telesalesPriorSummaries' => $telesalesPriorSummaries,
+])
 
     {{-- HOURLY LEADS (explicit request, 2026-08-22: replaces what used to be
          here, Hourly Activity/calls-per-hour) — raw lead ARRIVAL volume per
