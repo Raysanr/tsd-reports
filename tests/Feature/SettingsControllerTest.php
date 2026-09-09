@@ -633,6 +633,35 @@ class SettingsControllerTest extends TestCase
     }
 
     /**
+     * Root-caused 2026-09-09 (real report: "in the settings and google
+     * drive why is it not reflecting the changes of team like opening and
+     * closing" — the Team Names panel showed "TEAM CLOSING"/"TEAM OPENING"
+     * but the Google Drive panel right below it still said "SH Naturals
+     * Folder ID"/"Eyecare Folder ID", the original hardcoded labels).
+     * The setting KEY (drive_folder_sh_naturals/drive_folder_eyecare) must
+     * stay fixed — GoogleDriveClient::FOLDER_SETTING_KEYS is keyed by the
+     * literal order_team string, not a renameable slug — only the visible
+     * LABEL next to each field should track the current name, same as
+     * every other place a team name shows up.
+     */
+    public function test_the_google_drive_folder_labels_also_show_the_renamed_team_name(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->post(route('settings.team-names'), [
+            'team_names' => ['sh-naturals' => 'TEAM CLOSING', 'eyecare' => 'TEAM OPENING'],
+        ]);
+
+        $response = $this->get(route('settings'));
+
+        $response->assertOk();
+        $response->assertSee('TEAM CLOSING Folder ID');
+        $response->assertSee('TEAM OPENING Folder ID');
+        $response->assertDontSee('SH Naturals Folder ID');
+        $response->assertDontSee('Eyecare Folder ID');
+    }
+
+    /**
      * The exact scenario the user asked about, 2026-09-04: "if today 12
      * midnight transition the team opening and closing it will be like
      * tomorrow when we backtrack the data like yesterday it is sh naturals

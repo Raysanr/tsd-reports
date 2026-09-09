@@ -385,14 +385,31 @@
                              TSA Management for which); day-subfolders under a TSA
                              can be named however that TSA happens to name them —
                              never matched by name, only walked. --}}
+                        @php
+                            // Renamed-team-aware labels (explicit request,
+                            // 2026-09-09: "why is it not reflecting the
+                            // changes of team like opening and closing") —
+                            // these two fields are keyed by the fixed,
+                            // never-editable order_team string
+                            // (GoogleDriveClient::FOLDER_SETTING_KEYS'
+                            // own keys), which must stay hardcoded since
+                            // that's literally what the setting means —
+                            // but the LABEL shown to an admin should track
+                            // whatever this team is currently called, same
+                            // as every other page a team name appears on
+                            // (Leads Report, TSA Performance, Dashboard,
+                            // etc.) already does. $teamsConfig is already
+                            // in scope from the Team Names panel above.
+                            $driveFolderLabels = collect($teamsConfig)->pluck('name', 'order_team');
+                        @endphp
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">SH Naturals Folder ID</label>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">{{ $driveFolderLabels['SH Naturals'] ?? 'SH Naturals' }} Folder ID</label>
                             <input type="text" name="drive_folder_sh_naturals" value="{{ old('drive_folder_sh_naturals', $driveFolderShNaturals) }}"
                                 placeholder="TSD 2026 RECORDING &gt; TEAM SH NATURALS folder id"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Eyecare Folder ID</label>
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">{{ $driveFolderLabels['Eyecare Team'] ?? 'Eyecare' }} Folder ID</label>
                             <input type="text" name="drive_folder_eyecare" value="{{ old('drive_folder_eyecare', $driveFolderEyecare) }}"
                                 placeholder="TSD 2026 RECORDING &gt; TEAM EYECARE folder id"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
