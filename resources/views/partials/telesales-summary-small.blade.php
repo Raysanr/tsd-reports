@@ -27,7 +27,7 @@
         </div>
     </div>
 
-    <button type="button" data-tss-small-save
+    <button type="button" data-tss-small-save data-snapshot-hide
             class="mt-1.5 w-full inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10px] font-semibold font-mono bg-amber-600 text-white hover:bg-amber-700 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait">
         <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>

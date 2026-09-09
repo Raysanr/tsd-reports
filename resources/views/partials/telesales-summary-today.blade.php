@@ -109,7 +109,7 @@
                    value="{{ $summary?->overall_working_tsas }}" placeholder="0"
                    class="w-14 h-9 rounded-full border-2 border-black text-center font-bold font-mono text-primary bg-transparent focus:ring-2 focus:ring-primary focus:outline-none" style="font-variant-numeric: tabular-nums">
 
-            <button type="button" data-tss-today-save
+            <button type="button" data-tss-today-save data-snapshot-hide
                     class="ml-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-mono bg-primary text-white hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-50 disabled:cursor-wait">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
