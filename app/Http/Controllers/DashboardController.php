@@ -87,6 +87,19 @@ class DashboardController extends Controller
         $telesalesTodaySummary = $telesalesByDate->get($telesalesToday);
         $telesalesPriorSummaries = collect($telesalesPriorDates)->map(fn ($date) => $telesalesByDate->get($date));
 
+        // Fixed team rows for "Overall Working TSA's" (explicit follow-up,
+        // 2026-09-10: "remove add team and then... make like the current
+        // teams like team opening and closing") — replaces the free-form
+        // add-a-team-row list with exactly the app's own configured teams,
+        // same current/renameable names every other page uses (Teams::
+        // config(), not a hardcoded "Team Opening"/"Team Closing" literal —
+        // this app has renamed these teams before and every other widget
+        // tracks that automatically).
+        $telesalesTeams = collect(Teams::config())->map(fn ($config, $slug) => [
+            'slug' => $slug,
+            'name' => $config['name'],
+        ])->values();
+
         $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();
         $syncRuns       = collect();
@@ -688,7 +701,7 @@ class DashboardController extends Controller
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'hourlyLeads', 'teamComparison',
             'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
             'teams', 'selectedTeam', 'includeRestocking',
-            'telesalesToday', 'telesalesTodaySummary', 'telesalesPriorDates', 'telesalesPriorSummaries'
+            'telesalesToday', 'telesalesTodaySummary', 'telesalesPriorDates', 'telesalesPriorSummaries', 'telesalesTeams'
         ));
     }
 
@@ -696,9 +709,12 @@ class DashboardController extends Controller
      * Saves one whiteboard-style daily summary row — upserted by summary_date
      * (editing an existing date overwrites it rather than creating a
      * duplicate). sub_team_counts arrives as a JSON-encoded string from the
-     * form (a dynamic list of {name, count} rows, not fixed columns — see
-     * the migration's own doc comment for why) and is decoded/validated here
-     * before storage.
+     * form — now always exactly the app's own current teams (Teams::config()),
+     * one {slug, name, count} row each, not a free-form add/remove list
+     * (2026-09-10 follow-up: "remove add team... make like the current
+     * teams"). overall_working_tsas is no longer accepted from the client at
+     * all — it's the sum of sub_team_counts' own counts, computed here, so
+     * it can never disagree with the two numbers it's supposed to represent.
      */
     public function storeTelesalesSummary(Request $request)
     {
@@ -713,7 +729,6 @@ class DashboardController extends Controller
             'top_team_gross_sales'     => ['nullable', 'numeric', 'min:0'],
             'top_team_net_income'      => ['nullable', 'numeric'],
             'sub_team_counts'          => ['nullable', 'string'],
-            'overall_working_tsas'     => ['required', 'integer', 'min:0'],
         ]);
 
         $subTeamCounts = [];
@@ -721,8 +736,12 @@ class DashboardController extends Controller
             $decoded = json_decode($validated['sub_team_counts'], true);
             if (is_array($decoded)) {
                 $subTeamCounts = collect($decoded)
-                    ->filter(fn ($row) => is_array($row) && !empty($row['name']))
-                    ->map(fn ($row) => ['name' => (string) $row['name'], 'count' => (int) ($row['count'] ?? 0)])
+                    ->filter(fn ($row) => is_array($row) && !empty($row['slug']) && !empty($row['name']))
+                    ->map(fn ($row) => [
+                        'slug'  => (string) $row['slug'],
+                        'name'  => (string) $row['name'],
+                        'count' => (int) ($row['count'] ?? 0),
+                    ])
                     ->values()
                     ->all();
             }
@@ -740,7 +759,7 @@ class DashboardController extends Controller
                 'top_team_gross_sales'    => $validated['top_team_gross_sales'] ?? 0,
                 'top_team_net_income'     => $validated['top_team_net_income'] ?? 0,
                 'sub_team_counts'         => $subTeamCounts,
-                'overall_working_tsas'    => $validated['overall_working_tsas'],
+                'overall_working_tsas'    => collect($subTeamCounts)->sum('count'),
             ]
         );
 

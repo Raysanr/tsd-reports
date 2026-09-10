@@ -1755,13 +1755,17 @@ async function tssLoadDate(container, date) {
             tssSetFieldValue(container, 'top_team_name', summary?.top_team_name ?? '');
             tssSetFieldValue(container, 'top_team_gross_sales', summary?.top_team_gross_sales ?? '');
             tssSetFieldValue(container, 'top_team_net_income', summary?.top_team_net_income ?? '');
-            tssSetFieldValue(container, 'overall_working_tsas', summary?.overall_working_tsas ?? '');
 
-            const rowsContainer = container.querySelector('[data-subteam-rows]');
-            if (rowsContainer) {
-                rowsContainer.querySelectorAll('[data-subteam-row]').forEach(row => row.remove());
-                (summary?.sub_team_counts || []).forEach(row => tssAddSubTeamRow(rowsContainer, row.name, row.count));
-            }
+            // Fixed rows now (one per configured team, not a free-form
+            // add/remove list) — just re-stamp each row's own count by slug
+            // instead of tearing down and rebuilding the DOM.
+            const savedBySlug = new Map((summary?.sub_team_counts || []).map(row => [row.slug, row.count]));
+            container.querySelectorAll('[data-subteam-row]').forEach(row => {
+                const countInput = row.querySelector('[data-subteam-count]');
+                const saved = savedBySlug.get(row.dataset.subteamSlug);
+                countInput.value = saved ?? '';
+            });
+            tssUpdateOverallTsas(container);
         }
     } catch {
         window.showToast('Failed to load that date — request error.', 'error');
@@ -1770,9 +1774,24 @@ async function tssLoadDate(container, date) {
 
 function tssReadSubTeamRows(container) {
     return Array.from(container.querySelectorAll('[data-subteam-row]')).map(row => ({
-        name: row.querySelector('[data-subteam-name]').value.trim(),
+        slug:  row.dataset.subteamSlug,
+        name:  row.dataset.subteamName,
         count: parseInt(row.querySelector('[data-subteam-count]').value, 10) || 0,
-    })).filter(r => r.name !== '');
+    }));
+}
+
+// "Overall Working TSA's" is derived, not typed in — always the live sum of
+// the fixed per-team count fields (explicit request, 2026-09-10: "the
+// overall working tsa is automatically equal to the per team"), so it can
+// never disagree with the two numbers it represents. Re-run on every
+// keystroke in a count field (see the 'input' listener below) and right
+// after a date-switch AJAX load re-stamps the fields (tssLoadDate above).
+function tssUpdateOverallTsas(today) {
+    const display = today.querySelector('[data-overall-tsas]');
+    if (!display) return;
+    const total = Array.from(today.querySelectorAll('[data-subteam-count]'))
+        .reduce((sum, el) => sum + (parseInt(el.value, 10) || 0), 0);
+    display.textContent = total;
 }
 
 function tssField(container, name) {
@@ -1854,7 +1873,6 @@ async function tssSaveSmall(small, button) {
     body.set('summary_date', small.dataset.date);
     body.set('gross_sales', tssMoneyValue(small, 'gross_sales') || '0');
     body.set('net_income', tssMoneyValue(small, 'net_income') || '0');
-    body.set('overall_working_tsas', '0');
     await tssPost(body, button);
 }
 
@@ -1869,27 +1887,8 @@ async function tssSaveToday(today, button) {
     body.set('top_team_name', tssField(today, 'top_team_name').value);
     body.set('top_team_gross_sales', tssMoneyValue(today, 'top_team_gross_sales') || '0');
     body.set('top_team_net_income', tssMoneyValue(today, 'top_team_net_income') || '0');
-    body.set('overall_working_tsas', tssField(today, 'overall_working_tsas').value || '0');
     body.set('sub_team_counts', JSON.stringify(tssReadSubTeamRows(today)));
     await tssPost(body, button);
-}
-
-function tssAddSubTeamRow(container, name = '', count = '') {
-    const row = document.createElement('div');
-    row.className = 'group flex items-center gap-2 text-sm font-mono';
-    row.setAttribute('data-subteam-row', '');
-    row.innerHTML = `
-        <input type="text" data-subteam-name value="${name}" placeholder="Team name"
-               class="text-right font-semibold text-slate-700 dark:text-slate-200 bg-transparent border-0 border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-primary px-0 py-0 focus:ring-0" style="width: 16ch">
-        <span class="text-slate-400">-</span>
-        <input type="number" min="0" data-subteam-count value="${count}" placeholder="0"
-               class="w-10 text-center font-bold text-slate-700 dark:text-slate-200 bg-transparent border-0 border-b border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-primary px-0 py-0 focus:ring-0" style="font-variant-numeric: tabular-nums">
-        <button type="button" data-subteam-remove class="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-opacity cursor-pointer">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-        </button>`;
-    container.insertBefore(row, container.querySelector('[data-subteam-add]'));
 }
 
 document.addEventListener('click', (e) => {
@@ -1906,19 +1905,6 @@ document.addEventListener('click', (e) => {
         if (today) tssSaveToday(today, todaySaveBtn);
         return;
     }
-
-    const addBtn = e.target.closest('[data-subteam-add]');
-    if (addBtn) {
-        const container = addBtn.closest('[data-subteam-rows]');
-        if (container) tssAddSubTeamRow(container);
-        return;
-    }
-
-    const removeBtn = e.target.closest('[data-subteam-remove]');
-    if (removeBtn) {
-        removeBtn.closest('[data-subteam-row]')?.remove();
-        return;
-    }
 });
 
 // Live comma-formatting for every money field (explicit request, 2026-09-10:
@@ -1927,6 +1913,14 @@ document.addEventListener('click', (e) => {
 // just after the field loses focus.
 document.addEventListener('input', (e) => {
     if (e.target.matches('[data-money-field]')) tssFormatMoneyInput(e.target);
+
+    // "Overall Working TSA's" (explicit request, 2026-09-10: "automatically
+    // equal to the per team") — re-sum live on every keystroke in either
+    // team's own count field, not just on save/load.
+    if (e.target.matches('[data-subteam-count]')) {
+        const today = e.target.closest('[data-tss-today]');
+        if (today) tssUpdateOverallTsas(today);
+    }
 });
 
 // Friendly date label (explicit request, 2026-09-10: "September 09, 2026"

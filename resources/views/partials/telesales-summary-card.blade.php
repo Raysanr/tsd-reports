@@ -10,7 +10,7 @@
      ago — changing a slot's date AJAX-loads whatever's saved for that date
      via GET /telesales-summary (DashboardController::showTelesalesSummary),
      no full page reload, no server round-trip through the whole Dashboard. --}}
-<div class="bg-white dark:bg-slate-900 rounded-xl border border-black shadow-sm overflow-hidden flex flex-col h-full" id="telesalesSummaryCard">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-black shadow-sm overflow-hidden flex flex-col" id="telesalesSummaryCard">
     {{-- Header (explicit follow-up, 2026-09-09): title+subtitle centered on
          screen at all times, not just in the exported snapshot — the camera
          button is absolutely positioned so it doesn't pull the centered
@@ -31,7 +31,14 @@
         </button>
     </div>
 
-    <div class="p-3 flex-1 flex flex-col gap-3 min-h-0">
+    {{-- Sized to its own content now, not stretched to match Hourly Leads'
+         height (follow-up, 2026-09-10: "maximize the box of the down part...
+         the down part will be like small") — the card used to force h-full/
+         flex-1 all the way down to the sub-team section just to fill
+         whatever height its sibling widget happened to have, which is what
+         produced the empty gap the sub-team section then centered itself
+         inside of. --}}
+    <div class="p-3 flex flex-col gap-3">
         {{-- 2 small prior-day columns, side by side --}}
         <div class="grid grid-cols-2 gap-3">
             @foreach($telesalesPriorDates as $i => $date)
@@ -39,9 +46,6 @@
             @endforeach
         </div>
 
-        {{-- Large "today" block — flex-1 so it claims all remaining card height --}}
-        <div class="flex-1 min-h-0 flex flex-col">
-            @include('partials.telesales-summary-today', ['date' => $telesalesToday, 'summary' => $telesalesTodaySummary])
-        </div>
+        @include('partials.telesales-summary-today', ['date' => $telesalesToday, 'summary' => $telesalesTodaySummary, 'teams' => $telesalesTeams])
     </div>
 </div>
