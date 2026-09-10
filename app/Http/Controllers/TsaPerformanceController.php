@@ -866,16 +866,39 @@ class TsaPerformanceController extends Controller
         // one already made for the Dashboard.
         $grandTotal = ProductPerformance::sumRows($tsaRows);
 
+        // Per-team breakdown of Grand Total (explicit request, 2026-09-10:
+        // "in the grand total... i want to have like dropdown... ALL or per
+        // team") — a popover on each Grand Total cell showing that same
+        // metric split by team. Reuses $tsaRows' own team_key (already set
+        // above per row) and the same sumRows() Grand Total itself is built
+        // from, so this is guaranteed self-consistent with what's on this
+        // page — NOT guaranteed to add back up to Grand Total exactly,
+        // though: see $tsaRows' own comment a few lines up (a TSA's
+        // cross-team-credited order counts fully on her own row regardless
+        // of team, so "Team Opening + Team Closing" can already differ from
+        // the combined Grand Total by design, same accepted tradeoff already
+        // documented there) — explicitly fine per this feature's own
+        // request, not a bug to chase.
+        $grandTotalByTeam = collect($teamsConfig)
+            ->map(fn ($config, $teamKey) => [
+                // Dated (same as every other team label on this page, e.g.
+                // $tsaRows' own 'team' field a few lines up) — 'today's name'
+                // would be wrong for a past date range that predates a rename.
+                'label' => Teams::nameForRange($teamKey, $from, $to),
+                'row'   => ProductPerformance::sumRows($tsaRows->where('team_key', $teamKey)->values()),
+            ]);
+
         $teams = $this->teamsMenu($teamsConfig);
 
         return view('tsa-performance-all', [
-            'dateFrom'     => $dateFrom,
-            'dateTo'       => $dateTo,
-            'tsaRows'      => $tsaRows,
-            'grandTotal'   => $grandTotal,
-            'teams'        => $teams,
-            'selectedTeam' => 'all',
-            'metricCols'   => self::METRIC_COLUMNS,
+            'dateFrom'         => $dateFrom,
+            'dateTo'           => $dateTo,
+            'tsaRows'          => $tsaRows,
+            'grandTotal'       => $grandTotal,
+            'grandTotalByTeam' => $grandTotalByTeam,
+            'teams'            => $teams,
+            'selectedTeam'     => 'all',
+            'metricCols'       => self::METRIC_COLUMNS,
         ]);
     }
 

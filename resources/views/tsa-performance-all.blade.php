@@ -135,23 +135,35 @@
         </tbody>
         {{-- Grand Total lives in tfoot, not tbody, so a client-side column sort
              (which only re-orders <tbody> rows — see app.js) never shuffles this
-             row into the middle of the sorted TSA list. --}}
+             row into the middle of the sorted TSA list.
+
+             Per-team breakdown popover (explicit request, 2026-09-10) — every
+             cell in this row carries data-gt-key (which $grandTotal metric it
+             shows) and the row itself carries data-gt-by-team, one shared JSON
+             blob of {label, row}[] (TsaPerformanceController::indexAll()'s own
+             $grandTotalByTeam) — clicking a cell looks up that one key from
+             each team's row and shows it in a popover (app.js, delegated
+             click on [data-gt-key]). Not guaranteed to sum back to the cell's
+             own combined value — see $grandTotalByTeam's own PHP-side comment
+             for why (a TSA's cross-team-credited order already isn't a clean
+             per-team split even before this feature existed) — explicitly
+             accepted, this is a breakdown for context, not a reconciliation. --}}
         <tfoot>
-            <tr class="bg-slate-900 text-white font-bold">
+            <tr class="bg-slate-900 text-white font-bold cursor-pointer" data-gt-by-team="{{ $grandTotalByTeam->toJson() }}">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center hover:bg-slate-800 transition-colors" data-gt-key="catered" data-gt-label="Catered Leads">{{ $grandTotal['catered'] ?: '' }}</td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                <td class="border border-slate-700 px-2 py-3 text-center hover:bg-slate-800 transition-colors {{ !empty($col['highlight']) ? 'text-green-300' : '' }}" data-gt-key="{{ $col['key'] }}" data-gt-label="{{ str_replace('<br>', ' ', $col['label']) }}">
                     {{ $grandTotal[$col['key']] ?: '' }}
                 </td>
                 @endforeach
-                <td class="border border-slate-700 px-3 py-3 text-center text-blue-300">
+                <td class="border border-slate-700 px-3 py-3 text-center text-blue-300 hover:bg-slate-800 transition-colors" data-gt-key="pick_up_rate" data-gt-label="Pick-up Rate" data-gt-suffix="%">
                     {{ $grandTotal['pick_up_rate'] !== null ? $grandTotal['pick_up_rate'].'%' : '—' }}
                 </td>
-                <td class="border border-slate-700 px-3 py-3 text-center text-orange-300">
+                <td class="border border-slate-700 px-3 py-3 text-center text-orange-300 hover:bg-slate-800 transition-colors" data-gt-key="conversion_rate" data-gt-label="Conversion Rate" data-gt-suffix="%">
                     {{ $grandTotal['conversion_rate'] !== null ? $grandTotal['conversion_rate'].'%' : '—' }}
                 </td>
-                <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300">
+                <td class="border border-slate-700 px-3 py-3 text-center text-yellow-300 hover:bg-slate-800 transition-colors" data-gt-key="upselling_rate" data-gt-label="Upselling Rate" data-gt-suffix="%">
                     {{ $grandTotal['upselling_rate'] !== null ? $grandTotal['upselling_rate'].'%' : '—' }}
                 </td>
             </tr>
