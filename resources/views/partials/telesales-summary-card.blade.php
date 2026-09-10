@@ -11,16 +11,16 @@
      via GET /telesales-summary (DashboardController::showTelesalesSummary),
      no full page reload, no server round-trip through the whole Dashboard. --}}
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-black shadow-sm overflow-hidden flex flex-col" id="telesalesSummaryCard">
-    {{-- Header (explicit follow-up, 2026-09-09): title+subtitle centered on
-         screen at all times, not just in the exported snapshot — the camera
-         button is absolutely positioned so it doesn't pull the centered
-         block off-center. data-snapshot-hide on the button/subtitle still
-         applies for the PNG export itself (see app.js's snapshot-hide
-         handling) — an exported image has nothing to click, so neither
-         belongs there even though both stay visible live. --}}
-    <div class="relative px-4 py-3 border-b border-black bg-gradient-to-r from-amber-50 to-white dark:from-amber-950/20 dark:to-slate-900 text-center shrink-0">
-        <h2 class="text-base font-bold text-slate-700 dark:text-slate-200 font-mono tracking-wide">Telesales Department</h2>
-        <p data-snapshot-hide class="text-xs font-mono text-slate-400 mt-0.5">Click any value to edit</p>
+    {{-- Header (explicit follow-up, 2026-09-10: "remove... Click any value
+         to edit" + "make the... font is more bigger and maximize the
+         space") — title-only now, bigger, filling the space the removed
+         subtitle line used to take. Centered at all times, not just in the
+         exported snapshot — the camera button is absolutely positioned so
+         it doesn't pull the centered title off-center. data-snapshot-hide
+         on the button still applies for the PNG export itself (an exported
+         image has nothing to click). --}}
+    <div class="relative px-4 py-4 border-b border-black bg-gradient-to-r from-amber-50 to-white dark:from-amber-950/20 dark:to-slate-900 text-center shrink-0">
+        <h2 class="text-2xl font-bold text-slate-700 dark:text-slate-200 font-mono tracking-wide uppercase">Telesales Department</h2>
         <button type="button" data-export-png="telesalesSummaryCard" data-export-name="telesales-department" data-snapshot-hide
                 title="Save as image" aria-label="Save summary as image"
                 class="absolute top-1/2 right-4 -translate-y-1/2 p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer disabled:cursor-wait shrink-0">
