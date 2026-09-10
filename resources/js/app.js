@@ -1666,13 +1666,14 @@ const __baseSoftRefresh = window.softRefresh;
 window.softRefresh = async function (...args) {
     const result = await __baseSoftRefresh.apply(this, args);
     initScrollShadows();
-    // Re-stamp the Telesales Department card's friendly date labels — a
-    // softRefresh (team/date filter change on the Dashboard) replaces
-    // <main>'s whole innerHTML with fresh server-rendered markup, whose
-    // <span data-tss-date-label> starts empty again (see tssFormatDateLabel
-    // below); this only runs once on true first page load via the separate
-    // DOMContentLoaded listener otherwise.
-    document.querySelectorAll('[data-tss-small], [data-tss-today]').forEach(tssFormatDateLabel);
+    // Re-stamp the Telesales Department card's friendly date labels AND
+    // comma-formatted money fields — a softRefresh (team/date filter change
+    // on the Dashboard) replaces <main>'s whole innerHTML with fresh
+    // server-rendered markup, whose date labels start empty and whose money
+    // fields carry plain uncommaed values straight from the DB again (see
+    // tssInitOnLoad below); this only runs once on true first page load via
+    // the separate DOMContentLoaded/readyState check otherwise.
+    tssInitOnLoad();
     return result;
 };
 
@@ -1928,6 +1929,26 @@ function tssFormatAllDateLabels() {
     document.querySelectorAll('[data-tss-small], [data-tss-today]').forEach(tssFormatDateLabel);
 }
 
+// Server-rendered Blade sets a money field's initial value as the plain
+// number straight from the DB (e.g. value="89102.00") — comma-formatting
+// only ever ran on live typing (the 'input' listener) and on an AJAX date-
+// switch's own tssSetFieldValue(), so a value that arrived via a normal
+// full page load/reload (the common case: opening the Dashboard, or
+// reloading after Save) never got formatted at all. Confirmed live: saved
+// values displayed as "89102.00" with no comma until the field was
+// actually retyped. Runs the same pass this file already uses for date
+// labels, at the same two call sites (initial load, softRefresh).
+function tssFormatAllMoneyFields() {
+    document.querySelectorAll('[data-money-field]').forEach((el) => {
+        if (el.value !== '') tssFormatMoneyInput(el);
+    });
+}
+
+function tssInitOnLoad() {
+    tssFormatAllDateLabels();
+    tssFormatAllMoneyFields();
+}
+
 // Bare 'DOMContentLoaded' alone risks silently never firing this: app.js is
 // loaded as a Vite module script, which defers execution until after the
 // HTML is parsed — by the time this line runs, the event may already have
@@ -1936,9 +1957,9 @@ function tssFormatAllDateLabels() {
 // one real environment). readyState check covers both orderings: run now
 // if the DOM is already ready, otherwise wait for the event like normal.
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', tssFormatAllDateLabels);
+    document.addEventListener('DOMContentLoaded', tssInitOnLoad);
 } else {
-    tssFormatAllDateLabels();
+    tssInitOnLoad();
 }
 
 document.addEventListener('change', (e) => {
