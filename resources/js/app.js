@@ -768,8 +768,32 @@ function swapInputsForSnapshot(root) {
         // own overflow-auto scroll container — computed from the cell's
         // viewport coordinates instead.
         const maxLeft = window.innerWidth - 240;
-        el.style.top  = `${rect.bottom + 4}px`;
         el.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
+
+        // Flip above the cell when there isn't enough room below (bug fix,
+        // 2026-09-10: confirmed live — a click on the Grand Total row, which
+        // sits at the very bottom of the table/viewport, always opened the
+        // popover mostly or entirely below the visible page with no way to
+        // see it without the page itself scrolling, since this only ever
+        // computed rect.bottom + 4 with no downward-space check at all).
+        // el.offsetHeight only reads correctly once the element is actually
+        // in the render tree — this runs AFTER document.body.appendChild(el)
+        // at every call site, so it reflects real content height already
+        // (or the CSS max-height cap, whichever is smaller).
+        const margin = 8;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const fitsBelow  = spaceBelow >= el.offsetHeight + margin || spaceBelow >= rect.top;
+        if (fitsBelow) {
+            el.style.top    = `${rect.bottom + 4}px`;
+            el.style.bottom = '';
+        } else {
+            // Anchor from the BOTTOM of the viewport instead of a fixed top,
+            // so a popover taller than the space above the cell still clips
+            // at the viewport's own top edge (via its max-height + internal
+            // scroll) rather than running off-screen upward.
+            el.style.top    = '';
+            el.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+        }
     }
 
     document.addEventListener('click', (e) => {

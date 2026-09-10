@@ -30,7 +30,8 @@
      breakdown rather than replacing it. Same column set/rate formulas as
      the hourly table below (both read $displayCols/ProductPerformance),
      just totaled once for the whole range instead of split by hour. --}}
-<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-4" style="max-height:calc(100vh - 180px)" id="tsaPerfFlatSummaryTable" data-sortable-table>
+<div class="overflow-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-4" style="max-height:calc(100vh - 180px)" id="tsaPerfFlatSummaryTable" data-sortable-table
+     data-dd-team="{{ $selectedTeam }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
     <table class="w-full border-collapse text-xs font-mono" style="min-width:1400px">
         <thead class="sticky top-0 z-20 shadow-sm">
             <tr>
@@ -120,11 +121,22 @@
             @endforeach
         </tbody>
         <tfoot>
+            {{-- Order-list drilldown wired the same way the hourly table's own
+                 Grand Total below already does (data-dd-tsa="__all__" — every
+                 TSA on this one team, since this row's own $grandTotal is
+                 already scoped to $selectedTeam via the wrapping div's
+                 data-dd-team above) — this row had none at all before
+                 (explicit bug report, 2026-09-10: "there's no popover of
+                 grand total the first table in per team"). --}}
             <tr class="bg-slate-900 text-white font-bold">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
-                <td class="border border-slate-700 px-3 py-3 text-center">{{ $grandTotal['catered'] ?: '' }}</td>
+                <td class="border border-slate-700 px-3 py-3 text-center {{ $grandTotal['catered'] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                    @if($grandTotal['catered']) data-drilldown data-dd-tsa="__all__" data-dd-column="catered" @endif>
+                    {{ $grandTotal['catered'] ?: '' }}
+                </td>
                 @foreach($displayCols as $col)
-                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }}">
+                <td class="border border-slate-700 px-2 py-3 text-center {{ !empty($col['highlight']) ? 'text-green-300' : '' }} {{ $grandTotal[$col['key']] ? 'cursor-pointer hover:bg-slate-800' : '' }}"
+                    @if($grandTotal[$col['key']]) data-drilldown data-dd-tsa="__all__" data-dd-column="{{ $col['key'] }}" @endif>
                     {{ $grandTotal[$col['key']] ?: '' }}
                 </td>
                 @endforeach
