@@ -323,6 +323,11 @@ class ReconcileOrderStatuses extends Command
             $raw = $response->json()['data'] ?? $response->json();
             if (!is_array($raw) || !isset($raw['items'])) continue;
 
+            $tagNames = array_map(
+                fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t,
+                $raw['tags'] ?? []
+            );
+
             // Four independent signals catch four different shapes of the same
             // underlying bug — see each method's own doc comment for why no
             // single one covers all of them. The history-based ones only apply
@@ -337,10 +342,32 @@ class ReconcileOrderStatuses extends Command
             // item reads as "the addon is still here" to every structural
             // check, and no items-history event exists to catch either (the
             // add-on may never have been a real line item at all).
-            $isStale = Order::remainingItemIsJustTheBase($raw)
-                || (count($raw['items']) === 1 && (
-                    Order::historyShowsOnlyOneDistinctItemEverExisted($raw)
-                    || Order::historyShowsADifferentItemWasAddedThenRemoved($raw)
+            //
+            // !hasSeparateParcelTag() bug fix (2026-09-11, real production
+            // order #1366269, Katherine Chua): a genuine SEPARATE PARCEL
+            // order's own history NORMALLY shows only one distinct item ever
+            // existed — the add-on shipped as its OWN sibling Pancake order,
+            // so this order's own history never had a second item to lose in
+            // the first place. historyShowsOnlyOneDistinctItemEverExisted()
+            // read that as "no addon ever existed here" and wrongly flagged
+            // it stale, wiping a real ₱1,550 upsell to ₱0 (is_upsell false,
+            // is_cancelled_upsell true) — exactly the false-positive
+            // remainingItemIsJustTheBase() was ALREADY guarded against at its
+            // own call sites (SyncTodayOrders' is_cancelled_upsell,
+            // extractUpsellAmount()'s own doc comment, order #1347336), but
+            // this reconcile pass's two history-based checks never inherited
+            // that same guard. noteSaysCancelledUpsell() is deliberately
+            // EXCLUDED from this guard — an explicit "cancelled upsell" note
+            // must still win even on a SEPARATE PARCEL order (a human
+            // overriding the tag), the false-positive risk is specific to the
+            // two structural history checks reading an expected absence as a
+            // cancellation.
+            $isStale = (!Order::hasSeparateParcelTag($tagNames) && (
+                    Order::remainingItemIsJustTheBase($raw)
+                    || (count($raw['items']) === 1 && (
+                        Order::historyShowsOnlyOneDistinctItemEverExisted($raw)
+                        || Order::historyShowsADifferentItemWasAddedThenRemoved($raw)
+                    ))
                 ))
                 || Order::noteSaysCancelledUpsell($raw);
             if (!$isStale) continue;

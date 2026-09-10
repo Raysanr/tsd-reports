@@ -338,6 +338,55 @@ class ReconcileOrderStatusesTest extends TestCase
      * live, order #1341487 (₱500, tagged "UPSELL TSD - Sinuxyl Inhaler", only
      * remaining item the base "Sinuxyl") stayed wrong for months.
      */
+    /**
+     * Root-caused 2026-09-11, real production order #1366269 (Katherine
+     * Chua): a genuine SEPARATE PARCEL order's own history NORMALLY shows
+     * only one distinct item ever existed — the add-on shipped as its OWN
+     * sibling Pancake order, so this order's own history never had a second
+     * item to lose in the first place. historyShowsOnlyOneDistinctItem
+     * EverExisted() misread that expected absence as proof no addon ever
+     * existed, and — unlike remainingItemIsJustTheBase(), whose own callers
+     * (SyncTodayOrders, extractUpsellAmount()) were already guarded against
+     * this exact false positive on order #1347336 — this reconcile pass's
+     * two history-based checks never inherited that guard, wiping a real
+     * ₱1,550 upsell to cancelled.
+     */
+    public function test_leaves_a_separate_parcel_orders_upsell_alone_even_though_history_shows_only_one_item(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'    => '1366269',
+            'status_code'         => 8,
+            'is_upsell'           => true,
+            'is_cancelled_upsell' => false,
+            'product'             => 'CanPro Guyabano Herbal Drink',
+            'base_product'        => 'CanPro Guyabano Herbal Drink', // the bug's structural signature
+            'amount'              => 1550.0,
+            'pancake_created_at'  => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*'  => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/*'  => Http::response(['data' => [
+                'id'          => 1366269,
+                'status'      => 8,
+                'total_price' => 1550,
+                'note'        => "chua - separate parcel \ncall recordings uploaded",
+                'tags'        => [['id' => 1, 'name' => 'KATHERINE'], ['id' => 2, 'name' => 'SEPARATE PARCEL']],
+                'items'       => [
+                    ['variation_id' => 'v1', 'variation_info' => ['name' => 'CanPro Guyabano Herbal Drink', 'retail_price' => 1550], 'quantity' => 1],
+                ],
+                'histories'   => [],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1366269')->first();
+        $this->assertTrue($order->is_upsell, 'A SEPARATE PARCEL order must not be wrongly cancelled just because its own history has only ever had one item');
+        $this->assertFalse($order->is_cancelled_upsell);
+        $this->assertSame(1550.0, (float) $order->amount);
+    }
+
     public function test_corrects_a_still_active_order_whose_upsell_add_on_was_removed(): void
     {
         Order::factory()->create([
