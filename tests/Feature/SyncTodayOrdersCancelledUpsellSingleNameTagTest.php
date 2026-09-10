@@ -217,4 +217,54 @@ class SyncTodayOrdersCancelledUpsellSingleNameTagTest extends TestCase
         $this->assertSame(1000.0, (float) $order->amount);
         $this->assertSame('TURMERIC SOAP', $order->product, 'The real upsold add-on name must not be blanked out just because it shipped as its own SEPARATE PARCEL order');
     }
+
+    /**
+     * Root-caused 2026-09-11, real production order #1366186 (Kathleen
+     * Santilleses, Sep 9): a TSA cancelled an upsell by typing "cancelled
+     * upsell" directly into Pancake's Note field, WITHOUT the add-on item
+     * ever being removed from the order and without any status change — the
+     * order's sole remaining item (GINSENG SERUM) matches its own upsell
+     * tag's named base product, the exact shape
+     * remainingItemIsJustTheBase()'s dash branch reads as "the addon is
+     * still here" (str_contains($name, $addon) is true since the tag names
+     * GINSENG SERUM itself, not some other add-on). No structural signal —
+     * item list, tags, status_code — ever changes for this shape, which is
+     * why the user's own manual Sync Health "Fix Now" reconcile could not
+     * fix it: every structural check correctly re-derived "not stale" every
+     * time. Only the human-typed note carries the fact that this was
+     * cancelled.
+     */
+    public function test_note_saying_cancelled_upsell_is_not_counted_as_a_live_upsell_even_with_no_item_change(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1366186,
+            'status'      => 8,
+            'total_price' => 499,
+            'cod'         => 499,
+            'inserted_at' => '2026-09-09T15:47:00',
+            'updated_at'  => '2026-09-09T15:47:00',
+            'note'        => "kath\n9-10 HOLD BY TSS GRETCHEN\ncancelled upsell",
+            'tags'        => [
+                ['id' => 1, 'name' => 'KATH'],
+                ['id' => 2, 'name' => 'Call in Progress (Ginseng)'],
+                ['id' => 3, 'name' => 'TSD UPSELL - GINSENG SERUM'],
+                ['id' => 4, 'name' => 'INSTRUCTION (BELO SET)'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'GINSENG SERUM', 'retail_price' => 499], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-09-09']);
+
+        $order = Order::where('pancake_order_id', '1366186')->first();
+
+        $this->assertNotNull($order);
+        $this->assertFalse($order->is_upsell, 'A note saying "cancelled upsell" must exclude the order from live upsell counts even though its item list never changed');
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertSame(499.0, (float) $order->amount, 'The order still ships — its base amount must not be zeroed out, only excluded from upsell revenue');
+    }
 }

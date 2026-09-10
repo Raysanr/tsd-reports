@@ -358,8 +358,28 @@ class SyncTodayOrders extends Command
             // LinkSeparateParcelOrders). That's still a real TSA upsell, so it
             // must count toward upsell_confirmation the same as any other live
             // upsell — just excluded here so it isn't miscounted as cancelled.
-            $isCancelledUpsell = !$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
-                && !Order::hasSeparateParcelTag($tagNames);
+            // OR'd with a plain note-text check (2026-09-11, real production
+            // order #1366186) — a cancellation recorded ONLY as a human-typed
+            // Pancake note ("cancelled upsell"), with no change to the item
+            // list/tags/status at all, is structurally invisible to every
+            // check above: this order's own upsell tag ("TSD UPSELL - GINSENG
+            // SERUM") literally names the base product itself, so
+            // remainingItemIsJustTheBase()'s single-name-dash branch reads
+            // the still-present GINSENG SERUM line as "the addon is still
+            // here" and never flags it stale — confirmed still counting
+            // after a full manual Sync Health reconcile, since nothing about
+            // the live Pancake data actually changed. See
+            // Order::noteSaysCancelledUpsell()'s own doc comment for the
+            // full history (this exact note text was already the DOCUMENTED
+            // example for is_cancelled_upsell's own purpose, on a different
+            // order, #1362700 — nothing ever actually read it before now).
+            // Deliberately NOT also gated behind !hasSeparateParcelTag()
+            // like the structural check is — a human explicitly writing
+            // "cancelled upsell" is authoritative regardless of what shape
+            // the remaining items happen to be in.
+            $isCancelledUpsell = (!$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
+                    && !Order::hasSeparateParcelTag($tagNames))
+                || ($hasUpsellTag && Order::noteSaysCancelledUpsell($raw));
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
 
             // Returned upsell: the order carries the TSA's upsell tag but its status is
@@ -537,6 +557,12 @@ class SyncTodayOrders extends Command
                 'is_restocking_upsell'    => $isRestockingUpsell,
                 'restocking_upsell_amount' => $restockingUpsellAmount,
                 'excluded_upsell_seller'  => $isExcludedUpsellSeller,
+                // Persisted so noteSaysCancelledUpsell() can be re-evaluated at
+                // reconcile time against an already-synced order, not just at
+                // the moment it's first synced (2026-09-11 — see that method's
+                // own doc comment).
+                'note'                    => $raw['note'] ?? null,
+                'note_print'              => $raw['note_print'] ?? null,
                 'is_duplicated_by_logistics' => $isDuplicatedByLogistics,
                 'is_upsell_on_voided_order' => $isUpsellOnVoidedOrder,
                 'status_code'             => $statusCode,
@@ -611,6 +637,7 @@ class SyncTodayOrders extends Command
                     'is_upsell', 'is_cancelled_upsell', 'cancelled_upsell_amount',
                     'is_returned_upsell', 'returned_upsell_amount',
                     'is_restocking_upsell', 'restocking_upsell_amount', 'excluded_upsell_seller',
+                    'note', 'note_print',
                     'is_duplicated_by_logistics',
                     'is_upsell_on_voided_order',
                     'status_code', 'pancake_created_at', 'pancake_inserted_at',

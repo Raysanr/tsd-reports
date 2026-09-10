@@ -241,12 +241,25 @@ class ReconcileOrderStatuses extends Command
         // addon being added then removed, tagged in a way
         // remainingItemIsJustTheBase() alone couldn't recognize (see that
         // check's own call site below).
+        // whereColumn('product', 'base_product') OR a note that says so
+        // (2026-09-11, real production order #1366186) — the structural
+        // product===base_product filter is a cost-control narrowing (this
+        // pass runs on a schedule; only genuine suspects get an individual
+        // live Pancake lookup below), but a note-only cancellation can leave
+        // `product` correctly naming a real add-on with `base_product`
+        // untouched — the item list itself never changed, only a human
+        // typed "cancelled upsell" into the Note field. Filtering on
+        // note/note_print being non-null is free (local columns, no extra
+        // API cost at this stage) and catches that shape too, still without
+        // scanning every upsell order in the window.
         $activeCandidates = Order::where(fn ($q) => $q->where('is_upsell', true)
                 ->orWhere('is_restocking_upsell', true)
                 ->orWhere('is_returned_upsell', true))
             ->where('is_cancelled_upsell', false)
+            ->where(fn ($q) => $q->whereColumn('product', 'base_product')
+                ->orWhereNotNull('note')
+                ->orWhereNotNull('note_print'))
             ->whereNotNull('product')
-            ->whereColumn('product', 'base_product')
             ->whereBetween('pancake_created_at', [$from, $to])
             ->get();
 
@@ -310,17 +323,26 @@ class ReconcileOrderStatuses extends Command
             $raw = $response->json()['data'] ?? $response->json();
             if (!is_array($raw) || !isset($raw['items'])) continue;
 
-            // Three independent signals catch three different shapes of the
-            // same underlying bug — see each method's own doc comment for why
-            // no single one covers all of them. The history-based ones only
-            // apply to a currently-single-item order (same precondition the
-            // first one's single-item branch already uses) — irrelevant
-            // otherwise.
+            // Four independent signals catch four different shapes of the same
+            // underlying bug — see each method's own doc comment for why no
+            // single one covers all of them. The history-based ones only apply
+            // to a currently-single-item order (same precondition the first
+            // one's single-item branch already uses) — irrelevant otherwise.
+            // noteSaysCancelledUpsell() is the odd one out (2026-09-11, real
+            // production order #1366186): a human-typed note is authoritative
+            // regardless of item shape, so it's OR'd in unconditionally rather
+            // than folded into remainingItemIsJustTheBase()'s own structural
+            // rule — that order's tag ("TSD UPSELL - GINSENG SERUM") literally
+            // names the base product, so the single remaining GINSENG SERUM
+            // item reads as "the addon is still here" to every structural
+            // check, and no items-history event exists to catch either (the
+            // add-on may never have been a real line item at all).
             $isStale = Order::remainingItemIsJustTheBase($raw)
                 || (count($raw['items']) === 1 && (
                     Order::historyShowsOnlyOneDistinctItemEverExisted($raw)
                     || Order::historyShowsADifferentItemWasAddedThenRemoved($raw)
-                ));
+                ))
+                || Order::noteSaysCancelledUpsell($raw);
             if (!$isStale) continue;
 
             // A restocking/returned candidate's isolated amount lives in its

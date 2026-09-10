@@ -31,6 +31,8 @@ class Order extends Model
         'is_restocking_upsell',
         'restocking_upsell_amount',
         'excluded_upsell_seller',
+        'note',
+        'note_print',
         'is_duplicated_by_logistics',
         'is_upsell_on_voided_order',
         'status_code',
@@ -195,6 +197,38 @@ class Order extends Model
     {
         $text = strtoupper(($raw['note'] ?? '') . ' ' . ($raw['note_print'] ?? ''));
         return str_contains($text, 'DUPLICATED BY LOGISTIC');
+    }
+
+    /**
+     * Root-caused 2026-09-11, real production order #1366186: a TSA typed
+     * "cancelled upsell" directly into Pancake's Note field for an order
+     * whose upsell tag literally names the BASE product ("TSD UPSELL -
+     * GINSENG SERUM" on an order whose only remaining line item IS Ginseng
+     * Serum) — remainingItemIsJustTheBase()'s single-name-dash branch reads
+     * that as "the addon is still here" (tag name matches the item name),
+     * so the structural is_cancelled_upsell detection below can never catch
+     * it: nothing about the item list, tags, or status_code ever changes
+     * for this exact mistagging shape. Confirmed still counting toward her
+     * upsell total after a full manual Sync Health reconcile — resyncing
+     * re-derives the same structural "not stale" answer every time, since
+     * the underlying live Pancake data genuinely has no structural signal
+     * of cancellation. Only the human-typed note carries that fact.
+     *
+     * This was already the DOCUMENTED example for is_cancelled_upsell
+     * itself (see DashboardController's own "Cancelled Upsells" KPI
+     * comment, order #1362700 — "internal note literally reads 'cancelled
+     * upsell'") — the note was long known to be the human signal, but
+     * nothing ever actually read it as an input; isDuplicatedByLogistics()
+     * above is the only other place this app reads note text at all, same
+     * pattern reused here. Tolerant of "CANCELLED"/"CANCELED" the same way
+     * hasSeparateParcelTag()'s SEP[EA]RATE regex tolerates that spelling
+     * split — a plain literal match would silently miss the single-L
+     * spelling.
+     */
+    public static function noteSaysCancelledUpsell(array $raw): bool
+    {
+        $text = strtoupper(($raw['note'] ?? '') . ' ' . ($raw['note_print'] ?? ''));
+        return (bool) preg_match('/CANCEL(?:L)?ED\s+UPSELL/', $text);
     }
 
     /** SH Naturals' own per-product upsell-trigger tag names that don't
