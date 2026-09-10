@@ -654,7 +654,6 @@ class TsaPerformanceController extends Controller
     {
         $teamsConfig = Teams::config();
         $team        = $request->query('team');
-        abort_if(!array_key_exists($team, $teamsConfig), 404);
 
         $dateFrom = $request->query('date_from');
         $dateTo   = $request->query('date_to', $dateFrom);
@@ -666,6 +665,38 @@ class TsaPerformanceController extends Controller
         $hour    = $request->query('hour');
         $column  = $request->query('column');
         $product = $request->query('product', 'all');
+
+        // team=all (explicit request, 2026-09-10: the ALL view's own Grand
+        // Total popover shows the actual order list, not a synthetic
+        // per-team breakdown) — every order across BOTH teams in range,
+        // matched to $column, no per-team/tsa/product narrowing. Kept as its
+        // own short-circuit branch rather than threaded through every line
+        // below: none of the single-team-specific rules further down (a
+        // named TSA's cross-team roster lookup, the "unassigned" bucket's
+        // orphaned-name exclusion, a product filter scoped to one team's own
+        // catalog) apply to what Grand Total's own popover actually needs —
+        // forcing them to also handle "all teams" would add real complexity
+        // for call shapes nothing on this page ever produces (Grand Total
+        // has no tsa/product/hour filter to begin with).
+        if ($team === 'all') {
+            $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+                ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
+                ->get();
+
+            $matching = ProductPerformance::ordersForColumn($orders, (string) $column);
+
+            return response()->json(
+                $matching
+                    ->sortBy(fn($o) => $o->effective_created_at)
+                    ->map(fn($o) => [
+                        'id'   => $o->pancake_order_id,
+                        'time' => $o->effective_created_at?->format('g:i A'),
+                    ])
+                    ->values()
+            );
+        }
+
+        abort_if(!array_key_exists($team, $teamsConfig), 404);
 
         // Same order-scoping AND date scope (POS-accurate, see index()'s comment)
         // as index()/indexAll() above — drilldown popovers must show the exact
@@ -866,39 +897,16 @@ class TsaPerformanceController extends Controller
         // one already made for the Dashboard.
         $grandTotal = ProductPerformance::sumRows($tsaRows);
 
-        // Per-team breakdown of Grand Total (explicit request, 2026-09-10:
-        // "in the grand total... i want to have like dropdown... ALL or per
-        // team") — a popover on each Grand Total cell showing that same
-        // metric split by team. Reuses $tsaRows' own team_key (already set
-        // above per row) and the same sumRows() Grand Total itself is built
-        // from, so this is guaranteed self-consistent with what's on this
-        // page — NOT guaranteed to add back up to Grand Total exactly,
-        // though: see $tsaRows' own comment a few lines up (a TSA's
-        // cross-team-credited order counts fully on her own row regardless
-        // of team, so "Team Opening + Team Closing" can already differ from
-        // the combined Grand Total by design, same accepted tradeoff already
-        // documented there) — explicitly fine per this feature's own
-        // request, not a bug to chase.
-        $grandTotalByTeam = collect($teamsConfig)
-            ->map(fn ($config, $teamKey) => [
-                // Dated (same as every other team label on this page, e.g.
-                // $tsaRows' own 'team' field a few lines up) — 'today's name'
-                // would be wrong for a past date range that predates a rename.
-                'label' => Teams::nameForRange($teamKey, $from, $to),
-                'row'   => ProductPerformance::sumRows($tsaRows->where('team_key', $teamKey)->values()),
-            ]);
-
         $teams = $this->teamsMenu($teamsConfig);
 
         return view('tsa-performance-all', [
-            'dateFrom'         => $dateFrom,
-            'dateTo'           => $dateTo,
-            'tsaRows'          => $tsaRows,
-            'grandTotal'       => $grandTotal,
-            'grandTotalByTeam' => $grandTotalByTeam,
-            'teams'            => $teams,
-            'selectedTeam'     => 'all',
-            'metricCols'       => self::METRIC_COLUMNS,
+            'dateFrom'     => $dateFrom,
+            'dateTo'       => $dateTo,
+            'tsaRows'      => $tsaRows,
+            'grandTotal'   => $grandTotal,
+            'teams'        => $teams,
+            'selectedTeam' => 'all',
+            'metricCols'   => self::METRIC_COLUMNS,
         ]);
     }
 
