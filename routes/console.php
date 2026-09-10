@@ -90,10 +90,23 @@ Schedule::command(LinkSeparateParcelOrders::class)->hourly()->withoutOverlapping
 // run. Confirmed live this is small sequential JSON list calls, not file
 // downloads, so even a wide window finishes in seconds — hourly is cheap.
 //
-// withoutOverlapping(30): same 2026-08-21 fix as the jobs above — 30 minutes
-// still gives real headroom over its "finishes in seconds" actual duration
-// while staying comfortably under the new 60-minute gap between runs.
-Schedule::command(ReconcileOrderStatuses::class)->hourly()->withoutOverlapping(30);
+// Tightened from hourly to every 15 minutes (explicit follow-up request,
+// 2026-09-11: "i want to make it like immediately fix" — re: the new
+// note-based cancelled-upsell check, Order::noteSaysCancelledUpsell(), which
+// this same command also now evaluates on every run). A TSA typing
+// "cancelled upsell" into Pancake's Note field is invisible to every OTHER
+// signal this command checks (see that method's own doc comment — no tag/
+// item/status change happens), so THIS job is the only thing that will ever
+// catch it — worst case is now ~15 minutes instead of ~1 hour, not
+// realistically improvable further without Pancake pushing webhooks on note
+// edits, which it doesn't.
+//
+// withoutOverlapping(10), not 30 — the command itself still finishes in
+// seconds (small sequential JSON list calls, not file downloads, per the
+// 2026-08-21 comment this schedule inherited its own reasoning from), so 30
+// minutes of overlap protection no longer makes sense against a 15-minute
+// gap between runs; 10 still gives comfortable headroom.
+Schedule::command(ReconcileOrderStatuses::class)->everyFifteenMinutes()->withoutOverlapping(10);
 
 // Full re-sync of the last few days, once nightly — a safety net against rare
 // completeness gaps the continuous "today" sync can miss right at the midnight
