@@ -286,23 +286,31 @@ class DashboardController extends Controller
             // distinct-order tally() — only Total/Catered Leads were asked to
             // match Leads Report.
             //
-            // $allProducts scoped to the SELECTED team's own product line
-            // (not literally every product) on a single-team view, and
-            // $dayMatchPool below is scoped the SAME way (2026-09-07, sixth
-            // revision — see LeadsReportController::index()'s own
-            // shift-window comment for the full history): a single-team
-            // page's match pool is bounded to that team's own hour window
-            // (where('team', $orderTeam)), the same restriction Leads
-            // Report's own per-team page applies — a cross-team combo order
-            // (e.g. an Eyecare-hour order bundling SH Naturals' Sinuxyl)
-            // simply doesn't reach either single-team total at all; it only
-            // ever counts on its own true team's page/total. Matching that
-            // same restriction here is what keeps this number equal to
-            // Leads Report's own Grand Total on a single-team view (an
-            // enforced invariant — see DashboardTotalLeadsMatchesLeadsReportTest).
-            $allProducts = $selectedTeam === 'all'
-                ? Product::orderBy('sort_order')->get()
-                : Product::where('team', $orderTeams[0])->orderBy('sort_order')->get();
+            // $allProducts is EVERY product regardless of team, on both the
+            // 'all' view and a single-team view (bug fix, 2026-09-10 —
+            // reverses the "scoped to the SELECTED team's own product line"
+            // restriction this used to have). Root-caused via a real
+            // production mismatch: Team Opening's Dashboard Total Leads
+            // showed 91 for a day the Leads Report's own Grand Total showed
+            // 158 for the identical team+date. The old restriction assumed
+            // a foreign-team product could never match an order inside this
+            // team's own hour-scoped pool — false: ProductPerformance::
+            // matchingOrders() explicitly allows an explicit product/
+            // base_product/bundle_description text match to override the
+            // team check (see its own doc comment), so e.g. an SH Naturals
+            // product genuinely sold during Team Opening's hours (before
+            // 3pm) DOES match and DOES get counted by Leads Report's own
+            // Grand Total — Product::where('team', $orderTeams[0]) never
+            // even considered that product, silently dropping every one of
+            // its leads from this KPI while Leads Report correctly showed
+            // them. Leads Report's own $products (LeadsReportController::
+            // index(), "Every product is browsable on every team's page")
+            // has used the full unscoped list since 2026-09-07 for exactly
+            // this reason — this now matches that, not the other way
+            // around, since Leads Report's own row-sum-equals-Grand-Total
+            // invariant depends on genuinely walking every product that
+            // could match, not just the ones nominally owned by this team.
+            $allProducts = Product::orderBy('sort_order')->get();
 
             // Grand Total computed one calendar day at a time, not the whole range's
             // orders loaded and matched in a single pass. Root-caused 2026-08-28:
