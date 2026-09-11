@@ -5,13 +5,13 @@
     $savedCountsBySlug = collect($summary->sub_team_counts ?? [])->keyBy('slug');
 @endphp
 <div class="tss-today rounded-xl border-2 border-black overflow-hidden flex flex-col" data-tss-today data-date="{{ $date }}">
-    {{-- Same transparent-native-input-with-overlay-label trick as the small
-         columns (see that partial's own comment) — friendly-formatted date
-         text, still backed by a real, clickable <input type="date">. --}}
-    <div class="relative bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center border-b border-black shrink-0">
+    {{-- Same calendar-picker-only trick as the small columns' own partial
+         (see that file's own comment for the full "why" — 2026-09-11
+         follow-up fixing a native segment/label visual clash). --}}
+    <div class="relative bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center border-b border-black shrink-0 cursor-pointer" data-tss-date-trigger>
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
-               class="w-full bg-transparent text-center text-sm font-bold font-mono border-0 p-0 focus:ring-0 cursor-pointer" style="color: transparent">
-        <span data-tss-date-label class="absolute inset-0 flex items-center justify-center text-sm font-bold font-mono text-slate-700 dark:text-slate-200 pointer-events-none"></span>
+               class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
+        <span data-tss-date-label class="text-sm font-bold font-mono text-slate-700 dark:text-slate-200"></span>
     </div>
 
     {{-- Gross Sales / Daily Net Income --}}

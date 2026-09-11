@@ -10,17 +10,29 @@
      below today's own fields is gone (see telesales-summary-today.blade.php's
      own comment) and these two columns are no longer visually dwarfed by it. --}}
 <div class="tss-small rounded-lg border border-black bg-amber-50/40 dark:bg-amber-950/10 px-4 py-3 flex flex-col" data-tss-small data-date="{{ $date }}">
-    {{-- Native <input type="date"> stays the real, clickable/focusable
-         control (still opens the browser's own date picker) — its own text
-         is just made invisible (color:transparent) so the friendly-
-         formatted <span> layered on top of it (data-tss-date-label,
-         updated live in app.js's tssFormatDateLabel()) is what's actually
-         seen: "September 09, 2026" instead of the native "09/09/2026"
-         (explicit request, 2026-09-10). --}}
-    <div class="relative w-full pb-2 mb-2 border-b border-black">
+    {{-- Native <input type="date"> stays the real control backing the
+         friendly-formatted <span> layered on top of it (data-tss-date-
+         label, updated live in app.js's tssFormatDateLabel()) — but is now
+         calendar-picker-only (explicit follow-up, 2026-09-11: "why is it
+         like hidden date picker... i want only they will pick in the
+         calendar"). Before, the input's own text was merely color-
+         transparent while its native day/month/year segments stayed real
+         and independently focusable/typable underneath the overlay — a
+         click could land on a segment and show the browser's own edit-
+         highlight (the "09" blue box in the bug report) fighting visually
+         with the label text on top of it, and typing digits could silently
+         change the date with no visible feedback at all.
+         opacity-0 (not color:transparent) hides the whole control
+         including its segment-focus chrome; pointer-events-none takes it
+         out of the click path entirely so only the wrapper's own onclick
+         below (data-tss-date-trigger) can ever open it, via showPicker() —
+         a real user click can no longer land on a native segment. Keydown
+         is blocked in app.js so even a focus arrived at programmatically
+         can't be typed into. --}}
+    <div class="relative w-full pb-2 mb-2 border-b border-black cursor-pointer" data-tss-date-trigger>
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
-               class="w-full bg-transparent text-center text-base font-bold font-mono border-0 rounded-none px-0 py-0 focus:ring-0 cursor-pointer" style="color: transparent">
-        <span data-tss-date-label class="absolute inset-0 flex items-center justify-center text-base font-bold font-mono text-slate-700 dark:text-slate-200 pointer-events-none"></span>
+               class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
+        <span data-tss-date-label class="block text-center text-base font-bold font-mono text-slate-700 dark:text-slate-200"></span>
     </div>
 
     <div class="flex items-center justify-between gap-2 mb-2">

@@ -1990,3 +1990,30 @@ document.addEventListener('change', (e) => {
     tssFormatDateLabel(container);
     tssLoadDate(container, dateInput.value);
 });
+
+// Calendar-picker-only date fields (explicit follow-up, 2026-09-11: "why
+// is it like hidden date picker... i want only they will pick in the
+// calendar") — the <input type="date"> itself is now opacity-0 and
+// pointer-events-none (see the two partials' own comments for why), so a
+// real click can never reach it or its native day/month/year segments
+// directly; this is the only way it ever opens. showPicker() is the
+// standard way to summon the native calendar UI programmatically — every
+// browser this app supports (Chrome, Edge, Safari 16+) implements it.
+document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('[data-tss-date-trigger]');
+    if (!trigger) return;
+    trigger.querySelector('[data-tss-date-input]')?.showPicker?.();
+});
+
+// Defense in depth: the input is pointer-events-none so a mouse/touch
+// click can't focus it directly, but keyboard Tab order can still reach
+// it — without this, arrow keys/typed digits could silently change the
+// date with the visible label lagging behind until the next 'change'
+// (blur or Enter). Escape/Tab/Shift are left alone so focus can still
+// leave normally; every other key that would edit an open date input is
+// blocked outright.
+document.addEventListener('keydown', (e) => {
+    if (!e.target.matches('[data-tss-date-input]')) return;
+    if (['Tab', 'Escape'].includes(e.key)) return;
+    e.preventDefault();
+});
