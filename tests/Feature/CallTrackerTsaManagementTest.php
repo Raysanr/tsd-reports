@@ -79,6 +79,40 @@ class CallTrackerTsaManagementTest extends TestCase
         $response->assertSee("Paired with {$mariel->display_name}", false);
     }
 
+    /**
+     * Explicit follow-up request, 2026-09-11: "separator column with
+     * every pair... will be same in one column" — the visual bracket in
+     * _table.blade.php only works if a partner row actually renders
+     * directly after its primary, which plain sort_order can't guarantee
+     * on its own (Kathleen's natural position is BEFORE Mariel's).
+     */
+    public function test_a_paired_partner_renders_directly_after_its_primary_regardless_of_sort_order(): void
+    {
+        $this->actingAs($this->admin());
+
+        // Kathleen (sort_order 2) paired onto Mariel (sort_order 1) — the
+        // pair's primary is Mariel, so Kathleen's natural earlier position
+        // must move to right after Mariel's, not stay where sort_order
+        // alone would put her.
+        $mariel   = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+        $mariel->pairWith($kathleen);
+
+        $response = $this->get(route('calls.tsa-management'));
+        $html = $response->getContent();
+
+        $marielPos   = strpos($html, 'data-tsa-row="' . $mariel->id . '"');
+        $kathleenPos = strpos($html, 'data-tsa-row="' . $kathleen->id . '"');
+        $gemmaPos    = strpos($html, 'data-tsa-row="' . TsaShift::where('tsa_key', 'Gemma')->first()->id . '"');
+
+        // Mariel (the primary) stays in her normal sort_order slot — right
+        // after Gemma, same relative order as any unpaired row — and
+        // Kathleen moves to directly after Mariel, ahead of where her own
+        // sort_order would otherwise place her.
+        $this->assertGreaterThan($gemmaPos, $marielPos);
+        $this->assertGreaterThan($marielPos, $kathleenPos);
+    }
+
     public function test_checking_a_new_product_appends_the_tsa_to_the_end_of_its_rotation(): void
     {
         $this->actingAs($this->admin());

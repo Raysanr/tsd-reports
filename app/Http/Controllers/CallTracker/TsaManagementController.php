@@ -46,7 +46,7 @@ class TsaManagementController extends Controller
         if ($team) {
             $query->where('team', $team);
         }
-        $tsas = $query->get();
+        $tsas = $this->sortWithPairsAdjacent($query->get());
 
         $products = Product::orderBy('sort_order')->get();
 
@@ -412,6 +412,30 @@ class TsaManagementController extends Controller
                 ->sortBy('name')
                 ->values();
         });
+    }
+
+    /**
+     * Re-orders an already sort_order-sorted list so a paired TSA sits
+     * directly after their primary — explicit request, 2026-09-11: "when
+     * there's a pair there will be like separator column... small space...
+     * will be same in one column" (a visual bracket grouping the two rows,
+     * see Call Rotation's own row/divider styling in _table.blade.php).
+     * Plain sort_order alone can't guarantee this: a pair's two TSAs can
+     * belong to different teams/rows added at very different times, so
+     * their natural sort_order positions are often nowhere near each
+     * other. Every unpaired TSA and every pair's primary keeps its normal
+     * relative order; only a partner row physically moves, right after
+     * its own primary.
+     */
+    private function sortWithPairsAdjacent($tsas)
+    {
+        $partnersByPrimary = $tsas->filter(fn (TsaShift $t) => $t->paired_with_tsa_id !== null)
+            ->groupBy('paired_with_tsa_id');
+
+        return $tsas
+            ->reject(fn (TsaShift $t) => $t->paired_with_tsa_id !== null)
+            ->flatMap(fn (TsaShift $primary) => collect([$primary])->merge($partnersByPrimary->get($primary->id, collect())))
+            ->values();
     }
 
     /** First word of the name, uniquified against existing tsa_key values —

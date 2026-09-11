@@ -57,8 +57,22 @@
                     // checkbox grid stays visually grouped instead of a flat
                     // shuffled list, even though it's no longer a hard gate.
                     $teamProducts = $products->sortBy(fn ($p) => [$p->team, $p->sort_order]);
+
+                    // Visual "bracket" around a pair's two rows (explicit
+                    // request, 2026-09-11: "separator column with every
+                    // pair... small space... will be same in one column") —
+                    // TsaManagementController::sortWithPairsAdjacent()
+                    // already guarantees a partner row directly follows its
+                    // primary, so "am I the top/bottom of a pair" is purely
+                    // positional here: the primary is top only when it HAS a
+                    // partner, the partner is always bottom.
+                    $isPairTop    = $tsa->isPairPrimary();
+                    $isPairBottom = $tsa->paired_with_tsa_id !== null;
                 @endphp
-                <tr class="tsa-row hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors duration-150 cursor-pointer {{ $tsa->isPaired() ? 'tsa-row-paired' : '' }}"
+                <tr class="tsa-row hover:bg-amber-50/60 dark:hover:bg-amber-900/10 transition-colors duration-150 cursor-pointer
+                           {{ $tsa->isPaired() ? 'tsa-row-paired bg-amber-50/40 dark:bg-amber-950/10' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60' }}
+                           {{ $isPairTop ? 'border-t-2 border-x-2 border-amber-200 dark:border-amber-900/50 border-b-0!' : '' }}
+                           {{ $isPairBottom ? 'border-b-2 border-x-2 border-amber-200 dark:border-amber-900/50 border-t-0!' : '' }}"
                     data-tsa-row-toggle="{{ $tsa->id }}"
                     data-tsa-row="{{ $tsa->id }}"
                     data-tsa-name="{{ $tsa->display_name }}"
