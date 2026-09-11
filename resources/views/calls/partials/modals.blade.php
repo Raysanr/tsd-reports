@@ -67,21 +67,6 @@
         <div id="conversationModalBody" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-950 font-mono text-sm">
             {{-- Populated by openConversationModal() in calls.js --}}
         </div>
-        {{-- Reply box — sends a REAL message into the customer's Messenger
-             conversation via Pancake (LeadController::sendConversationMessage(),
-             PancakeConversationApi::sendMessage()). Facebook's normal 24h
-             messaging window still applies; a rejection (window closed, etc.)
-             surfaces as a toast rather than silently doing nothing. --}}
-        <form id="conversationReplyForm" onsubmit="return submitConversationReply(event)"
-              class="flex items-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-700 shrink-0">
-            <textarea id="conversationReplyInput" rows="1" maxlength="2000" placeholder="Type a reply…" required
-                      class="flex-1 resize-none rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
-                      onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault(); this.form.requestSubmit();}"></textarea>
-            <button type="submit" id="conversationReplySubmit"
-                    class="shrink-0 rounded-lg bg-primary hover:bg-primary-dark text-white text-sm font-semibold px-4 py-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                Send
-            </button>
-        </form>
     </div>
 </div>
 

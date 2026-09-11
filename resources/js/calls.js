@@ -1222,21 +1222,7 @@ window.openConversationModal = function (leadId) {
     const body = document.getElementById('conversationModalBody');
     if (!modal || !body) return;
 
-    // Stashed on the modal so submitConversationReply() below knows which
-    // lead to post to without threading leadId through the reply form
-    // itself — same "modal element carries its own current-target" pattern
-    // recordingModal already uses for its own leadId-scoped fetches.
-    modal.dataset.leadId = leadId;
-    document.getElementById('conversationReplyInput').value = '';
-
     showModal(modal);
-    loadConversation(leadId);
-};
-
-function loadConversation(leadId) {
-    const body = document.getElementById('conversationModalBody');
-    if (!body) return;
-
     body.innerHTML = '<p class="text-slate-400 text-center py-10">Loading conversation…</p>';
 
     fetch(`/calls/leads/${leadId}/conversation`, { headers: { Accept: 'application/json' } })
@@ -1257,51 +1243,6 @@ function loadConversation(leadId) {
         .catch(() => {
             body.innerHTML = '<p class="text-red-500 text-center py-10">Something went wrong loading this conversation.</p>';
         });
-}
-
-// Sends a REAL message into the customer's Messenger conversation via
-// Pancake (LeadController::sendConversationMessage()). Facebook's normal
-// 24h messaging window still applies server-side — a rejection (window
-// closed, etc.) comes back as data.error and is shown as-is via toast
-// rather than assumed to always succeed.
-window.submitConversationReply = function (event) {
-    event.preventDefault();
-
-    const modal = document.getElementById('conversationModal');
-    const leadId = modal?.dataset.leadId;
-    const input = document.getElementById('conversationReplyInput');
-    const submitBtn = document.getElementById('conversationReplySubmit');
-    const message = input?.value.trim();
-    if (!leadId || !message) return false;
-
-    submitBtn.disabled = true;
-
-    fetch(`/calls/leads/${leadId}/conversation`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-        },
-        body: JSON.stringify({ message }),
-    })
-        .then((res) => res.json())
-        .then((data) => {
-            if (!data.success) {
-                window.showToast?.(data.error || 'Could not send this message.', 'error');
-                return;
-            }
-            input.value = '';
-            loadConversation(leadId);
-        })
-        .catch(() => {
-            window.showToast?.('Something went wrong sending this message.', 'error');
-        })
-        .finally(() => {
-            submitBtn.disabled = false;
-        });
-
-    return false;
 };
 
 window.closeConversationModal = function () {
