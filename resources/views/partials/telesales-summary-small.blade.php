@@ -40,8 +40,15 @@
          on the icon alone, not the wrapper, so clicking the date text
          itself does nothing. --}}
     <div class="relative w-full pb-2 mb-2 border-b border-black">
+        {{-- Sized/positioned to exactly match the icon below (not
+             inset-0/w-full — explicit follow-up, 2026-09-11: "why is it
+             like date picker is so much far to the calendar icon") — the
+             browser's native calendar popup always anchors itself to this
+             real input's own position, so a full-width input opened the
+             popup pinned to the field's far-left edge regardless of where
+             the icon (the actual click target) sits on the right. --}}
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
-               class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
+               class="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
         <span data-tss-date-label class="block text-center text-base font-bold font-mono text-slate-700 dark:text-slate-200"></span>
         <svg data-tss-date-trigger class="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 cursor-pointer" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
