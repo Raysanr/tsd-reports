@@ -1405,6 +1405,44 @@ class LeadController extends Controller
         return response()->json($api->getMessages($lead->pancake_page_id, $lead->pancake_conversation_id));
     }
 
+    /**
+     * Sends a real reply into the customer's Messenger conversation via
+     * Pancake (PancakeConversationApi::sendMessage() — plain "reply_inbox"
+     * action only, see that method's own doc comment for why). This is a
+     * genuine outbound message to the customer, not a local-only note —
+     * Facebook's normal 24h messaging window still applies and Pancake
+     * enforces it server-side; a rejection (window closed, etc.) comes back
+     * as $result['error'] and is surfaced to the TSA as-is rather than
+     * guessed at, same convention as every other Pancake write in this
+     * controller.
+     */
+    public function sendConversationMessage(Request $request, Lead $lead, PancakeConversationApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_page_id || !$lead->pancake_conversation_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake conversation.'], 422);
+        }
+
+        $data = $request->validate([
+            'message' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $result = $api->sendMessage($lead->pancake_page_id, $lead->pancake_conversation_id, $data['message']);
+
+        if (!$result['success']) {
+            return response()->json(['success' => false, 'error' => $result['error'] ?? 'Could not send this message.'], 422);
+        }
+
+        LeadActivity::log($lead, 'message_sent', "Sent a message to the customer by {$user->name}.", $user);
+
+        return response()->json(['success' => true]);
+    }
+
     public function updateDisposition(Request $request, Lead $lead, PancakeOrderTagApi $api)
     {
         $user = Auth::user();

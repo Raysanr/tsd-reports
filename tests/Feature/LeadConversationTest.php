@@ -81,4 +81,77 @@ class LeadConversationTest extends TestCase
         $response->assertSee("openConversationModal({$withIds->id})", false);
         $response->assertDontSee("openConversationModal({$withoutIds->id})", false);
     }
+
+    public function test_a_tsa_can_send_a_message_on_their_own_lead(): void
+    {
+        $lead = $this->leadWithConversation();
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $lead->tsa_id]);
+
+        PancakePageToken::create(['page_id' => '123', 'page_access_token' => 'cached-token']);
+        Http::fake([
+            'pages.fm/api/public_api/v1/pages/123/conversations/conv-1/messages*' => Http::response(['success' => true, 'id' => 'm1'], 200),
+        ]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.conversation.send', $lead), [
+            'message' => 'Hi, confirming your order!',
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        Http::assertSent(fn ($request) => ($request['action'] ?? null) === 'reply_inbox' && $request['message'] === 'Hi, confirming your order!');
+        $this->assertDatabaseHas('lead_activities', ['lead_id' => $lead->id, 'type' => 'message_sent']);
+    }
+
+    public function test_a_tsa_cannot_send_a_message_on_another_tsas_lead(): void
+    {
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $lead   = $this->leadWithConversation();
+        $user   = User::factory()->create(['role' => 'tsa', 'tsa_id' => $mariel->id]);
+        Http::fake();
+
+        $this->actingAs($user)->postJson(route('calls.leads.conversation.send', $lead), ['message' => 'Hi'])->assertForbidden();
+        Http::assertNothingSent();
+    }
+
+    public function test_sending_a_message_requires_a_non_empty_message(): void
+    {
+        $lead = $this->leadWithConversation();
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $lead->tsa_id]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.conversation.send', $lead), ['message' => '']);
+
+        $response->assertUnprocessable();
+    }
+
+    public function test_sending_a_message_on_a_lead_with_no_linked_conversation_fails_without_calling_pancake(): void
+    {
+        $lead = $this->leadWithConversation(['pancake_page_id' => null, 'pancake_conversation_id' => null]);
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $lead->tsa_id]);
+        Http::fake();
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.conversation.send', $lead), ['message' => 'Hi']);
+
+        $response->assertStatus(422);
+        $response->assertJson(['success' => false]);
+        Http::assertNothingSent();
+    }
+
+    public function test_sending_a_message_surfaces_pancakes_rejection_eg_outside_the_24_hour_window(): void
+    {
+        $lead = $this->leadWithConversation();
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $lead->tsa_id]);
+
+        PancakePageToken::create(['page_id' => '123', 'page_access_token' => 'cached-token']);
+        Http::fake([
+            'pages.fm/api/public_api/v1/pages/123/conversations/conv-1/messages*' => Http::response(
+                ['success' => false, 'message' => 'Outside messaging window'], 200
+            ),
+        ]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.conversation.send', $lead), ['message' => 'Hi']);
+
+        $response->assertStatus(422);
+        $response->assertJson(['success' => false, 'error' => 'Outside messaging window']);
+        $this->assertDatabaseMissing('lead_activities', ['lead_id' => $lead->id, 'type' => 'message_sent']);
+    }
 }
