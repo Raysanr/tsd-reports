@@ -19,14 +19,16 @@ use Tests\TestCase;
  * confirmation like that not 11 only", "even in the individual tsa
  * performance it should be accurate."
  *
- * This is the single end-to-end test proving all four places her number can
- * be read now agree: the Dashboard Leaderboard (already fixed earlier the
- * same day), TSA Performance's single-team flat summary AND hourly
- * breakdown (TsaPerformanceController::index()), TSA Performance's ALL view
- * (indexAll()), and her own individual drill-down page (showTsa() — this one
- * was ALREADY correct beforehand, since it never had the team-column
- * restriction the others did; included here as a regression guard, not
- * because it needed fixing).
+ * Superseded in part 2026-09-11 (explicit request: "it should be like the
+ * closing start is 3pm") — the HOURLY breakdown specifically is now bounded
+ * to each team's own real window (TeamShiftWindow, see
+ * TsaPerformanceController::index()'s own $startHour/$endHour), so Angel's
+ * 3 cross-team leads (10am/11am/12pm, before Closing's 3pm start) no longer
+ * get their own out-of-window hour-block row there — only her 11 own-window
+ * upsells do. The flat summary/ALL view/individual page/Dashboard
+ * Leaderboard are untouched by that change and still read 14 everywhere,
+ * since none of them go through the hourly-bound loop; this test now checks
+ * that split explicitly instead of asserting all five agree on the same 14.
  */
 class TsaPerformanceCrossTeamCreditMatchesEverywhereTest extends TestCase
 {
@@ -99,7 +101,10 @@ class TsaPerformanceCrossTeamCreditMatchesEverywhereTest extends TestCase
         $this->assertSame($expectedSales, (float) $shFlatRow['upsell_sales']);
 
         // TSA Performance — single-team hourly breakdown: sum her row across
-        // every hour block on the page.
+        // every hour block on the page. Deliberately LESS than $expectedCount
+        // (2026-09-11) — her 3 cross-team leads at 10/11/12 fall before
+        // Closing's own 3pm window start, so they count in the flat summary
+        // above but not here; only her 11 own-window upsells (4pm/6pm) do.
         $hourBlocks = $shResponse->viewData('hourBlocks');
         $hourlyUpsellTotal = 0;
         $hourlySalesTotal  = 0.0;
@@ -111,8 +116,10 @@ class TsaPerformanceCrossTeamCreditMatchesEverywhereTest extends TestCase
                 }
             }
         }
-        $this->assertSame($expectedCount, $hourlyUpsellTotal);
-        $this->assertSame($expectedSales, $hourlySalesTotal);
+        $expectedHourlyCount = 11;
+        $expectedHourlySales = 6 * 700.0 + 5 * 700.0; // 7700.0 — the 3 cross-team leads excluded
+        $this->assertSame($expectedHourlyCount, $hourlyUpsellTotal);
+        $this->assertSame($expectedHourlySales, $hourlySalesTotal);
 
         // TSA Performance — ALL view.
         $allResponse = $this->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));

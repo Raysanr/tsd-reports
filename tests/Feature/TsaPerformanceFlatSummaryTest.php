@@ -28,17 +28,26 @@ class TsaPerformanceFlatSummaryTest extends TestCase
     {
         $date = '2026-08-04';
 
+        // Both inside SH Naturals/Closing's own real window (15:00-23:59,
+        // TeamShiftWindow) — 2026-09-11, the hourly breakdown below is now
+        // bounded to each team's own window, so an order timestamped
+        // BEFORE it (this test originally used 10am/2pm) would count in
+        // $grandTotal (the flat summary, still team-unscoped-by-hour) but
+        // never reach $totals (the hourly loop's own accumulator),
+        // deliberately breaking the very equality this test asserts. See
+        // TsaPerformanceController::index()'s own $startHour/$endHour
+        // comment for why that divergence is now correct, not a bug.
         Order::factory()->create([
             'pancake_order_id' => 'gemma-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
             'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
             'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
-            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+            'pancake_created_at' => $date . ' 16:00:00', 'synced_at' => now(),
         ]);
         Order::factory()->create([
             'pancake_order_id' => 'mariel-1', 'team' => 'SH Naturals', 'tsa_name' => 'Mariel',
             'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'NOT ANSWERING'],
             'disposition' => 'NOT ANSWERING', 'is_upsell' => false, 'status_code' => 1,
-            'pancake_created_at' => $date . ' 14:00:00', 'synced_at' => now(),
+            'pancake_created_at' => $date . ' 18:00:00', 'synced_at' => now(),
         ]);
 
         $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals', 'date_from' => $date, 'date_to' => $date]));

@@ -9,13 +9,18 @@ use App\Models\TsaShift;
 use App\Support\HourFormatter;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
+use App\Support\TeamShiftWindow;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 class TsaPerformanceController extends Controller
 {
-    /** Full-day window: covers overnight shifts (e.g. Marisol's 10PM–5PM) that start before 8AM. */
+    /** Full-day window: covers overnight shifts (e.g. Marisol's 10PM–5PM) that start
+     *  before 8AM. Only used by showTsa()'s own hourly rows now (2026-09-11) — that
+     *  page is intentionally never team-scoped (see its own doc comment: "shows every
+     *  order tagged with this TSA's name, any team"), so it still needs the full day.
+     *  index()'s own hourly loop uses TeamShiftWindow's per-team bound instead. */
     private const START_HOUR = 0;
     private const END_HOUR   = 23;
 
@@ -263,7 +268,24 @@ class TsaPerformanceController extends Controller
         $hourBlocks = [];
         $totals     = array_fill_keys(self::COLUMNS, 0);
 
-        for ($hour = self::START_HOUR; $hour <= self::END_HOUR; $hour++) {
+        // Explicit request, 2026-09-11: "the opening... is okay but the
+        // closing is not" — Closing's hourly breakdown was showing real
+        // 6am/9am rows (genuine cross-team-credited activity via
+        // $ordersByTsaNameAcrossTeams above, not a display bug) that read
+        // as wrong for a team the app itself labels "closing." Bounded to
+        // this team's own real window (TeamShiftWindow — the SAME 0-14/
+        // 15-23 boundary Leads Report already enforces on its hourly
+        // table, see LeadsReportController's own $shiftCutoffHour/
+        // $shiftEndHour) instead of the old always-0-23 range, which only
+        // happened to look correct for Opening because its window already
+        // starts at hour 0. A TSA's genuine early cross-team activity
+        // still counts in this page's own flat day-total row above (via
+        // $ordersByTsaNameAcrossTeams, untouched) — it just no longer
+        // appears as an hour block outside this team's own working hours.
+        $startHour = TeamShiftWindow::startHourFor($teamsConfig[$selectedTeam]['order_team']);
+        $endHour   = TeamShiftWindow::endHourFor($teamsConfig[$selectedTeam]['order_team']);
+
+        for ($hour = $startHour; $hour <= $endHour; $hour++) {
             $hourOrders = $ordersByHour->get($hour, collect());
 
             // A known TSA can have real cross-team activity this hour even

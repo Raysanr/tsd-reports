@@ -13,8 +13,20 @@
     $rangeLabel  = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
 @endphp
 
-{{-- Empty state --}}
-@if(empty($hourBlocks))
+{{-- Empty state — checks the flat summary's own grand total, not
+     $hourBlocks (bug fix, 2026-09-11): once the hourly breakdown below
+     was bounded to each team's own real shift window (TeamShiftWindow,
+     see TsaPerformanceController::index()), a day where every order for
+     this team fell OUTSIDE that window (real for Closing specifically —
+     its own hourly table legitimately has zero blocks whenever nothing
+     was worked after 3pm) produced an empty $hourBlocks even though the
+     flat summary above it had real, non-zero data — gating the WHOLE
+     page (flat summary included) on $hourBlocks meant that real data
+     never rendered at all, just the "No data" placeholder. The two
+     tables are independent (see the flat summary's own doc comment
+     below); its own $grandTotal is the correct signal for whether there
+     is genuinely nothing to show. --}}
+@if(empty($grandTotal['total_called']))
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-24 flex flex-col items-center justify-center gap-4">
     <svg class="w-12 h-12 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round"

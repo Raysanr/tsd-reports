@@ -79,7 +79,13 @@ class TsaPerformanceRestockingUpsellAmountTest extends TestCase
 
     public function test_team_page_upsell_sales_uses_the_isolated_addon_amount_not_the_full_order_total(): void
     {
-        $hour = now('Asia/Manila')->setTime(19, 0)->startOfHour();
+        // 10am, not 7pm — Eyecare/Opening's own hourly breakdown is now
+        // bounded to its real window (0-14, TeamShiftWindow; see
+        // TsaPerformanceController::index()'s own $startHour/$endHour) —
+        // 2026-09-11, "the closing start is 3pm." An hour this test's own
+        // assertion doesn't otherwise care about, just needs to be one
+        // that actually produces a block to inspect.
+        $hour = now('Asia/Manila')->setTime(10, 0)->startOfHour();
 
         $this->makeRestockingUpsellOrder('Julie', 'CLEARSIGHT', $hour->copy()->addMinutes(4));
 
