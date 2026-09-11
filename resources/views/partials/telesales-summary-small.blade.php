@@ -33,15 +33,17 @@
          The native input also drew its own calendar-icon glyph, which
          opacity-0 hid along with everything else — restored here as a
          plain static SVG (same calendar-icon path this app already uses
-         elsewhere, e.g. partials/date-picker.blade.php) since the field
-         still needs that visual affordance even though the icon is no
-         longer a real, separately-clickable control (the whole field is,
-         via data-tss-date-trigger above). --}}
-    <div class="relative w-full pb-2 mb-2 border-b border-black cursor-pointer" data-tss-date-trigger>
+         elsewhere, e.g. partials/date-picker.blade.php). Only the icon
+         itself is the click target now (explicit follow-up, 2026-09-11:
+         "i want only to make it will have pop up the calendar when users
+         click this icon not the whole date") — data-tss-date-trigger sits
+         on the icon alone, not the wrapper, so clicking the date text
+         itself does nothing. --}}
+    <div class="relative w-full pb-2 mb-2 border-b border-black">
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
                class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
         <span data-tss-date-label class="block text-center text-base font-bold font-mono text-slate-700 dark:text-slate-200"></span>
-        <svg class="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg data-tss-date-trigger class="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 cursor-pointer" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
     </div>

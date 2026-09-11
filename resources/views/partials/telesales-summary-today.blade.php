@@ -7,15 +7,14 @@
 <div class="tss-today rounded-xl border-2 border-black overflow-hidden flex flex-col" data-tss-today data-date="{{ $date }}">
     {{-- Same calendar-picker-only trick as the small columns' own partial
          (see that file's own comment for the full "why" — 2026-09-11
-         follow-up fixing a native segment/label visual clash — and for why
-         the calendar-icon glyph below is a plain static SVG rather than
-         the native input's own, which opacity-0 hides along with
-         everything else). --}}
-    <div class="relative bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center gap-1.5 border-b border-black shrink-0 cursor-pointer" data-tss-date-trigger>
+         follow-up fixing a native segment/label visual clash, plus a
+         second follow-up the same day narrowing the click target to just
+         the icon: "click this icon not the whole date"). --}}
+    <div class="relative bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 flex items-center justify-center gap-1.5 border-b border-black shrink-0">
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
                class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
         <span data-tss-date-label class="text-sm font-bold font-mono text-slate-700 dark:text-slate-200"></span>
-        <svg class="w-3.5 h-3.5 text-slate-400 pointer-events-none shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <svg data-tss-date-trigger class="w-3.5 h-3.5 text-slate-400 cursor-pointer shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
         </svg>
     </div>

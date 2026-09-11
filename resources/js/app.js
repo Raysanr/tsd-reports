@@ -2002,7 +2002,11 @@ document.addEventListener('change', (e) => {
 document.addEventListener('click', (e) => {
     const trigger = e.target.closest('[data-tss-date-trigger]');
     if (!trigger) return;
-    trigger.querySelector('[data-tss-date-input]')?.showPicker?.();
+    // The trigger is the calendar-icon SVG itself now (explicit follow-up,
+    // 2026-09-11: "i want only... click this icon not the whole date") —
+    // the input is a SIBLING, not a descendant, so this looks at the
+    // shared wrapper instead of the trigger element itself.
+    trigger.closest('[data-tss-small], [data-tss-today]')?.querySelector('[data-tss-date-input]')?.showPicker?.();
 });
 
 // Defense in depth: the input is pointer-events-none so a mouse/touch
