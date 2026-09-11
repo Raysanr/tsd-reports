@@ -163,6 +163,29 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
     }
 
+    /**
+     * Explicit request, 2026-09-11: "make it like even restday is 440" —
+     * reported live as one TSA (viewing today, which happened to be her
+     * configured rest day) showing 00:00 while everyone else showed
+     * 440:00, read as wrong rather than a deliberate "day off" state.
+     * Every day in the selected range now counts toward the 440 baseline
+     * regardless of TsaShift::isOffOn() — a rest day no longer zeroes out
+     * the whole range the way it used to when the range landed entirely
+     * on one.
+     */
+    public function test_unproductive_time_still_counts_440_on_a_tsas_own_rest_day(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['rest_day_of_week' => strtolower(today()->format('l'))]);
+        $this->assertTrue($gemma->isOffOn(today()), 'Test setup: today must actually be Gemma\'s rest day.');
+
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
+    }
+
     /** Explicit follow-up request (2026-08-25): "make this per hour" — the
      *  AHT & Unproductive Time trend chart switched from a trailing-7-day
      *  view to today's real hour-by-hour breakdown, same CallRecordingHour
