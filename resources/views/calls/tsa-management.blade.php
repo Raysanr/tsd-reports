@@ -125,6 +125,62 @@
     </div>
 </div>
 
+{{-- Pair-confirm modal — replaces a plain browser confirm() (explicit
+     follow-up request, 2026-09-11: "create a modal for this") for the
+     drag-to-pair action below. Copy is filled in by JS right before
+     showing it (see the drag handler), same "one shared shell, text
+     swapped per use" idea as this page's own Add TSA modal reusing one
+     DOM node rather than building one modal per possible message. --}}
+<div id="pairConfirmModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex items-start gap-3">
+            <span class="shrink-0 w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </span>
+            <div>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Pair these TSAs?</h3>
+                <p id="pairConfirmBody" class="text-xs text-slate-500 dark:text-slate-400 mt-1"></p>
+            </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-6 py-4">
+            <button type="button" id="pairConfirmCancel"
+                    class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                Cancel
+            </button>
+            <button type="button" id="pairConfirmOk"
+                    class="px-4 py-2 text-xs font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg transition-colors cursor-pointer">
+                Pair them
+            </button>
+        </div>
+    </div>
+</div>
+
+{{-- Unpair-confirm modal — same shared-shell idea as pairConfirmModal
+     above, for the "x" button on a pair's badge. --}}
+<div id="unpairConfirmModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-100 dark:border-slate-700 flex items-start gap-3">
+            <span class="shrink-0 w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center">
+                <svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 13H7m0-8v13a2 2 0 002 2h6a2 2 0 002-2V5H7z"/></svg>
+            </span>
+            <div>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Unpair this TSA?</h3>
+                <p id="unpairConfirmBody" class="text-xs text-slate-500 dark:text-slate-400 mt-1"></p>
+            </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 px-6 py-4">
+            <button type="button" id="unpairConfirmCancel"
+                    class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-300 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                Cancel
+            </button>
+            <button type="button" id="unpairConfirmOk"
+                    class="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors cursor-pointer">
+                Unpair
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function () {
     // Team filter — identical animated-pill + AJAX-swap pattern as Leads
@@ -338,6 +394,41 @@ document.addEventListener('click', (e) => {
     if (chevron) chevron.classList.toggle('rotate-180', !isOpen);
 });
 
+// Shared confirm-modal helper (explicit follow-up request, 2026-09-11:
+// "create a modal for this" — replaces the native browser confirm() the
+// drag-to-pair/unpair actions below used at first). Returns a Promise
+// resolving true/false, so call sites read exactly like the confirm()
+// they replaced: `if (!(await confirmModal(...))) return;`.
+function confirmModal(modalId, bodyId, okId, cancelId, message) {
+    const modal  = document.getElementById(modalId);
+    const body   = document.getElementById(bodyId);
+    const okBtn  = document.getElementById(okId);
+    const cancelBtn = document.getElementById(cancelId);
+    if (!modal || !body || !okBtn || !cancelBtn) return Promise.resolve(false);
+
+    body.textContent = message;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    return new Promise((resolve) => {
+        function cleanup(result) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+            resolve(result);
+        }
+        function onOk() { cleanup(true); }
+        function onCancel() { cleanup(false); }
+        function onBackdrop(e) { if (e.target === modal) cleanup(false); }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+    });
+}
+
 // Drag-to-pair (explicit request, 2026-09-11: "2 tsa, one cellphone...
 // no shift schedules, whoever is online and clicks dial") — dragging TSA
 // row A onto TSA row B pairs them so they share B's phone/token, with
@@ -396,7 +487,7 @@ document.addEventListener('click', (e) => {
         }
     });
 
-    container.addEventListener('drop', (e) => {
+    container.addEventListener('drop', async (e) => {
         const targetRow = e.target.closest('.tsa-row');
         if (!targetRow || !draggedId || targetRow.dataset.tsaRow === draggedId) return;
         e.preventDefault();
@@ -411,9 +502,11 @@ document.addEventListener('click', (e) => {
 
         const targetName   = targetRow.dataset.tsaName;
         const draggedName  = draggedRow ? draggedRow.dataset.tsaName : 'This TSA';
-        if (!confirm(`Pair ${draggedName} with ${targetName}? ${draggedName} will share ${targetName}'s phone/token — ${draggedName}'s own token will be cleared. You can unpair anytime.`)) {
-            return;
-        }
+        const confirmed = await confirmModal(
+            'pairConfirmModal', 'pairConfirmBody', 'pairConfirmOk', 'pairConfirmCancel',
+            `Pair ${draggedName} with ${targetName}? ${draggedName} will share ${targetName}'s phone/token — ${draggedName}'s own token will be cleared. You can unpair anytime.`
+        );
+        if (!confirmed) return;
 
         fetch(`/calls/tsa-management/${targetId}/pair`, {
             method: 'POST',
@@ -440,13 +533,17 @@ document.addEventListener('click', (e) => {
 // Unpair — single click, no schedule/token juggling for the admin to
 // think about (TsaShift::unpair() issues the now-solo partner a fresh
 // token automatically).
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-tsa-unpair]');
     if (!btn) return;
 
     const id   = btn.dataset.tsaUnpair;
     const name = btn.dataset.tsaUnpairName;
-    if (!confirm(`Unpair ${name}? Both TSAs will get their own token back.`)) return;
+    const confirmed = await confirmModal(
+        'unpairConfirmModal', 'unpairConfirmBody', 'unpairConfirmOk', 'unpairConfirmCancel',
+        `Unpair ${name}? Both TSAs will get their own token back.`
+    );
+    if (!confirmed) return;
 
     fetch(`/calls/tsa-management/${id}/unpair`, {
         method: 'POST',
