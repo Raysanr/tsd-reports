@@ -492,8 +492,17 @@ function confirmModal(modalId, bodyId, okId, cancelId, message) {
         if (!targetRow || !draggedId || targetRow.dataset.tsaRow === draggedId) return;
         e.preventDefault();
 
+        // Captured into a local BEFORE the confirm-modal await below —
+        // dragend fires synchronously right after drop regardless of any
+        // async work still running inside this handler, which resets the
+        // shared draggedId to null while the modal is still open. Reading
+        // draggedId itself (not this local) after the await was exactly
+        // that bug: the fetch below sent partner_id: null, which the
+        // backend correctly rejected as "The partner id field is
+        // required."
+        const partnerId = draggedId;
         const targetId = targetRow.dataset.tsaRow;
-        const draggedRow = container.querySelector(`.tsa-row[data-tsa-row="${draggedId}"]`);
+        const draggedRow = container.querySelector(`.tsa-row[data-tsa-row="${partnerId}"]`);
 
         if (targetRow.dataset.tsaPaired === '1' || (draggedRow && draggedRow.dataset.tsaPaired === '1')) {
             window.showToast?.('One of these is already paired — unpair first.', 'error');
@@ -515,7 +524,7 @@ function confirmModal(modalId, bodyId, okId, cancelId, message) {
                 Accept: 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
             },
-            body: JSON.stringify({ partner_id: draggedId }),
+            body: JSON.stringify({ partner_id: partnerId }),
         })
             .then(res => res.json().then(data => ({ ok: res.ok, data })))
             .then(({ ok, data }) => {
