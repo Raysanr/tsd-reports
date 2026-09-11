@@ -113,6 +113,34 @@ class CallTrackerTsaManagementTest extends TestCase
         $this->assertGreaterThan($marielPos, $kathleenPos);
     }
 
+    /**
+     * Real bug caught 2026-09-11 verifying the cross-team pair picker:
+     * sortWithPairsAdjacent() used to unconditionally strip out every
+     * partner row and only re-insert it next to its primary — when that
+     * primary belongs to a DIFFERENT team than the one currently being
+     * viewed (so it's not even in $tsas), the partner was silently
+     * dropped from the page entirely, even though her own `team` column
+     * is completely untouched by pairing (only her token/dialer_host
+     * move). She's still a real member of this team's roster and must
+     * still show up here — just not bracketed to anyone, since her
+     * primary isn't on this page at all.
+     */
+    public function test_a_partner_paired_to_a_different_teams_primary_still_appears_on_her_own_teams_table(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+        $julie->pairWith($gemma); // Julie (Eyecare) becomes primary; Gemma (SH Naturals) is her partner
+
+        $response = $this->get(route('calls.tsa-management', ['team' => 'SH Naturals']));
+
+        $response->assertOk();
+        $response->assertSee('Gemma De Guzman');
+        // Her own team is untouched — pairing never moves a TSA's roster.
+        $this->assertSame('SH Naturals', $gemma->fresh()->team);
+    }
+
     public function test_checking_a_new_product_appends_the_tsa_to_the_end_of_its_rotation(): void
     {
         $this->actingAs($this->admin());
@@ -356,6 +384,71 @@ class CallTrackerTsaManagementTest extends TestCase
             ->assertForbidden();
         $this->actingAs($user)->post(route('calls.tsa-management.unpair', $gemma))
             ->assertForbidden();
+    }
+
+    /**
+     * Explicit follow-up request, 2026-09-11: "the tsa is will be like not
+     * move to the other team it will only like pair to the other team" —
+     * dragging a row from one team's table onto the OTHER team's filter
+     * pill opens a picker of that team's own TSAs (pairCandidates()),
+     * rather than moving anyone. Cross-team pairing itself already worked
+     * via pair() with no team restriction — this is just the picker's own
+     * data source.
+     */
+    public function test_pair_candidates_lists_the_other_teams_unpaired_tsas(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+        $joana = TsaShift::where('tsa_key', 'Joana')->first(); // Eyecare Team, will be excluded (already paired)
+        $joana->pairWith(TsaShift::where('tsa_key', 'Marisol')->first());
+
+        $response = $this->getJson(route('calls.tsa-management.pair-candidates', $gemma) . '?team=' . urlencode('Eyecare Team'));
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $candidates = collect($response->json('candidates'))->pluck('tsa_key');
+        $this->assertTrue($candidates->contains('Julie'));
+        $this->assertFalse($candidates->contains('Joana'), 'Already-paired Joana should be excluded.');
+        $this->assertFalse($candidates->contains('Gemma'), "Gemma's own team shouldn't be returned for an Eyecare Team query.");
+    }
+
+    public function test_pair_candidates_rejects_an_invalid_team(): void
+    {
+        $this->actingAs($this->admin());
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        $this->getJson(route('calls.tsa-management.pair-candidates', $gemma) . '?team=Not+A+Real+Team')
+            ->assertUnprocessable();
+    }
+
+    public function test_a_tsa_cannot_view_pair_candidates(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)
+            ->getJson(route('calls.tsa-management.pair-candidates', $gemma) . '?team=' . urlencode('Eyecare Team'))
+            ->assertForbidden();
+    }
+
+    /** A cross-team pair is a real, already-supported case — pair()
+     *  never restricted itself to same-team pairs; this just proves it
+     *  stays that way now that the picker gives it a real UI path. */
+    public function test_a_cross_team_pair_works_end_to_end(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+
+        $response = $this->postJson(route('calls.tsa-management.pair', $julie), ['partner_id' => $gemma->id]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertSame($julie->id, $gemma->fresh()->paired_with_tsa_id);
+        $this->assertTrue($julie->fresh()->isPairPrimary());
     }
 
     /**

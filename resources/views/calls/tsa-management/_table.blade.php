@@ -76,6 +76,7 @@
                     data-tsa-row-toggle="{{ $tsa->id }}"
                     data-tsa-row="{{ $tsa->id }}"
                     data-tsa-name="{{ $tsa->display_name }}"
+                    data-tsa-team="{{ $tsa->team }}"
                     data-tsa-paired="{{ $tsa->isPaired() ? '1' : '0' }}"
                     draggable="true">
                     <td class="px-5 py-4">

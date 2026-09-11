@@ -218,6 +218,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
             Route::post('/tsa-management/{tsaShift}/link-user', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'linkUser'])->name('tsa-management.link-user');
             Route::post('/tsa-management/{tsaShift}/unlink-user', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'unlinkUser'])->name('tsa-management.unlink-user');
+            Route::get('/tsa-management/{tsaShift}/pair-candidates', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'pairCandidates'])->name('tsa-management.pair-candidates');
             Route::post('/tsa-management/{tsaShift}/pair', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'pair'])->name('tsa-management.pair');
             Route::post('/tsa-management/{tsaShift}/unpair', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'unpair'])->name('tsa-management.unpair');
 

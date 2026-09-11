@@ -236,6 +236,36 @@ class TsaManagementController extends Controller
     }
 
     /**
+     * AJAX — candidates for pairing $tsaShift with someone on a DIFFERENT
+     * team (explicit request, 2026-09-11: "the tsa is will be like not
+     * move to the other team it will only like pair to the other team" —
+     * dragging a row from one team's table onto the other team's filter
+     * pill opens a picker of that team's TSAs, rather than moving anyone).
+     * Excludes $tsaShift itself (can't pair with itself, though it'd
+     * already be filtered out by team) and anyone already paired on
+     * either side — the same "unpair first" rule pair() itself enforces,
+     * surfaced here as an exclusion instead of a 409 so the picker only
+     * ever lists someone the drop can actually succeed against.
+     */
+    public function pairCandidates(Request $request, TsaShift $tsaShift): JsonResponse
+    {
+        $teams = collect(config('teams'))->pluck('order_team')->all();
+
+        $data = $request->validate([
+            'team' => ['required', 'string', 'in:' . implode(',', $teams)],
+        ]);
+
+        $candidates = TsaShift::where('team', $data['team'])
+            ->where('id', '!=', $tsaShift->id)
+            ->get()
+            ->reject(fn (TsaShift $t) => $t->isPaired())
+            ->map(fn (TsaShift $t) => ['id' => $t->id, 'display_name' => $t->display_name, 'tsa_key' => $t->tsa_key])
+            ->values();
+
+        return response()->json(['success' => true, 'candidates' => $candidates]);
+    }
+
+    /**
      * Pairs $tsaShift (the one dragged ONTO, i.e. "the one keeping the
      * phone") with $request->partner_id — explicit request, 2026-09-11:
      * "2 tsa, one cellphone... no shift schedules, whoever is online and
@@ -429,12 +459,26 @@ class TsaManagementController extends Controller
      */
     private function sortWithPairsAdjacent($tsas)
     {
-        $partnersByPrimary = $tsas->filter(fn (TsaShift $t) => $t->paired_with_tsa_id !== null)
+        $idsInSet = $tsas->pluck('id');
+
+        // Bug fix, 2026-09-11 (surfaced by cross-team pairing): a partner
+        // is only pulled out and re-inserted after its primary when that
+        // primary is ALSO in $tsas — e.g. viewing SH Naturals alone after
+        // pairing an SH Naturals TSA onto an Eyecare Team primary. The
+        // Eyecare primary never appears in an SH-Naturals-filtered list,
+        // so the old unconditional reject()+flatMap-over-primaries silently
+        // dropped that partner from the page entirely (she's still a real
+        // SH Naturals row, team column untouched by pairing — only her
+        // token/host move). A cross-team partner instead stays exactly
+        // where her own sort_order already puts her.
+        $partnersByPrimary = $tsas
+            ->filter(fn (TsaShift $t) => $t->paired_with_tsa_id !== null && $idsInSet->contains($t->paired_with_tsa_id))
             ->groupBy('paired_with_tsa_id');
+        $adjacentPartnerIds = $partnersByPrimary->flatten()->pluck('id');
 
         return $tsas
-            ->reject(fn (TsaShift $t) => $t->paired_with_tsa_id !== null)
-            ->flatMap(fn (TsaShift $primary) => collect([$primary])->merge($partnersByPrimary->get($primary->id, collect())))
+            ->reject(fn (TsaShift $t) => $adjacentPartnerIds->contains($t->id))
+            ->flatMap(fn (TsaShift $t) => collect([$t])->merge($partnersByPrimary->get($t->id, collect())))
             ->values();
     }
 

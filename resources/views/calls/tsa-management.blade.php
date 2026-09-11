@@ -181,6 +181,25 @@
     </div>
 </div>
 
+{{-- Cross-team pair picker — explicit request, 2026-09-11: "the tsa is
+     will be like not move to the other team it will only like pair to
+     the other team." Dragging a row from the currently-viewed team's
+     table onto a DIFFERENT team's filter pill opens this small popover
+     (not a full modal — it's a quick pick, not a decision needing the
+     weight of a modal) listing that team's own unpaired TSAs
+     (TsaManagementController::pairCandidates()); picking one calls the
+     same pair() endpoint the same-team drag-onto-row flow already uses.
+     Positioned dynamically under whichever pill was dropped onto — see
+     the drag handler below. --}}
+<div id="crossTeamPairPicker" class="hidden fixed z-50 w-64 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl overflow-hidden">
+    <div class="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
+        <p id="crossTeamPairPickerTitle" class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300"></p>
+    </div>
+    <div id="crossTeamPairPickerList" class="max-h-56 overflow-y-auto py-1">
+        {{-- Populated by the drag handler below --}}
+    </div>
+</div>
+
 <script>
 (function () {
     // Team filter — identical animated-pill + AJAX-swap pattern as Leads
@@ -429,6 +448,102 @@ function confirmModal(modalId, bodyId, okId, cancelId, message) {
     });
 }
 
+// Cross-team pair picker (explicit follow-up, 2026-09-11: "the tsa is
+// will be like not move to the other team it will only like pair to the
+// other team") — opened by dropping a row on a different team's filter
+// pill (see the drag handler below). Fetches that team's unpaired TSAs
+// (TsaManagementController::pairCandidates()) and shows them in
+// #crossTeamPairPicker, positioned under the dropped-on pill. Picking one
+// calls the same POST /pair endpoint the same-team drag-onto-row flow
+// already uses — this is purely a different way of choosing the partner,
+// not a different pairing mechanism.
+function openCrossTeamPairPicker(pillEl, draggedTsaId, draggedTsaName, targetTeam, targetTeamLabel) {
+    const picker    = document.getElementById('crossTeamPairPicker');
+    const title     = document.getElementById('crossTeamPairPickerTitle');
+    const list      = document.getElementById('crossTeamPairPickerList');
+    if (!picker || !title || !list) return;
+
+    const rect = pillEl.getBoundingClientRect();
+    picker.style.top  = `${rect.bottom + 6}px`;
+    picker.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 264))}px`;
+
+    title.textContent = `Pair ${draggedTsaName} with…`;
+    list.innerHTML = '<p class="text-xs font-mono text-slate-400 text-center py-4">Loading…</p>';
+    picker.classList.remove('hidden');
+    picker.classList.add('flex', 'flex-col');
+
+    function closePicker() {
+        picker.classList.add('hidden');
+        picker.classList.remove('flex', 'flex-col');
+        document.removeEventListener('click', onOutsideClick, true);
+    }
+    function onOutsideClick(e) {
+        if (!picker.contains(e.target)) closePicker();
+    }
+    // Capture phase + next tick: the drop event that opened this picker
+    // would otherwise immediately bubble into this same listener and
+    // close it before the user ever sees it.
+    setTimeout(() => document.addEventListener('click', onOutsideClick, true), 0);
+
+    fetch(`/calls/tsa-management/${draggedTsaId}/pair-candidates?team=${encodeURIComponent(targetTeam)}`, {
+        headers: { Accept: 'application/json' },
+    })
+        .then(res => res.json())
+        .then((data) => {
+            if (!data.success) {
+                list.innerHTML = `<p class="text-xs font-mono text-red-500 text-center py-4">${data.message || data.error || 'Could not load candidates.'}</p>`;
+                return;
+            }
+            if (!data.candidates.length) {
+                list.innerHTML = `<p class="text-xs font-mono text-slate-400 text-center py-4">No available TSAs on ${targetTeamLabel} — everyone there is already paired.</p>`;
+                return;
+            }
+            list.innerHTML = data.candidates.map(c => `
+                <button type="button" data-candidate-id="${c.id}" data-candidate-name="${c.display_name.replace(/"/g, '&quot;')}"
+                        class="cross-team-pair-candidate w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 hover:text-primary-dark cursor-pointer">
+                    ${c.display_name}
+                </button>
+            `).join('');
+
+            list.querySelectorAll('.cross-team-pair-candidate').forEach((btn) => {
+                btn.addEventListener('click', async () => {
+                    const partnerId   = btn.dataset.candidateId;
+                    const partnerName = btn.dataset.candidateName;
+                    closePicker();
+
+                    const confirmed = await confirmModal(
+                        'pairConfirmModal', 'pairConfirmBody', 'pairConfirmOk', 'pairConfirmCancel',
+                        `Pair ${draggedTsaName} with ${partnerName}? ${draggedTsaName} will share ${partnerName}'s phone/token — ${draggedTsaName}'s own token will be cleared. You can unpair anytime.`
+                    );
+                    if (!confirmed) return;
+
+                    fetch(`/calls/tsa-management/${partnerId}/pair`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Accept: 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                        },
+                        body: JSON.stringify({ partner_id: draggedTsaId }),
+                    })
+                        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+                        .then(({ ok, data }) => {
+                            if (!ok || !data.success) {
+                                window.showToast?.(data.message || data.error || 'Could not pair these TSAs.', 'error');
+                                return;
+                            }
+                            window.showToast?.(data.message || 'Paired.', 'success');
+                            window.location.reload();
+                        })
+                        .catch(() => window.showToast?.('Something went wrong pairing these TSAs.', 'error'));
+                });
+            });
+        })
+        .catch(() => {
+            list.innerHTML = '<p class="text-xs font-mono text-red-500 text-center py-4">Something went wrong loading candidates.</p>';
+        });
+}
+
 // Drag-to-pair (explicit request, 2026-09-11: "2 tsa, one cellphone...
 // no shift schedules, whoever is online and clicks dial") — dragging TSA
 // row A onto TSA row B pairs them so they share B's phone/token, with
@@ -444,14 +559,17 @@ function confirmModal(modalId, bodyId, okId, cancelId, message) {
 // handler above already uses.
 (function () {
     const container = document.getElementById('tsaMgmtTableContainer');
+    const filterBar  = document.getElementById('tsaMgmtFilter');
     if (!container) return;
 
-    let draggedId = null;
+    let draggedId   = null;
+    let draggedTeam = null;
 
     container.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.tsa-row');
         if (!row) return;
-        draggedId = row.dataset.tsaRow;
+        draggedId   = row.dataset.tsaRow;
+        draggedTeam = row.dataset.tsaTeam;
         e.dataTransfer.effectAllowed = 'move';
         // Firefox requires setData to be called for a drag to actually
         // start at all — the id itself isn't read back from this on drop
@@ -464,8 +582,55 @@ function confirmModal(modalId, bodyId, okId, cancelId, message) {
         const row = e.target.closest('.tsa-row');
         if (row) row.classList.remove('opacity-50');
         container.querySelectorAll('.tsa-row-drop-target').forEach(el => el.classList.remove('tsa-row-drop-target', 'bg-yellow-50', 'dark:bg-yellow-950/30'));
-        draggedId = null;
+        filterBar?.querySelectorAll('.tsaMgmt-pill').forEach(p => p.classList.remove('ring-2', 'ring-primary'));
+        draggedId   = null;
+        draggedTeam = null;
     });
+
+    // Cross-team pairing (explicit request, 2026-09-11: "the tsa is will
+    // be like not move to the other team it will only like pair to the
+    // other team") — dropping a row on a DIFFERENT team's filter pill
+    // opens crossTeamPairPicker (see its own doc comment above) instead of
+    // moving anyone. The CURRENTLY selected team's own pill is not a drop
+    // target — same-team pairing already works by dragging onto a row
+    // directly in the table below.
+    if (filterBar) {
+        filterBar.addEventListener('dragover', (e) => {
+            const pill = e.target.closest('.tsaMgmt-pill');
+            if (!pill || !draggedId || !pill.dataset.team || pill.dataset.team === draggedTeam) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        filterBar.addEventListener('dragenter', (e) => {
+            const pill = e.target.closest('.tsaMgmt-pill');
+            if (!pill || !draggedId || !pill.dataset.team || pill.dataset.team === draggedTeam) return;
+            pill.classList.add('ring-2', 'ring-primary');
+        });
+
+        filterBar.addEventListener('dragleave', (e) => {
+            const pill = e.target.closest('.tsaMgmt-pill');
+            if (pill && !pill.contains(e.relatedTarget)) {
+                pill.classList.remove('ring-2', 'ring-primary');
+            }
+        });
+
+        filterBar.addEventListener('drop', (e) => {
+            const pill = e.target.closest('.tsaMgmt-pill');
+            if (!pill || !draggedId || !pill.dataset.team || pill.dataset.team === draggedTeam) return;
+            e.preventDefault();
+            pill.classList.remove('ring-2', 'ring-primary');
+
+            const tsaId      = draggedId;
+            const draggedRow = container.querySelector(`.tsa-row[data-tsa-row="${tsaId}"]`);
+            if (draggedRow && draggedRow.dataset.tsaPaired === '1') {
+                window.showToast?.('This TSA is already paired — unpair first.', 'error');
+                return;
+            }
+
+            openCrossTeamPairPicker(pill, tsaId, draggedRow ? draggedRow.dataset.tsaName : 'This TSA', pill.dataset.team, pill.textContent.trim());
+        });
+    }
 
     container.addEventListener('dragover', (e) => {
         const row = e.target.closest('.tsa-row');
