@@ -115,6 +115,31 @@ class PancakeConversationApi
             return ['success' => false, 'messages' => [], 'error' => 'No Pancake access token configured — add one in Settings.'];
         }
 
+        $result = $this->fetchMessages($pageId, $conversationId, $token);
+
+        // Pancake replies HTTP 200 with {"success":false,"error_code":105,
+        // "message":"access_token renewed please use new access_token"} for
+        // a cached page_access_token it has since rotated server-side —
+        // response()->successful() alone can't see this, so without this
+        // check a stale-token conversation silently rendered as "no
+        // messages yet" instead of the real cause. One retry with a freshly
+        // generated token covers the common case (token rotated since we
+        // cached it); a second failure is treated as a real error.
+        if ($result['staleToken']) {
+            $fresh = $this->refreshPageAccessToken($pageId);
+            if ($fresh) {
+                $result = $this->fetchMessages($pageId, $conversationId, $fresh);
+            }
+        }
+
+        return ['success' => $result['success'], 'messages' => $result['messages'], 'error' => $result['error']];
+    }
+
+    /**
+     * @return array{success: bool, messages: array, error: ?string, staleToken: bool}
+     */
+    private function fetchMessages(string $pageId, string $conversationId, string $token): array
+    {
         try {
             $response = Http::timeout(15)->get(self::PAGE_API_BASE . "/pages/{$pageId}/conversations/{$conversationId}/messages", [
                 'page_access_token' => $token,
@@ -122,15 +147,21 @@ class PancakeConversationApi
 
             if (!$response->successful()) {
                 Log::warning('PancakeConversationApi: getMessages failed', ['page_id' => $pageId, 'conversation_id' => $conversationId, 'status' => $response->status()]);
-                return ['success' => false, 'messages' => [], 'error' => "Pancake returned HTTP {$response->status()}."];
+                return ['success' => false, 'messages' => [], 'error' => "Pancake returned HTTP {$response->status()}.", 'staleToken' => false];
             }
 
             $body = $response->json();
 
-            return ['success' => true, 'messages' => $body['messages'] ?? [], 'error' => null];
+            if (($body['success'] ?? true) === false) {
+                $staleToken = ($body['error_code'] ?? null) === 105;
+                Log::warning('PancakeConversationApi: getMessages returned success=false', ['page_id' => $pageId, 'conversation_id' => $conversationId, 'body' => $body]);
+                return ['success' => false, 'messages' => [], 'error' => $body['message'] ?? 'Pancake rejected this request.', 'staleToken' => $staleToken];
+            }
+
+            return ['success' => true, 'messages' => $body['messages'] ?? [], 'error' => null, 'staleToken' => false];
         } catch (\Throwable $e) {
             Log::warning('PancakeConversationApi: getMessages threw', ['page_id' => $pageId, 'message' => $e->getMessage()]);
-            return ['success' => false, 'messages' => [], 'error' => $e->getMessage()];
+            return ['success' => false, 'messages' => [], 'error' => $e->getMessage(), 'staleToken' => false];
         }
     }
 }

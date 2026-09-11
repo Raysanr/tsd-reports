@@ -108,4 +108,45 @@ class PancakeConversationApiTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertStringContainsString('404', $result['error']);
     }
+
+    /**
+     * Real-world case that used to render as an empty "No messages yet"
+     * conversation: Pancake replies HTTP 200 with a JSON success:false body
+     * (error_code 105, "access_token renewed please use new access_token")
+     * for a cached page_access_token it has since rotated. This must be
+     * retried with a freshly generated token, not treated as zero messages.
+     */
+    public function test_get_messages_retries_with_a_fresh_token_on_a_stale_token_response(): void
+    {
+        PancakePageToken::create(['page_id' => '123', 'page_access_token' => 'stale-token']);
+        Http::fake([
+            'pages.fm/api/public_api/v1/pages/123/conversations/conv-1/messages*' => Http::sequence()
+                ->push(['success' => false, 'error_code' => 105, 'message' => 'access_token renewed please use new access_token'], 200)
+                ->push(['success' => true, 'messages' => [['id' => 'm1', 'message' => 'Hello!']]], 200),
+            'pages.fm/api/v1/pages/*/generate_page_access_token*' => Http::response(['page_access_token' => 'fresh-token'], 200),
+        ]);
+
+        $result = $this->api->getMessages('123', 'conv-1');
+
+        $this->assertTrue($result['success']);
+        $this->assertCount(1, $result['messages']);
+        $this->assertDatabaseHas('pancake_page_tokens', ['page_id' => '123', 'page_access_token' => 'fresh-token']);
+    }
+
+    public function test_get_messages_surfaces_pancakes_own_message_when_retry_also_fails(): void
+    {
+        PancakePageToken::create(['page_id' => '123', 'page_access_token' => 'stale-token']);
+        Http::fake([
+            'pages.fm/api/public_api/v1/pages/123/conversations/conv-1/messages*' => Http::response(
+                ['success' => false, 'error_code' => 105, 'message' => 'access_token renewed please use new access_token'],
+                200
+            ),
+            'pages.fm/api/v1/pages/*/generate_page_access_token*' => Http::response(['page_access_token' => 'fresh-token'], 200),
+        ]);
+
+        $result = $this->api->getMessages('123', 'conv-1');
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('access_token renewed please use new access_token', $result['error']);
+    }
 }
