@@ -28,11 +28,22 @@
          below (data-tss-date-trigger) can ever open it, via showPicker() —
          a real user click can no longer land on a native segment. Keydown
          is blocked in app.js so even a focus arrived at programmatically
-         can't be typed into. --}}
+         can't be typed into.
+
+         The native input also drew its own calendar-icon glyph, which
+         opacity-0 hid along with everything else — restored here as a
+         plain static SVG (same calendar-icon path this app already uses
+         elsewhere, e.g. partials/date-picker.blade.php) since the field
+         still needs that visual affordance even though the icon is no
+         longer a real, separately-clickable control (the whole field is,
+         via data-tss-date-trigger above). --}}
     <div class="relative w-full pb-2 mb-2 border-b border-black cursor-pointer" data-tss-date-trigger>
         <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}"
                class="absolute inset-0 w-full h-full opacity-0 pointer-events-none border-0 p-0" tabindex="-1" aria-hidden="true">
         <span data-tss-date-label class="block text-center text-base font-bold font-mono text-slate-700 dark:text-slate-200"></span>
+        <svg class="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
     </div>
 
     <div class="flex items-center justify-between gap-2 mb-2">
