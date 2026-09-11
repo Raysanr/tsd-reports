@@ -58,14 +58,54 @@
                     // shuffled list, even though it's no longer a hard gate.
                     $teamProducts = $products->sortBy(fn ($p) => [$p->team, $p->sort_order]);
                 @endphp
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors duration-150 cursor-pointer" data-tsa-row-toggle="{{ $tsa->id }}">
+                <tr class="tsa-row hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors duration-150 cursor-pointer {{ $tsa->isPaired() ? 'tsa-row-paired' : '' }}"
+                    data-tsa-row-toggle="{{ $tsa->id }}"
+                    data-tsa-row="{{ $tsa->id }}"
+                    data-tsa-name="{{ $tsa->display_name }}"
+                    data-tsa-paired="{{ $tsa->isPaired() ? '1' : '0' }}"
+                    draggable="true">
                     <td class="px-5 py-4">
                         <div class="flex items-center gap-3">
+                            {{-- Drag handle — explicit request, 2026-09-11: drag one TSA onto
+                                 another to pair them as phone partners (see
+                                 TsaManagementController::pair()). Grabbing the handle (not the
+                                 whole row) keeps the existing click-to-expand row behavior
+                                 (data-tsa-row-toggle above) unambiguous — a drag never fires
+                                 that click handler since dragstart originates here instead. --}}
+                            <span class="tsa-drag-handle shrink-0 cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 hover:text-slate-400"
+                                  title="Drag onto another TSA to pair phones">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>
+                            </span>
                             <div class="w-9 h-9 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[11px] font-bold font-mono shrink-0">
                                 {{ strtoupper(substr($tsa->display_name, 0, 2)) }}
                             </div>
                             <div class="min-w-0">
-                                <div class="font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $tsa->display_name }}</div>
+                                <div class="font-semibold text-slate-800 dark:text-slate-100 truncate flex items-center gap-1.5">
+                                    {{ $tsa->display_name }}
+                                    {{-- Pair badge — shown on BOTH sides, worded from that row's own
+                                         point of view. Unpair is a single click, no confirm modal:
+                                         cheap to reverse, and the amber styling already signals
+                                         "this isn't the normal solo state" clearly enough. --}}
+                                    @if($tsa->paired_with_tsa_id)
+                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-full pl-2 pr-1 py-0.5 whitespace-nowrap">
+                                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                        Shares {{ $tsa->pairedWith->display_name }}'s phone
+                                        <button type="button" data-tsa-unpair="{{ $tsa->id }}" data-tsa-unpair-name="{{ $tsa->display_name }}"
+                                                title="Unpair" class="ml-0.5 hover:text-amber-900 dark:hover:text-amber-200 cursor-pointer">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </span>
+                                    @elseif($tsa->pairedPartner)
+                                    <span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-full pl-2 pr-1 py-0.5 whitespace-nowrap">
+                                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                        Paired with {{ $tsa->pairedPartner->display_name }}
+                                        <button type="button" data-tsa-unpair="{{ $tsa->id }}" data-tsa-unpair-name="{{ $tsa->display_name }}"
+                                                title="Unpair" class="ml-0.5 hover:text-amber-900 dark:hover:text-amber-200 cursor-pointer">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </span>
+                                    @endif
+                                </div>
                                 <div class="text-[11px] text-slate-400 font-mono">{{ $tsa->tsa_key }}</div>
                             </div>
                         </div>

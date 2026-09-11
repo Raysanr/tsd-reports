@@ -14,6 +14,10 @@
 <div id="token-card-{{ $tsa->id }}" class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
     <div class="flex items-center justify-between gap-4 mb-3">
         <h3 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Phone call automation (MacroDroid)</h3>
+        {{-- Paired-partner side has no token of its own to regenerate — see
+             TsaShift::pairWith()'s own doc comment (only the primary keeps
+             one, since there's only one physical phone between the two). --}}
+        @unless($tsa->paired_with_tsa_id)
         {{-- data-confirm (not an inline onsubmit) — the JS handler reads this
              itself before deciding whether to prompt, so the same confirm
              behavior still applies after this card has been swapped in via
@@ -26,7 +30,29 @@
                 {{ $tsa->api_token ? 'Regenerate token' : 'Generate token' }}
             </button>
         </form>
+        @endunless
     </div>
+
+    {{-- Paired-with-someone-else's-phone notice — explicit request,
+         2026-09-11: "2 tsa, one cellphone... no shift schedules, whoever
+         is online and clicks dial". Shown on BOTH sides of the pair so
+         either row's expanded panel makes the sharing obvious, not just
+         the primary's. --}}
+    @if($tsa->paired_with_tsa_id)
+    <div class="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 rounded-lg px-3 py-2.5 mb-3">
+        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-8.13a4 4 0 110 8 4 4 0 010-8zm6 8a4 4 0 00-3-3.87M5 12a4 4 0 013.87-3"/></svg>
+        <p class="text-xs text-amber-800 dark:text-amber-300">
+            Sharing <strong>{{ $tsa->pairedWith->display_name }}</strong>'s phone — whoever's actively on a call gets each call event, no schedule needed. See {{ $tsa->pairedWith->display_name }}'s own card for the token/MacroDroid setup.
+        </p>
+    </div>
+    @elseif($tsa->pairedPartner)
+    <div class="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 rounded-lg px-3 py-2.5 mb-3">
+        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-8.13a4 4 0 110 8 4 4 0 010-8zm6 8a4 4 0 00-3-3.87M5 12a4 4 0 013.87-3"/></svg>
+        <p class="text-xs text-amber-800 dark:text-amber-300">
+            <strong>{{ $tsa->pairedPartner->display_name }}</strong> shares this phone with {{ $tsa->display_name }} — whoever's actively on a call gets each call event, no schedule needed.
+        </p>
+    </div>
+    @endif
 
     @if($tsa->api_token)
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -132,7 +158,7 @@
             <li><strong>Connection error / timeout</strong> → the phone had no internet at that moment, or the Webhook URL is mistyped or unreachable from the phone (see "Before you start" above).</li>
         </ul>
     </details>
-    @else
+    @elseif(!$tsa->paired_with_tsa_id)
     <p class="text-xs font-mono text-slate-400">No token yet — click "Generate token" above, then follow the 4-macro setup guide that appears.</p>
     @endif
 </div>

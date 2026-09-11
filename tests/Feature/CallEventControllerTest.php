@@ -142,4 +142,66 @@ class CallEventControllerTest extends TestCase
         $response->assertOk();
         $this->assertDatabaseHas('call_events', ['direction' => 'missed', 'duration_seconds' => null]);
     }
+
+    /**
+     * Two TSAs sharing one phone (explicit request, 2026-09-11: "2 tsa, one
+     * cellphone... no shift schedules, whoever is online and clicks
+     * dial") — the physical phone's MacroDroid can only hold the PRIMARY's
+     * token (see TsaShift::pairWith()), so a call the PARTNER actually
+     * dialed must still be re-attributed to the partner, not silently
+     * logged under the primary just because it's their token.
+     */
+    public function test_a_paired_calls_event_is_attributed_to_whichever_partner_is_currently_calling(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+        $mariel->applyStatusChange(TsaShift::STATUS_CALLING);
+
+        $response = $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token', // still Gemma's — the only one MacroDroid has
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $mariel->id, 'phone_number' => '09171234567']);
+        $this->assertDatabaseMissing('call_events', ['tsa_id' => $gemma->id]);
+    }
+
+    public function test_a_paired_calls_event_falls_back_to_the_primary_when_neither_side_is_marked_calling(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+
+        $response = $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $gemma->id]);
+    }
+
+    public function test_wrap_up_flips_only_the_partner_actually_marked_calling_not_the_token_owner(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+        $mariel->applyStatusChange(TsaShift::STATUS_CALLING);
+
+        $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ])->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $mariel->fresh()->status);
+        $this->assertNotSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
 }

@@ -22,6 +22,7 @@ class TsaShift extends Model
         // migration.
         'phone_number', 'dialer_host', 'api_token', 'active',
         'status', 'status_changed_at', 'status_locked_by', 'daily_lead_cap',
+        'paired_with_tsa_id',
     ];
 
     protected $casts = [
@@ -232,6 +233,100 @@ class TsaShift extends Model
     public static function generateApiToken(): string
     {
         return bin2hex(random_bytes(24));
+    }
+
+    /** The TSA this one shares a physical phone with (explicit request,
+     *  2026-09-11: "2 tsa, one cellphone... 1 in opening and 1 in
+     *  closing... no shift schedules, whoever is online and clicks dial").
+     *  Only the PRIMARY side of a pair (the one nothing else points at —
+     *  see isPairPrimary()) keeps a real api_token/dialer_host; the
+     *  partner's own are cleared by pairWith() below, since there is
+     *  physically only one phone/MacroDroid setup between the two. */
+    public function pairedWith(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'paired_with_tsa_id');
+    }
+
+    /** The reverse side — null unless this row IS a pair's primary (see
+     *  isPairPrimary()). Call Rotation's UI reads this to show "+ Partner
+     *  name" on whichever row still holds the real token. */
+    public function pairedPartner(): HasOne
+    {
+        return $this->hasOne(self::class, 'paired_with_tsa_id');
+    }
+
+    public function isPairPrimary(): bool
+    {
+        return $this->paired_with_tsa_id === null && $this->pairedPartner()->exists();
+    }
+
+    public function isPaired(): bool
+    {
+        return $this->paired_with_tsa_id !== null || $this->isPairPrimary();
+    }
+
+    /** Pairs $this with $partner to share one phone — $this keeps its own
+     *  api_token/dialer_host (becomes the pair's primary) and $partner's
+     *  are cleared, since MacroDroid on the shared phone can only ever be
+     *  configured with one token. Call this on whichever TSA the admin
+     *  drags the OTHER one onto in Call Rotation, i.e. $this is "the one
+     *  keeping the phone". Both rows must be unpaired already — pairing an
+     *  already-paired TSA would silently orphan its existing partner, so
+     *  callers must unpair() first (TsaManagementController::pair() does
+     *  this before calling in). */
+    public function pairWith(self $partner): void
+    {
+        $partner->update([
+            'paired_with_tsa_id' => $this->id,
+            'api_token'          => null,
+            'dialer_host'        => null,
+        ]);
+    }
+
+    /** Reverses pairWith() — the partner gets a FRESH api_token (never the
+     *  primary's old one; that stays live on the primary's own phone) so
+     *  neither TSA is left unable to receive calls after unpairing. Safe to
+     *  call on either side of the pair. */
+    public function unpair(): void
+    {
+        if ($this->paired_with_tsa_id !== null) {
+            $this->update(['paired_with_tsa_id' => null, 'api_token' => self::generateApiToken()]);
+            return;
+        }
+
+        $partner = $this->pairedPartner()->first();
+        if ($partner) {
+            $partner->update(['paired_with_tsa_id' => null, 'api_token' => self::generateApiToken()]);
+        }
+    }
+
+    /**
+     * Resolves which of a pair's two TSAs an incoming call event belongs
+     * to, given $primary is who CallEventController's api_token lookup
+     * landed on. Solo (unpaired) TSAs never reach this — see
+     * CallEventController::resolveTsaForToken().
+     *
+     * Whoever currently has status=calling wins (the browser-side
+     * logCallClick() flips this the instant either TSA clicks a lead's
+     * number — see LeadController::logCallClick()) since that's the most
+     * direct signal of who is actually on the phone right now. Falls back
+     * to whoever changed status more recently (status_changed_at) when
+     * neither is mid-call, so a call that ends a beat after either side
+     * clicks back to idle still lands on the TSA who was last active
+     * rather than defaulting to the primary purely because it's their
+     * phone. Falls back to $primary itself only if status_changed_at is
+     * somehow null on both (e.g. freshly seeded/imported rows).
+     */
+    public static function resolveActiveOfPair(self $primary, self $partner): self
+    {
+        if ($primary->status === self::STATUS_CALLING) return $primary;
+        if ($partner->status === self::STATUS_CALLING) return $partner;
+
+        if ($primary->status_changed_at && $partner->status_changed_at) {
+            return $partner->status_changed_at->gt($primary->status_changed_at) ? $partner : $primary;
+        }
+
+        return $partner->status_changed_at ? $partner : $primary;
     }
 
     /**

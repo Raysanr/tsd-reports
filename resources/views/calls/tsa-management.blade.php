@@ -314,6 +314,12 @@
 // option did nothing.
 document.addEventListener('click', (e) => {
     if (e.target.closest('[data-status-panel-wrap]')) return;
+    // Unpair "x" button and the drag handle both live inside the row that
+    // ALSO carries data-tsa-row-toggle — without this bail, clicking either
+    // would also toggle the detail panel open/closed underneath whatever
+    // else it just did.
+    if (e.target.closest('[data-tsa-unpair]')) return;
+    if (e.target.closest('.tsa-drag-handle')) return;
 
     const trigger = e.target.closest('[data-tsa-row-toggle]');
     if (!trigger) return;
@@ -330,6 +336,136 @@ document.addEventListener('click', (e) => {
     const isOpen = grid.style.gridTemplateRows === '1fr';
     grid.style.gridTemplateRows = isOpen ? '0fr' : '1fr';
     if (chevron) chevron.classList.toggle('rotate-180', !isOpen);
+});
+
+// Drag-to-pair (explicit request, 2026-09-11: "2 tsa, one cellphone...
+// no shift schedules, whoever is online and clicks dial") — dragging TSA
+// row A onto TSA row B pairs them so they share B's phone/token, with
+// live status (not a fixed schedule) deciding which of the two an
+// incoming call event actually belongs to (see
+// TsaShift::resolveActiveOfPair(), CallEventController::store()).
+//
+// Native HTML5 drag events, not a library — this table has exactly one
+// drag interaction (row onto row), not a general sortable/reorderable
+// list, so pulling in Sortable.js for this alone would be more dependency
+// than the feature needs. Delegated on the table body (not per-row) for
+// the same filter-swap-survives-without-rebinding reason the click
+// handler above already uses.
+(function () {
+    const container = document.getElementById('tsaMgmtTableContainer');
+    if (!container) return;
+
+    let draggedId = null;
+
+    container.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('.tsa-row');
+        if (!row) return;
+        draggedId = row.dataset.tsaRow;
+        e.dataTransfer.effectAllowed = 'move';
+        // Firefox requires setData to be called for a drag to actually
+        // start at all — the id itself isn't read back from this on drop
+        // (draggedId above is what's used), this is purely to satisfy that.
+        e.dataTransfer.setData('text/plain', draggedId);
+        row.classList.add('opacity-50');
+    });
+
+    container.addEventListener('dragend', (e) => {
+        const row = e.target.closest('.tsa-row');
+        if (row) row.classList.remove('opacity-50');
+        container.querySelectorAll('.tsa-row-drop-target').forEach(el => el.classList.remove('tsa-row-drop-target', 'bg-yellow-50', 'dark:bg-yellow-950/30'));
+        draggedId = null;
+    });
+
+    container.addEventListener('dragover', (e) => {
+        const row = e.target.closest('.tsa-row');
+        if (!row || !draggedId || row.dataset.tsaRow === draggedId) return;
+        e.preventDefault(); // required for drop to fire at all
+        e.dataTransfer.dropEffect = 'move';
+    });
+
+    container.addEventListener('dragenter', (e) => {
+        const row = e.target.closest('.tsa-row');
+        if (!row || !draggedId || row.dataset.tsaRow === draggedId) return;
+        row.classList.add('tsa-row-drop-target', 'bg-yellow-50', 'dark:bg-yellow-950/30');
+    });
+
+    container.addEventListener('dragleave', (e) => {
+        const row = e.target.closest('.tsa-row');
+        if (row && !row.contains(e.relatedTarget)) {
+            row.classList.remove('tsa-row-drop-target', 'bg-yellow-50', 'dark:bg-yellow-950/30');
+        }
+    });
+
+    container.addEventListener('drop', (e) => {
+        const targetRow = e.target.closest('.tsa-row');
+        if (!targetRow || !draggedId || targetRow.dataset.tsaRow === draggedId) return;
+        e.preventDefault();
+
+        const targetId = targetRow.dataset.tsaRow;
+        const draggedRow = container.querySelector(`.tsa-row[data-tsa-row="${draggedId}"]`);
+
+        if (targetRow.dataset.tsaPaired === '1' || (draggedRow && draggedRow.dataset.tsaPaired === '1')) {
+            window.showToast?.('One of these is already paired — unpair first.', 'error');
+            return;
+        }
+
+        const targetName   = targetRow.dataset.tsaName;
+        const draggedName  = draggedRow ? draggedRow.dataset.tsaName : 'This TSA';
+        if (!confirm(`Pair ${draggedName} with ${targetName}? ${draggedName} will share ${targetName}'s phone/token — ${draggedName}'s own token will be cleared. You can unpair anytime.`)) {
+            return;
+        }
+
+        fetch(`/calls/tsa-management/${targetId}/pair`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({ partner_id: draggedId }),
+        })
+            .then(res => res.json().then(data => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || !data.success) {
+                    window.showToast?.(data.message || data.error || 'Could not pair these TSAs.', 'error');
+                    return;
+                }
+                window.showToast?.(data.message || 'Paired.', 'success');
+                window.location.reload();
+            })
+            .catch(() => window.showToast?.('Something went wrong pairing these TSAs.', 'error'));
+    });
+})();
+
+// Unpair — single click, no schedule/token juggling for the admin to
+// think about (TsaShift::unpair() issues the now-solo partner a fresh
+// token automatically).
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-tsa-unpair]');
+    if (!btn) return;
+
+    const id   = btn.dataset.tsaUnpair;
+    const name = btn.dataset.tsaUnpairName;
+    if (!confirm(`Unpair ${name}? Both TSAs will get their own token back.`)) return;
+
+    fetch(`/calls/tsa-management/${id}/unpair`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+    })
+        .then(res => res.json().then(data => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok || !data.success) {
+                window.showToast?.(data.message || data.error || 'Could not unpair.', 'error');
+                return;
+            }
+            window.showToast?.(data.message || 'Unpaired.', 'success');
+            window.location.reload();
+        })
+        .catch(() => window.showToast?.('Something went wrong unpairing.', 'error'));
 });
 </script>
 

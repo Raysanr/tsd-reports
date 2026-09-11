@@ -42,7 +42,7 @@ class TsaManagementController extends Controller
         // existing "falsy = no filter applied" default.
         $team = $this->rememberedFilter($request, 'tsa-management', 'team', '') ?? '';
 
-        $query = TsaShift::with('user')->orderBy('sort_order');
+        $query = TsaShift::with(['user', 'pairedWith', 'pairedPartner'])->orderBy('sort_order');
         if ($team) {
             $query->where('team', $team);
         }
@@ -230,6 +230,65 @@ class TsaManagementController extends Controller
                 'message' => $message,
                 'html' => view('calls.tsa-management._token-card', ['tsa' => $tsaShift])->render(),
             ]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /**
+     * Pairs $tsaShift (the one dragged ONTO, i.e. "the one keeping the
+     * phone") with $request->partner_id — explicit request, 2026-09-11:
+     * "2 tsa, one cellphone... no shift schedules, whoever is online and
+     * clicks dial." $tsaShift becomes the pair's primary (keeps its real
+     * api_token/dialer_host); the partner's own are cleared, since
+     * MacroDroid on the shared phone can only ever hold one token — see
+     * TsaShift::pairWith()'s own doc comment. Both sides must already be
+     * unpaired: pairing a TSA that's already someone else's partner (or
+     * already a primary with a different partner) would silently orphan
+     * whoever they were paired with before, so that's rejected outright
+     * rather than guessed at — the admin unpairs first, same as any other
+     * "replace an existing link" flow in this controller (see linkUser()'s
+     * own 409 guard above for the same reasoning).
+     */
+    public function pair(Request $request, TsaShift $tsaShift)
+    {
+        $data = $request->validate(['partner_id' => ['required', 'integer', 'different:tsaShift']]);
+
+        $partner = TsaShift::findOrFail($data['partner_id']);
+
+        abort_if($tsaShift->isPaired(), 409, "{$tsaShift->display_name} is already paired — unpair first.");
+        abort_if($partner->isPaired(), 409, "{$partner->display_name} is already paired — unpair first.");
+
+        $tsaShift->pairWith($partner);
+
+        $message = "Paired {$partner->display_name} with {$tsaShift->display_name} — they now share {$tsaShift->display_name}'s phone/token.";
+        ActivityLogger::log('tsa.paired', $tsaShift, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** Reverses pair() — safe to call on either side of the pair (see
+     *  TsaShift::unpair()'s own doc comment for why the partner gets a
+     *  freshly generated token rather than the primary's old one). */
+    public function unpair(Request $request, TsaShift $tsaShift)
+    {
+        abort_unless($tsaShift->isPaired(), 409, "{$tsaShift->display_name} isn't paired with anyone.");
+
+        $partnerName = $tsaShift->paired_with_tsa_id
+            ? $tsaShift->pairedWith->display_name
+            : $tsaShift->pairedPartner->display_name;
+
+        $tsaShift->unpair();
+
+        $message = "Unpaired {$tsaShift->display_name} from {$partnerName} — both now have their own token.";
+        ActivityLogger::log('tsa.unpaired', $tsaShift, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
         }
 
         return redirect()->route('calls.tsa-management')->with('success', $message);

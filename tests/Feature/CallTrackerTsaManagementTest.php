@@ -64,6 +64,21 @@ class CallTrackerTsaManagementTest extends TestCase
         $response->assertSee('PTERYGIUM');
     }
 
+    public function test_the_index_page_shows_the_pair_badge_on_both_sides_of_a_pairing(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->pairWith($mariel);
+
+        $response = $this->get(route('calls.tsa-management'));
+
+        $response->assertOk();
+        $response->assertSee("Shares {$gemma->display_name}'s phone", false);
+        $response->assertSee("Paired with {$mariel->display_name}", false);
+    }
+
     public function test_checking_a_new_product_appends_the_tsa_to_the_end_of_its_rotation(): void
     {
         $this->actingAs($this->admin());
@@ -222,6 +237,91 @@ class CallTrackerTsaManagementTest extends TestCase
         $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
 
         $this->actingAs($user)->post(route('calls.tsa-management.regenerate-token', $gemma))->assertForbidden();
+    }
+
+    /**
+     * Two TSAs sharing one phone (explicit request, 2026-09-11) — pairing
+     * $gemma (dragged ONTO) with $mariel makes $gemma the pair's primary:
+     * she keeps her api_token/dialer_host, $mariel's are cleared since
+     * there's only one physical phone/MacroDroid setup between them.
+     */
+    public function test_pairing_two_tsas_makes_the_target_the_primary_and_clears_the_partners_token(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'gemma-token', 'dialer_host' => '192.168.1.10:8080']);
+        $mariel->update(['api_token' => 'mariel-token', 'dialer_host' => '192.168.1.11:8080']);
+
+        $response = $this->post(route('calls.tsa-management.pair', $gemma), ['partner_id' => $mariel->id]);
+
+        $response->assertRedirect(route('calls.tsa-management'));
+        $gemma->refresh();
+        $mariel->refresh();
+
+        $this->assertNull($gemma->paired_with_tsa_id);
+        $this->assertTrue($gemma->isPairPrimary());
+        $this->assertSame('gemma-token', $gemma->api_token);
+
+        $this->assertSame($gemma->id, $mariel->paired_with_tsa_id);
+        $this->assertNull($mariel->api_token);
+        $this->assertNull($mariel->dialer_host);
+    }
+
+    public function test_pairing_an_already_paired_tsa_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel   = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+        $gemma->pairWith($mariel);
+
+        $this->post(route('calls.tsa-management.pair', $kathleen), ['partner_id' => $mariel->id])
+            ->assertStatus(409);
+    }
+
+    public function test_unpairing_restores_both_tsas_to_their_own_token(): void
+    {
+        $this->actingAs($this->admin());
+
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'gemma-token']);
+        $gemma->pairWith($mariel);
+
+        $response = $this->post(route('calls.tsa-management.unpair', $mariel));
+
+        $response->assertRedirect(route('calls.tsa-management'));
+        $gemma->refresh();
+        $mariel->refresh();
+
+        $this->assertNull($mariel->paired_with_tsa_id);
+        $this->assertNotNull($mariel->api_token);
+        $this->assertNotSame('gemma-token', $mariel->api_token);
+        $this->assertSame('gemma-token', $gemma->api_token);
+        $this->assertFalse($gemma->isPairPrimary());
+    }
+
+    public function test_unpairing_a_tsa_that_isnt_paired_is_rejected(): void
+    {
+        $this->actingAs($this->admin());
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        $this->post(route('calls.tsa-management.unpair', $gemma))->assertStatus(409);
+    }
+
+    public function test_a_tsa_cannot_pair_or_unpair(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $user   = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->post(route('calls.tsa-management.pair', $gemma), ['partner_id' => $mariel->id])
+            ->assertForbidden();
+        $this->actingAs($user)->post(route('calls.tsa-management.unpair', $gemma))
+            ->assertForbidden();
     }
 
     /**

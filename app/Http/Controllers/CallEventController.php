@@ -48,6 +48,20 @@ class CallEventController extends Controller
         $tsa = TsaShift::where('api_token', $data['api_token'])->first();
         abort_if(!$tsa, 401, 'Unknown or revoked api_token.');
 
+        // Two TSAs sharing one phone (explicit request, 2026-09-11: "2 tsa,
+        // one cellphone... no shift schedules, whoever is online and clicks
+        // dial") — the token always resolves to the pair's PRIMARY row
+        // (TsaShift::pairWith() clears the partner's own token), so a call
+        // physically dialed by the partner would otherwise get silently
+        // misattributed to the primary. Re-resolve to whichever of the two
+        // is actually the one on the phone right now — see
+        // TsaShift::resolveActiveOfPair()'s own doc comment for the
+        // status=calling / most-recent-status fallback order. Solo TSAs
+        // (the overwhelming common case) skip this entirely.
+        if ($tsa->isPairPrimary()) {
+            $tsa = TsaShift::resolveActiveOfPair($tsa, $tsa->pairedPartner()->firstOrFail());
+        }
+
         // Monitor TSA (explicit request, 2026-08-20): this webhook is the
         // only real signal this app ever gets that a call actually ended —
         // there's no separate "call started" event (see this class's own
