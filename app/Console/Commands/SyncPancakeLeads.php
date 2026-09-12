@@ -35,6 +35,53 @@ class SyncPancakeLeads extends Command
 
     public function handle(): int
     {
+        // Self-contained overlap lock (explicit request, 2026-09-12: "make
+        // it like realtime... i want dont have to wait minutes") — this
+        // command used to rely ENTIRELY on Schedule::withoutOverlapping(10)
+        // in routes/console.php, a lock that only applies when invoked
+        // through schedule:run. To get assignment faster than Laravel's own
+        // scheduler (which cannot express anything below one-minute
+        // resolution — there is no ->everySeconds()), CronController::run()
+        // now also fires this command directly on every /cron/run hit,
+        // independent of schedule:run's once-a-minute cadence, so the
+        // external pinger's own interval becomes the real ceiling instead.
+        // That bypasses the scheduler-level lock entirely, so without a
+        // lock of its own here, a pinger interval shorter than one full
+        // run's real duration (multi-page Pancake pagination, up to 100
+        // pages) could launch two genuinely overlapping runs. Same
+        // Setting-flag-plus-staleness-fallback pattern SyncCallRecordings
+        // already uses for the identical problem (see that class's own
+        // runningFlagIsStale()) — staleness matters here too: a container
+        // killed mid-run never reaches the finally block, which would
+        // otherwise leave this flag stuck at '1' forever.
+        if (Setting::get('pancake_sync_leads_running') === '1' && !$this->runningFlagIsStale()) {
+            $this->info('A sync is already running — skipping to avoid running two at once.');
+            return self::SUCCESS;
+        }
+        Setting::set('pancake_sync_leads_running', '1');
+        Setting::set('pancake_sync_leads_last_run', now()->toIso8601String());
+
+        try {
+            return $this->doSync();
+        } finally {
+            Setting::set('pancake_sync_leads_running', '');
+        }
+    }
+
+    /** A real run has taken a few seconds to low tens of seconds in
+     *  practice (single-shop Pancake pagination, not a heavy Drive
+     *  download loop like SyncCallRecordings) — 5 minutes is generous
+     *  headroom over that. No timestamp at all can't be a genuinely
+     *  in-progress run, so treat it as stale too rather than block forever
+     *  on a flag with nothing to measure staleness against. */
+    private function runningFlagIsStale(): bool
+    {
+        $lastRun = Setting::get('pancake_sync_leads_last_run');
+        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 5;
+    }
+
+    private function doSync(): int
+    {
         $runStart = now();
         $apiKey   = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $shopId   = Setting::get('shop_id', '');
