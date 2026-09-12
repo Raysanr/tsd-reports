@@ -137,41 +137,72 @@ class SyncCallRecordings extends Command
             if ($shifts->isEmpty()) continue;
 
             foreach ($shifts as $shift) {
-                // TSA folders now sit under a MONTH folder under the team
-                // root (see GoogleDriveClient::resolveTsaFolder()'s own doc
-                // comment) — $date (this run's target date, defaults to
-                // today) picks which month to look in, so a manual re-sync
-                // for a past date still finds the right month even after
-                // the calendar has moved on.
-                $tsaFolder = $this->drive->resolveTsaFolder($token, $shift, $date);
-                if (!$tsaFolder) continue; // no recordings folder for this TSA
+                // Isolated per TSA (bug fix, 2026-09-12 — confirmed live:
+                // only one TSA out of eight had any synced data for a given
+                // day, everyone processed after her in iteration order had
+                // none). A single TSA's Drive folder timing out or erroring
+                // (cURL error 28 seen repeatedly in production logs — large/
+                // slow folders, flaky connectivity) used to throw all the
+                // way up to handle()'s own try/catch, aborting the ENTIRE
+                // run and discarding every other TSA's already-gathered
+                // $totals along with it, even though their folders were
+                // never actually reached yet. A stall while paging Drive's
+                // listing/downloading one large file can legitimately eat
+                // minutes on this container per GoogleDriveClient's own
+                // retry/timeout tuning, so this is a normal, expected
+                // failure mode for any one folder on a given run, not
+                // something a caller should have to avoid entirely — every
+                // OTHER TSA's real data for the same run must not be lost
+                // because of it. break 3 (the download cap) below still
+                // intentionally stops the whole run — that's a deliberate
+                // resource guard, not a per-TSA fault, so it's left able to
+                // escape this catch.
+                try {
+                    // TSA folders now sit under a MONTH folder under the
+                    // team root (see GoogleDriveClient::resolveTsaFolder()'s
+                    // own doc comment) — $date (this run's target date,
+                    // defaults to today) picks which month to look in, so a
+                    // manual re-sync for a past date still finds the right
+                    // month even after the calendar has moved on.
+                    $tsaFolder = $this->drive->resolveTsaFolder($token, $shift, $date);
+                    if (!$tsaFolder) continue; // no recordings folder for this TSA
 
-                // Recurses through whatever day-subfolders exist under the
-                // TSA's own folder (real naming is inconsistent per TSA —
-                // confirmed live, 2026-08-25 — so this never tries to guess
-                // a specific day-folder name); parseFilename() below is
-                // still what actually decides which files match $dateString.
-                $files = $this->drive->listFilesRecursively($token, $tsaFolder['id']);
+                    // Recurses through whatever day-subfolders exist under
+                    // the TSA's own folder (real naming is inconsistent per
+                    // TSA — confirmed live, 2026-08-25 — so this never tries
+                    // to guess a specific day-folder name); parseFilename()
+                    // below is still what actually decides which files
+                    // match $dateString.
+                    $files = $this->drive->listFilesRecursively($token, $tsaFolder['id']);
 
-                foreach ($files as $file) {
-                    if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
-                        $this->warn('Hit the ' . self::MAX_DOWNLOADS_PER_RUN . '-download cap for this run — stopping early.');
-                        break 3;
+                    foreach ($files as $file) {
+                        if ($downloadCount >= self::MAX_DOWNLOADS_PER_RUN) {
+                            $this->warn('Hit the ' . self::MAX_DOWNLOADS_PER_RUN . '-download cap for this run — stopping early.');
+                            break 3; // try{} isn't a loop construct — doesn't count toward this depth, confirmed.
+                        }
+
+                        $parsed = $this->parseFilename($file['name']);
+                        if (!$parsed || $parsed['date'] !== $dateString) continue;
+
+                        $bytes = $this->drive->downloadFile($token, $file['id']);
+                        if ($bytes === null) continue;
+                        $downloadCount++;
+
+                        $seconds = $this->m4aDurationSeconds($bytes);
+                        if ($seconds === null) continue;
+
+                        $hour = $parsed['hour'];
+                        $totals[$shift->tsa_key][$hour]['seconds'] = ($totals[$shift->tsa_key][$hour]['seconds'] ?? 0) + $seconds;
+                        $totals[$shift->tsa_key][$hour]['count']   = ($totals[$shift->tsa_key][$hour]['count']   ?? 0) + 1;
                     }
-
-                    $parsed = $this->parseFilename($file['name']);
-                    if (!$parsed || $parsed['date'] !== $dateString) continue;
-
-                    $bytes = $this->drive->downloadFile($token, $file['id']);
-                    if ($bytes === null) continue;
-                    $downloadCount++;
-
-                    $seconds = $this->m4aDurationSeconds($bytes);
-                    if ($seconds === null) continue;
-
-                    $hour = $parsed['hour'];
-                    $totals[$shift->tsa_key][$hour]['seconds'] = ($totals[$shift->tsa_key][$hour]['seconds'] ?? 0) + $seconds;
-                    $totals[$shift->tsa_key][$hour]['count']   = ($totals[$shift->tsa_key][$hour]['count']   ?? 0) + 1;
+                } catch (\Throwable $e) {
+                    $safeMessage = SyncHealth::redactSecrets($e->getMessage());
+                    $this->warn("Skipping {$shift->tsa_key} — {$safeMessage}");
+                    Log::warning('calls:sync-recordings: skipped one TSA after an error', [
+                        'tsa_key' => $shift->tsa_key,
+                        'message' => $safeMessage,
+                    ]);
+                    continue;
                 }
             }
         }

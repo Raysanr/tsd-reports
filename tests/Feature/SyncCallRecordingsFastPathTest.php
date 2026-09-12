@@ -189,4 +189,52 @@ class SyncCallRecordingsFastPathTest extends TestCase
 
         Http::assertSent(fn ($request) => str_contains($request->url(), "q=%27grace-root%27"));
     }
+
+    /**
+     * Real production shape confirmed 2026-09-12: only ONE of eight TSAs had
+     * any synced CallRecordingHour data for a given day — every TSA
+     * processed after her in iteration order had none, even though their
+     * own Drive folders were never actually reached. Root cause: a single
+     * TSA's Drive call throwing (cURL timeouts, confirmed repeatedly in
+     * production logs) propagated all the way up to handle()'s own
+     * try/catch, aborting the WHOLE run and discarding every other TSA's
+     * already-gathered $totals with it. Julie (sort_order 3, processed
+     * FIRST) throws here; Joana (sort_order 4, processed SECOND) must still
+     * get her real recording synced despite Julie's folder failing.
+     */
+    public function test_one_tsas_drive_failure_does_not_lose_another_tsas_synced_data(): void
+    {
+        $this->configureDrive();
+
+        $ftyp = "\x00\x00\x00\x10ftypM4A \x00\x00\x00\x00";
+        $mvhdBody = str_repeat("\x00", 12) . pack('N', 1000) . pack('N', 5000) . str_repeat("\x00", 80);
+        $mvhd = pack('N', 8 + strlen($mvhdBody)) . 'mvhd' . $mvhdBody;
+        $moov = pack('N', 8 + strlen($mvhd)) . 'moov' . $mvhd;
+        $m4aBytes = $ftyp . $moov;
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            // Team root -> per-TSA folders, no month layer (flat fallback,
+            // same shape the earlier "falls back to a flat team root
+            // lookup" test above already exercises).
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                $this->folderListResponse([$this->folder('julie-root', 'JULIE'), $this->folder('joana-root', 'JOANA')])
+            ),
+            // Julie's own folder listing call errors out.
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(['error' => 'boom'], 500),
+            // Joana's own folder — must still be reached and synced.
+            'https://www.googleapis.com/drive/v3/files?q=%27joana-root%27*' => Http::response(
+                $this->folderListResponse([$this->file('rec-5', '09171234567 2026-08-29 08-15-00.m4a')])
+            ),
+            'https://www.googleapis.com/drive/v3/files/rec-5*' => Http::response($m4aBytes),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
+
+        $this->assertNull(CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-29')->first());
+
+        $joanaRow = CallRecordingHour::where('tsa_key', 'Joana')->whereDate('date', '2026-08-29')->where('hour', 8)->first();
+        $this->assertNotNull($joanaRow, "Joana's recording must still sync even though Julie's folder (processed first) failed.");
+        $this->assertSame(5, $joanaRow->total_seconds);
+    }
 }
