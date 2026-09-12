@@ -442,7 +442,7 @@ class SyncPancakeLeads extends Command
             'total_fetched'  => $totalFetched,
             'new_leads'      => $newLeads,
             'skipped'        => $skipped,
-            'duration_ms'    => $runStart->diffInMilliseconds(now()),
+            'duration_ms'    => (int) round($runStart->diffInMilliseconds(now())),
             'success'        => $success,
             'error_message'  => $errorMessage,
         ]);
