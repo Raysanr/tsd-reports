@@ -45,47 +45,20 @@ if [ "$1" = "schedule" ]; then
 fi
 
 if [ "$1" = "schedule:work" ]; then
-    # Sub-minute leads loop (explicit request, 2026-09-12: "make it like
-    # realtime displaying in the leads when there's new in the POS" — the
-    # Call Tracker Leads page needs a new Pancake order to reach it faster
-    # than schedule:work's own floor allows). Laravel's scheduler has no
-    # ->everySeconds() at all — the shortest interval expressible in
-    # routes/console.php is once a minute — so pancake:sync-leads can never
-    # run more often than that through schedule:work no matter how it's
-    # configured there. This plain shell loop is the only way to get a
-    # genuinely sub-minute cadence: it runs pancake:sync-leads directly,
-    # sleeps LEADS_LOOP_INTERVAL seconds (default 15, matching the Leads
-    # page's own 15s poll in resources/js/calls.js), and repeats forever, as
-    # a background process alongside schedule:work in the same container —
-    # every OTHER scheduled job (order sync, reconciliation, etc.) still
-    # runs through schedule:work's normal once-a-minute loop, unaffected.
-    #
-    # An earlier attempt at this same goal (2026-09-12, still in this file's
-    # git history) piggybacked on CronController::run()'s /cron/run
-    # endpoint, reasoning that an external pinger already hit it once a
-    # minute and could be reconfigured to hit it every 15-20s instead. That
-    # never actually helped: this deployment stopped using an external
-    # pinger entirely back on 2026-08-11 (see this file's own "Scheduler
-    # service modes" comment above) in favor of schedule:work, so nothing
-    # was left calling /cron/run at all — that fix was correct in isolation
-    # but dead code in THIS deployment's actual configuration. Confirmed
-    # live via `railway logs --service upbeat-light`: pancake:sync-leads was
-    # still firing at exactly :00-:02 of every minute, one run per minute,
-    # matching schedule:work's own floor exactly, not the faster cadence
-    # that fix intended.
-    #
-    # pancake:sync-leads already has its own self-contained overlap lock
-    # (pancake_sync_leads_running, see that class's own doc comment) that
-    # doesn't depend on Schedule::withoutOverlapping() — so it's already
-    # safe for this loop to fire well inside a previous run's own duration
-    # without ever double-running.
-    (
-        while true; do
-            php artisan pancake:sync-leads >> storage/logs/leads-loop.log 2>&1
-            sleep "${LEADS_LOOP_INTERVAL:-15}"
-        done
-    ) &
-
+    # A sub-minute pancake:sync-leads loop used to be started HERE (explicit
+    # request, 2026-09-12: "make it like realtime displaying in the leads
+    # when there's new in the POS"), but it never actually ran: Railway's
+    # upbeat-light service is configured with a custom start command of
+    # `php artisan schedule:work` directly, which bypasses this whole script
+    # — confirmed via `railway ssh --service upbeat-light -- cat
+    # /proc/1/cmdline`, which showed schedule:work as PID 1 itself, not a
+    # child of entrypoint.sh. That's the same class of mistake as the
+    # earlier dead CronController::run() /cron/run fix (see git history):
+    # correct in isolation, never actually invoked in this deployment.
+    # Moved to app/Providers/AppServiceProvider.php's boot() instead, which
+    # runs inside the schedule:work PHP process itself no matter how
+    # Railway launches it — see that file's own comment for the loop code
+    # and reasoning.
     exec php artisan schedule:work
 fi
 

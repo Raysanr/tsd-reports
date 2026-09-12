@@ -66,5 +66,33 @@ class AppServiceProvider extends ServiceProvider
         // flows already use, so "already signed in" and "just signed in"
         // now agree.
         RedirectIfAuthenticated::redirectUsing(fn () => route('hub'));
+
+        // Sub-minute leads loop (explicit request, 2026-09-12: "make it like
+        // realtime displaying in the leads when there's new in the POS").
+        // This used to live in docker/entrypoint.sh's schedule:work branch,
+        // but Railway's upbeat-light service runs `php artisan schedule:work`
+        // directly as its configured start command — confirmed via
+        // `railway ssh -- cat /proc/1/cmdline`, which showed schedule:work
+        // as PID 1 itself, not a child of entrypoint.sh — so that script
+        // never executes at all for this service and the loop never started
+        // (storage/logs/leads-loop.log never got created; sync-leads kept
+        // firing at the old 60s cadence). Hooking it here instead runs
+        // inside the same schedule:work PHP process regardless of how
+        // Railway invokes it, so it can't be silently bypassed the same way
+        // again. Only ever fires once: boot() runs a single time at process
+        // startup for a long-running command like schedule:work, not once
+        // per scheduler tick.
+        if ($this->app->runningInConsole() && in_array('schedule:work', $_SERVER['argv'] ?? [], true)) {
+            $interval = (int) (env('LEADS_LOOP_INTERVAL', 15));
+            $logFile  = storage_path('logs/leads-loop.log');
+            $cmd = sprintf(
+                '(while true; do %s %s pancake:sync-leads >> %s 2>&1; sleep %d; done) > /dev/null 2>&1 &',
+                escapeshellarg(PHP_BINARY),
+                escapeshellarg(base_path('artisan')),
+                escapeshellarg($logFile),
+                max(5, $interval)
+            );
+            exec($cmd);
+        }
     }
 }
