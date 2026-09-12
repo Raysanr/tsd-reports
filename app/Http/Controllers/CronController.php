@@ -8,9 +8,9 @@ use Illuminate\Http\Request;
 class CronController extends Controller
 {
     /**
-     * Render's free tier has no persistent cron process, so routes/console.php's
+     * This deploy has no persistent cron process, so routes/console.php's
      * scheduled syncs would never fire on their own. An external free pinger
-     * (e.g. cron-job.org) hits this URL every minute instead; each hit just runs
+     * (e.g. cron-job.org) hits this URL instead; each hit just runs
      * whatever is actually due right now (`schedule:run`), same as a real crontab
      * entry would — the interval/delta logic in routes/console.php is unchanged.
      *
@@ -24,15 +24,15 @@ class CronController extends Controller
      * no worker pool, one request at a time). Running the sync in-process
      * blocked that one worker for its entire duration — a multi-page Pancake
      * API fetch can take several seconds — during which NOTHING else could be
-     * served, Render's own health check included. Confirmed in production:
-     * a health check timeout (5s) flagged the instance as down, coinciding
-     * with a cron-triggered sync still running in-process. Backgrounding the
-     * process lets this response return immediately, freeing the worker right
-     * away; withoutOverlapping() on every scheduled command (routes/console.php)
-     * already makes it safe for two backgrounded runs to occasionally overlap.
-     * Output goes to its own log file instead of Laravel's logger, since the
-     * backgrounded process is a separate PHP process with no HTTP request
-     * context to log through.
+     * served, the deploy's own health check included. Confirmed in production
+     * (on a prior host): a health check timeout flagged the instance as down,
+     * coinciding with a cron-triggered sync still running in-process.
+     * Backgrounding the process lets this response return immediately, freeing
+     * the worker right away; withoutOverlapping() on every scheduled command
+     * (routes/console.php) already makes it safe for two backgrounded runs to
+     * occasionally overlap. Output goes to its own log file instead of
+     * Laravel's logger, since the backgrounded process is a separate PHP
+     * process with no HTTP request context to log through.
      */
     public function run(Request $request): JsonResponse
     {
