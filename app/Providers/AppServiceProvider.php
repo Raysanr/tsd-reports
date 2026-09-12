@@ -82,11 +82,21 @@ class AppServiceProvider extends ServiceProvider
         // again. Only ever fires once: boot() runs a single time at process
         // startup for a long-running command like schedule:work, not once
         // per scheduler tick.
+        //
+        // Must be nohup'd: exec() forks a throwaway `sh -c` to launch the
+        // background subshell, then that throwaway shell exits immediately
+        // once the job is backgrounded. Without nohup, the kernel sent
+        // SIGHUP to the loop's process group when its parent shell died —
+        // confirmed live: the loop ran exactly one iteration then went
+        // silent (leads-loop.log stopped growing entirely, never crashed,
+        // no second line ever appeared) since SIGHUP's default disposition
+        // kills the process, and it always happened to survive just long
+        // enough to finish whichever sync was already in flight.
         if ($this->app->runningInConsole() && in_array('schedule:work', $_SERVER['argv'] ?? [], true)) {
             $interval = (int) (env('LEADS_LOOP_INTERVAL', 15));
             $logFile  = storage_path('logs/leads-loop.log');
             $cmd = sprintf(
-                '(while true; do %s %s pancake:sync-leads >> %s 2>&1; sleep %d; done) > /dev/null 2>&1 &',
+                'nohup sh -c \'while true; do %s %s pancake:sync-leads >> %s 2>&1; sleep %d; done\' > /dev/null 2>&1 &',
                 escapeshellarg(PHP_BINARY),
                 escapeshellarg(base_path('artisan')),
                 escapeshellarg($logFile),
