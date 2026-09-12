@@ -1993,20 +1993,185 @@ document.addEventListener('change', (e) => {
 
 // Calendar-picker-only date fields (explicit follow-up, 2026-09-11: "why
 // is it like hidden date picker... i want only they will pick in the
-// calendar") — the <input type="date"> itself is now opacity-0 and
+// calendar") — the <input type="date"> itself is opacity-0 and
 // pointer-events-none (see the two partials' own comments for why), so a
 // real click can never reach it or its native day/month/year segments
-// directly; this is the only way it ever opens. showPicker() is the
-// standard way to summon the native calendar UI programmatically — every
-// browser this app supports (Chrome, Edge, Safari 16+) implements it.
+// directly; only the calendar-icon trigger (data-tss-date-trigger) below
+// can ever open a picker.
+//
+// The picker itself used to be the OS-native showPicker() popup — replaced
+// with a Tailwind-styled dropdown calendar (explicit request, 2026-09-12:
+// "make date picker has design use tailwind css components") since
+// showPicker()'s own popup is rendered by the browser/OS and cannot be
+// restyled with CSS at all (confirmed: no CSS pierces it in any browser).
+// tssBuildCalendar() below renders a real HTML/Tailwind month grid instead;
+// picking a day still just sets the hidden <input type="date">'s value and
+// fires 'change' on it, so every downstream listener (tssFormatDateLabel,
+// tssLoadDate) keeps working unmodified.
+let tssOpenCalendar = null;
+let tssOpenCalendarInput = null;
+
+function tssCloseCalendar() {
+    if (!tssOpenCalendar) return;
+    tssOpenCalendar.remove();
+    tssOpenCalendar = null;
+    tssOpenCalendarInput = null;
+    document.removeEventListener('mousedown', tssOutsideCalendarClick, true);
+}
+
+function tssOutsideCalendarClick(e) {
+    if (tssOpenCalendar && !tssOpenCalendar.contains(e.target)) tssCloseCalendar();
+}
+
+function tssBuildCalendar(dateInput) {
+    const popup = document.createElement('div');
+    popup.className = 'absolute z-50 top-full right-0 mt-2 w-64 rounded-xl border-2 border-black bg-white dark:bg-slate-800 shadow-lg p-3 font-mono';
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const max = dateInput.max ? new Date(dateInput.max + 'T00:00:00') : null;
+    const [vy, vm, vd] = (dateInput.value || dateInput.max).split('-').map(Number);
+    let viewYear = vy, viewMonth = vm - 1;
+    const selected = dateInput.value ? new Date(vy, vm - 1, vd) : null;
+
+    function render() {
+        popup.innerHTML = '';
+
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between mb-2';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'w-7 h-7 flex items-center justify-center rounded-md hover:bg-amber-100 dark:hover:bg-amber-900/30 text-slate-600 dark:text-slate-300 cursor-pointer';
+        prevBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>';
+        prevBtn.addEventListener('click', () => {
+            viewMonth--;
+            if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+            render();
+        });
+
+        const label = document.createElement('span');
+        label.className = 'text-sm font-bold text-slate-800 dark:text-slate-100';
+        label.textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'w-7 h-7 flex items-center justify-center rounded-md hover:bg-amber-100 dark:hover:bg-amber-900/30 text-slate-600 dark:text-slate-300 cursor-pointer';
+        nextBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>';
+        nextBtn.addEventListener('click', () => {
+            viewMonth++;
+            if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+            render();
+        });
+
+        header.append(prevBtn, label, nextBtn);
+        popup.appendChild(header);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-7 gap-1 text-center';
+
+        ['S', 'M', 'T', 'W', 'T', 'F', 'S'].forEach((d) => {
+            const cell = document.createElement('span');
+            cell.className = 'text-[10px] font-semibold text-slate-400 uppercase';
+            cell.textContent = d;
+            grid.appendChild(cell);
+        });
+
+        const firstDay = new Date(viewYear, viewMonth, 1).getDay();
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+        for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement('span'));
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const cellDate = new Date(viewYear, viewMonth, day);
+            const isFuture = max && cellDate > max;
+            const isToday = cellDate.getTime() === today.getTime();
+            const isSelected = selected && cellDate.getTime() === selected.getTime();
+
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = day;
+            btn.disabled = isFuture;
+
+            let cls = 'w-8 h-8 flex items-center justify-center rounded-full text-xs transition-colors ';
+            if (isFuture) {
+                cls += 'text-slate-300 dark:text-slate-600 cursor-not-allowed';
+            } else if (isSelected) {
+                cls += 'bg-primary text-white font-bold cursor-pointer';
+            } else if (isToday) {
+                cls += 'border border-primary text-primary font-bold cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30';
+            } else {
+                cls += 'text-slate-700 dark:text-slate-200 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30';
+            }
+            btn.className = cls;
+
+            if (!isFuture) {
+                btn.addEventListener('click', () => {
+                    const iso = `${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(cellDate.getDate()).padStart(2, '0')}`;
+                    dateInput.value = iso;
+                    dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    tssCloseCalendar();
+                });
+            }
+
+            grid.appendChild(btn);
+        }
+
+        popup.appendChild(grid);
+
+        const todayRow = document.createElement('div');
+        todayRow.className = 'mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-center';
+        const todayBtn = document.createElement('button');
+        todayBtn.type = 'button';
+        todayBtn.className = 'text-xs font-semibold text-primary hover:underline cursor-pointer';
+        todayBtn.textContent = 'Today';
+        todayBtn.addEventListener('click', () => {
+            const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            dateInput.value = iso;
+            dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+            tssCloseCalendar();
+        });
+        todayRow.appendChild(todayBtn);
+        popup.appendChild(todayRow);
+    }
+
+    render();
+    return popup;
+}
+
 document.addEventListener('click', (e) => {
     const trigger = e.target.closest('[data-tss-date-trigger]');
-    if (!trigger) return;
-    // The trigger is the calendar-icon SVG itself now (explicit follow-up,
-    // 2026-09-11: "i want only... click this icon not the whole date") —
-    // the input is a SIBLING, not a descendant, so this looks at the
-    // shared wrapper instead of the trigger element itself.
-    trigger.closest('[data-tss-small], [data-tss-today]')?.querySelector('[data-tss-date-input]')?.showPicker?.();
+    if (!trigger) {
+        return;
+    }
+
+    const container = trigger.closest('[data-tss-small], [data-tss-today]');
+    const dateInput = container?.querySelector('[data-tss-date-input]');
+    if (!dateInput) return;
+
+    // Clicking the trigger for an already-open popup just closes it;
+    // clicking a DIFFERENT trigger closes the old one and opens the new.
+    const alreadyOpenForThis = tssOpenCalendarInput === dateInput;
+    if (tssOpenCalendar) tssCloseCalendar();
+    if (alreadyOpenForThis) return;
+
+    // Positioning anchor needs its own relative wrapper — the trigger's own
+    // parent (the date row) is already `relative` in both partials for the
+    // label/icon overlay, so the popup anchors to that same box.
+    const anchor = trigger.closest('.relative') || container;
+    const popup = tssBuildCalendar(dateInput, anchor);
+    anchor.style.position = anchor.style.position || 'relative';
+    anchor.appendChild(popup);
+    tssOpenCalendar = popup;
+    tssOpenCalendarInput = dateInput;
+
+    // Deferred so this same click doesn't immediately re-trigger the
+    // outside-click listener and close the popup it just opened.
+    setTimeout(() => document.addEventListener('mousedown', tssOutsideCalendarClick, true), 0);
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tssOpenCalendar) tssCloseCalendar();
 });
 
 // Defense in depth: the input is pointer-events-none so a mouse/touch
