@@ -73,6 +73,38 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Mariel Callback');
     }
 
+    /**
+     * Regression test, 2026-09-14: "the callbacks page will be leads today
+     * the is has tag of not answering and unattended" — an order created
+     * YESTERDAY whose Not Answering/Unattended tag only got noticed on
+     * TODAY's sync tick was showing up in today's Callbacks, since
+     * backfillCallbackFromTags() stamps callback_at = now() regardless of
+     * the order's own real date. Confirmed live with real order #1367768
+     * (created the day before, callback_at backfilled the next morning).
+     */
+    public function test_a_callback_backfilled_today_on_a_lead_created_yesterday_does_not_show(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'cb-old', 'customer_name' => 'Backfilled From Yesterdays Order',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'pancake_created_at' => now()->subDay(), 'callback_at' => now()->subHour(),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'cb-new', 'customer_name' => 'Todays Own Callback',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'pancake_created_at' => now(), 'callback_at' => now()->subHour(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertDontSee('Backfilled From Yesterdays Order');
+        $response->assertSee('Todays Own Callback');
+    }
+
     public function test_a_leads_phone_number_carries_their_tsas_dialer_host_when_set(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

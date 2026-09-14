@@ -156,9 +156,33 @@ class LeadController extends Controller
         } elseif ($view === 'callbacks') {
             // A TSA promised to call back by a specific time — due now or
             // already past due, not "someday in the future".
+            //
+            // ALSO scoped to today's own pancake_created_at (explicit
+            // report, 2026-09-14: "the callbacks page will be leads today
+            // the is has tag of not answering and unattended") — without
+            // this, an order created YESTERDAY (or longer ago) that only
+            // got its Not Answering/Unattended tag noticed on today's sync
+            // tick still showed up here, since backfillCallbackFromTags()
+            // stamps callback_at = now() the moment it notices the tag, not
+            // backdated to the order's own real date. Confirmed live:
+            // #1367768 (created 2026-09-13 17:04) had callback_at =
+            // 2026-09-14 06:54, landing it in "today's" Callbacks a full
+            // day after the actual order. Same class of bug as the default
+            // Leads view's own pancake_created_at fix just above (this
+            // file's git history) — callback_at answers "when is this due",
+            // pancake_created_at answers "is this actually today's order",
+            // and this view needs both, not just the first.
+            // Fails open for a lead with no pancake_created_at at all (not
+            // yet synced, or manually created) — same "no data one way or
+            // the other is never treated the same as confirmed no longer
+            // relevant" convention as the default Leads view's own fix.
             $query->whereNotNull('callback_at')
                 ->whereBetween('callback_at', [$rangeFrom, $rangeTo])
                 ->where('callback_at', '<=', now())
+                ->where(function ($q) use ($rangeFrom, $rangeTo) {
+                    $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+                        ->orWhereNull('pancake_created_at');
+                })
                 ->orderBy('callback_at');
         }
         // Status filter, brought back (explicit request, 2026-08-21) — the
