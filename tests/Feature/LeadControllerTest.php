@@ -407,6 +407,41 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-14: "when this all product has check in
+     * tsa management it should be like the filter of product in tsa view
+     * is the only checked product" — the Product filter's own option list
+     * for a TSA used to come from Lead::where('tsa_id',...)->distinct()
+     * ->pluck('product_id') (products they'd ALREADY received a lead
+     * for), not TsaShift::products() (TSA Management's own "Handles"
+     * checkboxes, the product_tsa pivot). A product freshly checked for a
+     * TSA in TSA Management had no effect on their own filter until
+     * round-robin happened to hand them a lead for it — confirmed here
+     * that the filter now reflects Handles immediately, with zero leads
+     * received yet.
+     */
+    public function test_a_tsas_product_filter_matches_their_tsa_management_handles_not_their_past_leads(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
+        $scarCream = Product::where('display_name', 'SCAR CREAM')->first();
+
+        // Gemma is only checked for Sinuxyl in TSA Management — Scar Cream
+        // is a different TSA's product, never hers.
+        $gemma->products()->sync([$sinuxyl->id]);
+
+        // Zero leads exist at all — the old distinct-pluck version would
+        // have offered NO products here regardless of Handles.
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma-handles@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $products = collect($response->viewData('products'));
+        $this->assertTrue($products->contains('id', $sinuxyl->id));
+        $this->assertFalse($products->contains('id', $scarCream->id));
+    }
+
+    /**
      * Explicit request, 2026-08-26: "can you make this can filter catered
      * leads or uncatered leads" — same "Catered" language the Call Tracker
      * Dashboard KPI already uses (Lead::where('status', 'called')), added

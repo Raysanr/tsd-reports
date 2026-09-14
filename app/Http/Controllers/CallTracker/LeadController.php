@@ -413,17 +413,24 @@ class LeadController extends Controller
             // query itself would reject" guarantee STATUS_FILTER_VALUES
             // already gives the status filter above. A TSA (explicit
             // follow-up, 2026-09-02: "add product, status, search in the
-            // tsa(normal user) in leads") gets a narrower list scoped to
-            // products actually appearing on THEIR OWN leads, not their
-            // whole team's catalog — an admin's product list can offer
-            // something zero of their currently-visible leads use (they see
-            // the whole team), but a TSA's own queue is small enough that
-            // offering a product with nothing to show would just be
-            // confusing empty options.
+            // tsa(normal user) in leads") gets a narrower list.
+            //
+            // Scoped to TsaShift::products() — TSA Management's own
+            // "Handles" checkboxes (product_tsa pivot) — NOT "products
+            // appearing on their own past leads" (regression fix,
+            // 2026-09-14: "when this all product has check in tsa
+            // management it should be like the filter of product in tsa
+            // view is the only checked product") — the old
+            // Lead-distinct-pluck version only ever reflected products a
+            // TSA had ALREADY received a lead for, so checking a brand-new
+            // product for a TSA in TSA Management had no effect on their
+            // own Product filter until round-robin happened to hand them
+            // one — a real, avoidable lag for something that should be
+            // authoritative and immediate the moment an admin ticks the
+            // checkbox.
             'products'              => $user->isAtLeastAdmin()
                 ? Product::orderBy('sort_order')->when($selectedTeam, fn ($q) => $q->where('team', $selectedTeam))->get()
-                : Product::whereIn('id', Lead::where('tsa_id', $user->tsa_id)->whereNotNull('product_id')->distinct()->pluck('product_id'))
-                    ->orderBy('sort_order')->get(),
+                : $user->tsa->products()->orderBy('sort_order')->get(),
             'selectedProduct'       => $request->integer('product'),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,
