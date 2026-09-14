@@ -19,6 +19,14 @@ use Tests\TestCase;
  * real today since that's what RoundRobinAssigner actually enforces and must
  * never be pointed at a different day/range just because this page's picker
  * is.
+ *
+ * Fixtures set pancake_created_at (not just assigned_at) as of 2026-09-14 —
+ * both leadsAssignedToday()/leadsAssignedBetween() now count by
+ * pancake_created_at instead of assigned_at (explicit report: "for example
+ * this today like is has 8 leads, it should be 8/75 right?" — a mass-dump
+ * incident that same day had left weeks-old backlog orders counted as
+ * "today" purely because their assigned_at got stamped today; see
+ * TsaShift::leadsAssignedToday()'s own comment for the full story).
  */
 class RoundRobinSetupDatePickerTest extends TestCase
 {
@@ -33,8 +41,8 @@ class RoundRobinSetupDatePickerTest extends TestCase
     {
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
-        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
-        Lead::create(['pancake_order_id' => 'yesterday-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subDay()]);
+        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()]);
+        Lead::create(['pancake_order_id' => 'yesterday-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subDay(), 'pancake_created_at' => now()->subDay()]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.round-robin-setup'));
 
@@ -49,9 +57,9 @@ class RoundRobinSetupDatePickerTest extends TestCase
         $gemma      = TsaShift::where('tsa_key', 'Gemma')->first();
         $product    = Product::where('display_name', 'SINUXYL')->first();
         $threeDaysAgo = now()->subDays(3);
-        Lead::create(['pancake_order_id' => 'past-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $threeDaysAgo]);
-        Lead::create(['pancake_order_id' => 'past-2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $threeDaysAgo->copy()->addHour()]);
-        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => 'past-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $threeDaysAgo, 'pancake_created_at' => $threeDaysAgo]);
+        Lead::create(['pancake_order_id' => 'past-2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $threeDaysAgo->copy()->addHour(), 'pancake_created_at' => $threeDaysAgo->copy()->addHour()]);
+        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.round-robin-setup', [
             'date_from' => $threeDaysAgo->toDateString(),
@@ -69,12 +77,12 @@ class RoundRobinSetupDatePickerTest extends TestCase
         $product    = Product::where('display_name', 'SINUXYL')->first();
         $rangeStart = now()->subDays(3);
         $rangeEnd   = now()->subDays(1);
-        Lead::create(['pancake_order_id' => 'range-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart]);
-        Lead::create(['pancake_order_id' => 'range-2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->addDay()]);
-        Lead::create(['pancake_order_id' => 'range-3', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeEnd]);
+        Lead::create(['pancake_order_id' => 'range-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart, 'pancake_created_at' => $rangeStart]);
+        Lead::create(['pancake_order_id' => 'range-2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->addDay(), 'pancake_created_at' => $rangeStart->copy()->addDay()]);
+        Lead::create(['pancake_order_id' => 'range-3', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeEnd, 'pancake_created_at' => $rangeEnd]);
         // Outside the picked range on both ends — must not be counted.
-        Lead::create(['pancake_order_id' => 'before-range', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->subDay()]);
-        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => 'before-range', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => $rangeStart->copy()->subDay(), 'pancake_created_at' => $rangeStart->copy()->subDay()]);
+        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.round-robin-setup', [
             'date_from' => $rangeStart->toDateString(), 'date_to' => $rangeEnd->toDateString(),
@@ -94,12 +102,43 @@ class RoundRobinSetupDatePickerTest extends TestCase
         // 5 leads on a past date — if the picker's date leaked into
         // hasReachedDailyCap(), Gemma would wrongly read as still open today.
         for ($i = 0; $i < 5; $i++) {
-            Lead::create(['pancake_order_id' => "past-{$i}", 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subDays(3)]);
+            Lead::create(['pancake_order_id' => "past-{$i}", 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subDays(3), 'pancake_created_at' => now()->subDays(3)]);
         }
-        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        Lead::create(['pancake_order_id' => 'today-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()]);
 
         $this->actingAs($this->admin())->get(route('calls.round-robin-setup', ['date_from' => now()->subDays(3)->toDateString()]));
 
         $this->assertTrue($gemma->fresh()->hasReachedDailyCap());
+    }
+
+    /**
+     * Regression test, 2026-09-14: "for example this today like is has 8
+     * leads, it should be 8/75 right?" — Lika's real Leads page showed 8
+     * genuine today-created leads, but Leads Setup showed "302/75" because
+     * the OLD assigned_at-based count included 294 weeks-old backlog
+     * orders her catch-up sweep had assigned to her that same day (see
+     * RoundRobinAssigner's own comment for that incident). A lead created
+     * long ago that only got assigned_at stamped today must NOT count
+     * toward "Assigned today" or the cap — only a lead whose underlying
+     * order is genuinely from today should.
+     */
+    public function test_an_old_order_only_assigned_today_does_not_count_toward_assigned_today(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => 'old-order', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()->subDays(30),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'fresh-order', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.round-robin-setup'));
+
+        $response->assertOk();
+        $tsas = collect($response->viewData('tsas'));
+        $this->assertSame(1, $tsas->firstWhere('tsa.tsa_key', 'Gemma')['assigned_today']);
     }
 }

@@ -130,7 +130,7 @@ class RoundRobinAssignerTest extends TestCase
         \App\Models\Lead::create([
             'pancake_order_id' => 'cap-1', 'customer_name' => 'Already Assigned',
             'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
-            'assigned_at' => now(),
+            'assigned_at' => now(), 'pancake_created_at' => now(),
         ]);
 
         // Gemma already has 1 assigned today == her cap of 1 — skipped.
@@ -161,7 +161,7 @@ class RoundRobinAssignerTest extends TestCase
         \App\Models\Lead::create([
             'pancake_order_id' => 'cap-2', 'customer_name' => 'Already Assigned',
             'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
-            'assigned_at' => now(),
+            'assigned_at' => now(), 'pancake_created_at' => now(),
         ]);
 
         // Gemma is capped AND the only one online — no bypass, stays null.

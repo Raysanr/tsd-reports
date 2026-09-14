@@ -148,16 +148,35 @@ class TsaShift extends Model
         return $this->hasOne(User::class, 'tsa_id');
     }
 
-    /** How many leads round-robin has assigned this TSA today — computed
-     *  live off leads.assigned_at rather than a stored counter, so the cap
-     *  resets itself at midnight with no scheduled job needed. Always the
-     *  REAL today, regardless of what range Leads Setup's own date picker
-     *  (see leadsAssignedBetween() below) happens to be showing — this is
-     *  what RoundRobinAssigner::next() actually enforces, so it can never be
-     *  pointed at a different day/range. */
+    /**
+     * How many of this TSA's leads are genuinely FROM today — computed live
+     * off leads.pancake_created_at rather than a stored counter, so the cap
+     * resets itself at midnight with no scheduled job needed.
+     *
+     * Counts by pancake_created_at, NOT assigned_at (regression fix,
+     * 2026-09-14: "for example this today like is has 8 leads, it should
+     * be 8/75 right?") — confirmed live: Lika's Leads page (today's
+     * uncatered queue) showed 8 real leads, but Leads Setup showed
+     * "302/75," because the OLD assigned_at-based count included 294
+     * weeks-old backlog orders her catch-up sweep had assigned to her
+     * during the same-day mass-dump incident (see c2d61eb's own commit for
+     * that incident's root cause) — those orders' assigned_at was today
+     * even though the order itself was created back in August. The cap
+     * exists to limit a TSA's REAL daily workload of fresh orders, not to
+     * count every historical backlog lead that happens to get touched
+     * today; this now matches the same pancake_created_at-based "is this
+     * actually today's order" definition already used everywhere else this
+     * session (LeadController::index()'s Leads/Overdue/Callbacks views,
+     * NotificationController::counts()'s badges).
+     *
+     * Always the REAL today, regardless of what range Leads Setup's own
+     * date picker (see leadsAssignedBetween() below) happens to be
+     * showing — this is what RoundRobinAssigner::next() actually enforces,
+     * so it can never be pointed at a different day/range.
+     */
     public function leadsAssignedToday(): int
     {
-        return $this->leads()->whereDate('assigned_at', today())->count();
+        return $this->leads()->whereDate('pancake_created_at', today())->count();
     }
 
     /** Same idea as leadsAssignedToday(), for an arbitrary date range — Leads
@@ -168,11 +187,14 @@ class TsaShift extends Model
      *  days regardless of whatever time-of-day they carry in. Never used for
      *  actual round-robin enforcement (that's always leadsAssignedToday()/
      *  hasReachedDailyCap(), hardcoded to today) — this is a read-only
-     *  historical view only. */
+     *  historical view only. Scoped to pancake_created_at too, same
+     *  2026-09-14 fix as leadsAssignedToday() above, so a picked range keeps
+     *  meaning "orders from these days," not "whatever got touched during
+     *  these days." */
     public function leadsAssignedBetween(\Illuminate\Support\Carbon $from, \Illuminate\Support\Carbon $to): int
     {
         return $this->leads()
-            ->whereBetween('assigned_at', [$from->copy()->startOfDay(), $to->copy()->endOfDay()])
+            ->whereBetween('pancake_created_at', [$from->copy()->startOfDay(), $to->copy()->endOfDay()])
             ->count();
     }
 

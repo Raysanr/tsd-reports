@@ -228,17 +228,34 @@ class DashboardController extends Controller
         // — an admin spotted this table's Total Leads disagreeing with Leads
         // Setup's own "Assigned Today" for the same TSA/day): a per-TSA
         // breakdown is inherently "what did round-robin actually hand this
-        // TSA," the same question TsaShift::leadsAssignedToday() (Leads
-        // Setup's daily-cap column) and AnalyticsController's own $rows
-        // already answer with assigned_at — pancake_created_at answers a
-        // different question ("when did the underlying Pancake order get
-        // created"), which is what the aggregate Total Leads Today KPI card
-        // above deliberately uses instead (it wants to count everything,
+        // TSA," the same question AnalyticsController's own $rows answers
+        // with assigned_at — pancake_created_at answers a different
+        // question ("when did the underlying Pancake order get created"),
+        // which is what the aggregate Total Leads Today KPI card above
+        // deliberately uses instead (it wants to count everything,
         // including still-unassigned leads with no assigned_at at all — see
         // that card's own comment). Catered is derived from this SAME
         // assigned_at-scoped set (status now 'called'), matching Analytics'
         // own 'called' definition exactly, rather than an independently
         // called_at-scoped query that could disagree with Analytics too.
+        //
+        // KNOWN, ACCEPTED divergence from Leads Setup as of 2026-09-14:
+        // TsaShift::leadsAssignedToday()/leadsAssignedBetween() were
+        // changed to count by pancake_created_at instead (explicit report:
+        // "for example this today like is has 8 leads, it should be
+        // 8/75 right?" — a mass-dump incident that same day, see
+        // c2d61eb/RoundRobinAssigner's own comment, had left weeks-old
+        // backlog orders counted as "today" purely because their
+        // assigned_at got stamped today). This table was NOT updated to
+        // match — explicit decision, same day, to keep this fix narrowly
+        // scoped to the Leads Setup cap column rather than also changing
+        // Dashboard/Analytics numbers people are already used to. This
+        // table now deliberately answers "how much did round-robin hand
+        // this TSA today" (workload received) while Leads Setup answers
+        // "how many of today's fresh orders has this TSA gotten" (cap
+        // against new work) — two different, both valid questions that
+        // happen to read the same in the common case (no backlog sweep
+        // touching old orders) but will differ whenever one does.
         $tsaIds  = $tsas->pluck('id');
         $tsaKeys = $tsas->pluck('tsa_key');
 
