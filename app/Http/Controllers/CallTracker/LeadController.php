@@ -248,21 +248,34 @@ class LeadController extends Controller
         // date does. An explicit date_from/date_to pick still overrides this
         // and can widen the window to any past day on purpose.
         //
-        // Filters on COALESCE(assigned_at, pancake_created_at) rather than
-        // plain pancake_created_at (root-caused 2026-08-15: the sidebar
-        // badge and Leads Setup both count "assigned today" via assigned_at,
-        // but this list was filtering by creation date — a lead created
-        // yesterday and picked up by round-robin TODAY showed in the
-        // badge's "17" but not in this filtered list's "7"). A lead with
-        // neither set at all (no real sync data) still shows — fail-open,
-        // same convention used elsewhere in this method, rather than hiding
-        // something we can't actually judge.
+        // Filters on plain pancake_created_at, NOT COALESCE(assigned_at,
+        // pancake_created_at) — regression fix, 2026-09-14: "i want only to
+        // make it only today leads in every day... that is working before."
+        // The COALESCE version (introduced 56f3b36, kept through f0dc3c9's
+        // own rewrite despite that commit's stated rule being creation date
+        // only) let the round-robin catch-up sweep (SyncPancakeLeads, "leads
+        // that piled up as unassigned get automatically swept up... as soon
+        // as someone logs in") make a WEEKS-old order reappear in today's
+        // queue the moment it finally got assigned — confirmed live:
+        // #1347666/#1347647, created 2026-08-11, assigned to Gemma on
+        // 2026-09-14, several already Received/Returned in Pancake. That
+        // directly contradicted f0dc3c9's own rule ("all of the newly
+        // created order in the POS should be only in today") which this
+        // COALESCE fallback had quietly overridden. The badge/Leads Setup
+        // mismatch 56f3b36 fixed is a SEPARATE concern (how many leads got
+        // assigned today, for a counter) from this queue (which orders a TSA
+        // should be working right now) — conflating the two was the bug.
+        //
+        // Still fails open for a lead with NO pancake_created_at at all
+        // (same convention as f0dc3c9's own "no data one way or the other is
+        // never treated the same as confirmed no longer relevant") — this is
+        // distinct from the bug above: a genuinely-null creation date means
+        // "we don't know", whereas the bug was treating a known-old date as
+        // if it were today just because assigned_at happened to be today.
         if (!$view) {
             $query->where(function ($q) use ($rangeFrom, $rangeTo) {
-                $q->whereRaw('COALESCE(assigned_at, pancake_created_at) BETWEEN ? AND ?', [$rangeFrom, $rangeTo])
-                    ->orWhere(function ($q2) {
-                        $q2->whereNull('assigned_at')->whereNull('pancake_created_at');
-                    });
+                $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+                    ->orWhereNull('pancake_created_at');
             });
         }
 

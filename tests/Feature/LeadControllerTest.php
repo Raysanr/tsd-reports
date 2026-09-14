@@ -147,6 +147,39 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-14: "i want only to make it only today
+     * leads in every day, fix it. that is working before" — a weeks-old
+     * order (created 2026-08-11) that only got ROUND-ROBIN ASSIGNED today,
+     * via SyncPancakeLeads' catch-up sweep of previously-unassigned leads,
+     * was reappearing in the default Leads view because the filter used
+     * COALESCE(assigned_at, pancake_created_at) instead of plain
+     * pancake_created_at — confirmed live with real orders #1347666/
+     * #1347647, several already Received/Returned in Pancake. This
+     * directly contradicted f0dc3c9's own stated rule ("all of the newly
+     * created order in the POS should be only in today"), which that
+     * COALESCE fallback had quietly overridden for any lead that happened
+     * to get assigned today regardless of how old it actually was.
+     */
+    public function test_a_lead_only_assigned_today_but_created_long_ago_does_not_show(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => '1', 'customer_name' => 'Old Order Assigned Today',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'pancake_created_at' => '2026-08-11 10:00:00', 'assigned_at' => now(),
+        ]);
+
+        $admin = User::create(['name' => 'Admin', 'email' => 'admin-date4@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertDontSee('Old Order Assigned Today');
+    }
+
+    /**
      * A TSA changing an order's status after a call (Ordered, Awaiting
      * Stock, Confirmed, etc.) must never make the lead disappear from
      * their own queue — explicit correction, 2026-08-26, of an earlier
