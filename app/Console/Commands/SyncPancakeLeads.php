@@ -377,26 +377,51 @@ class SyncPancakeLeads extends Command
      * check), so a TSA logging in later never triggered a retry for
      * anything already pulled in. This re-attempts round-robin for every
      * still-unassigned local lead with a matched product, oldest first,
-     * every run (same 1-minute cadence as the rest of this command) — the
-     * moment ANY TSA logs in for that product, whatever piled up overnight
-     * gets swept up and FAIRLY DIVIDED across however many TSAs are now
-     * eligible, via the exact same per-product RoundRobinAssigner::next()
-     * rotation a brand-new lead already uses: each call advances that
-     * product's own round_robin_states pointer, so e.g. 6 backlog leads
-     * with 2 TSAs now online split 3/3 via the normal rotation, not all
-     * landing on whichever TSA happened to log in first.
+     * every run — the moment ANY TSA logs in for that product, whatever
+     * piled up overnight gets swept up and FAIRLY DIVIDED across however
+     * many TSAs are now eligible, via the exact same per-product
+     * RoundRobinAssigner::next() rotation a brand-new lead already uses:
+     * each call advances that product's own round_robin_states pointer, so
+     * e.g. 6 backlog leads with 2 TSAs now online split 3/3 via the normal
+     * rotation, not all landing on whichever TSA happened to log in first
+     * (explicit follow-up, 2026-09-14: "i want in all tsa when they are
+     * login and has same product it should be like equally divided of
+     * leads" — confirmed this is exactly what the rotation already does;
+     * BATCH_LIMIT below only bounds how MANY leads get processed per run,
+     * never changes the turn-by-turn fairness of who receives each one).
      *
      * A lead with no matched product (product_id null) is skipped — there's
      * no rotation to retry it against; that's a separate, pre-existing gap
      * (see the main loop's own "$product ? ... : 'unassigned'" branch),
      * unrelated to the login-timing problem this catch-up fixes.
+     *
+     * Bounded to BATCH_LIMIT oldest leads per run (regression fix,
+     * 2026-09-14: "why mariel is currently online today but no leads" —
+     * root-caused: this method used to process the ENTIRE unassigned
+     * backlog every run with no limit; after the sub-minute leads loop
+     * (2026-09-12) started running it every ~15s, and a mass-dump
+     * incident (2026-09-14, see RoundRobinAssigner's own comment) grew the
+     * backlog to 6,940 unassigned leads, a single run's real cost —
+     * dominated by tagTsaOnPancakeOrder()'s live Pancake API call per
+     * SUCCESSFUL assignment, not the cheap DB filtering of the rest —
+     * started taking minutes. Confirmed live via leads-loop.log: every
+     * tick after the first showed "A sync is already running — skipping,"
+     * for 3+ minutes straight, so Mariel (correctly eligible, confirmed
+     * directly via RoundRobinAssigner::next()) simply hadn't been reached
+     * by the one giant slow-running sweep yet. Processing oldest-first in
+     * bounded batches means each run finishes well within the loop's own
+     * interval, and the backlog clears gradually over many ticks instead
+     * of blocking every product's assignment behind one massive run.
      */
+    private const CATCH_UP_BATCH_LIMIT = 200;
+
     private function catchUpUnassignedLeads(): int
     {
         $leads = Lead::where('status', 'unassigned')
             ->whereNotNull('product_id')
             ->with('product')
             ->orderBy('pancake_created_at')
+            ->limit(self::CATCH_UP_BATCH_LIMIT)
             ->get();
 
         $caughtUp = 0;

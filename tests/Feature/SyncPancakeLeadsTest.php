@@ -328,6 +328,66 @@ class SyncPancakeLeadsTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-14: "why mariel is currently online today
+     * but no leads" — root-caused: the catch-up sweep used to process
+     * EVERY unassigned lead with no limit, and after a backlog grew to
+     * thousands of leads (a mass-dump incident the same day, see
+     * RoundRobinAssigner's own comment), a single run's real cost —
+     * dominated by tagTsaOnPancakeOrder()'s live Pancake API call per
+     * successful assignment — started taking minutes, so most sync ticks
+     * just skipped with "already running" and round-robin couldn't reach
+     * every eligible TSA in a timely way. Bounded to
+     * SyncPancakeLeads::CATCH_UP_BATCH_LIMIT oldest leads per run instead —
+     * confirmed here that with a backlog bigger than the batch limit, only
+     * the oldest ones get swept up in one run, and the normal round-robin
+     * rotation still divides them fairly among whoever's eligible within
+     * that batch (explicit follow-up, same conversation: "i want in all
+     * tsa when they are login and has same product it should be like
+     * equally divided of leads" — confirmed this fairness is unaffected by
+     * the batch limit, only how MANY get processed per run changes).
+     */
+    public function test_the_catch_up_sweep_is_bounded_to_a_batch_and_still_divides_fairly(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
+
+        // More unassigned leads than the batch limit, oldest first.
+        $total = 210;
+        for ($i = 0; $i < $total; $i++) {
+            Lead::create([
+                'pancake_order_id' => "batch-{$i}", 'customer_name' => "Backlog {$i}",
+                'product_id' => $product->id, 'status' => 'unassigned',
+                'pancake_created_at' => now()->subDays(2)->addMinutes($i),
+            ]);
+        }
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $assignedCount = Lead::whereIn('pancake_order_id', array_map(fn ($i) => "batch-{$i}", range(0, $total - 1)))
+            ->where('status', 'assigned')->count();
+
+        // Only up to the batch limit got processed this run — the rest
+        // stay unassigned, waiting for the next tick.
+        $this->assertLessThanOrEqual(200, $assignedCount);
+        $this->assertGreaterThan(0, $assignedCount);
+
+        // The oldest ones (lowest index) are the ones that got processed —
+        // still oldest-first within the batch, same fairness ordering as
+        // before.
+        $this->assertSame('assigned', Lead::where('pancake_order_id', 'batch-0')->first()->status);
+
+        // Normal round-robin rotation still divides the processed batch
+        // between both eligible TSAs, not all landing on one.
+        $gemmaCount  = Lead::where('tsa_id', $gemma->id)->whereIn('pancake_order_id', array_map(fn ($i) => "batch-{$i}", range(0, $total - 1)))->count();
+        $marielCount = Lead::where('tsa_id', $mariel->id)->whereIn('pancake_order_id', array_map(fn ($i) => "batch-{$i}", range(0, $total - 1)))->count();
+        $this->assertGreaterThan(0, $gemmaCount);
+        $this->assertGreaterThan(0, $marielCount);
+    }
+
+    /**
      * Root-caused 2026-09-08 (explicit request: "all of the leads in the pos
      * that has unattended and not answering tag is should be display in the
      * callbacks page") — a lead someone tagged "Not Answering"/"Unattended"
