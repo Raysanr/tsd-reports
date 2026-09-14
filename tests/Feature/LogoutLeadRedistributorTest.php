@@ -241,4 +241,110 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
+
+    /**
+     * Regression test, 2026-09-14: "i think there's a leads that is
+     * removed like that, and there's slow in some tsa... i want you to
+     * dig on that if there's a bug like that" — root-caused live: Angel
+     * Margallo, checked in TSA Management for only AudiCure/Ginseng
+     * Serum/Scar Cream/Scar Erase, received 18 Pterylief leads (a product
+     * she has never been checked for) because she was the only TSA online
+     * when a Pterylief-roster teammate logged out with them still
+     * uncalled — the pre-fix "any online TSA, regardless of product
+     * setup" rule handed them to her anyway. Explicit confirmation: "keep
+     * it, but only hand off to a teammate who handles that product." This
+     * proves tier 1 (same team, checked for this product) is preferred
+     * over a same-team teammate who ISN'T checked for it, even though the
+     * old code would have picked either one interchangeably.
+     */
+    public function test_prefers_a_same_team_teammate_who_actually_handles_the_leads_product(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();  // SH Naturals
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals — checked for Sinuxyl
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first(); // SH Naturals — NOT checked for Sinuxyl
+        $mariel->update(['status' => 'login']);
+        $kathleen->update(['status' => 'login']);
+        $mariel->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
+        $kathleen->products()->sync([]);
+
+        $lead = $this->leadFor($gemma); // Sinuxyl product, per leadFor()'s own default
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
+        $this->assertStringNotContainsString('fallback', $activity->description);
+    }
+
+    /** When NOBODY same-team is checked for the lead's product, tier 2
+     *  (same team, any product) still wins over jumping straight to
+     *  cross-team — same-team always stays the first choice, only the
+     *  PRODUCT preference is new, not the team preference. */
+    public function test_falls_back_to_a_same_team_teammate_of_any_product_before_trying_cross_team(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();  // SH Naturals
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals — not checked for Sinuxyl
+        $julie  = TsaShift::where('tsa_key', 'Julie')->first();  // Eyecare Team — checked for Sinuxyl
+        $mariel->update(['status' => 'login']);
+        $julie->update(['status' => 'login']);
+        $mariel->products()->sync([]);
+        $julie->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        // Same-team Mariel wins even though cross-team Julie is actually
+        // checked for this product — team match still outranks product
+        // match, product only breaks ties WITHIN the same tier.
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
+        $this->assertStringContainsString('same-team fallback', $activity->description);
+    }
+
+    /** When same team has nobody at all, cross-team still prefers a
+     *  teammate who's actually checked for the product over one who
+     *  isn't, same product-first ordering as the same-team tiers. */
+    public function test_prefers_a_cross_team_teammate_who_handles_the_product_when_same_team_has_nobody(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — checked for Sinuxyl
+        $joana = TsaShift::where('tsa_key', 'Joana')->first(); // Eyecare Team — NOT checked
+        $julie->update(['status' => 'login']);
+        $joana->update(['status' => 'login']);
+        $julie->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
+        $joana->products()->sync([]);
+        // Every other SH Naturals TSA logged out — nobody on her own team.
+        TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($julie->id, $lead->fresh()->tsa_id);
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
+        $this->assertStringContainsString('cross-team match', $activity->description);
+    }
+
+    /** Absolute last resort (tier 4, the original pre-fix behavior) still
+     *  applies when NOBODY anywhere — same team or cross-team — is
+     *  checked for the product: any online teammate, regardless of
+     *  product setup, same "someone answers the phone" reasoning as
+     *  before this fix. */
+    public function test_falls_back_to_any_cross_team_teammate_when_nobody_anywhere_handles_the_product(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — not checked for Sinuxyl
+        $julie->update(['status' => 'login']);
+        $julie->products()->sync([]);
+        TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($julie->id, $lead->fresh()->tsa_id);
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
+        $this->assertStringContainsString('cross-team fallback', $activity->description);
+    }
 }
