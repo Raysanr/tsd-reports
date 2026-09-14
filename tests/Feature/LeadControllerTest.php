@@ -105,6 +105,32 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Todays Own Callback');
     }
 
+    /**
+     * Regression test, 2026-09-14: "the call backs has no tsa filter
+     * because it should be visible to all tsa" — a normal TSA user saw
+     * their own name/avatar pinned as a static badge on the Callbacks
+     * page, implying the list was scoped to just them, even though
+     * LeadController::index() already returns every TSA's due callbacks
+     * on this view (2026-09-08 decision). The badge is correct on the
+     * default Leads view (a TSA genuinely only sees their own queue
+     * there) but was misleading on Callbacks specifically.
+     */
+    public function test_a_tsas_own_name_badge_does_not_show_on_the_callbacks_view(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-badge@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $callbacksResponse = $this->actingAs($gemmaUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+        $callbacksResponse->assertOk();
+        $callbacksResponse->assertDontSee('data-own-tsa-badge', false);
+
+        // Still shows on the default Leads view — this view genuinely is
+        // scoped to just this TSA's own queue, so the badge stays accurate.
+        $leadsResponse = $this->actingAs($gemmaUser)->get(route('calls.leads.index'));
+        $leadsResponse->assertOk();
+        $leadsResponse->assertSee('data-own-tsa-badge', false);
+    }
+
     public function test_a_leads_phone_number_carries_their_tsas_dialer_host_when_set(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

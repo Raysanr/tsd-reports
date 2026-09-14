@@ -414,7 +414,7 @@
         ])
         @endif
 
-        @if(!auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
+        @if($view !== 'callbacks' && !auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
         {{-- A logged-in TSA sees their own name here, same avatar+name shape
              as the admin Team/TSA dropdowns above minus the chevron/click
              handler — explicit request, 2026-08-26: "the one tsa can only
@@ -424,8 +424,18 @@
              LeadController::index()), so this stays as a static label
              while Product/Status/Search below are no longer admin-only
              (explicit follow-up, 2026-09-02: "add product, status, search
-             in the tsa(normal user) in leads"). --}}
-        <div class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
+             in the tsa(normal user) in leads").
+             $view !== 'callbacks' excludes this badge on Callbacks (explicit
+             report, 2026-09-14: "the call backs has no tsa filter because it
+             should be visible to all tsa") — unlike every other view,
+             Callbacks is deliberately shared across every TSA (2026-09-08
+             decision, LeadController::index()'s own comment on the
+             $view === 'callbacks' branch), so a TSA is NOT scoped to only
+             their own queue here. Showing this TSA's own name/avatar as if
+             it narrowed the list was misleading — the list underneath
+             already includes every TSA's due callbacks regardless of what
+             this badge said. --}}
+        <div data-own-tsa-badge class="inline-flex items-center gap-2 text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
             <span class="w-5 h-5 rounded-full bg-slate-800 dark:bg-slate-700 text-white flex items-center justify-center text-[9px] font-bold shrink-0">{{ strtoupper(substr(auth()->user()->tsa->display_name, 0, 2)) }}</span>
             <span>{{ auth()->user()->tsa->display_name }}</span>
         </div>
