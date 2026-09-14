@@ -58,26 +58,30 @@ class LeadController extends Controller
     }
 
     /**
-     * Read-only viewing permission for show()/history() ONLY — every write
-     * action (updateDisposition, togglePin, transfer, etc.) keeps its own
-     * plain "admin or the owning TSA" check unchanged, since loosening
-     * those wasn't part of this request and has real consequences (e.g.
-     * letting any TSA log an outcome on someone else's lead).
+     * The one access check for every per-lead action in this controller —
+     * viewing (show/history) AND every write (disposition, tags, delivery,
+     * upsell, recordings, etc.). Explicit report, 2026-09-14: opening a
+     * lead from the Callbacks page threw "Could not load this lead — try
+     * again." for a normal TSA whenever the callback belonged to a
+     * DIFFERENT TSA (first fixed for viewing only, f7761b4); immediate
+     * follow-up — "it should be like this view in callbacks in all tsa,"
+     * confirmed explicitly to mean full edit access too, not just
+     * read-only — extended the same exception to every write action.
      *
-     * Explicit report, 2026-09-14: opening a lead's detail from the
-     * Callbacks page threw "Could not load this lead — try again." for a
-     * normal TSA whenever the callback belonged to a DIFFERENT TSA. The
-     * plain ownership check correctly protects a TSA's own private Leads
-     * queue, but directly contradicted Callbacks being deliberately shared
-     * team knowledge across every TSA (2026-09-08 decision, reinforced by
-     * 1a85e7c's own TSA-filter removal that same reasoning) — a TSA needs
-     * to be able to open ANY due callback to see its notes/history and
-     * actually call it, not just their own. A lead currently carrying a
-     * due callback_at (same "due now or already past due" definition
-     * index()'s own Callbacks branch uses) is viewable by any TSA; every
-     * other lead stays scoped to its owner, same as before.
+     * The plain "admin or the owning TSA" rule correctly protects a TSA's
+     * own private Leads queue, but directly contradicted Callbacks being
+     * deliberately shared team knowledge across every TSA (2026-09-08
+     * decision, reinforced by 1a85e7c's own TSA-filter removal on the same
+     * reasoning): whoever picks up a shared callback needs to be able to
+     * actually log the call, add tags, and edit delivery on it, not just
+     * look at it. A lead currently carrying a due callback_at (same "due
+     * now or already past due" definition index()'s own Callbacks branch
+     * uses) is now fully manageable by any TSA; every other lead stays
+     * scoped to its owner, same as before. _detail.blade.php's own
+     * $canManage flag mirrors this exact same rule so the modal's edit
+     * controls and the backend that actually enforces them never disagree.
      */
-    private function canView(Lead $lead, $user): bool
+    private function canAccess(Lead $lead, $user): bool
     {
         if ($user->isAtLeastAdmin() || $lead->tsa_id === $user->tsa_id) {
             return true;
@@ -475,7 +479,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$this->canView($lead, $user)) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -507,7 +511,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$this->canView($lead, $user)) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -527,7 +531,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -680,7 +684,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -714,7 +718,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -830,7 +834,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -870,7 +874,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -901,7 +905,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -954,7 +958,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -989,7 +993,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1034,7 +1038,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1080,7 +1084,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1130,7 +1134,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1177,7 +1181,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1201,7 +1205,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1245,7 +1249,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1256,7 +1260,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1269,7 +1273,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1295,7 +1299,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1399,7 +1403,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1451,7 +1455,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1482,7 +1486,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 
@@ -1499,7 +1503,7 @@ class LeadController extends Controller
 
         // A TSA can only log outcomes on their own leads; an admin can log
         // on behalf of any TSA (e.g. correcting a mis-logged call).
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canAccess($lead, $user)) {
             abort(403);
         }
 

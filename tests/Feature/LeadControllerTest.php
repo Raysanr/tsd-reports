@@ -608,12 +608,15 @@ class LeadControllerTest extends TestCase
      * this lead — try again.") — opening a lead's detail from the
      * Callbacks page threw a 403 whenever the callback belonged to a
      * DIFFERENT TSA, contradicting Callbacks being deliberately shared
-     * team knowledge across every TSA. A TSA can now VIEW any lead with a
-     * currently-due callback_at even when it's not theirs — but editing
-     * stays exactly as restricted as before (see the disposition test
-     * just above, unaffected by this change).
+     * team knowledge across every TSA. First fixed for viewing only
+     * (f7761b4); immediate follow-up the same day — "it should be like
+     * this view in callbacks in all tsa," confirmed explicitly to mean
+     * full edit access too — extended canAccess() to every write action as
+     * well, so a TSA can now both view AND fully manage (log an outcome
+     * on) any lead with a currently-due callback_at, even when it's not
+     * theirs.
      */
-    public function test_a_tsa_can_view_but_not_edit_another_tsas_due_callback(): void
+    public function test_a_tsa_can_view_and_edit_another_tsas_due_callback(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
@@ -629,10 +632,9 @@ class LeadControllerTest extends TestCase
         $showResponse->assertOk();
         $showResponse->assertSee('Mariels Callback');
 
-        // Still can't edit it — the ownership guard on write actions is
-        // completely unchanged by this fix.
         $editResponse = $this->actingAs($gemmaUser)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Confirmed']);
-        $editResponse->assertForbidden();
+        $editResponse->assertRedirect();
+        $this->assertSame('Confirmed', $lead->fresh()->disposition);
     }
 
     /** A lead with no due callback (plain unassigned-to-this-TSA lead, not

@@ -13,7 +13,19 @@
      synced locally yet — the card just falls back to the Product catalog name
      with no price rather than erroring. --}}
 @php
-    $canManage = auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id;
+    // A due callback is fully manageable by ANY TSA, not just its owner
+    // (explicit follow-up, 2026-09-14: "it should be like this view in
+    // callbacks in all tsa" — a TSA opening a shared callback from the
+    // Callbacks page should see the exact same fully-editable modal shown
+    // here, able to log the call/add tags/edit delivery/Save, not a
+    // stripped-down read-only version). Matches
+    // LeadController::canView()'s own definition of "due" exactly — same
+    // callback_at not null && <= now() check index()'s Callbacks branch
+    // uses — so a lead is either fully manageable here or not viewable at
+    // all via show()/history(), never a confusing in-between.
+    $canManage = auth()->user()->isAtLeastAdmin()
+        || $lead->tsa_id === auth()->user()->tsa_id
+        || ($lead->callback_at !== null && $lead->callback_at->lte(now()));
     $statusStyles = [
         'called'     => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
         'assigned'   => 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-400',
