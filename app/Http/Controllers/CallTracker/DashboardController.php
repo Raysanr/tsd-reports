@@ -224,43 +224,43 @@ class DashboardController extends Controller
         // in-memory per TSA below (same pattern AnalyticsController's own
         // $rows uses) rather than N+1 queries per roster row.
         //
-        // Anchored on assigned_at, NOT pancake_created_at (fixed 2026-08-18
-        // — an admin spotted this table's Total Leads disagreeing with Leads
-        // Setup's own "Assigned Today" for the same TSA/day): a per-TSA
-        // breakdown is inherently "what did round-robin actually hand this
-        // TSA," the same question AnalyticsController's own $rows answers
-        // with assigned_at — pancake_created_at answers a different
-        // question ("when did the underlying Pancake order get created"),
-        // which is what the aggregate Total Leads Today KPI card above
-        // deliberately uses instead (it wants to count everything,
-        // including still-unassigned leads with no assigned_at at all — see
-        // that card's own comment). Catered is derived from this SAME
-        // assigned_at-scoped set (status now 'called'), matching Analytics'
-        // own 'called' definition exactly, rather than an independently
-        // called_at-scoped query that could disagree with Analytics too.
+        // Anchored on pancake_created_at, NOT assigned_at (changed
+        // 2026-09-14 — reversal of the 2026-08-18 fix below; explicit
+        // report: "in the dashboard today it is not accurate to today
+        // leads" — confirmed live: this table showed Gemma at 1336 Total
+        // Leads, which was the same weeks-old-backlog-counted-as-today
+        // inflation TsaShift::leadsAssignedToday() had (see that method's
+        // own 2026-09-14 fix comment for the full incident) — this table
+        // had been deliberately exempted from that same-day fix as a
+        // "known, accepted divergence," but that divergence itself turned
+        // out to be the bug being reported, not a legitimate difference.
+        // Now matches Leads Setup, the Leads/Overdue/Callbacks views, and
+        // the sidebar badges: "today" means the underlying Pancake order
+        // was actually created today, not merely touched by round-robin
+        // today.
         //
-        // KNOWN, ACCEPTED divergence from Leads Setup as of 2026-09-14:
-        // TsaShift::leadsAssignedToday()/leadsAssignedBetween() were
-        // changed to count by pancake_created_at instead (explicit report:
-        // "for example this today like is has 8 leads, it should be
-        // 8/75 right?" — a mass-dump incident that same day, see
-        // c2d61eb/RoundRobinAssigner's own comment, had left weeks-old
-        // backlog orders counted as "today" purely because their
-        // assigned_at got stamped today). This table was NOT updated to
-        // match — explicit decision, same day, to keep this fix narrowly
-        // scoped to the Leads Setup cap column rather than also changing
-        // Dashboard/Analytics numbers people are already used to. This
-        // table now deliberately answers "how much did round-robin hand
-        // this TSA today" (workload received) while Leads Setup answers
-        // "how many of today's fresh orders has this TSA gotten" (cap
-        // against new work) — two different, both valid questions that
-        // happen to read the same in the common case (no backlog sweep
-        // touching old orders) but will differ whenever one does.
+        // Original 2026-08-18 reasoning, now superseded: this was
+        // originally anchored on assigned_at specifically because an admin
+        // had spotted it disagreeing with Leads Setup's own "Assigned
+        // Today" for the same TSA/day, and assigned_at was AnalyticsController's
+        // own $rows definition too. AnalyticsController's own $rows is
+        // UNCHANGED by this fix (still assigned_at-based) — flagged here
+        // as a remaining, separate divergence, not silently touched.
+        // pancake_created_at is what the aggregate Total Leads Today KPI
+        // card above already uses (it wants to count everything, including
+        // still-unassigned leads with no assigned_at at all — see that
+        // card's own comment), so this table's own Total Leads now agrees
+        // with that KPI card too, not just Leads Setup. Catered is derived
+        // from this SAME pancake_created_at-scoped set (status now
+        // 'called') — a lead called today whose order is from an earlier
+        // day still counts as Catered here (an old backlog lead someone
+        // finally worked IS real completed work), only Total Leads itself
+        // needed the "is this actually today's order" scoping.
         $tsaIds  = $tsas->pluck('id');
         $tsaKeys = $tsas->pluck('tsa_key');
 
         $perfLeads = Lead::whereIn('tsa_id', $tsaIds)
-            ->whereBetween('assigned_at', [$dateFrom, $dateTo])->get();
+            ->whereBetween('pancake_created_at', [$dateFrom, $dateTo])->get();
         $perfRecordingHours = CallRecordingHour::whereIn('tsa_key', $tsaKeys)
             ->whereDate('date', '>=', $dateFrom)
             ->whereDate('date', '<=', $dateTo)

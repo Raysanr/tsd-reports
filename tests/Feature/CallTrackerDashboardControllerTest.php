@@ -112,6 +112,41 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertSame(2, $response->viewData('totalLeads'));
     }
 
+    /**
+     * Regression test, 2026-09-14: "in the dashboard today it is not
+     * accurate to today leads" — the TSA Performance Overview table's own
+     * Total Leads column used to be anchored on assigned_at, so a
+     * weeks-old order that only got assigned_at stamped today (via
+     * SyncPancakeLeads' catch-up sweep) inflated a TSA's row the same way
+     * it inflated Leads Setup's cap counter before that same-day fix (see
+     * TsaShift::leadsAssignedToday()'s own comment) — confirmed live:
+     * Gemma showed 1336 Total Leads here. Now anchored on
+     * pancake_created_at like everything else this session, so an old
+     * order freshly assigned today does NOT count toward this table's
+     * Total Leads, only a genuinely today-created one does.
+     */
+    public function test_tsa_performance_table_total_leads_excludes_an_old_order_assigned_today(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'old-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now()->subDays(30),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'fresh-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now(), 'pancake_created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $tsaPerformance = collect($response->viewData('tsaPerformance'));
+        $gemmaRow = $tsaPerformance->firstWhere(fn ($row) => $row['tsa']->tsa_key === 'Gemma');
+        $this->assertSame(1, $gemmaRow['totalLeads']);
+    }
+
     /** Mirrors RoundRobinAssigner's own eligibility rule (active + status
      *  login) — a product flagged here is one that same rule would
      *  currently return null for. */
