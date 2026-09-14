@@ -50,16 +50,26 @@ class RoundRobinAssigner
      *  by that timer. */
     public static function next(Product $product): ?TsaShift
     {
-        $roster = $product->tsas()->where('active', true)
+        $onlineRoster = $product->tsas()->where('active', true)
             ->whereIn('status', self::ELIGIBLE_STATUSES)
-            ->get()
-            // A TSA who's hit their daily_lead_cap (Leads Setup page)
-            // is logged in and otherwise eligible, but shouldn't receive any
-            // more today — same "leave it unassigned rather than guess"
-            // fallback as an empty roster if everyone left is capped.
-            ->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap())
-            ->values();
-        if ($roster->isEmpty()) return null;
+            ->get();
+        if ($onlineRoster->isEmpty()) return null;
+
+        // A TSA who's hit their daily_lead_cap (Leads Setup page) is logged
+        // in and otherwise eligible, but shouldn't receive any more today —
+        // UNLESS excluding every capped TSA would leave nobody left at all
+        // (explicit follow-up, 2026-09-14: "if gemma the one and only
+        // online should be all of the leads will be in her right?" —
+        // confirmed live: Gemma alone online, capped at 75/75, left 116
+        // real leads sitting unassigned with nobody else able to take
+        // them). The cap exists to protect a TSA from being overloaded
+        // while OTHERS could pick up the slack — it was never meant to
+        // leave leads stuck when there's nobody else to give them to. So:
+        // filter capped TSAs out first, same as before; only fall back to
+        // the full online roster (cap ignored) if that filter would empty
+        // it, i.e. every online TSA for this product is capped.
+        $uncapped = $onlineRoster->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap());
+        $roster   = ($uncapped->isEmpty() ? $onlineRoster : $uncapped)->values();
 
         $state = RoundRobinState::firstOrCreate(['product_id' => $product->id]);
 
