@@ -74,6 +74,46 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-14: "the callbacks should be no tsa filter
+     * because it should be visible to all users so you can remove the tsa
+     * filter in the callbacks" — an admin could previously still narrow
+     * the shared Callbacks queue down to one TSA via ?tsa=, silently
+     * hiding every other TSA's due callbacks, the exact problem the
+     * 2026-09-08 fix above was meant to solve for the default view in the
+     * first place. ?tsa= is now ignored entirely on this view.
+     */
+    public function test_the_tsa_param_is_ignored_on_the_callbacks_view(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'cb-3', 'customer_name' => 'Gemma Callback Two',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'cb-4', 'customer_name' => 'Mariel Callback Two',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+
+        // An admin explicitly picking ?tsa=Gemma must still see BOTH — the
+        // param is ignored, not honored, on this view.
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'callbacks', 'tsa' => $gemma->id]));
+
+        $response->assertOk();
+        $response->assertSee('Gemma Callback Two');
+        $response->assertSee('Mariel Callback Two');
+
+        // The admin TSA filter dropdown itself is gone from the page too,
+        // not just non-functional — see index.blade.php's own comment on
+        // why leaving it visible-but-inert would still be misleading.
+        $response->assertDontSee('name="tsa"', false);
+    }
+
+    /**
      * Regression test, 2026-09-14: "the callbacks page will be leads today
      * the is has tag of not answering and unattended" — an order created
      * YESTERDAY whose Not Answering/Unattended tag only got noticed on

@@ -96,20 +96,24 @@ class LeadController extends Controller
         // callbacks") — a promised follow-up call is shared team knowledge,
         // not one TSA's private queue: if Gemma is out and a customer she
         // promised to call back is due, any other TSA logged in should be
-        // able to see and pick it up, not just Gemma herself (and an admin
-        // who happened to be scrolled to a specific TSA via ?tsa= would
-        // otherwise silently miss every OTHER TSA's due callbacks too). A
-        // TSA can still narrow the shared Callbacks queue down via ?tsa=
-        // the same way an admin can, just never has it forced narrow by
-        // default the way every other view does.
-        if ($view === 'callbacks') {
-            if ($request->filled('tsa')) {
+        // able to see and pick it up, not just Gemma herself. The ?tsa=
+        // narrowing itself is now REMOVED for this view too (explicit
+        // follow-up, 2026-09-14: "the callbacks should be no tsa filter
+        // because it should be visible to all users so you can remove the
+        // tsa filter in the callbacks") — an admin could previously still
+        // narrow the shared queue down to one TSA via ?tsa=, which
+        // contradicts the whole point: an admin (or a stale URL) leaving
+        // ?tsa=Gemma selected would silently hide every OTHER TSA's due
+        // callbacks, the exact problem the 2026-09-08 fix was meant to
+        // solve in the first place for the plain default view. $request's
+        // tsa param is simply ignored on this view now, not just hidden
+        // from the UI.
+        if ($view !== 'callbacks') {
+            if (!$user->isAtLeastAdmin()) {
+                $query->where('tsa_id', $user->tsa_id);
+            } elseif ($request->filled('tsa')) {
                 $query->where('tsa_id', $request->integer('tsa'));
             }
-        } elseif (!$user->isAtLeastAdmin()) {
-            $query->where('tsa_id', $user->tsa_id);
-        } elseif ($request->filled('tsa')) {
-            $query->where('tsa_id', $request->integer('tsa'));
         }
 
         // Product filter, scoped by team (explicit request, 2026-08-28) —

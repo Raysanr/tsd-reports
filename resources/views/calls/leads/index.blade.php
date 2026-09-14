@@ -111,7 +111,7 @@
             $statusLabels = ['catered' => 'Catered', 'uncatered' => 'Uncatered'];
         @endphp
 
-        @if(auth()->user()->isAtLeastAdmin())
+        @if(auth()->user()->isAtLeastAdmin() && $view !== 'callbacks')
         {{-- Custom dropdown (explicit request, 2026-08-20; the same
              trigger+floating-panel design was then extended to Team/Product/
              Status below, explicit request 2026-08-28) instead of a plain
@@ -121,7 +121,21 @@
              Generic data-filter-* JS (resources/js/calls.js) drives every
              dropdown below too — see its own doc comment. Each row's avatar
              circle reuses TSA Management's own initials-circle style so a
-             TSA reads the same way here as it does there. --}}
+             TSA reads the same way here as it does there.
+
+             $view !== 'callbacks' removes this admin TSA filter entirely on
+             Callbacks (explicit follow-up, 2026-09-14: "the callbacks should
+             be no tsa filter because it should be visible to all users so
+             you can remove the tsa filter in the callbacks") — Callbacks is
+             deliberately shared team knowledge across every TSA (2026-09-08
+             decision), so narrowing it down to one TSA via ?tsa= contradicts
+             its whole purpose: if Gemma is out, another TSA needs to see and
+             pick up HER due callback too, which an admin accidentally
+             leaving ?tsa=Gemma selected would hide. This is now removed for
+             admins too, not just the plain static badge normal TSAs saw
+             (that earlier fix only hid the non-interactive name badge,
+             leaving this actual filtering dropdown still present for
+             admins). --}}
         <div class="relative" data-filter-wrap>
             <input type="hidden" name="tsa" value="{{ $selectedTsa ?: '' }}" data-filter-input>
             <button type="button" data-filter-trigger
