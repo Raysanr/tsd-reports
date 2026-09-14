@@ -75,4 +75,34 @@ class NotificationCountsTest extends TestCase
         $response->assertOk();
         $response->assertJson(['assigned' => 2, 'overdue' => 2, 'unassigned' => 1]);
     }
+
+    /**
+     * Regression test, 2026-09-14: "why the overdue is not today? it
+     * should be today only" — the sidebar's own Overdue badge counted a
+     * weeks-old order the same way the Overdue page itself used to: once
+     * SyncPancakeLeads' catch-up sweep stamped assigned_at with today's
+     * timestamp, the badge counted it as "today's overdue" even though the
+     * underlying order was created long before today. This badge must
+     * agree with what the Overdue page (LeadController::index()) actually
+     * shows, or the two silently disagree again.
+     */
+    public function test_overdue_and_assigned_counts_exclude_an_old_order_assigned_today(): void
+    {
+        Setting::set('overdue_threshold_hours', 4);
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'n9', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now()->subHours(5),
+            'pancake_created_at' => now()->subDays(30),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->getJson(route('calls.notifications.counts'));
+
+        $response->assertOk();
+        $response->assertJson(['assigned' => 0, 'overdue' => 0]);
+    }
 }

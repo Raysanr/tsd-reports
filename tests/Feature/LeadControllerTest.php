@@ -331,7 +331,17 @@ class LeadControllerTest extends TestCase
      *  LeadController::index()'s own comment on the $view === 'overdue'
      *  branch). Renamed and rewritten 2026-08-29 to assert the current,
      *  intentional behavior instead of the pre-c82cdb5 one this test was
-     *  never updated for. */
+     *  never updated for.
+     *
+     *  Rewritten AGAIN 2026-09-14 ("why the overdue is not today? it
+     *  should be today only") — the lead in this test is deliberately
+     *  created with pancake_created_at 2020-01-01, and used to prove Old
+     *  Overdue DID show once its assigned_at fell in the picked range,
+     *  which is exactly the bug the new pancake_created_at scoping (this
+     *  same $view === 'overdue' branch) now fixes. This test now asserts
+     *  the opposite: an old order stays excluded from Overdue regardless
+     *  of assigned_at, and a genuinely today-created order is what shows.
+     */
     public function test_the_overdue_view_is_scoped_to_the_picked_date_range(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
@@ -342,20 +352,29 @@ class LeadControllerTest extends TestCase
             'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subHours(10),
             'pancake_created_at' => '2020-01-01 10:00:00',
         ]);
+        Lead::create([
+            'pancake_order_id' => '2', 'customer_name' => 'Today Overdue', 'product_id' => $product->id,
+            'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()->subHours(10),
+            'pancake_created_at' => now(),
+        ]);
 
         $admin = User::create(['name' => 'Admin', 'email' => 'admin-date3@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
 
         // A date range that doesn't cover assigned_at (10 hours ago, i.e.
-        // today) excludes the lead from Overdue now.
+        // today) excludes both leads from Overdue.
         $excluded = $this->actingAs($admin)->get(route('calls.leads.index', ['view' => 'overdue', 'date_from' => '2026-08-01', 'date_to' => '2026-08-06']));
         $excluded->assertOk();
         $excluded->assertDontSee('Old Overdue');
+        $excluded->assertDontSee('Today Overdue');
 
-        // A range that does cover assigned_at includes it.
+        // A range that covers assigned_at includes only the lead whose
+        // ORDER is also actually from today — the old one stays excluded
+        // regardless of when it was assigned.
         $today = today()->toDateString();
         $included = $this->actingAs($admin)->get(route('calls.leads.index', ['view' => 'overdue', 'date_from' => $today, 'date_to' => $today]));
         $included->assertOk();
-        $included->assertSee('Old Overdue');
+        $included->assertDontSee('Old Overdue');
+        $included->assertSee('Today Overdue');
     }
 
     /**

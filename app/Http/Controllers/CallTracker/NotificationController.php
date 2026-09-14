@@ -37,18 +37,30 @@ class NotificationController extends Controller
             $dateTo = $dateFrom->copy()->endOfDay();
         }
 
-        $assignedQuery   = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo]);
-        $callbackQuery   = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo]);
-        // A lead with no pancake_created_at at all (Pancake order missing/
-        // malformed inserted_at — see SyncPancakeLeads) still counts, same
-        // fail-open convention as LeadController::index()'s own COALESCE
-        // date filter (root-caused 2026-08-15) — otherwise it's excluded by
-        // whereBetween forever and never surfaces in the unassigned badge.
-        $unassignedQuery = Lead::where('status', 'unassigned')
-            ->where(function ($q) use ($dateFrom, $dateTo) {
-                $q->whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                    ->orWhereNull('pancake_created_at');
-            });
+        // Every count here also requires pancake_created_at to actually be
+        // today, not just assigned_at/callback_at (explicit report,
+        // 2026-09-14: "why the overdue is not today? it should be today
+        // only") — without this, a weeks-old order that only got
+        // assigned_at/callback_at stamped today (via SyncPancakeLeads'
+        // catch-up sweep or backfillCallbackFromTags()) inflated this badge
+        // the same way it inflated the Leads/Overdue/Callbacks pages
+        // themselves before LeadController::index()'s own matching fixes
+        // (3059cdc, d8c9def, and this same day's Overdue fix) — this badge
+        // must count the same set those pages actually show, or it'd
+        // silently disagree with them again. Fails open for a lead with no
+        // pancake_created_at at all (Pancake order missing/malformed
+        // inserted_at — see SyncPancakeLeads), same convention originally
+        // established for $unassignedQuery (root-caused 2026-08-15) and now
+        // shared by every count below.
+        $createdTodayFilter = function ($q) use ($dateFrom, $dateTo) {
+            $q->whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->orWhereNull('pancake_created_at');
+        };
+        $assignedQuery   = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo])
+            ->where($createdTodayFilter);
+        $callbackQuery   = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo])
+            ->where($createdTodayFilter);
+        $unassignedQuery = Lead::where('status', 'unassigned')->where($createdTodayFilter);
 
         // Callbacks is shared across every TSA now (explicit request,
         // 2026-09-08, same reasoning as LeadController::index()'s own

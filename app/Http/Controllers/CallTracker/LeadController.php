@@ -153,9 +153,27 @@ class LeadController extends Controller
             // long enough that this is no longer "hasn't gotten to it yet" —
             // exactly the gap that let a lead sit uncalled for hours before
             // anyone noticed.
+            //
+            // ALSO scoped to today's own pancake_created_at (explicit
+            // report, 2026-09-14: "why the overdue is not today? it should
+            // be today only") — without this, a WEEKS-old order (created
+            // 2026-08-11) that only got assigned_at stamped today via the
+            // catch-up sweep (working again since b44cfc9's cap-bypass fix)
+            // showed up in Overdue once 4+ hours had passed, e.g. #1347666/
+            // #1347664/#1347663. Same class of bug as the default Leads
+            // view's own pancake_created_at fix (3059cdc) and the Callbacks
+            // view's (d8c9def) — assigned_at answers "how long has this
+            // TSA had it," pancake_created_at answers "is this actually
+            // today's order," and this view needs both, not just the
+            // first. Still fails open for a lead with no creation date at
+            // all, same convention as those two fixes.
             $query->where('status', 'assigned')
                 ->whereBetween('assigned_at', [$rangeFrom, $rangeTo])
                 ->where('assigned_at', '<=', now()->subHours(self::overdueThresholdHours()))
+                ->where(function ($q) use ($rangeFrom, $rangeTo) {
+                    $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+                        ->orWhereNull('pancake_created_at');
+                })
                 ->orderBy('assigned_at');
         } elseif ($view === 'callbacks') {
             // A TSA promised to call back by a specific time — due now or
