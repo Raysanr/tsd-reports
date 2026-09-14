@@ -138,17 +138,20 @@ class RoundRobinAssignerTest extends TestCase
     }
 
     /**
-     * Regression test, 2026-09-14: "if gemma the one and only online should
-     * be all of the leads will be in her right?" — confirmed live: Gemma
-     * alone online for a product, capped at her daily limit, left every new
-     * lead for that product sitting unassigned since the pre-fix roster
-     * excluded her outright with nobody else to fall back to. The cap
-     * exists to protect a TSA from overload while OTHERS could pick up the
-     * slack — it was never meant to leave leads stuck when there's
-     * genuinely nobody else online to give them to, so it's now bypassed
-     * specifically in that situation.
+     * Regression test, 2026-09-14 — this is the REVERSAL of a same-day fix
+     * (b44cfc9) that briefly bypassed the cap when the capped TSA was the
+     * only one online. That bypass caused a real production incident the
+     * same day: catchUpUnassignedLeads() sweeps the entire backlog with no
+     * batch limit, and with the cap bypassed, nothing stopped it from
+     * giving a sole online TSA lead after lead after lead — Gemma alone
+     * online absorbed 1336 leads in one sweep (cap 75). Explicit follow-up
+     * confirmed: "remove the bypass — cap is a hard limit again." A capped
+     * TSA now gets null even when they're the ONLY one online for a
+     * product — the lead stays unassigned until someone else logs in or
+     * the cap resets at midnight, exactly like every other "nobody
+     * eligible" case this class already returns null for.
      */
-    public function test_assigns_to_a_capped_tsa_anyway_when_they_are_the_only_one_online(): void
+    public function test_a_capped_tsa_gets_nothing_even_when_they_are_the_only_one_online(): void
     {
         $product = Product::where('display_name', 'SINUXYL')->first();
         TsaShift::whereIn('tsa_key', ['Mariel', 'Kathleen'])->update(['status' => TsaShift::STATUS_LOGOUT]);
@@ -161,32 +164,7 @@ class RoundRobinAssignerTest extends TestCase
             'assigned_at' => now(),
         ]);
 
-        // Gemma is capped AND the only one online — assigned anyway rather
-        // than leaving the lead unassigned with nobody else to give it to.
-        $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key);
-    }
-
-    /** The moment a second TSA logs back in, the cap resumes being
-     *  enforced against the already-capped one — the bypass only applies
-     *  while she's genuinely the sole option, not permanently once used. */
-    public function test_the_cap_bypass_stops_once_another_tsa_is_online_again(): void
-    {
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        TsaShift::whereIn('tsa_key', ['Mariel', 'Kathleen'])->update(['status' => TsaShift::STATUS_LOGOUT]);
-
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $gemma->update(['daily_lead_cap' => 1]);
-        \App\Models\Lead::create([
-            'pancake_order_id' => 'cap-3', 'customer_name' => 'Already Assigned',
-            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
-            'assigned_at' => now(),
-        ]);
-
-        $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key); // bypassed, alone online
-
-        TsaShift::where('tsa_key', 'Mariel')->update(['status' => TsaShift::STATUS_LOGIN]);
-
-        // Mariel is back online and uncapped — Gemma's cap is enforced again.
-        $this->assertSame('Mariel', RoundRobinAssigner::next($product)->tsa_key);
+        // Gemma is capped AND the only one online — no bypass, stays null.
+        $this->assertNull(RoundRobinAssigner::next($product));
     }
 }

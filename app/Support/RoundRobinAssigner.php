@@ -50,26 +50,37 @@ class RoundRobinAssigner
      *  by that timer. */
     public static function next(Product $product): ?TsaShift
     {
-        $onlineRoster = $product->tsas()->where('active', true)
+        $roster = $product->tsas()->where('active', true)
             ->whereIn('status', self::ELIGIBLE_STATUSES)
-            ->get();
-        if ($onlineRoster->isEmpty()) return null;
-
-        // A TSA who's hit their daily_lead_cap (Leads Setup page) is logged
-        // in and otherwise eligible, but shouldn't receive any more today —
-        // UNLESS excluding every capped TSA would leave nobody left at all
-        // (explicit follow-up, 2026-09-14: "if gemma the one and only
-        // online should be all of the leads will be in her right?" —
-        // confirmed live: Gemma alone online, capped at 75/75, left 116
-        // real leads sitting unassigned with nobody else able to take
-        // them). The cap exists to protect a TSA from being overloaded
-        // while OTHERS could pick up the slack — it was never meant to
-        // leave leads stuck when there's nobody else to give them to. So:
-        // filter capped TSAs out first, same as before; only fall back to
-        // the full online roster (cap ignored) if that filter would empty
-        // it, i.e. every online TSA for this product is capped.
-        $uncapped = $onlineRoster->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap());
-        $roster   = ($uncapped->isEmpty() ? $onlineRoster : $uncapped)->values();
+            ->get()
+            // A TSA who's hit their daily_lead_cap (Leads Setup page) is
+            // logged in and otherwise eligible, but shouldn't receive any
+            // more today - same "leave it unassigned rather than guess"
+            // fallback as an empty roster if everyone left is capped.
+            //
+            // A same-day fix (b44cfc9, REVERTED here) briefly bypassed this
+            // cap entirely when a capped TSA was the ONLY one online,
+            // reasoning the cap shouldn't strand leads with nobody else to
+            // give them to. That bypass had a severe, unforeseen
+            // interaction with catchUpUnassignedLeads() (SyncPancakeLeads):
+            // that method sweeps the ENTIRE backlog of unassigned leads -
+            // no batch limit - in one run, calling next() once per lead.
+            // With the cap bypassed, nothing ever stopped that loop from
+            // giving a sole online TSA lead after lead after lead - real
+            // production incident, 2026-09-14: Gemma alone online absorbed
+            // 1336 leads in one sweep (cap 75), Katherine 359, Lika 268,
+            // Mariel 148, out of 10,257 leads backlogged since August.
+            // Explicit follow-up confirmed: "remove the bypass - cap is a
+            // hard limit again" - a capped TSA now simply gets no more
+            // leads today no matter what, same as before b44cfc9; a lead
+            // with nobody eligible (everyone capped or offline) stays
+            // unassigned until another TSA logs in or the cap naturally
+            // resets at midnight (leadsAssignedToday() is a rolling
+            // whereDate('assigned_at', today()) count, already 0 again on
+            // a new day with no separate reset job needed).
+            ->reject(fn (TsaShift $tsa) => $tsa->hasReachedDailyCap())
+            ->values();
+        if ($roster->isEmpty()) return null;
 
         $state = RoundRobinState::firstOrCreate(['product_id' => $product->id]);
 
