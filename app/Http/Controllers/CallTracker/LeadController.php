@@ -57,6 +57,35 @@ class LeadController extends Controller
         return max(1, (int) Setting::get('overdue_threshold_hours', 4));
     }
 
+    /**
+     * Read-only viewing permission for show()/history() ONLY — every write
+     * action (updateDisposition, togglePin, transfer, etc.) keeps its own
+     * plain "admin or the owning TSA" check unchanged, since loosening
+     * those wasn't part of this request and has real consequences (e.g.
+     * letting any TSA log an outcome on someone else's lead).
+     *
+     * Explicit report, 2026-09-14: opening a lead's detail from the
+     * Callbacks page threw "Could not load this lead — try again." for a
+     * normal TSA whenever the callback belonged to a DIFFERENT TSA. The
+     * plain ownership check correctly protects a TSA's own private Leads
+     * queue, but directly contradicted Callbacks being deliberately shared
+     * team knowledge across every TSA (2026-09-08 decision, reinforced by
+     * 1a85e7c's own TSA-filter removal that same reasoning) — a TSA needs
+     * to be able to open ANY due callback to see its notes/history and
+     * actually call it, not just their own. A lead currently carrying a
+     * due callback_at (same "due now or already past due" definition
+     * index()'s own Callbacks branch uses) is viewable by any TSA; every
+     * other lead stays scoped to its owner, same as before.
+     */
+    private function canView(Lead $lead, $user): bool
+    {
+        if ($user->isAtLeastAdmin() || $lead->tsa_id === $user->tsa_id) {
+            return true;
+        }
+
+        return $lead->callback_at !== null && $lead->callback_at->lte(now());
+    }
+
     /** Valid values for the status filter re-added below — kept as its own
      *  const (not inline in index()) so the controller and the blade filter
      *  UI can never list a status the query itself doesn't recognize. */
@@ -446,7 +475,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canView($lead, $user)) {
             abort(403);
         }
 
@@ -478,7 +507,7 @@ class LeadController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id) {
+        if (!$this->canView($lead, $user)) {
             abort(403);
         }
 

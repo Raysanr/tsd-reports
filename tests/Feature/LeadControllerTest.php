@@ -602,6 +602,54 @@ class LeadControllerTest extends TestCase
         $response->assertForbidden();
     }
 
+    /**
+     * Regression test, 2026-09-14: "why the callbacks view TSA when they
+     * click the leads name it is like this" (screenshot: "Could not load
+     * this lead — try again.") — opening a lead's detail from the
+     * Callbacks page threw a 403 whenever the callback belonged to a
+     * DIFFERENT TSA, contradicting Callbacks being deliberately shared
+     * team knowledge across every TSA. A TSA can now VIEW any lead with a
+     * currently-due callback_at even when it's not theirs — but editing
+     * stays exactly as restricted as before (see the disposition test
+     * just above, unaffected by this change).
+     */
+    public function test_a_tsa_can_view_but_not_edit_another_tsas_due_callback(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => 'cb-view', 'customer_name' => 'Mariels Callback',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-view@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $showResponse = $this->actingAs($gemmaUser)->get(route('calls.leads.show', $lead));
+        $showResponse->assertOk();
+        $showResponse->assertSee('Mariels Callback');
+
+        // Still can't edit it — the ownership guard on write actions is
+        // completely unchanged by this fix.
+        $editResponse = $this->actingAs($gemmaUser)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Confirmed']);
+        $editResponse->assertForbidden();
+    }
+
+    /** A lead with no due callback (plain unassigned-to-this-TSA lead, not
+     *  a shared callback) stays fully blocked from viewing too — the
+     *  relaxed rule only applies to a genuinely due callback_at, not every
+     *  lead belonging to another TSA. */
+    public function test_a_tsa_still_cannot_view_a_plain_lead_belonging_to_another_tsa(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 'no-cb', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned']);
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-noview@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($gemmaUser)->get(route('calls.leads.show', $lead))->assertForbidden();
+    }
+
     public function test_a_tsa_cannot_reach_settings(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
