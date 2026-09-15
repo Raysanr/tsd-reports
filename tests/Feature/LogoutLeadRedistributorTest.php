@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RedistributeLoggedOutTsaLeads;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
@@ -18,6 +19,14 @@ use Tests\TestCase;
  * assigned to her, never actually called), split evenly across her
  * currently-working teammates the moment she logs out. See
  * LogoutLeadRedistributor's own doc comment for the full mechanics.
+ *
+ * TsaShift::applyStatusChange() dispatches RedistributeLoggedOutTsaLeads
+ * ->afterResponse() now (2026-09-16, see that job's own doc comment for
+ * why) instead of calling LogoutLeadRedistributor::redistribute() inline —
+ * afterResponse() never actually fires outside a real HTTP response
+ * lifecycle, so these tests trigger the logout via logOutAndRedistribute()
+ * below, which runs the same job's handle() synchronously right after,
+ * exercising the exact same redistribution code the deferred job calls.
  */
 class LogoutLeadRedistributorTest extends TestCase
 {
@@ -31,6 +40,36 @@ class LogoutLeadRedistributorTest extends TestCase
             'customer_name' => 'Juan', 'product_id' => $product->id,
             'tsa_id' => $tsa->id, 'status' => $status,
         ]);
+    }
+
+    private function logOutAndRedistribute(TsaShift $tsa): void
+    {
+        $tsa->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        (new RedistributeLoggedOutTsaLeads($tsa))->handle();
+    }
+
+    /**
+     * Regression test, 2026-09-16: "it will take minutes to redistribute
+     * because when someone is logout why is it like it is lag or it is
+     * loading" — root-caused: redistribution used to run INLINE inside
+     * applyStatusChange(), so a large backlog (each lead making a real
+     * live Pancake tagging call) held the logout request open. Now it's
+     * dispatched ->afterResponse(), so applyStatusChange() itself must
+     * return without having moved anything yet — the actual move only
+     * happens once RedistributeLoggedOutTsaLeads::handle() runs, which in
+     * production fires after the response is already back with the TSA.
+     */
+    public function test_applying_the_logout_status_change_alone_does_not_move_anything_yet(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
 
     public function test_logging_out_splits_uncalled_backlog_evenly_across_teammates(): void
@@ -47,7 +86,7 @@ class LogoutLeadRedistributorTest extends TestCase
         // 5 uncalled leads still sitting with Gemma when she logs out.
         $leads = collect(range(1, 5))->map(fn () => $this->leadFor($gemma));
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $byTsa = $leads->map(fn (Lead $l) => $l->fresh()->tsa_id)->countBy();
         // 5 leads / 2 teammates = 3 and 2 (round-robin gives the extra to
@@ -64,7 +103,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $called = $this->leadFor($gemma, 'called');
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($gemma->id, $called->fresh()->tsa_id);
     }
@@ -78,7 +117,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
@@ -104,7 +143,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $lead->refresh();
         $this->assertSame($julie->id, $lead->tsa_id);
@@ -139,7 +178,7 @@ class LogoutLeadRedistributorTest extends TestCase
         $lead = $this->leadFor($gemma);
         $lead->update(['assigned_at' => now()->subHours(5)]);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $lead->refresh();
         $this->assertSame($mariel->id, $lead->tsa_id);
@@ -168,7 +207,7 @@ class LogoutLeadRedistributorTest extends TestCase
         Order::create(['pancake_order_id' => '1347621', 'status_code' => 5, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
         $originalAssignedAt = $lead->assigned_at;
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $lead->refresh();
         $this->assertSame($gemma->id, $lead->tsa_id);
@@ -184,7 +223,7 @@ class LogoutLeadRedistributorTest extends TestCase
         $lead = $this->leadFor($gemma, 'assigned', '1357999');
         Order::create(['pancake_order_id' => '1357999', 'status_code' => 1, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
     }
@@ -197,7 +236,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
     }
@@ -219,7 +258,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
     }
@@ -253,7 +292,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma); // Sinuxyl product, per leadFor()'s own default
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
@@ -274,7 +313,7 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $lead = $this->leadFor($gemma);
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $this->assertSame($julie->id, $lead->fresh()->tsa_id);
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
@@ -300,7 +339,7 @@ class LogoutLeadRedistributorTest extends TestCase
         Order::create(['pancake_order_id' => '1368220', 'status_code' => 20, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
         $originalAssignedAt = $lead->assigned_at;
 
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $this->logOutAndRedistribute($gemma);
 
         $lead->refresh();
         $this->assertSame($gemma->id, $lead->tsa_id);

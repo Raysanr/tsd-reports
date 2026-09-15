@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use App\Support\LogoutLeadRedistributor;
+use App\Jobs\RedistributeLoggedOutTsaLeads;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -238,8 +238,18 @@ class TsaShift extends Model
         // redundant logout write) hands off whatever's still uncalled in
         // this TSA's queue to her teammates — see
         // LogoutLeadRedistributor's own doc comment for the full reasoning.
+        //
+        // Deferred to run AFTER the response (explicit request, 2026-09-16:
+        // "it will take minutes to redistribute... i want to make it like
+        // when someone is logout it will not interupt the other's for
+        // loading like that") — this used to call
+        // LogoutLeadRedistributor::redistribute() directly, inline, which
+        // held the logout request open for as long as it took to make one
+        // live Pancake tagging call per redistributed lead. See
+        // RedistributeLoggedOutTsaLeads's own doc comment for why this is
+        // ->afterResponse() and not a real queued job.
         if ($status === self::STATUS_LOGOUT && !$wasLoggedOut) {
-            LogoutLeadRedistributor::redistribute($this);
+            RedistributeLoggedOutTsaLeads::dispatch($this)->afterResponse();
         }
     }
 
