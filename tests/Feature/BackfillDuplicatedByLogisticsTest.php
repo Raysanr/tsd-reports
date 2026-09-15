@@ -50,6 +50,37 @@ class BackfillDuplicatedByLogisticsTest extends TestCase
         $this->assertFalse($order->is_upsell);
     }
 
+    /**
+     * Regression test, 2026-09-16: real order #1367841's note read "HIGH
+     * RTS \r\nDUPLICATED BY  LOGISTICS" — a line break before the phrase
+     * and two spaces between "BY" and "LOGISTICS" — which broke the old
+     * exact single-space str_contains() match in
+     * Order::isDuplicatedByLogistics(), so a genuinely-duplicated order
+     * (visible in Pancake's own UI as "HIGH RTS / DUPLICATED BY
+     * LOGISTICS") kept counting toward Excess Leads.
+     */
+    public function test_flags_a_duplicate_whose_real_note_has_irregular_whitespace(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'           => '1367841',
+            'status_code'                => 2,
+            'is_upsell'                  => false,
+            'is_duplicated_by_logistics' => false,
+            'pancake_inserted_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1367841*' => Http::response(['data' => [
+                'id' => 1367841, 'note' => "HIGH RTS \r\nDUPLICATED BY  LOGISTICS", 'note_print' => null,
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:backfill-duplicated-logistics');
+
+        $order = Order::where('pancake_order_id', '1367841')->first();
+        $this->assertTrue($order->is_duplicated_by_logistics);
+    }
+
     public function test_leaves_an_ordinary_order_untouched(): void
     {
         Order::factory()->create([

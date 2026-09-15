@@ -206,6 +206,15 @@ class Order extends Model
     public static function isDuplicatedByLogistics(array $raw): bool
     {
         $text = strtoupper(($raw['note'] ?? '') . ' ' . ($raw['note_print'] ?? ''));
+        // Whitespace collapsed before matching — root-caused live, 2026-09-16,
+        // real order #1367841: its note read "HIGH RTS \r\nDUPLICATED BY
+        // LOGISTICS" with a line break before the phrase and two spaces
+        // between "BY" and "LOGISTICS", both of which broke the old exact
+        // single-space match, so a genuinely-duplicated order kept counting
+        // toward Excess Leads. Same "don't trust a human-typed field to use
+        // exactly one space everywhere" lesson as PancakeOrderTagApi's own
+        // trim() fix for tag names.
+        $text = preg_replace('/\s+/', ' ', $text);
         return str_contains($text, 'DUPLICATED BY LOGISTIC');
     }
 
