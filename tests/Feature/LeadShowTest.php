@@ -230,6 +230,55 @@ class LeadShowTest extends TestCase
         $response->assertSee('UPSELL TSD - CLEARSIGHT + LUMICARE + HAPLUNAS');
     }
 
+    /**
+     * Explicit report, 2026-09-16: "sometimes it is not displaying when
+     * just add tag." Root cause: the POS Tags panel used $liveTags (a
+     * fresh GET straight from Pancake) OUTRIGHT REPLACING the local
+     * Order.raw_tags cache whenever the live fetch succeeded at all — but a
+     * tag add's own success path (LeadController::addTag()) updates
+     * raw_tags locally the instant Pancake's WRITE succeeds, and the very
+     * next page load re-GETs from Pancake milliseconds later. A real
+     * eventual-consistency lag on Pancake's own side can mean that GET
+     * still returns the pre-add tag list even though the write already
+     * genuinely succeeded — so a tag that was just successfully saved
+     * (both in Pancake and locally) looked like it silently vanished. Fixed
+     * by merging $liveTags with $order->raw_tags instead of replacing.
+     */
+    public function test_a_tag_saved_locally_still_shows_even_when_pancakes_own_live_fetch_lags_behind(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => 's20', 'customer_name' => 'Lag Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        // Order::update() inside addTag() already ran successfully on an
+        // earlier request — raw_tags locally has the just-added tag.
+        Order::create([
+            'pancake_order_id' => 's20', 'team' => 'SH Naturals',
+            'raw_tags' => ['GEMMA', 'CONFIRMED VIA CALL', 'JUST ADDED TAG'],
+            'synced_at' => now(),
+        ]);
+
+        // Pancake's own live GET, moments later, still hasn't caught up —
+        // returns everything EXCEPT the tag that was just successfully added.
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders/s20*' => Http::response(['data' => [
+                'items' => [], 'tags' => [
+                    ['id' => 1, 'name' => 'GEMMA'],
+                    ['id' => 2, 'name' => 'CONFIRMED VIA CALL'],
+                ],
+            ]]),
+        ]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $response = $this->actingAs($user)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        $response->assertSee('JUST ADDED TAG');
+    }
+
     /** Explicit follow-up requests (2026-08-25): "add delivery to this like
      *  in the POS", then "make it editable like in the POS" — an editable
      *  form pre-filled from the same order fetch as Products/POS Tags,

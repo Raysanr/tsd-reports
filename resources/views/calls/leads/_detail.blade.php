@@ -190,8 +190,29 @@
                 // same "something beats nothing" reasoning as the Product
                 // card's own fallback above) could be stale, so removing/
                 // adding against it isn't offered, only plain display.
+                //
+                // Merged with $order->raw_tags rather than replaced by
+                // $liveTags outright (fixed 2026-09-16, explicit report:
+                // "sometimes it is not displaying when just add tag") — a
+                // tag add's own success path (LeadController::addTag())
+                // updates raw_tags LOCALLY the instant Pancake's write
+                // succeeds, then this panel immediately re-fetches via
+                // refreshLeadDetail(). A live re-GET from Pancake a split
+                // second after writing to it can genuinely still return the
+                // pre-add tag list (real eventual-consistency lag on
+                // Pancake's own side, or a slow/timed-out live fetch that
+                // silently fell back to something stale) — $liveTags
+                // outright REPLACING $displayTags meant that race made a
+                // just-confirmed-successful add look like it silently
+                // vanished, even though it was already saved correctly both
+                // in Pancake and locally. Unioning the two instead means the
+                // freshest-known state always wins per tag, regardless of
+                // which of the two sources happens to be more current at
+                // this exact instant.
                 $liveTags = $liveOrder !== null ? collect($liveOrder['tags'] ?? [])->pluck('name')->filter() : null;
-                $displayTags = $liveTags ?? collect($order?->raw_tags ?? []);
+                $displayTags = $liveTags !== null
+                    ? $liveTags->merge(collect($order?->raw_tags ?? []))->unique(fn ($t) => strtolower($t))->values()
+                    : collect($order?->raw_tags ?? []);
             @endphp
             @if($lead->pancake_order_id && $canManage)
             {{-- Current POS tags (2nd explicit follow-up request,
