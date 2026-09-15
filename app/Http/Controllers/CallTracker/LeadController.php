@@ -428,9 +428,23 @@ class LeadController extends Controller
             // one — a real, avoidable lag for something that should be
             // authoritative and immediate the moment an admin ticks the
             // checkbox.
+            // ?->products() (not ->tsa->products()): a normal user's own
+            // tsa_id can point at a TsaShift row that no longer resolves —
+            // soft-deleted, or re-pointed at a stale id after that TSA's
+            // record was deleted and re-added under a new id (confirmed
+            // live, 2026-09-15: Hannah's User row still pointed at her old,
+            // by-then-soft-deleted TsaShift id after hers was recreated,
+            // and this line's unguarded ->tsa->products() 500'd her entire
+            // Leads page — "Call to a member function products() on
+            // null"). Falls back to an empty product list rather than
+            // crashing the whole page; the real fix for a stale tsa_id is
+            // still re-pointing that User row (done for Hannah), not
+            // silently limping along forever, but this at least keeps the
+            // page itself alive for whoever hits it next before that's
+            // noticed and fixed.
             'products'              => $user->isAtLeastAdmin()
                 ? Product::orderBy('sort_order')->when($selectedTeam, fn ($q) => $q->where('team', $selectedTeam))->get()
-                : $user->tsa->products()->orderBy('sort_order')->get(),
+                : ($user->tsa?->products()->orderBy('sort_order')->get() ?? collect()),
             'selectedProduct'       => $request->integer('product'),
             'q'                     => $request->string('q')->toString(),
             'view'                  => $view,

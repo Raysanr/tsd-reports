@@ -36,6 +36,35 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Confirmed live, 2026-09-15 (Hannah Ascano): a normal user's tsa_id can
+     * point at a TsaShift row that no longer resolves — soft-deleted, or
+     * re-pointed at a stale id after that TSA's record was deleted and
+     * re-added under a new id. index()'s 'products' key used to call
+     * $user->tsa->products() with no null guard, which fataled with "Call to
+     * a member function products() on null" and 500'd the entire Leads page
+     * for that TSA. Now falls back to an empty product list instead — the
+     * real fix for a stale tsa_id is still re-pointing that User row, but
+     * this keeps the page itself alive in the meantime.
+     */
+    public function test_a_normal_user_with_a_stale_tsa_id_does_not_crash_the_leads_page(): void
+    {
+        // Same real-world shape as Hannah's account: her User row points at
+        // a TsaShift id that was later soft-deleted (the record was removed
+        // and re-added under a new id), leaving tsa_id referencing a row
+        // TsaShift::find() can no longer see.
+        $shift = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user = User::create([
+            'name' => 'Orphaned User', 'email' => 'orphaned@test.com', 'password' => bcrypt('x'),
+            'is_active' => true, 'role' => 'normal', 'tsa_id' => $shift->id,
+        ]);
+        $shift->delete();
+
+        $response = $this->actingAs($user)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+    }
+
+    /**
      * Reversed for the Callbacks view specifically (explicit request,
      * 2026-09-08: "i want to make it like it is visible to all of the TSA's
      * the callbacks") — a promised follow-up call is shared team knowledge,
