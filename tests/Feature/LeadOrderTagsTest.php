@@ -226,4 +226,25 @@ class LeadOrderTagsTest extends TestCase
         $response->assertStatus(500)->assertJson(['success' => false]);
         $this->assertSame(['GEMMA'], Order::where('pancake_order_id', '9001')->value('raw_tags'));
     }
+
+    /**
+     * Regression test, 2026-09-16: "is it possible that in call tracker it
+     * will not have auto tagging when it's redistribute like that" —
+     * transfer() (single-row, admin-only) no longer pushes the new owner's
+     * POS name tag to the real Pancake order at all.
+     */
+    public function test_transferring_a_lead_does_not_write_a_new_owner_tag_to_pancake(): void
+    {
+        Http::fake();
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $admin  = User::create(['name' => 'Admin', 'email' => 'admin@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'admin']);
+        $lead   = $this->leadFor($gemma);
+
+        $response = $this->actingAs($admin)->postJson(route('calls.leads.transfer', $lead), ['tsa_id' => $mariel->id]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        Http::assertNothingSent();
+    }
 }

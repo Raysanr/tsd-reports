@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\TsaShift;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -383,5 +384,26 @@ class LogoutLeadRedistributorTest extends TestCase
         $lead->refresh();
         $this->assertSame($gemma->id, $lead->tsa_id);
         $this->assertTrue($lead->assigned_at?->eq($originalAssignedAt) ?? $originalAssignedAt === null);
+    }
+
+    /**
+     * Regression test, 2026-09-16: "is it possible that in call tracker it
+     * will not have auto tagging when it's redistribute like that" —
+     * redistribution no longer pushes the new owner's POS name tag to
+     * Pancake at all, and now makes no live Pancake API call whatsoever.
+     */
+    public function test_redistribution_does_not_write_a_new_owner_tag_to_pancake(): void
+    {
+        Http::fake();
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+
+        $this->logOutAndRedistribute($gemma);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        Http::assertNothingSent();
     }
 }

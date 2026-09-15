@@ -612,9 +612,12 @@ class LeadController extends Controller
 
         LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
 
-        // New owner's own POS name tag, same as any other assignment path —
-        // see tagTsaOnPancakeOrder()'s own doc comment.
-        self::tagTsaOnPancakeOrder($lead, $api);
+        // No new POS name tag pushed on a transfer (explicit request,
+        // 2026-09-16: "is it possible that in call tracker it will not
+        // have auto tagging when it's redistribute like that") — used to
+        // call tagTsaOnPancakeOrder() here the same as a fresh round-robin
+        // assignment; a lead CHANGING HANDS after that first assignment no
+        // longer writes a new owner tag to the real Pancake order at all.
 
         return response()->json(['success' => true, 'message' => "Transferred to {$newTsa->display_name}."]);
     }
@@ -692,9 +695,9 @@ class LeadController extends Controller
 
             LeadActivity::log($lead, 'transferred', "Transferred from {$fromLabel} to {$newTsa->display_name} by {$user->name}.", $user);
 
-            // New owner's own POS name tag, same as any other assignment
-            // path — see tagTsaOnPancakeOrder()'s own doc comment.
-            self::tagTsaOnPancakeOrder($lead, $api);
+            // No new POS name tag pushed on a transfer — same 2026-09-16
+            // change as the single-row transfer() above; see this
+            // controller's own tagTsaOnPancakeOrder() doc comment.
 
             $moved++;
         }
@@ -1632,13 +1635,19 @@ class LeadController extends Controller
      * Pancake order, optionally alongside any $extraTags (e.g. outcome/
      * disposition tags from tagOutcomeInPancake() above) — extracted out of
      * that method (explicit follow-up request, 2026-09-03: "when there's new
-     * leads it is auto tagging ... because it is their leads") so every place
-     * a lead's tsa_id gets SET can push the same tag immediately on
-     * assignment, not only once a call outcome is eventually logged.
-     * Round-robin assignment itself (SyncPancakeLeads) used to be a
-     * local-only signal with no Pancake tag at all — see this method's own
-     * callers (SyncPancakeLeads, LogoutLeadRedistributor, transfer()/
-     * bulkTransfer() below) for where that's since changed.
+     * leads it is auto tagging ... because it is their leads") so a fresh
+     * round-robin assignment (SyncPancakeLeads) can push the same tag
+     * immediately, not only once a call outcome is eventually logged.
+     *
+     * Deliberately NOT called anymore on a REDISTRIBUTION — transfer(),
+     * bulkTransfer(), and LogoutLeadRedistributor all used to call this
+     * too, same as a fresh assignment, but that's reversed as of
+     * 2026-09-16 (explicit request: "is it possible that in call tracker
+     * it will not have auto tagging when it's redistribute like that") —
+     * a lead CHANGING HANDS after its first assignment no longer pushes a
+     * new owner tag to the real Pancake order at all. Only SyncPancakeLeads
+     * (the very first assignment) and tagOutcomeInPancake() (a real logged
+     * call outcome, not a hand-off) still call this.
      *
      * Same silent-no-op conventions as before: no linked order yet, or the
      * 'pos_auto_tagging_enabled' Setting is off — not fatal, a lead's local

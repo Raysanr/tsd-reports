@@ -2,12 +2,10 @@
 
 namespace App\Support;
 
-use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
 use App\Models\TsaShift;
-use App\Support\PancakeOrderTagApi;
 
 /**
  * Explicit request (2026-08-25, from a "smart rotation" round-robin
@@ -67,6 +65,14 @@ use App\Support\PancakeOrderTagApi;
  * (dialed_at set) now stays with her even without a logged disposition;
  * only a lead she never touched at all goes to a teammate.
  *
+ * No Pancake tag write on a move, 2026-09-16 (explicit request: "is it
+ * possible that in call tracker it will not have auto tagging when it's
+ * redistribute like that") — this used to call LeadController::
+ * tagTsaOnPancakeOrder() for the new owner, same as a fresh round-robin
+ * assignment (see that method's own doc comment for the full reasoning
+ * across every redistribution/transfer path this touched). Purely a local
+ * tsa_id reassignment now; makes no live Pancake API call at all.
+ *
  * Deliberately stateless — no new table, no persistent "IOU". Every
  * logout event is its own independent snapshot: whoever's backlog exists
  * AND whoever's an eligible teammate AT THAT MOMENT is what gets split,
@@ -92,10 +98,8 @@ class LogoutLeadRedistributor
      * Returns how many leads actually moved — purely for the caller's own
      * logging/testing convenience, not something callers need to act on.
      */
-    public static function redistribute(TsaShift $tsa, ?PancakeOrderTagApi $api = null): int
+    public static function redistribute(TsaShift $tsa): int
     {
-        $api ??= app(PancakeOrderTagApi::class);
-
         // Root-caused 2026-08-26 (real examples #1347621, #1347619, and
         // others): a lead whose real Pancake order already resolved on its
         // own — Received/Returned/Returning/Partial return/Canceled/
@@ -199,10 +203,13 @@ class LogoutLeadRedistributor
                 null
             );
 
-            // New owner's own POS name tag, same as any other assignment
-            // path — see LeadController::tagTsaOnPancakeOrder()'s own doc
-            // comment.
-            LeadController::tagTsaOnPancakeOrder($lead, $api);
+            // No new POS name tag pushed on redistribution (explicit
+            // request, 2026-09-16: "is it possible that in call tracker it
+            // will not have auto tagging when it's redistribute like
+            // that") — used to call LeadController::tagTsaOnPancakeOrder()
+            // here the same as a fresh round-robin assignment; see that
+            // method's own doc comment for the full reasoning across every
+            // redistribution/transfer path this change touched.
 
             $moved++;
         }

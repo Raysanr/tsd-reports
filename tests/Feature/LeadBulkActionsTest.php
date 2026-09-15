@@ -8,15 +8,20 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
  * Explicit request, 2026-08-26: "can you make this can select and can bulk
  * action too like that for the example" (Product Management's own checkbox +
  * bulk-bar pattern). Confirmed scope: bulk Pin/Unpin and bulk Transfer — the
- * two per-row actions (togglePin()/transfer()) that already exist and are
- * local-only (no Pancake writes), unlike Product Management's Hide/Unhide/
- * Move/Delete, none of which have a Lead equivalent.
+ * two per-row actions (togglePin()/transfer()) that already exist.
+ *
+ * bulkTransfer() briefly pushed a new-owner POS tag to Pancake on every
+ * transfer (added 2026-09-03, same as a fresh round-robin assignment), but
+ * that's reversed as of 2026-09-16 (explicit request: "is it possible that
+ * in call tracker it will not have auto tagging when it's redistribute like
+ * that") — bulk transfer is local-only again, no Pancake write at all.
  */
 class LeadBulkActionsTest extends TestCase
 {
@@ -210,5 +215,28 @@ class LeadBulkActionsTest extends TestCase
             'lead_ids' => [$lead->id],
             'tsa_id'   => 999999,
         ])->assertStatus(422);
+    }
+
+    /**
+     * Regression test, 2026-09-16: "is it possible that in call tracker it
+     * will not have auto tagging when it's redistribute like that" —
+     * bulkTransfer() no longer pushes the new owner's POS name tag to the
+     * real Pancake order at all.
+     */
+    public function test_bulk_transfer_does_not_write_a_new_owner_tag_to_pancake(): void
+    {
+        Http::fake();
+        $this->actingAs($this->admin());
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $lead = $this->leadFor($gemma);
+
+        $this->postJson(route('calls.leads.bulk-transfer'), [
+            'lead_ids' => [$lead->id],
+            'tsa_id'   => $mariel->id,
+        ])->assertOk();
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        Http::assertNothingSent();
     }
 }
