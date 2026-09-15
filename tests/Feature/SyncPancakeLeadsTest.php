@@ -188,18 +188,24 @@ class SyncPancakeLeadsTest extends TestCase
     }
 
     /**
-     * Regression test, 2026-09-16: "why now there's a leads that is not
+     * Regression test, 2026-09-16: root-caused live in two passes. First
+     * looked like Kathleen/Grace Olivo/Angel Margallo's tsa_key just had no
+     * matching Pancake tag at all ("why now there's a leads that is not
      * auto tagging like tsa tag name like that but there's sometimes that
-     * is auto tagging" — root-caused live: three real TSAs (Kathleen,
-     * Grace Olivo/"Joanna", Angel Margallo/"Angelica") had no matching tag
-     * anywhere in Pancake's real catalog at all, so addTagsToOrder() (which
-     * only ever matches an EXISTING tag, never creates one) silently
-     * failed every time for their leads while every other TSA's
-     * already-existing tag kept working fine. tagTsaOnPancakeOrder() now
-     * calls createTagIfMissing() for the TSA's own tag first.
+     * is auto tagging"). A follow-up screenshot of the real POS tag search
+     * ("there's angel in the POS... it should be angel") corrected that:
+     * their real Pancake tag is a DIFFERENT alias than tsa_key (same shape
+     * GoogleDriveClient::folderBelongsToTsa() already root-caused
+     * 2026-09-08 for Drive folder matching) — resolveTsaTagName() now tries
+     * every one of the TSA's tag_keywords aliases before ever creating a
+     * new tag. This test proves the "genuinely no alias matches anything"
+     * last-resort path still works.
      */
-    public function test_a_tsa_with_no_existing_tag_in_the_catalog_still_gets_tagged(): void
+    public function test_a_tsa_with_no_matching_tag_under_any_alias_gets_a_new_tag_created(): void
     {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['tag_keywords' => 'GEMMA']);
+
         $this->fakePancake([[
             'id'    => 9010,
             'bill_full_name'  => 'New Tag Check',
@@ -207,19 +213,16 @@ class SyncPancakeLeadsTest extends TestCase
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
         ]], [
-            // First GET is tagTsaOnPancakeOrder()'s createTagIfMissing()
-            // pre-check — "Gemma" genuinely missing from the catalog. The
-            // POST creates it; addTagsToOrder()'s own subsequent listTags()
-            // GET isn't faked as a sequence step here since Http::fake
-            // wildcards match by URL pattern, not call order across
-            // different underlying methods — this sequence only needs to
-            // cover the two createTagIfMissing() calls in order.
+            // Http::sequence() consumes in call order regardless of
+            // method, and GET+POST both hit /orders/tags: (1)
+            // resolveTsaTagName()'s own listTags() GET — empty, no alias
+            // matches; (2) createTagIfMissing()'s POST that creates the
+            // tag and busts the cache; (3) addTagsToOrder()'s listTags()
+            // GET, now fresh again since the cache was just forgotten.
             'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::sequence()
                 ->push(['success' => true, 'data' => []], 200)
                 ->push(['success' => true, 'data' => ['id' => 99, 'name' => 'Gemma']], 200)
-                ->whenEmpty(Http::response(['success' => true, 'data' => [
-                    ['id' => 99, 'name' => 'Gemma'],
-                ]], 200)),
+                ->push(['success' => true, 'data' => [['id' => 99, 'name' => 'Gemma']]], 200),
             'pos.pages.fm/api/v1/shops/*/orders/9010*' => Http::response(['success' => true, 'data' => ['id' => 9010, 'tags' => []]], 200),
         ]);
 
@@ -233,6 +236,47 @@ class SyncPancakeLeadsTest extends TestCase
         Http::assertSent(function ($r) {
             if ($r->method() !== 'PUT' || !str_contains($r->url(), '/orders/9010')) return false;
             return collect($r['tags'])->pluck('name')->contains('Gemma');
+        });
+    }
+
+    /**
+     * The actual fix this session's report was about: a TSA whose tsa_key
+     * itself has no matching Pancake tag, but one of her OTHER
+     * tag_keywords aliases does (Angel Margallo's real shape: tsa_key
+     * "Angelica" has 851 historical orders, but her real Pancake tag is
+     * "ANGEL" — see resolveTsaTagName()'s own doc comment) — the real
+     * existing alias tag wins, no redundant new tag is ever created for
+     * her.
+     */
+    public function test_a_tsa_whose_real_tag_is_a_keyword_alias_not_her_tsa_key_is_tagged_correctly(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['tag_keywords' => 'GEMMA,GEM']);
+
+        $this->fakePancake([[
+            'id'    => 9011,
+            'bill_full_name'  => 'Alias Tag Check',
+            'tags'  => [],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]], [
+            // "Gemma" (tsa_key) has no match, but "GEM" (a tag_keywords
+            // alias) does — real production shape for Angel/"ANGEL".
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 42, 'name' => 'GEM'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/9011*' => Http::response(['success' => true, 'data' => ['id' => 9011, 'tags' => []]], 200),
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9011')->first();
+        $this->assertSame('assigned', $lead->status);
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST');
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT' || !str_contains($r->url(), '/orders/9011')) return false;
+            return collect($r['tags'])->pluck('name')->contains('GEM');
         });
     }
 

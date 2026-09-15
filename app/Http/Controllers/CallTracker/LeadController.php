@@ -1644,20 +1644,25 @@ class LeadController extends Controller
      * 'pos_auto_tagging_enabled' Setting is off — not fatal, a lead's local
      * assignment is never blocked on Pancake being reachable.
      *
-     * The TSA's own tag is created in Pancake's catalog first if it doesn't
-     * exist yet (explicit report, 2026-09-16: "why now there's a leads that
-     * is not auto tagging like tsa tag name like that but there's sometimes
-     * that is auto tagging" — root-caused live: Kathleen, Grace Olivo
-     * (tsa_key "Joanna"), and Angel Margallo (tsa_key "Angelica") had no
-     * matching tag anywhere in Pancake's 347-tag catalog at all, so
-     * addTagsToOrder() — which only ever MATCHES an existing tag, never
-     * creates one — silently failed every single time for their leads,
-     * while every other TSA (whose name already existed as a tag from
-     * before this feature existed) worked fine. Extra tags from
-     * tagOutcomeInPancake() (outcome/disposition tags) are left as-is —
-     * those come from a fixed, already-real list (splitTags() only ever
-     * returns picks from the disposition modal's own catalog-backed
-     * search), so there's nothing to create there.
+     * The TSA tag actually pushed is resolved through her tag_keywords
+     * aliases first, not always her bare tsa_key (explicit report,
+     * 2026-09-16, with a screenshot: "why now there's a leads that is not
+     * auto tagging like tsa tag name like that but there's sometimes that
+     * is auto tagging" — first looked like Kathleen/Grace Olivo/Angel
+     * Margallo's tsa_key just had no matching Pancake tag at all, but a
+     * follow-up screenshot of the real POS tag search ("there's angel in
+     * the POS... it should be angel") corrected that: their real Pancake
+     * tag is a DIFFERENT alias than tsa_key — GoogleDriveClient::
+     * folderBelongsToTsa() already root-caused this exact shape on
+     * 2026-09-08 for Drive folder matching (Angel Margallo's tsa_key
+     * "Angelica" has 851 real orders already attributed under that exact
+     * string, so it can't just be renamed — her REAL Drive folder, and her
+     * real Pancake tag, is "ANGEL", her tag_keywords' other entry; Grace
+     * Olivo/"Joanna" is the identical shape, real tag "GRACE"). Reusing
+     * tag_keywords here the same way, rather than tsa_key, so this picks
+     * the SAME real tag Drive folder-matching already resolves to.
+     * createTagIfMissing() on the bare tsa_key is now only a last resort
+     * for a TSA who genuinely has no matching tag under ANY alias yet.
      */
     public static function tagTsaOnPancakeOrder(Lead $lead, PancakeOrderTagApi $api, array $extraTags = []): void
     {
@@ -1665,10 +1670,8 @@ class LeadController extends Controller
             return;
         }
 
-        $tsaTag = Setting::get('pos_auto_tagging_enabled', true) ? $lead->tsa?->tsa_key : null;
-        if ($tsaTag) {
-            $api->createTagIfMissing($tsaTag);
-        }
+        $tsa = $lead->tsa;
+        $tsaTag = Setting::get('pos_auto_tagging_enabled', true) && $tsa ? self::resolveTsaTagName($tsa, $api) : null;
 
         $tagNames = collect($extraTags)->push($tsaTag)->filter()->unique()->values()->all();
         if (empty($tagNames)) {
@@ -1682,5 +1685,29 @@ class LeadController extends Controller
                 Log::warning("Could not tag \"{$tagName}\" on order {$lead->pancake_order_id} in Pancake.");
             }
         }
+    }
+
+    /**
+     * Picks which of $tsa's own aliases (tsa_key, then each tag_keywords
+     * entry, in that order) actually exists as a real tag in Pancake's
+     * catalog — see tagTsaOnPancakeOrder()'s own doc comment for why
+     * tsa_key alone isn't always the right one to push. Falls through to
+     * creating tsa_key itself as a brand-new tag only when NONE of her
+     * aliases match anything real yet.
+     */
+    private static function resolveTsaTagName(TsaShift $tsa, PancakeOrderTagApi $api): string
+    {
+        $catalog = collect($api->listTags())->pluck('name');
+
+        foreach ([$tsa->tsa_key, ...$tsa->tag_keywords_array] as $alias) {
+            $match = $catalog->first(fn ($t) => strcasecmp(trim($t), trim($alias)) === 0);
+            if ($match !== null) {
+                return $match;
+            }
+        }
+
+        $api->createTagIfMissing($tsa->tsa_key);
+
+        return $tsa->tsa_key;
     }
 }
