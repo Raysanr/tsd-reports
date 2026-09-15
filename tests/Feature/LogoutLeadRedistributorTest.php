@@ -38,6 +38,9 @@ class LogoutLeadRedistributorTest extends TestCase
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
         $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+        // Everyone else logged out — only Mariel and Kathleen are online
+        // to receive the split.
+        TsaShift::whereNotIn('id', [$gemma->id, $mariel->id, $kathleen->id])->update(['status' => 'logout']);
         $mariel->update(['status' => 'login']);
         $kathleen->update(['status' => 'login']);
 
@@ -69,13 +72,8 @@ class LogoutLeadRedistributorTest extends TestCase
     public function test_backlog_stays_put_when_no_teammates_are_currently_working(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        // Every other SH Naturals TSA also logged out — Mariel already is
-        // by seed default; Kathleen needs setting explicitly. Every
-        // Eyecare TSA logged out too (2026-09-08: the cross-team fallback
-        // means "nobody working" now has to mean nobody on EITHER team,
-        // not just her own — seeded TSAs default to 'login', so this test
-        // would otherwise silently redistribute cross-team instead of
-        // proving the true "nothing available anywhere" case).
+        // Every other TSA on either team logged out — nobody anywhere to
+        // hand the backlog to.
         TsaShift::where('id', '!=', $gemma->id)->update(['status' => 'logout']);
 
         $lead = $this->leadFor($gemma);
@@ -86,18 +84,20 @@ class LogoutLeadRedistributorTest extends TestCase
     }
 
     /**
-     * Reversed 2026-09-08 (explicit follow-up: "even not same team?") —
-     * same-team is still tried FIRST always, but when nobody on her own
-     * team is available, this now falls back to an online TSA on the
-     * OTHER team rather than leaving the backlog stuck. See
-     * LogoutLeadRedistributor's own doc comment for the full history —
-     * this test used to assert the opposite (cross-team never eligible).
+     * Team preference removed entirely 2026-09-16 (explicit follow-up: "i
+     * want to make it like not closing and opening ... it should be like
+     * depends to the who's online and depends to the products that is
+     * checked to the tsa management") — a cross-team teammate is exactly
+     * as eligible as a same-team one now; there is no team-based tier
+     * ordering left at all. See LogoutLeadRedistributor's own doc comment
+     * for the full history.
      */
-    public function test_falls_back_to_the_other_team_when_no_same_team_teammate_is_available(): void
+    public function test_redistributes_to_an_online_teammate_on_the_other_team_just_the_same(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
-        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
+        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — checked for Sinuxyl
         $julie->update(['status' => 'login']);
+        $julie->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
         // Every other SH Naturals TSA logged out — the only one left
         // "working" is Julie, on a different team entirely.
         TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
@@ -110,25 +110,7 @@ class LogoutLeadRedistributorTest extends TestCase
         $this->assertSame($julie->id, $lead->tsa_id);
 
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
-        $this->assertStringContainsString('cross-team fallback', $activity->description);
-    }
-
-    /** Same-team still wins over cross-team whenever a same-team teammate
-     *  genuinely IS available — the fallback only ever kicks in when her
-     *  own team has nobody left. */
-    public function test_same_team_teammate_is_still_preferred_over_the_cross_team_fallback(): void
-    {
-        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
-        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals
-        $julie  = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team
-        $mariel->update(['status' => 'login']);
-        $julie->update(['status' => 'login']);
-
-        $lead = $this->leadFor($gemma);
-
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
-
-        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+        $this->assertStringNotContainsString('fallback', $activity->description);
     }
 
     public function test_a_redundant_logout_does_not_re_trigger_redistribution(): void
@@ -253,19 +235,21 @@ class LogoutLeadRedistributorTest extends TestCase
      * uncalled — the pre-fix "any online TSA, regardless of product
      * setup" rule handed them to her anyway. Explicit confirmation: "keep
      * it, but only hand off to a teammate who handles that product." This
-     * proves tier 1 (same team, checked for this product) is preferred
-     * over a same-team teammate who ISN'T checked for it, even though the
-     * old code would have picked either one interchangeably.
+     * proves tier 1 (checked for this product) is preferred over an
+     * online TSA who ISN'T checked for it, even though the old code would
+     * have picked either one interchangeably. Team no longer factors in
+     * at all (2026-09-16) — Kathleen here is cross-team on purpose, to
+     * prove product eligibility alone decides it.
      */
-    public function test_prefers_a_same_team_teammate_who_actually_handles_the_leads_product(): void
+    public function test_prefers_a_teammate_who_actually_handles_the_leads_product_regardless_of_team(): void
     {
-        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();  // SH Naturals
-        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals — checked for Sinuxyl
-        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first(); // SH Naturals — NOT checked for Sinuxyl
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();    // SH Naturals
+        $mariel   = TsaShift::where('tsa_key', 'Mariel')->first();   // SH Naturals — checked for Sinuxyl
+        $julie    = TsaShift::where('tsa_key', 'Julie')->first();    // Eyecare Team — NOT checked for Sinuxyl
         $mariel->update(['status' => 'login']);
-        $kathleen->update(['status' => 'login']);
+        $julie->update(['status' => 'login']);
         $mariel->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
-        $kathleen->products()->sync([]);
+        $julie->products()->sync([]);
 
         $lead = $this->leadFor($gemma); // Sinuxyl product, per leadFor()'s own default
 
@@ -276,62 +260,11 @@ class LogoutLeadRedistributorTest extends TestCase
         $this->assertStringNotContainsString('fallback', $activity->description);
     }
 
-    /** When NOBODY same-team is checked for the lead's product, tier 2
-     *  (same team, any product) still wins over jumping straight to
-     *  cross-team — same-team always stays the first choice, only the
-     *  PRODUCT preference is new, not the team preference. */
-    public function test_falls_back_to_a_same_team_teammate_of_any_product_before_trying_cross_team(): void
-    {
-        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();  // SH Naturals
-        $mariel = TsaShift::where('tsa_key', 'Mariel')->first(); // SH Naturals — not checked for Sinuxyl
-        $julie  = TsaShift::where('tsa_key', 'Julie')->first();  // Eyecare Team — checked for Sinuxyl
-        $mariel->update(['status' => 'login']);
-        $julie->update(['status' => 'login']);
-        $mariel->products()->sync([]);
-        $julie->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
-
-        $lead = $this->leadFor($gemma);
-
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
-
-        // Same-team Mariel wins even though cross-team Julie is actually
-        // checked for this product — team match still outranks product
-        // match, product only breaks ties WITHIN the same tier.
-        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
-        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
-        $this->assertStringContainsString('same-team fallback', $activity->description);
-    }
-
-    /** When same team has nobody at all, cross-team still prefers a
-     *  teammate who's actually checked for the product over one who
-     *  isn't, same product-first ordering as the same-team tiers. */
-    public function test_prefers_a_cross_team_teammate_who_handles_the_product_when_same_team_has_nobody(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
-        $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — checked for Sinuxyl
-        $joana = TsaShift::where('tsa_key', 'Joana')->first(); // Eyecare Team — NOT checked
-        $julie->update(['status' => 'login']);
-        $joana->update(['status' => 'login']);
-        $julie->products()->sync([Product::where('display_name', 'SINUXYL')->first()->id]);
-        $joana->products()->sync([]);
-        // Every other SH Naturals TSA logged out — nobody on her own team.
-        TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
-
-        $lead = $this->leadFor($gemma);
-
-        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
-
-        $this->assertSame($julie->id, $lead->fresh()->tsa_id);
-        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
-        $this->assertStringContainsString('cross-team match', $activity->description);
-    }
-
-    /** Absolute last resort (tier 4, the original pre-fix behavior) still
-     *  applies when NOBODY anywhere — same team or cross-team — is
-     *  checked for the product: any online teammate, regardless of
-     *  product setup, same "someone answers the phone" reasoning as
-     *  before this fix. */
-    public function test_falls_back_to_any_cross_team_teammate_when_nobody_anywhere_handles_the_product(): void
+    /** Absolute last resort (tier 2) still applies when NOBODY online —
+     *  same team or otherwise — is checked for the product: any online
+     *  TSA, regardless of product setup, same "someone answers the phone"
+     *  reasoning as before this fix. */
+    public function test_falls_back_to_any_online_teammate_when_nobody_anywhere_handles_the_product(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
         $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — not checked for Sinuxyl
@@ -345,6 +278,32 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $this->assertSame($julie->id, $lead->fresh()->tsa_id);
         $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
-        $this->assertStringContainsString('cross-team fallback', $activity->description);
+        $this->assertStringContainsString('any-online fallback', $activity->description);
+    }
+
+    /**
+     * Regression test, 2026-09-15: "look at this it is catered but it is
+     * redistributed to marsha" — root-caused live: order #1368220 had
+     * already been fully worked (upsell added, delivery updated, tagged,
+     * status moved to "Ordered"/status_code 20) but the TSA never logged
+     * a Lead-level disposition, so Lead.status stayed 'assigned'; because
+     * status_code 20 wasn't in Order::RESOLVED_STATUSES, the redistributor
+     * treated it as untouched backlog and handed it to a teammate anyway.
+     */
+    public function test_a_lead_whose_order_was_already_purchased_is_left_with_the_logged_out_tsa(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma, 'assigned', '1368220');
+        Order::create(['pancake_order_id' => '1368220', 'status_code' => 20, 'pancake_created_at' => now(), 'pancake_inserted_at' => now(), 'synced_at' => now()]);
+        $originalAssignedAt = $lead->assigned_at;
+
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $lead->refresh();
+        $this->assertSame($gemma->id, $lead->tsa_id);
+        $this->assertTrue($lead->assigned_at?->eq($originalAssignedAt) ?? $originalAssignedAt === null);
     }
 }

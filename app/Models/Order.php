@@ -111,8 +111,18 @@ class Order extends Model
      *  that one is scoped to revenue counting and includes Awaiting stock (11),
      *  which is still very much worth a TSA's call — this one is scoped to "is
      *  there any reason left to hand this lead to someone," which Awaiting stock
-     *  still has and Received/Returned/Canceled/etc. don't. */
-    public const RESOLVED_STATUSES = [3, 4, 15, 5, 6, 7, 16];
+     *  still has and Received/Returned/Canceled/etc. don't.
+     *
+     *  20 (Purchased) added 2026-09-15: root-caused live from a real report
+     *  ("look at this it is catered but it is redistributed to marsha") — Gemma
+     *  De Guzman fully worked order #1368220 (added a real upsell, updated
+     *  delivery, tagged it, and moved its Pancake status to "Ordered") but never
+     *  logged a Lead-level disposition, so Lead.status stayed 'assigned'; when
+     *  she logged out an hour later, LogoutLeadRedistributor treated it as
+     *  untouched backlog and handed it to Marsha because status_code 20 wasn't
+     *  in this list. Same logic as the others here: once an order is Purchased,
+     *  there's nothing left for anyone else to call about. */
+    public const RESOLVED_STATUSES = [3, 4, 15, 5, 6, 7, 16, 20];
 
     /** Legacy disposition value for a swept, never-claimed lead — the tag Pancake's
      *  nightly sweep applied through 2026-07-17. The team stopped applying any
