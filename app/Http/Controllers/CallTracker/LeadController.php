@@ -1589,6 +1589,29 @@ class LeadController extends Controller
                 : now()->addDay();
         }
 
+        // Ownership follows whoever actually resolves a shared Callbacks
+        // pickup (explicit request, 2026-09-16: "gemma leads has unattended
+        // but julie call that unattended and removed the unattended...i
+        // want to make it like it will automatically julie's leads that")
+        // — Callbacks is the one queue where canAccess() already lets a TSA
+        // act on a lead she doesn't own (any TSA, once callback_at is due,
+        // see this controller's own canAccess() comment). Only reassigns
+        // when: (1) the logging TSA genuinely isn't the current owner —
+        // never touches the normal same-TSA case; (2) she got in through
+        // that due-callback door, not an admin override — an admin logging
+        // on someone's behalf is correcting a record, not picking up the
+        // call herself, so ownership must stay put; (3) the NEW disposition
+        // actually resolves it ($callbackAt is null here) — logging another
+        // Unattended/Not Answering/Call Back is still an unresolved
+        // attempt, not a real pickup, so the lead stays shared/up for grabs
+        // rather than quietly reassigning on every failed re-attempt.
+        $pickedUpViaCallbacksQueue = !$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id;
+        $reassignFromLabel = null;
+        if ($pickedUpViaCallbacksQueue && $callbackAt === null && $user->tsa_id) {
+            $reassignFromLabel = $lead->tsa?->display_name ?? 'Unassigned';
+            $lead->tsa_id = $user->tsa_id;
+        }
+
         $lead->update([
             'disposition'       => $data['disposition'],
             'notes'             => $data['notes'] ?? null,
@@ -1599,6 +1622,10 @@ class LeadController extends Controller
         ]);
 
         LeadActivity::log($lead, 'called', "Logged \"{$data['disposition']}\" by {$user->name}.", $user);
+
+        if ($reassignFromLabel !== null) {
+            LeadActivity::log($lead, 'transferred', "Picked up from the shared Callbacks queue — reassigned from {$reassignFromLabel} to {$user->name}.", $user);
+        }
 
         if ($callbackAt) {
             LeadActivity::log($lead, 'callback_scheduled', 'Callback set for ' . $callbackAt->format('M j, g:i A') . '.', $user);
