@@ -56,6 +56,17 @@ use App\Support\PancakeOrderTagApi;
  * no eligibility to check" convention RoundRobinAssigner::next() and
  * SyncPancakeLeads' catch-up sweep already use.
  *
+ * Dialed leads excluded from the backlog 2026-09-16 (explicit follow-up,
+ * after a real report: "look at this it is catered but it is redistributed
+ * to marsha" — the "catered" look was actually the Leads table's green
+ * checkmark, which is dialed_at, not a real outcome; see the Order::
+ * RESOLVED_STATUSES fix from the same day for the order-status half of
+ * that bug). Asked directly whether "no checkmark" is what should
+ * redistribute — confirmed: "it would be like the only no checkmark will
+ * be redistribute". A lead the TSA has at least clicked to call
+ * (dialed_at set) now stays with her even without a logged disposition;
+ * only a lead she never touched at all goes to a teammate.
+ *
  * Deliberately stateless — no new table, no persistent "IOU". Every
  * logout event is its own independent snapshot: whoever's backlog exists
  * AND whoever's an eligible teammate AT THAT MOMENT is what gets split,
@@ -95,8 +106,20 @@ class LogoutLeadRedistributor
         // join) so a lead whose order hasn't synced locally yet still
         // redistributes normally — same fail-open convention used
         // elsewhere in this app.
+        //
+        // whereNull('dialed_at') added 2026-09-16 (explicit follow-up,
+        // after the Gemma/Marsha #1368220 case above): the Leads table's
+        // green checkmark next to a phone number is this same dialed_at
+        // column ("Called" indicator — see leads/_table.blade.php), and
+        // the user's own read on it was "it would be like the only no
+        // checkmark will be redistribute" — once a TSA has at least
+        // clicked to call a lead, she's treated as already working it and
+        // keeps it even if she then logs out before logging a final
+        // disposition. Only a lead she never even dialed goes to someone
+        // else now.
         $backlog = Lead::where('tsa_id', $tsa->id)
             ->where('status', 'assigned')
+            ->whereNull('dialed_at')
             ->whereNotExists(function ($sub) {
                 $sub->selectRaw('1')
                     ->from('orders')

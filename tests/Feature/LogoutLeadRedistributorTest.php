@@ -49,6 +49,45 @@ class LogoutLeadRedistributorTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-16: "look at this it is catered but it is
+     * redistributed to marsha" — the Leads table's green checkmark next
+     * to a phone number is dialed_at, not a logged outcome; asked
+     * directly whether that checkmark should be what decides eligibility,
+     * confirmed: "it would be like the only no checkmark will be
+     * redistribute". A TSA who at least clicked to call a lead keeps it
+     * even without a final disposition — only a never-dialed lead moves.
+     */
+    public function test_a_dialed_lead_is_left_with_the_logged_out_tsa_even_without_a_disposition(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+        $lead->update(['dialed_at' => now()->subMinutes(10)]);
+
+        $this->logOutAndRedistribute($gemma);
+
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
+    }
+
+    /** The counterpart to the dialed-lead test above — a lead Gemma never
+     *  even clicked to call still redistributes normally, same as before
+     *  the checkmark exclusion was added. */
+    public function test_a_never_dialed_lead_still_redistributes_normally(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => 'login']);
+
+        $lead = $this->leadFor($gemma);
+
+        $this->logOutAndRedistribute($gemma);
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+    }
+
+    /**
      * Regression test, 2026-09-16: "it will take minutes to redistribute
      * because when someone is logout why is it like it is lag or it is
      * loading" — root-caused: redistribution used to run INLINE inside
