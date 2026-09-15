@@ -93,6 +93,42 @@ class PancakeOrderTagApiTest extends TestCase
         });
     }
 
+    /**
+     * Confirmed live, 2026-09-16: Pancake's real catalog can genuinely
+     * contain a tag with trailing whitespace baked in ("Not answering ",
+     * confirmed via listTags() on production — a literal trailing space).
+     * Laravel's default TrimStrings middleware (on for every web request)
+     * silently strips that same whitespace off the submitted tag name
+     * before it ever reaches this method, so "Not answering" (submitted)
+     * vs "Not answering " (Pancake's own stored name) failed an exact
+     * strcasecmp() even though it's case-insensitive — the add silently
+     * failed with "found no matching tag," surfacing to the TSA as "Could
+     * not add this tag in Pancake."
+     */
+    public function test_add_tags_to_order_matches_a_catalog_tag_with_trailing_whitespace(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 30, 'name' => 'Not answering '],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'tags' => [],
+            ]], 200),
+        ]);
+
+        // TrimStrings would have already stripped this before a real
+        // controller ever called addTagsToOrder() — simulated directly here
+        // since this is a unit-level call into the API class itself.
+        $results = $this->api->addTagsToOrder('9001', ['Not answering']);
+
+        $this->assertSame(['Not answering' => true], $results);
+
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT') return false;
+            return collect($r['tags'])->pluck('id')->contains(30);
+        });
+    }
+
     public function test_add_tags_to_order_skips_a_tag_name_with_no_real_match_and_still_adds_the_rest(): void
     {
         Http::fake([
@@ -241,6 +277,29 @@ class PancakeOrderTagApiTest extends TestCase
         ]);
 
         $success = $this->api->removeTagFromOrder('9001', 'confirmed');
+
+        $this->assertTrue($success);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT'
+            && count($r['tags']) === 1
+            && $r['tags'][0]['name'] === 'Gemma');
+    }
+
+    /** Same trailing-whitespace fix as addTagsToOrder() above — an order's
+     *  own existing tag can carry whitespace Pancake stored, while the
+     *  submitted name to remove was already trimmed by Laravel's default
+     *  middleware before this method ever saw it. */
+    public function test_remove_tag_from_order_matches_an_existing_tag_with_trailing_whitespace(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'tags' => [
+                    ['id' => 1, 'name' => 'Gemma'],
+                    ['id' => 2, 'name' => 'Not answering '],
+                ],
+            ]], 200),
+        ]);
+
+        $success = $this->api->removeTagFromOrder('9001', 'Not answering');
 
         $this->assertTrue($success);
         Http::assertSent(fn ($r) => $r->method() === 'PUT'

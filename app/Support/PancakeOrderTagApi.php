@@ -89,9 +89,23 @@ class PancakeOrderTagApi
             return array_fill_keys($tagNames, false);
         }
 
+        // trim() both sides — confirmed live, 2026-09-16: Pancake's real
+        // catalog can genuinely contain a tag with trailing whitespace baked
+        // in (e.g. "Not answering " — confirmed via listTags(), a literal
+        // space before the closing quote), but Laravel's default TrimStrings
+        // middleware (on by default for every web request, not something
+        // this app opted into or out of) silently strips that same
+        // whitespace off $tagNames before it ever reaches this method —
+        // "Not answering" (submitted) vs "Not answering " (Pancake's own
+        // stored name) then failed strcasecmp()'s exact-length comparison,
+        // even though it's case-insensitive, and the tag add silently
+        // failed with "found no matching tag." There is no way to submit a
+        // trailing space through a normal web form to begin with, so the
+        // fix has to be tolerating Pancake's own untrimmed catalog entries
+        // here, not trying to preserve whitespace client-side.
         $catalog = collect($this->listTags());
         $matched = collect($tagNames)->mapWithKeys(function ($name) use ($catalog) {
-            return [$name => $catalog->first(fn ($t) => strcasecmp($t['name'] ?? '', $name) === 0)];
+            return [$name => $catalog->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), trim($name)) === 0)];
         });
 
         foreach ($matched->filter(fn ($tag) => $tag === null)->keys() as $name) {
@@ -494,8 +508,13 @@ class PancakeOrderTagApi
 
             $order = $getResponse->json('data') ?? $getResponse->json();
 
+            // trim() both sides — same reasoning as addTagsToOrder()'s own
+            // comment above: a real Pancake tag name can carry trailing
+            // whitespace baked into the catalog, but Laravel's default
+            // TrimStrings middleware silently strips it off $tagName before
+            // this method ever sees it.
             $order['tags'] = collect($order['tags'] ?? [])
-                ->reject(fn ($tag) => strcasecmp($tag['name'] ?? '', $tagName) === 0)
+                ->reject(fn ($tag) => strcasecmp(trim($tag['name'] ?? ''), trim($tagName)) === 0)
                 ->values()->all();
 
             $putResponse = Http::timeout(15)
@@ -582,7 +601,12 @@ class PancakeOrderTagApi
             return null;
         }
 
-        $existing = collect($this->listTags())->first(fn ($t) => strcasecmp($t['name'] ?? '', $name) === 0);
+        // trim() both sides — same reasoning as addTagsToOrder()'s own
+        // comment: a real catalog entry can carry trailing whitespace, and
+        // Laravel's default TrimStrings middleware already stripped $name's
+        // own whitespace before this method saw it, upstream of any caller
+        // of this method that came from a web request.
+        $existing = collect($this->listTags())->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), trim($name)) === 0);
         if ($existing) {
             return $existing;
         }
@@ -659,10 +683,12 @@ class PancakeOrderTagApi
                 ],
             ])->values()->all();
 
+            // trim() both sides — same reasoning as addTagsToOrder()'s own
+            // comment: a real catalog entry can carry trailing whitespace.
             $tagCatalog     = collect($this->listTags());
             $wantedTagNames = collect([$upsellTagName, $tsaTagName])->filter()->unique()->values();
             $matchedTags    = $wantedTagNames
-                ->map(fn ($name) => $tagCatalog->first(fn ($t) => strcasecmp($t['name'] ?? '', $name) === 0))
+                ->map(fn ($name) => $tagCatalog->first(fn ($t) => strcasecmp(trim($t['name'] ?? ''), trim($name)) === 0))
                 ->filter();
 
             $existingTags = collect($order['tags'] ?? []);
