@@ -171,7 +171,41 @@ class LeadControllerTest extends TestCase
         $leadsResponse->assertSee('data-own-tsa-badge', false);
     }
 
-    public function test_a_leads_phone_number_carries_their_tsas_dialer_host_when_set(): void
+    /**
+     * Regression test, 2026-09-15: "in the callbacks it can't call any
+     * leads... it is only displaying sending to your phone" — the dial
+     * link used to carry the LEAD'S ASSIGNED TSA's own dialer_host, so
+     * viewing (or picking up, via canAccess()'s own shared-callback
+     * exception) a lead assigned to someone else always tried dialing
+     * through the wrong phone — or, worse, an unassigned lead (a real
+     * Callbacks case: an unclaimed order already tagged Not Answering/
+     * Unattended in Pancake) had no tsa at all to pull a dialer_host from,
+     * so auto-dial silently failed and fell back to the generic "Sent to
+     * your phone" message on every single click. Confirmed fix: the dial
+     * link now always carries the VIEWING user's own dialer_host,
+     * regardless of who the lead is assigned to.
+     */
+    public function test_a_leads_phone_number_carries_the_viewers_own_dialer_host_not_the_leads_owner(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['dialer_host' => '192.168.1.99:8080']);
+        $gemma->update(['dialer_host' => '192.168.1.42:8080']);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        // Lead is assigned to Gemma, but Mariel is the one viewing it.
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Juan', 'phone_number' => '09171234567', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'callback_at' => now()->subHour()]);
+
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-dial@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+
+        $response = $this->actingAs($marielUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertSee('data-dial-host="192.168.1.99:8080"', false);
+        $response->assertDontSee('data-dial-host="192.168.1.42:8080"', false);
+    }
+
+    public function test_a_leads_phone_number_has_no_dialer_host_when_the_viewer_never_configured_one(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $gemma->update(['dialer_host' => '192.168.1.42:8080']);
@@ -179,23 +213,32 @@ class LeadControllerTest extends TestCase
 
         Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Juan', 'phone_number' => '09171234567', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
 
-        $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
-
-        $response->assertOk();
-        $response->assertSee('data-dial-host="192.168.1.42:8080"', false);
-    }
-
-    public function test_a_leads_phone_number_has_no_dialer_host_when_their_tsa_never_configured_one(): void
-    {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Juan', 'phone_number' => '09171234567', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-
+        // Admin viewer has no tsa/dialer_host at all — falls back to no
+        // dial host regardless of the lead's own owner having one.
         $response = $this->actingAs($this->admin())->get(route('calls.leads.index'));
 
         $response->assertOk();
         $response->assertSee('data-dial-host=""', false);
+    }
+
+    /** An unassigned lead (a real Callbacks case: an unclaimed order
+     *  already tagged Not Answering/Unattended in Pancake) has no tsa at
+     *  all — the viewer's own dialer_host must still be used, not silently
+     *  fall back to nothing just because the lead itself has no owner. */
+    public function test_an_unassigned_leads_phone_number_still_uses_the_viewers_own_dialer_host(): void
+    {
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['dialer_host' => '192.168.1.99:8080']);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Juan', 'phone_number' => '09171234567', 'product_id' => $product->id, 'tsa_id' => null, 'status' => 'unassigned', 'callback_at' => now()->subHour()]);
+
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-dial2@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+
+        $response = $this->actingAs($marielUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertSee('data-dial-host="192.168.1.99:8080"', false);
     }
 
     private function admin(): User

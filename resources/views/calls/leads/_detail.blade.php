@@ -250,8 +250,13 @@
                     <dt class="text-slate-400">Phone</dt>
                     <dd class="text-slate-700 dark:text-slate-200">
                         @if($lead->dialable_number)
+                        {{-- data-dial-host is the VIEWER's own configured phone,
+                             not $lead->tsa's — same regression fix as
+                             leads/_table.blade.php's own comment
+                             (2026-09-15: "in the callbacks it can't call any
+                             leads... sending to your phone"). --}}
                         <a href="tel:{{ $lead->dialable_number }}" data-name="{{ $lead->customer_name ?: 'this customer' }}"
-                           data-dial-host="{{ $lead->tsa?->dialer_host }}" data-dial-number="{{ $lead->dialable_number }}" data-lead-id="{{ $lead->id }}"
+                           data-dial-host="{{ auth()->user()->tsa?->dialer_host }}" data-dial-number="{{ $lead->dialable_number }}" data-lead-id="{{ $lead->id }}"
                            class="text-primary font-semibold hover:text-primary-dark">{{ $lead->phone_number }}</a>
                         @else — @endif
                     </dd>

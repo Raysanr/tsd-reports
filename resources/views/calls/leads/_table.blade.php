@@ -109,8 +109,28 @@
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
                         @if($lead->dialable_number)
+                        {{-- data-dial-host is the VIEWER's own configured phone
+                             (auth()->user()->tsa), NOT $lead->tsa's — regression
+                             fix, 2026-09-15: "in the callbacks it can't call any
+                             leads... it is only displaying sending to your
+                             phone" — auto-dial always used the LEAD's assigned
+                             TSA's own Dialer Address, so clicking a callback
+                             that belonged to someone else (or had no owner at
+                             all — a real case: Callbacks can show an
+                             unassigned lead whose Pancake order already
+                             carries a Not Answering/Unattended tag) tried
+                             dialing through the wrong phone or none, silently
+                             falling back to the generic "Sent to your phone"
+                             message every time. Whoever clicks to call always
+                             dials via THEIR OWN phone now, matching the same
+                             "any TSA can call any due callback" behavior
+                             already fixed for viewing/managing (see
+                             LeadController::canAccess()'s own comment) — an
+                             admin viewer (no tsa/no dialer_host at all) still
+                             falls back to the plain tel: link exactly as
+                             before. --}}
                         <a href="tel:{{ $lead->dialable_number }}" data-name="{{ $lead->customer_name ?: 'this customer' }}"
-                           data-dial-host="{{ $lead->tsa?->dialer_host }}" data-dial-number="{{ $lead->dialable_number }}" data-lead-id="{{ $lead->id }}"
+                           data-dial-host="{{ auth()->user()->tsa?->dialer_host }}" data-dial-number="{{ $lead->dialable_number }}" data-lead-id="{{ $lead->id }}"
                            class="inline-flex items-center gap-1.5 text-primary hover:text-primary-dark font-semibold tabular-nums">
                             <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
