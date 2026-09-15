@@ -35,6 +35,16 @@ use Illuminate\Support\Facades\Log;
  * the single source of truth for which date/hour it counts toward
  * (parseFilename()) — folder/subfolder naming was never trusted for that,
  * only for narrowing which files get looked at at all.
+ *
+ * Every default (no --date) run also re-sweeps YESTERDAY, not just today
+ * (root-caused live, 2026-09-16, from a Dashboard TSA Performance screenshot
+ * showing blank AHT for several TSAs across a 3-day range) — this command
+ * only ever covered "today" before, with nothing to retry a day the 2-hourly
+ * cron missed or ran too early for (a phone's auto-upload can genuinely lag
+ * behind real time by hours). Confirmed live: Kathleen and Hannah both had
+ * zero CallRecordingHour rows for a day whose real Drive folder already had
+ * that day's recordings sitting there, hours before this fix. See sync()'s
+ * own comment for the exact reasoning.
  */
 class SyncCallRecordings extends Command
 {
@@ -111,16 +121,55 @@ class SyncCallRecordings extends Command
             return self::FAILURE;
         }
 
-        $date = $this->option('date')
-            ? Carbon::parse($this->option('date'), 'Asia/Manila')
-            : Carbon::now('Asia/Manila');
-        $dateString = $date->toDateString();
-
         $token = $this->drive->accessToken();
         if (!$token) {
             $this->recordFailure('Failed to refresh Google Drive access token — check the stored credentials.');
             return self::FAILURE;
         }
+
+        // Also re-sweeps YESTERDAY on every scheduled/no-arg run (explicit
+        // report, 2026-09-16, from a Dashboard screenshot: several TSAs
+        // showed blank AHT for a 3-day range — root-caused live: this
+        // command only ever covered "today," so a day this container
+        // crashed/restarted mid-run on (confirmed real: drive_sync_running
+        // can get stuck, see runningFlagIsStale()'s own comment) or that
+        // simply hadn't finished uploading recordings yet when the 2-hourly
+        // cron fired stayed permanently empty — nothing ever came back to
+        // retry it, unlike SyncPancakeLeads' own catch-up sweep for
+        // unassigned leads. Confirmed live: Kathleen/Hannah both had zero
+        // CallRecordingHour rows for 2026-09-14 despite their real Drive
+        // folders already having that day's recordings hours earlier.
+        // Skipped when --date is explicit (a manual backfill for one
+        // specific past day means exactly that day, not "and the day after
+        // it too") — only the default no-arg scheduled path re-checks
+        // yesterday automatically.
+        $dates = $this->option('date')
+            ? [Carbon::parse($this->option('date'), 'Asia/Manila')]
+            : [Carbon::now('Asia/Manila'), Carbon::now('Asia/Manila')->subDay()];
+
+        $totalRecordings = 0;
+        $tsaCount = 0;
+        foreach ($dates as $date) {
+            [$recordings, $tsas] = $this->syncOneDate($token, $date);
+            $totalRecordings += $recordings;
+            $tsaCount += $tsas;
+        }
+
+        Setting::set('drive_sync_last_status', 'success');
+        Setting::set('drive_sync_last_message', "Synced {$totalRecordings} recording(s) across {$tsaCount} TSA-day(s) for " . collect($dates)->map->toDateString()->implode(', ') . '.');
+
+        return self::SUCCESS;
+    }
+
+    /** One date's worth of the actual Drive walk — everything sync() used
+     *  to do inline before it needed to run this more than once per
+     *  invocation (see sync()'s own comment on why). Returns
+     *  [recordingsSynced, tsaCount] purely for sync()'s own combined
+     *  status message; each date's CallRecordingHour rows are written
+     *  here, independently, same upsert-by-date-and-hour as before. */
+    private function syncOneDate(string $token, Carbon $date): array
+    {
+        $dateString = $date->toDateString();
 
         // tsa_key => [hour => ['seconds' => float, 'count' => int]]
         $totals = [];
@@ -219,15 +268,12 @@ class SyncCallRecordings extends Command
                     ]
                 );
             }
-            $tsaCount = array_sum(array_column($hours, 'count'));
-            $totalRecordings += $tsaCount;
-            $this->info("{$tsaKey}: {$tsaCount} recording(s) synced for {$dateString}.");
+            $recordingsForTsa = array_sum(array_column($hours, 'count'));
+            $totalRecordings += $recordingsForTsa;
+            $this->info("{$tsaKey}: {$recordingsForTsa} recording(s) synced for {$dateString}.");
         }
 
-        Setting::set('drive_sync_last_status', 'success');
-        Setting::set('drive_sync_last_message', "Synced {$totalRecordings} recording(s) across " . count($totals) . " TSA(s) for {$dateString}.");
-
-        return self::SUCCESS;
+        return [$totalRecordings, count($totals)];
     }
 
     /** Records a hard-stop failure to Settings (surfaced on the Settings page)

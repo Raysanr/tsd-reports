@@ -237,4 +237,85 @@ class SyncCallRecordingsFastPathTest extends TestCase
         $this->assertNotNull($joanaRow, "Joana's recording must still sync even though Julie's folder (processed first) failed.");
         $this->assertSame(5, $joanaRow->total_seconds);
     }
+
+    /**
+     * Regression test, 2026-09-16: a Dashboard TSA Performance screenshot
+     * showed several TSAs with blank AHT across a 3-day range — root-caused
+     * live: this command only ever covered "today," so a day the 2-hourly
+     * cron missed or ran before a phone's auto-upload caught up (confirmed
+     * real: Kathleen and Hannah both had zero CallRecordingHour rows for a
+     * day whose real Drive folder already had that day's recordings hours
+     * earlier) stayed permanently empty. A default (no --date) run now also
+     * re-sweeps yesterday, so a missed day self-heals on the very next
+     * scheduled run instead of needing a manual backfill.
+     */
+    public function test_a_default_run_with_no_explicit_date_also_re_syncs_yesterday(): void
+    {
+        $this->configureDrive();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-08-30 10:00:00', 'Asia/Manila'));
+
+        $ftyp = "\x00\x00\x00\x10ftypM4A \x00\x00\x00\x00";
+        $mvhdBody = str_repeat("\x00", 12) . pack('N', 1000) . pack('N', 5000) . str_repeat("\x00", 80);
+        $mvhd = pack('N', 8 + strlen($mvhdBody)) . 'mvhd' . $mvhdBody;
+        $moov = pack('N', 8 + strlen($mvhd)) . 'moov' . $mvhd;
+        $m4aBytes = $ftyp . $moov;
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                $this->folderListResponse([$this->folder('julie-root', 'JULIE')])
+            ),
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
+                $this->folderListResponse([
+                    $this->file('rec-today', '09171234567 2026-08-30 08-15-00.m4a'),
+                    $this->file('rec-yesterday', '09171234567 2026-08-29 09-00-00.m4a'),
+                ])
+            ),
+            'https://www.googleapis.com/drive/v3/files/rec-today*' => Http::response($m4aBytes),
+            'https://www.googleapis.com/drive/v3/files/rec-yesterday*' => Http::response($m4aBytes),
+        ]);
+
+        // No --date at all — the default scheduled path.
+        $this->artisan('calls:sync-recordings')->assertSuccessful();
+
+        $todayRow     = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-30')->where('hour', 8)->first();
+        $yesterdayRow = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-29')->where('hour', 9)->first();
+        $this->assertNotNull($todayRow, 'Today\'s own recording must still sync.');
+        $this->assertNotNull($yesterdayRow, 'Yesterday\'s recording must ALSO sync on a default run, not just today\'s.');
+    }
+
+    /** An explicit --date backfill means exactly that one day — it must
+     *  never silently ALSO re-sync the day after it. */
+    public function test_an_explicit_date_backfill_does_not_also_sync_the_next_day(): void
+    {
+        $this->configureDrive();
+
+        $ftyp = "\x00\x00\x00\x10ftypM4A \x00\x00\x00\x00";
+        $mvhdBody = str_repeat("\x00", 12) . pack('N', 1000) . pack('N', 5000) . str_repeat("\x00", 80);
+        $mvhd = pack('N', 8 + strlen($mvhdBody)) . 'mvhd' . $mvhdBody;
+        $moov = pack('N', 8 + strlen($mvhd)) . 'moov' . $mvhd;
+        $m4aBytes = $ftyp . $moov;
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                $this->folderListResponse([$this->folder('julie-root', 'JULIE')])
+            ),
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-root%27*' => Http::response(
+                $this->folderListResponse([
+                    $this->file('rec-target', '09171234567 2026-08-29 08-15-00.m4a'),
+                    $this->file('rec-next-day', '09171234567 2026-08-30 09-00-00.m4a'),
+                ])
+            ),
+            'https://www.googleapis.com/drive/v3/files/rec-target*' => Http::response($m4aBytes),
+            'https://www.googleapis.com/drive/v3/files/rec-next-day*' => Http::response($m4aBytes),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
+
+        $targetRow  = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-29')->first();
+        $nextDayRow = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-30')->first();
+        $this->assertNotNull($targetRow);
+        $this->assertNull($nextDayRow, 'An explicit --date must sync only that one day.');
+    }
 }
