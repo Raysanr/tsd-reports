@@ -187,6 +187,55 @@ class SyncPancakeLeadsTest extends TestCase
         });
     }
 
+    /**
+     * Regression test, 2026-09-16: "why now there's a leads that is not
+     * auto tagging like tsa tag name like that but there's sometimes that
+     * is auto tagging" — root-caused live: three real TSAs (Kathleen,
+     * Grace Olivo/"Joanna", Angel Margallo/"Angelica") had no matching tag
+     * anywhere in Pancake's real catalog at all, so addTagsToOrder() (which
+     * only ever matches an EXISTING tag, never creates one) silently
+     * failed every time for their leads while every other TSA's
+     * already-existing tag kept working fine. tagTsaOnPancakeOrder() now
+     * calls createTagIfMissing() for the TSA's own tag first.
+     */
+    public function test_a_tsa_with_no_existing_tag_in_the_catalog_still_gets_tagged(): void
+    {
+        $this->fakePancake([[
+            'id'    => 9010,
+            'bill_full_name'  => 'New Tag Check',
+            'tags'  => [],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]], [
+            // First GET is tagTsaOnPancakeOrder()'s createTagIfMissing()
+            // pre-check — "Gemma" genuinely missing from the catalog. The
+            // POST creates it; addTagsToOrder()'s own subsequent listTags()
+            // GET isn't faked as a sequence step here since Http::fake
+            // wildcards match by URL pattern, not call order across
+            // different underlying methods — this sequence only needs to
+            // cover the two createTagIfMissing() calls in order.
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::sequence()
+                ->push(['success' => true, 'data' => []], 200)
+                ->push(['success' => true, 'data' => ['id' => 99, 'name' => 'Gemma']], 200)
+                ->whenEmpty(Http::response(['success' => true, 'data' => [
+                    ['id' => 99, 'name' => 'Gemma'],
+                ]], 200)),
+            'pos.pages.fm/api/v1/shops/*/orders/9010*' => Http::response(['success' => true, 'data' => ['id' => 9010, 'tags' => []]], 200),
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9010')->first();
+        $this->assertSame('assigned', $lead->status);
+        $this->assertSame('Gemma', $lead->tsa->tsa_key);
+
+        Http::assertSent(fn ($r) => $r->method() === 'POST' && ($r['name'] ?? null) === 'Gemma');
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT' || !str_contains($r->url(), '/orders/9010')) return false;
+            return collect($r['tags'])->pluck('name')->contains('Gemma');
+        });
+    }
+
     public function test_running_the_sync_twice_does_not_reassign_or_duplicate_a_lead(): void
     {
         $order = [

@@ -1641,9 +1641,23 @@ class LeadController extends Controller
      * bulkTransfer() below) for where that's since changed.
      *
      * Same silent-no-op conventions as before: no linked order yet, or the
-     * 'pos_auto_tagging_enabled' Setting is off, or a tag doesn't exist in
-     * the real catalog — none of these are fatal, a lead's local assignment
-     * is never blocked on Pancake being reachable.
+     * 'pos_auto_tagging_enabled' Setting is off — not fatal, a lead's local
+     * assignment is never blocked on Pancake being reachable.
+     *
+     * The TSA's own tag is created in Pancake's catalog first if it doesn't
+     * exist yet (explicit report, 2026-09-16: "why now there's a leads that
+     * is not auto tagging like tsa tag name like that but there's sometimes
+     * that is auto tagging" — root-caused live: Kathleen, Grace Olivo
+     * (tsa_key "Joanna"), and Angel Margallo (tsa_key "Angelica") had no
+     * matching tag anywhere in Pancake's 347-tag catalog at all, so
+     * addTagsToOrder() — which only ever MATCHES an existing tag, never
+     * creates one — silently failed every single time for their leads,
+     * while every other TSA (whose name already existed as a tag from
+     * before this feature existed) worked fine. Extra tags from
+     * tagOutcomeInPancake() (outcome/disposition tags) are left as-is —
+     * those come from a fixed, already-real list (splitTags() only ever
+     * returns picks from the disposition modal's own catalog-backed
+     * search), so there's nothing to create there.
      */
     public static function tagTsaOnPancakeOrder(Lead $lead, PancakeOrderTagApi $api, array $extraTags = []): void
     {
@@ -1652,6 +1666,9 @@ class LeadController extends Controller
         }
 
         $tsaTag = Setting::get('pos_auto_tagging_enabled', true) ? $lead->tsa?->tsa_key : null;
+        if ($tsaTag) {
+            $api->createTagIfMissing($tsaTag);
+        }
 
         $tagNames = collect($extraTags)->push($tsaTag)->filter()->unique()->values()->all();
         if (empty($tagNames)) {
