@@ -553,6 +553,45 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Regression test, 2026-09-16: "why there's a checkmark but still it
+     * is in the uncatered... it should be in the catered right?" —
+     * confirmed a dialed lead (dialed_at set, the Leads table's green
+     * checkmark) should count as Catered even without a logged
+     * disposition yet, not just a lead whose status is already 'called'.
+     */
+    public function test_status_filter_catered_also_shows_dialed_but_not_yet_dispositioned_leads(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Dialed Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'dialed_at' => now()]);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Untouched Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'catered']));
+
+        $response->assertOk();
+        $response->assertSee('Dialed Lead');
+        $response->assertDontSee('Untouched Lead');
+    }
+
+    /** The counterpart to the test above — a dialed lead must also drop
+     *  out of Uncatered now, not just show up under Catered. */
+    public function test_status_filter_uncatered_excludes_dialed_leads(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Dialed Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'dialed_at' => now()]);
+        Lead::create(['pancake_order_id' => '2', 'customer_name' => 'Untouched Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['status' => 'uncatered']));
+
+        $response->assertOk();
+        $response->assertDontSee('Dialed Lead');
+        $response->assertSee('Untouched Lead');
+    }
+
+    /**
      * Explicit request, 2026-09-08: "can you make it there's a status
      * filter too in this" — the real Pancake order-status pill column
      * (New/Confirmed/Shipped/etc, Order::STATUS_PILL), a different concept

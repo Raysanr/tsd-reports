@@ -267,13 +267,24 @@ class LeadController extends Controller
         // three-way Unassigned/Assigned/Called split had no single value
         // for (previously required picking Unassigned OR Assigned
         // separately, or eyeballing "All Statuses" minus Called by hand).
+        //
+        // Widened to also include dialed_at 2026-09-16 (explicit report,
+        // with a screenshot: "why there's a checkmark but still it is in
+        // the uncatered... it should be in the catered right?" — the
+        // checkmark is the table's own dialed indicator; a TSA who's
+        // already clicked to call a lead reads as having catered to it,
+        // even before she's logged a final disposition, so this filter no
+        // longer waits for that). Doesn't touch STATUS_FILTER_VALUES above
+        // (the real Assigned/Called/Unassigned dropdown values) or the
+        // Call Tracker Dashboard's own Catered KPI — those are separate,
+        // unrelated to this one report.
         $status = $request->string('status')->toString();
         if (!$view && in_array($status, self::STATUS_FILTER_VALUES, true)) {
             $query->where('status', $status);
         } elseif (!$view && $status === 'catered') {
-            $query->where('status', 'called');
+            $query->where(fn ($q) => $q->where('status', 'called')->orWhereNotNull('dialed_at'));
         } elseif (!$view && $status === 'uncatered') {
-            $query->where('status', '!=', 'called');
+            $query->where('status', '!=', 'called')->whereNull('dialed_at');
         }
 
         // Order status filter (explicit request, 2026-09-08: "can you make
