@@ -2066,9 +2066,9 @@ function renderInlineTagAddResults(tags) {
     // Pancake API a tag came from"), same field the existing outcome-tag
     // picker (renderOutcomeTagModalResults() below) already reads.
     results.innerHTML = tags.map((t, i) => `
-        <div class="inline-tag-add-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-700 dark:text-slate-200" data-index="${i}">
-            <span class="w-2 h-2 rounded-full shrink-0" style="background:${escapeHtml(t.color || '#94a3b8')}"></span>
-            <span class="flex-1 min-w-0 truncate">${escapeHtml(t.text)}</span>
+        <div class="inline-tag-add-result-row flex items-start gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-700 dark:text-slate-200" data-index="${i}">
+            <span class="w-2 h-2 rounded-full shrink-0 mt-1" style="background:${escapeHtml(t.color || '#94a3b8')}"></span>
+            <span class="flex-1 min-w-0 break-words">${escapeHtml(t.text)}</span>
         </div>`).join('');
     results.dataset.tags = JSON.stringify(tags);
 }

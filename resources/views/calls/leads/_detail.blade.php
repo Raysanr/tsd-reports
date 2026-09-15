@@ -244,7 +244,7 @@
                             </svg>
                             Add tag
                         </button>
-                        <div id="inlineTagAddPanel" class="hidden absolute z-20 mt-1 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
+                        <div id="inlineTagAddPanel" class="hidden absolute z-20 mt-1 w-80 max-w-[90vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
                             <input type="text" id="inlineTagAddSearch" placeholder="Search tags…" autocomplete="off"
                                    class="w-full text-xs border-b border-slate-100 dark:border-slate-700 px-3 py-2 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none">
                             <div id="inlineTagAddResults" class="max-h-48 overflow-y-auto"></div>
