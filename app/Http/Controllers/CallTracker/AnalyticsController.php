@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
+use App\Models\CallEvent;
 use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\TsaShift;
@@ -54,9 +55,32 @@ class AnalyticsController extends Controller
             ->whereDate('date', '<=', $to)
             ->get();
 
-        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $from, $to) {
-            $mine   = $leads->where('tsa_id', $tsa->id);
-            $called = $mine->where('status', 'called');
+        // "Called" (explicit fix, 2026-09-16: this table/chart/KPI card read
+        // as "no calls logged" — everyone's Called stuck at 0 — even on
+        // days Call Log showed real dialing activity for the same TSAs/
+        // range) — was Lead::status === 'called', which ONLY ever gets set
+        // by updateDisposition() (LeadController) when a TSA explicitly
+        // logs an outcome/disposition on a lead. Real dialing (clicking a
+        // lead's number, or a MacroDroid-confirmed call) writes to CallEvent
+        // instead and never touched Lead::status at all — so any TSA who
+        // called leads all day without separately logging a disposition on
+        // each one read as having made zero calls here, same
+        // CallEvent-vs-Lead::status split CallLogController's own doc
+        // comment already covers for the Call Log page. Switched to real
+        // CallEvent activity (distinct leads with at least one call in
+        // range) so this page's "Called" means the same thing Call Log's
+        // already does, instead of a narrower, easy-to-forget manual step.
+        $calledLeadIdsByTsa = CallEvent::whereBetween('occurred_at', [$from, $to])
+            ->whereNotNull('lead_id')
+            ->get(['tsa_id', 'lead_id'])
+            ->groupBy('tsa_id')
+            ->map(fn ($events) => $events->pluck('lead_id')->unique());
+
+        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $calledLeadIdsByTsa, $from, $to) {
+            $mine = $leads->where('tsa_id', $tsa->id);
+
+            $calledLeadIds = $calledLeadIdsByTsa->get($tsa->id, collect());
+            $called        = $mine->whereIn('id', $calledLeadIds);
 
             // Case-insensitive substring match, not an exact ->where() equals —
             // same convention LeadController::updateDisposition() already uses
