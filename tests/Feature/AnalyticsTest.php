@@ -30,7 +30,7 @@ class AnalyticsTest extends TestCase
         $this->actingAs($user)->get(route('calls.analytics'))->assertForbidden();
     }
 
-    public function test_it_computes_confirm_rate_no_answer_rate_and_average_response_time(): void
+    public function test_it_computes_confirm_rate_and_no_answer_rate(): void
     {
         $admin   = User::factory()->create(['role' => 'admin']);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
@@ -57,7 +57,6 @@ class AnalyticsTest extends TestCase
         $response->assertSee($gemma->display_name);
         $response->assertSee('66.7%'); // 2/3 upsell-confirmed
         $response->assertSee('33.3%'); // 1/3 not answering
-        $response->assertSee('10 min'); // avg of 10, 10, 10 (answered leads only)
     }
 
     /** A real logged outcome can be several comma-joined tags at once (see

@@ -3222,39 +3222,6 @@ document.addEventListener('keydown', (e) => {
         });
     }
 
-    // Chart 3 — Avg Response Time: horizontal, sorted fastest-first (lower
-    // is better here, unlike the other two charts where taller = better) —
-    // reading top-to-bottom as a ranking only works if the best performer is
-    // actually on top, so this sorts its own copy of the data rather than
-    // reusing $rows' sort_order, which orders by roster position, not speed.
-    const responseCanvas = document.getElementById('chartResponseTime');
-    if (responseCanvas) {
-        const withTimes = data.labels
-            .map((label, i) => ({ label, mins: data.avgResponseMins[i] }))
-            .filter((r) => r.mins !== null)
-            .sort((a, b) => a.mins - b.mins);
-
-        new Chart(responseCanvas, {
-            type: 'bar',
-            data: {
-                labels: withTimes.map((r) => r.label),
-                datasets: [{ data: withTimes.map((r) => r.mins), backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 24 }],
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: { ...tooltipBase, callbacks: { label: (ctx) => `${ctx.raw} min avg response` } },
-                },
-                scales: {
-                    x: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => `${v}m` } },
-                    y: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
-                },
-            },
-        });
-    }
 })();
 
 // Dashboard overview charts (calls/dashboard.blade.php) — same JSON-script-

@@ -66,13 +66,6 @@
             <canvas id="chartOutcomeQuality" role="img" aria-label="Bar chart comparing confirm rate against no-answer rate as percentages, per TSA — see the table below for exact figures"></canvas>
         </div>
     </div>
-    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5 lg:col-span-2">
-        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Avg Response Time</h2>
-        <p class="text-xs font-mono text-slate-400 mb-4">Minutes between a lead being assigned and actually called — fastest first</p>
-        <div class="h-64">
-            <canvas id="chartResponseTime" role="img" aria-label="Horizontal bar chart ranking TSAs by average response time in minutes, fastest first — see the table below for exact figures"></canvas>
-        </div>
-    </div>
 </div>
 
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden mb-6">
@@ -85,7 +78,6 @@
                 <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Called</th>
                 <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Confirm Rate</th>
                 <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">No-Answer Rate</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Avg Response</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -96,7 +88,6 @@
                 <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['called'] }}</td>
                 <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['confirm_rate'] !== null ? $row['confirm_rate'].'%' : '—' }}</td>
                 <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['no_answer_rate'] !== null ? $row['no_answer_rate'].'%' : '—' }}</td>
-                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['avg_response_mins'] !== null ? $row['avg_response_mins'].' min' : '—' }}</td>
             </tr>
             @endforeach
         </tbody>

@@ -145,24 +145,6 @@ class AnalyticsController extends Controller
             // alone.
             $confirmed = $dispositioned->filter(fn (Lead $l) => stripos($l->disposition, 'upsell') !== false)->count();
 
-            // Avg Response — answered leads only (explicit request: "the avg
-            // responded is answered calls disposition"), i.e. dispositioned
-            // leads that are NOT in the unanswered group above, matching
-            // ProductPerformance::tally()'s own 'answered' bucket definition
-            // (total dispositioned minus unanswered).
-            $answeredLeads = $dispositioned->reject(function (Lead $l) {
-                $disposition = str_replace("'", '', $l->disposition);
-                foreach (ProductPerformance::UNANSWERED_COLUMNS as $column) {
-                    foreach (ProductPerformance::DISPOSITION_KEYWORDS[$column] as $kw) {
-                        if (stripos($disposition, $kw) !== false) return true;
-                    }
-                }
-                return false;
-            });
-
-            $responseMinutes = $answeredLeads->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
-                ->map(fn (Lead $l) => $l->assigned_at->diffInMinutes($l->called_at));
-
             $myRecordingHours = $recordingHours->where('tsa_key', $tsa->tsa_key);
             $myCallCount      = $myRecordingHours->sum('call_count');
             $ahtSeconds       = $myCallCount > 0 ? (int) round($myRecordingHours->sum('total_seconds') / $myCallCount) : null;
@@ -190,7 +172,6 @@ class AnalyticsController extends Controller
                 'no_answer'           => $noAnswer,
                 'confirm_rate'        => $dispositioned->count() ? round($confirmed / $dispositioned->count() * 100, 1) : null,
                 'no_answer_rate'      => $dispositioned->count() ? round($noAnswer / $dispositioned->count() * 100, 1) : null,
-                'avg_response_mins'   => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
                 'aht_seconds'         => $ahtSeconds,
                 'aht_call_count'      => $myCallCount,
                 'tht_seconds'         => $thtSeconds,
@@ -285,7 +266,6 @@ class AnalyticsController extends Controller
             'called'          => $rows->pluck('called')->values(),
             'confirmRate'     => $rows->pluck('confirm_rate')->values(),
             'noAnswerRate'    => $rows->pluck('no_answer_rate')->values(),
-            'avgResponseMins' => $rows->pluck('avg_response_mins')->values(),
             'hasAnyCalls'     => $rows->sum('called') > 0,
             'ahtSeconds'      => $rows->pluck('aht_seconds')->values(),
             'ahtTrendLabels'  => $ahtTrend->keys()->values(),
