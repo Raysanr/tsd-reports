@@ -33,12 +33,31 @@ class AnalyticsController extends Controller
         $from     = Carbon::parse($dateFrom, 'Asia/Manila')->startOfDay();
         $to       = Carbon::parse($dateTo, 'Asia/Manila')->endOfDay();
 
-        // Scoped to when a lead entered a TSA's queue (assigned_at), not
-        // when the underlying Pancake order was created — this answers "how
-        // did TSAs perform on what they were actually given this window",
-        // the same anchor Overdue already uses.
+        // Scoped to pancake_created_at (when the order actually came in),
+        // NOT assigned_at (explicit fix, 2026-09-16: yesterday's "Total
+        // Leads" showed 1000+ for several TSAs — Kathleen 1302, Katherine
+        // 1997 — confirmed live against Leads Report/Dashboard showing far
+        // fewer for the same TSA/date, i.e. genuinely inflated, not real
+        // volume). Root cause: assigned_at gets re-stamped to now() by
+        // SyncPancakeLeads::catchUpUnassignedLeads() whenever it finally
+        // works through a backlog of old unassigned leads (any product that
+        // went a while without an active TSA roster, a sync gap, etc.) — a
+        // lead created weeks ago but only just assigned YESTERDAY by that
+        // sweep counted as yesterday's lead here, even though it isn't one.
+        // LeadController hit this exact regression on 2026-09-14 (see that
+        // file's own long doc comment above its date filter, "i want only to
+        // make it only today leads in every day... that is working before")
+        // and fixed it the same way: pancake_created_at answers "when did
+        // this lead genuinely come in", independent of whenever it happened
+        // to get (re-)assigned. Falls open on a null pancake_created_at
+        // (same "unknown, not excluded" convention LeadController's own
+        // fix uses) rather than silently dropping older rows with no
+        // creation date on record at all.
         $leads = Lead::with('tsa')->whereNotNull('tsa_id')
-            ->whereBetween('assigned_at', [$from, $to])
+            ->where(function ($q) use ($from, $to) {
+                $q->whereBetween('pancake_created_at', [$from, $to])
+                    ->orWhereNull('pancake_created_at');
+            })
             ->get();
 
         // AHT (Average Handle Time) — real per-hour call-duration totals

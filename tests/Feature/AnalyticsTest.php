@@ -78,19 +78,47 @@ class AnalyticsTest extends TestCase
         $response->assertSee('50%'); // 1/2 upsell-confirmed
     }
 
-    public function test_a_lead_assigned_outside_the_date_range_is_excluded(): void
+    public function test_a_lead_created_outside_the_date_range_is_excluded(): void
     {
         $admin   = User::factory()->create(['role' => 'admin']);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
-        Lead::create(['pancake_order_id' => 'old', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subDays(10), 'called_at' => now()->subDays(10)]);
+        // Scoped to pancake_created_at, not assigned_at (explicit fix,
+        // 2026-09-16 — see AnalyticsController's own doc comment: a lead
+        // CREATED long ago but only just assigned today, e.g. by
+        // SyncPancakeLeads::catchUpUnassignedLeads() finally working through
+        // an old backlog, must NOT count as today's lead just because
+        // assigned_at happens to say today). assigned_at is set to NOW here
+        // deliberately, to prove the exclusion really is driven by
+        // pancake_created_at and not merely by assigned_at also being old.
+        Lead::create(['pancake_order_id' => 'old', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'pancake_created_at' => now()->subDays(10), 'assigned_at' => now(), 'called_at' => now()]);
 
         $response = $this->actingAs($admin)->get(route('calls.analytics'));
 
         $response->assertOk();
         $gemmaRow = collect($response->original->getData()['rows'])->firstWhere('tsa.id', $gemma->id);
-        // Row still renders (every TSA always shows) but the lead assigned
-        // 10 days ago falls outside today's default range, so it's excluded.
+        // Row still renders (every TSA always shows) but the order was
+        // created 10 days ago, outside today's default range, so it's
+        // excluded despite being assigned today.
+        $this->assertSame(0, $gemmaRow['total']);
+    }
+
+    /** The regression this fix targets: a lead created long ago but only
+     *  just assigned TODAY (e.g. by the round-robin catch-up sweep finally
+     *  working through an old backlog) must not inflate today's Total Leads
+     *  — confirmed live, 2026-09-16: several TSAs showed 1000+ "Total Leads"
+     *  for a single day this way. */
+    public function test_a_lead_created_long_ago_but_only_just_assigned_today_does_not_inflate_total_leads(): void
+    {
+        $admin   = User::factory()->create(['role' => 'admin']);
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create(['pancake_order_id' => 'backlog', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'pancake_created_at' => now()->subDays(30), 'assigned_at' => now()]);
+
+        $response = $this->actingAs($admin)->get(route('calls.analytics'));
+
+        $response->assertOk();
+        $gemmaRow = collect($response->original->getData()['rows'])->firstWhere('tsa.id', $gemma->id);
         $this->assertSame(0, $gemmaRow['total']);
     }
 }
