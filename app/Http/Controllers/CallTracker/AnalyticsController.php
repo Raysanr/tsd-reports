@@ -60,16 +60,35 @@ class AnalyticsController extends Controller
         // days Call Log showed real dialing activity for the same TSAs/
         // range) — was Lead::status === 'called', which ONLY ever gets set
         // by updateDisposition() (LeadController) when a TSA explicitly
-        // logs an outcome/disposition on a lead. Real dialing (clicking a
-        // lead's number, or a MacroDroid-confirmed call) writes to CallEvent
-        // instead and never touched Lead::status at all — so any TSA who
-        // called leads all day without separately logging a disposition on
-        // each one read as having made zero calls here, same
-        // CallEvent-vs-Lead::status split CallLogController's own doc
-        // comment already covers for the Call Log page. Switched to real
-        // CallEvent activity (distinct leads with at least one call in
-        // range) so this page's "Called" means the same thing Call Log's
-        // already does, instead of a narrower, easy-to-forget manual step.
+        // logs an outcome/disposition on a lead, so any TSA who called
+        // leads all day without separately logging a disposition on each
+        // one read as having made zero calls here.
+        //
+        // First fix attempt switched this to distinct leads with a matched
+        // CallEvent (lead_id set) — still undercounted, confirmed live the
+        // same day: the bottom table's own "Calls (with duration)" column
+        // (CallRecordingHour, real phone recordings synced from Drive, see
+        // this file's AHT comment below) showed Katherine Chua at 61 real
+        // calls while the top chart's "Called" bar for her stayed near-zero.
+        // Root cause: CallEvent.lead_id only gets set when CallEventController
+        // ::matchLead() successfully matches the reported phone number
+        // against one of that TSA's own leads by normalized digits — a
+        // real call a TSA actually made can easily NOT match (lead's phone
+        // number on file differs from what was dialed, lead got
+        // reassigned/deleted since, etc.), silently dropping it from a
+        // lead-linked count even though CallRecordingHour already has no
+        // trouble counting the same call at the TSA level (no lead-matching
+        // involved at all). Explicit decision, 2026-09-16: "Called" here
+        // means real TSA call volume, so it now reads CallRecordingHour's
+        // own call_count (same source/number the bottom table already
+        // shows) instead of a lead-matched subset. Confirm-rate/no-answer-
+        // rate/avg-response-time genuinely need a specific lead's
+        // disposition/timestamps to mean anything, so those stay computed
+        // over the lead-matched CallEvent subset separately below — "Called"
+        // (the count) and "confirmed of those called" (the rate) are no
+        // longer the same population, which is why confirm/no-answer rate
+        // can now exceed what "Called" alone would suggest for a TSA with a
+        // lot of unmatched real calls.
         $calledLeadIdsByTsa = CallEvent::whereBetween('occurred_at', [$from, $to])
             ->whereNotNull('lead_id')
             ->get(['tsa_id', 'lead_id'])
@@ -79,17 +98,20 @@ class AnalyticsController extends Controller
         $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $calledLeadIdsByTsa, $from, $to) {
             $mine = $leads->where('tsa_id', $tsa->id);
 
+            // Lead-matched subset — used ONLY for confirm-rate/no-answer-
+            // rate/avg-response-time below, not for the "Called" count
+            // itself (see this method's own "Called" comment above).
             $calledLeadIds = $calledLeadIdsByTsa->get($tsa->id, collect());
-            $called        = $mine->whereIn('id', $calledLeadIds);
+            $calledLeads   = $mine->whereIn('id', $calledLeadIds);
 
             // Case-insensitive substring match, not an exact ->where() equals —
             // same convention LeadController::updateDisposition() already uses
             // for its own keyword checks: a real outcome can be several
             // comma-joined tags (e.g. "Confirmed, Call Back").
-            $confirmed = $called->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'confirmed') !== false)->count();
-            $noAnswer  = $called->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'not answering') !== false)->count();
+            $confirmed = $calledLeads->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'confirmed') !== false)->count();
+            $noAnswer  = $calledLeads->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'not answering') !== false)->count();
 
-            $responseMinutes = $called->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
+            $responseMinutes = $calledLeads->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
                 ->map(fn (Lead $l) => $l->assigned_at->diffInMinutes($l->called_at));
 
             $myRecordingHours = $recordingHours->where('tsa_key', $tsa->tsa_key);
@@ -114,11 +136,11 @@ class AnalyticsController extends Controller
             return [
                 'tsa'                 => $tsa,
                 'total'               => $mine->count(),
-                'called'              => $called->count(),
+                'called'              => $myCallCount,
                 'confirmed'           => $confirmed,
                 'no_answer'           => $noAnswer,
-                'confirm_rate'        => $called->count() ? round($confirmed / $called->count() * 100, 1) : null,
-                'no_answer_rate'      => $called->count() ? round($noAnswer / $called->count() * 100, 1) : null,
+                'confirm_rate'        => $calledLeads->count() ? round($confirmed / $calledLeads->count() * 100, 1) : null,
+                'no_answer_rate'      => $calledLeads->count() ? round($noAnswer / $calledLeads->count() * 100, 1) : null,
                 'avg_response_mins'   => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
                 'aht_seconds'         => $ahtSeconds,
                 'aht_call_count'      => $myCallCount,
