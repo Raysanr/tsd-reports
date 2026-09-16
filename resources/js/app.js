@@ -677,7 +677,18 @@ document.addEventListener('click', async (e) => {
 // originals back exactly where they were, via a marker comment node, so
 // this never has to guess at surrounding siblings/index.
 function swapInputsForSnapshot(root) {
-    const fields = Array.from(root.querySelectorAll('input, textarea, select'));
+    // [data-tss-date-input] is excluded: it's a 14px, opacity-0, pointer-
+    // events-none calendar-icon click target backing an already-visible
+    // friendly-formatted label (data-tss-date-label, e.g. "September 16,
+    // 2026") — see the two telesales-summary-*.blade.php partials' own
+    // comments. Swapping it in generically like any other field ignored its
+    // opacity-0/absolute positioning and rendered its raw MM/DD/YYYY value
+    // at full opacity right on top of the label (confirmed live: "09/16/2026"
+    // overlapping "September 16, 2026" in the Telesales Department card's
+    // exported PNG). The label already reflects this input's value, so it's
+    // simply left alone (still invisible, as on the live page).
+    const fields = Array.from(root.querySelectorAll('input, textarea, select'))
+        .filter((field) => !field.matches('[data-tss-date-input]'));
     if (fields.length === 0) return () => {};
 
     const swaps = fields.map((field) => {
