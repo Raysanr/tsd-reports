@@ -152,10 +152,13 @@ $statusBadge = fn($status) => match(true) {
 
 {{-- Overview charts — bar/donut reshape the same Total Leads/Catered Leads
      numbers already in the KPI cards above (never a separate source of
-     truth); the trend line is AHT & Unproductive Time today, hour by hour,
-     its own always-on window (see DashboardController::index()'s own
-     comment on why) — same source data as Team Analytics' own AHT tab,
-     aggregated for the team in scope instead of broken out per TSA. --}}
+     truth); the trend line is AHT & Unproductive Time grouped by hour of
+     day across the picked range (changed 2026-09-16, explicit follow-up
+     to a "why is this empty" report — was hardcoded to always show today
+     regardless of the date filter; see DashboardController::index()'s own
+     comment on the full history) — same source data as Team Analytics'
+     own AHT tab, aggregated for the team in scope instead of broken out
+     per TSA. --}}
 <script type="application/json" id="dashboardChartData">{!! json_encode($chartData) !!}</script>
 
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
@@ -192,7 +195,7 @@ $statusBadge = fn($status) => match(true) {
 
     <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
         <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">AHT &amp; Unproductive Time Trend</h2>
-        <p class="text-xs font-mono text-slate-400 mb-4">Team averages per hour, today</p>
+        <p class="text-xs font-mono text-slate-400 mb-4">Team averages per hour{{ $isToday ? ', today' : ', this range' }}</p>
         @if(!$chartData['hasTrendData'])
         <div id="dashboardTrendEmpty" class="h-48 flex items-center justify-center text-center px-2">
             <p class="text-xs font-mono text-slate-400">No logged calls today yet.</p>

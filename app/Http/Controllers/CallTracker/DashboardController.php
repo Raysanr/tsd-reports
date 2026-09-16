@@ -103,11 +103,35 @@ class DashboardController extends Controller
         // the system in the picked range (pancake_created_at, same anchor
         // the old Unassigned card used), regardless of current status —
         // unlike Assigned/Called before it, this one's meant to count
-        // everything. "Catered" = actually called (called_at in range,
-        // status now 'called') — same definition the old Called card used,
-        // just relabeled to match the reference's own term for it.
+        // everything.
+        //
+        // "Catered" widened 2026-09-16 to match the Leads page's own
+        // Catered/Uncatered filter (explicit confirmation: "the green
+        // checkmark in the leads it is catered") — a lead a TSA has at
+        // least dialed (dialed_at set, the Leads table's own checkmark) now
+        // counts here too, not just one with a fully logged outcome
+        // (status='called'). Root-caused live from a real report ("why
+        // there's a catered in this but it is not reflecting to the
+        // dashboard" against Sept 14 data): 11 real leads that day were
+        // genuinely dialed by a TSA (tsa_id + dialed_at both set) but never
+        // got a final disposition logged, so the OLD status='called'-only
+        // definition undercounted this card relative to what the Leads
+        // page already showed as Catered for the same leads. Dated on
+        // dialed_at OR called_at, whichever applies, so a dialed-only lead
+        // is scoped by when she dialed it, same as a fully-called lead is
+        // scoped by when the outcome was logged.
         $totalLeadsQuery   = Lead::whereBetween('pancake_created_at', [$dateFrom, $dateTo]);
-        $totalCateredQuery = Lead::where('status', 'called')->whereBetween('called_at', [$dateFrom, $dateTo]);
+        // Wrapped in one outer where() so the OR stays grouped once the
+        // tsa_id/team scoping below chains another ->where() onto this
+        // same query — an unwrapped top-level orWhere() here would
+        // otherwise bind as (A AND B) OR C instead of (A OR B) AND C.
+        $totalCateredQuery = Lead::where(function ($outer) use ($dateFrom, $dateTo) {
+            $outer->where(function ($q) use ($dateFrom, $dateTo) {
+                $q->where('status', 'called')->whereBetween('called_at', [$dateFrom, $dateTo]);
+            })->orWhere(function ($q) use ($dateFrom, $dateTo) {
+                $q->whereNotNull('dialed_at')->whereBetween('dialed_at', [$dateFrom, $dateTo]);
+            });
+        });
         if (!$user->isAtLeastAdmin()) {
             $totalLeadsQuery->where('tsa_id', $user->tsa_id);
             $totalCateredQuery->where('tsa_id', $user->tsa_id);
@@ -251,11 +275,16 @@ class DashboardController extends Controller
         // still-unassigned leads with no assigned_at at all — see that
         // card's own comment), so this table's own Total Leads now agrees
         // with that KPI card too, not just Leads Setup. Catered is derived
-        // from this SAME pancake_created_at-scoped set (status now
-        // 'called') — a lead called today whose order is from an earlier
-        // day still counts as Catered here (an old backlog lead someone
-        // finally worked IS real completed work), only Total Leads itself
-        // needed the "is this actually today's order" scoping.
+        // from this SAME pancake_created_at-scoped set — a lead called
+        // today whose order is from an earlier day still counts as Catered
+        // here (an old backlog lead someone finally worked IS real
+        // completed work), only Total Leads itself needed the "is this
+        // actually today's order" scoping. Widened 2026-09-16 the same way
+        // as the aggregate Total Catered Leads KPI card above (see that
+        // card's own comment) — a dialed-but-not-yet-dispositioned lead
+        // counts here too, not just status='called', so this table's own
+        // per-TSA Catered column stays consistent with it instead of
+        // undercounting the exact same real leads.
         $tsaIds  = $tsas->pluck('id');
         $tsaKeys = $tsas->pluck('tsa_key');
 
@@ -269,7 +298,7 @@ class DashboardController extends Controller
         $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfRecordingHours, $daysInDateRange, $formatMmSs) {
             $tsaLeads      = $perfLeads->where('tsa_id', $tsa->id);
             $tsaTotalLeads = $tsaLeads->count();
-            $tsaCatered    = $tsaLeads->where('status', 'called')->count();
+            $tsaCatered    = $tsaLeads->filter(fn (Lead $l) => $l->status === 'called' || $l->dialed_at !== null)->count();
             $tsaHours      = $perfRecordingHours->where('tsa_key', $tsa->tsa_key);
             $tsaRealCalls  = $tsaHours->sum('call_count');
             $tsaAhtSeconds = $tsaRealCalls > 0 ? (int) round($tsaHours->sum('total_seconds') / $tsaRealCalls) : null;
@@ -319,42 +348,57 @@ class DashboardController extends Controller
 
         // Chart payload — bar/donut reshape the same Total Leads/Catered
         // Leads numbers already in the KPI cards above (never a separate
-        // source of truth). The AHT & Unproductive Time trend is today's
-        // real hour-by-hour breakdown (explicit follow-up request,
-        // 2026-08-25: "make this per hour" — was a trailing-7-day view),
-        // deliberately NOT scoped to the picked date range (same "always
-        // live, not a historical snapshot" reasoning as the TSA Status board
-        // above) — same CallRecordingHour source, just grouped by hour
-        // instead of by day. Only the hours the team actually has synced
-        // recording data for today appear (not a fixed 0-23 range) so a
-        // not-yet-reached hour, or a day with nothing synced yet, doesn't
-        // show as a misleading flat zero.
-        $todayRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
-            ->whereDate('date', today())
+        // source of truth). The AHT & Unproductive Time trend was
+        // originally hardcoded to always show TODAY's real hour-by-hour
+        // breakdown (explicit follow-up request, 2026-08-25: "make this
+        // per hour" — was a trailing-7-day view), deliberately NOT scoped
+        // to the picked date range at the time ("always live, not a
+        // historical snapshot", same reasoning as the TSA Status board
+        // above) — but that meant picking any range other than today (e.g.
+        // a past 3-day range) left this card showing "no logged calls
+        // today yet" even while the rest of the dashboard, including the
+        // TSA Performance table right below it, was full of real data for
+        // the picked range. Explicit follow-up, 2026-09-16: "but i filter
+        // 13 to 16" — confirmed this card should follow the same picked
+        // range as everything else. Now groups by HOUR OF DAY across every
+        // day in [$dateFrom, $dateTo] (a multi-day range averages each
+        // hour-of-day across its own day-instances, not a single day's raw
+        // total) — same CallRecordingHour source, just no longer pinned to
+        // today(). Only the hours the team actually has synced recording
+        // data for anywhere in the range appear (not a fixed 0-23 range)
+        // so an hour nobody's reached yet doesn't show as a misleading
+        // flat zero.
+        $rangeRecordingHours = CallRecordingHour::whereIn('tsa_key', $scopeTsaKeys)
+            ->whereDate('date', '>=', $dateFrom)
+            ->whereDate('date', '<=', $dateTo)
             ->get();
 
-        $trendHours = $todayRecordingHours->pluck('hour')->unique()->sort()->values();
+        $trendHours = $rangeRecordingHours->pluck('hour')->unique()->sort()->values();
 
-        $trendAht = $trendHours->map(function ($hour) use ($todayRecordingHours) {
-            $hourRows = $todayRecordingHours->where('hour', $hour);
+        $trendAht = $trendHours->map(function ($hour) use ($rangeRecordingHours) {
+            $hourRows = $rangeRecordingHours->where('hour', $hour);
             $hourCalls = $hourRows->sum('call_count');
             return $hourCalls > 0 ? (int) round($hourRows->sum('total_seconds') / $hourCalls) : null;
         })->values();
 
-        // Unproductive minutes this hour = 60 - minutes actually spent on a
-        // call, averaged across every TSA who logged SOME recording time
-        // this hour — the per-hour stand-in for the daily version's
-        // isOffOn() check: there's no exact shift-start/end clock to test
-        // against a single hour, so "recorded any call time this hour" is
-        // what marks a TSA as working it instead.
-        $trendUnproductive = $trendHours->map(function ($hour) use ($todayRecordingHours) {
-            $hourRows = $todayRecordingHours->where('hour', $hour);
-            $activeTsaKeys = $hourRows->pluck('tsa_key')->unique();
-            if ($activeTsaKeys->isEmpty()) {
+        // Unproductive minutes this hour-of-day = 60 - minutes actually
+        // spent on a call, averaged across every TSA-DAY that logged SOME
+        // recording time in this hour — the per-hour stand-in for the
+        // daily version's isOffOn() check: there's no exact shift-start/end
+        // clock to test against a single hour, so "recorded any call time
+        // this hour" is what marks a TSA-day as working it instead. Grouped
+        // by (tsa_key, date) pair, not just tsa_key, so a multi-day range
+        // averages ACROSS day-instances of this hour rather than summing a
+        // whole range's seconds into one inflated "minutes spent" figure
+        // for a single 60-minute hour.
+        $trendUnproductive = $trendHours->map(function ($hour) use ($rangeRecordingHours) {
+            $hourRows = $rangeRecordingHours->where('hour', $hour);
+            $activeTsaDays = $hourRows->groupBy(fn ($row) => $row->tsa_key . '|' . $row->date->toDateString());
+            if ($activeTsaDays->isEmpty()) {
                 return null;
             }
-            $perTsa = $activeTsaKeys->map(fn ($tsaKey) => max(0, 60 - $hourRows->where('tsa_key', $tsaKey)->sum('total_seconds') / 60));
-            return round($perTsa->avg(), 1);
+            $perTsaDay = $activeTsaDays->map(fn ($rows) => max(0, 60 - $rows->sum('total_seconds') / 60));
+            return round($perTsaDay->avg(), 1);
         })->values();
 
         $chartData = [
@@ -370,7 +414,7 @@ class DashboardController extends Controller
                 'ahtSeconds'   => $trendAht,
                 'unproductive' => $trendUnproductive,
             ],
-            'hasTrendData' => $todayRecordingHours->isNotEmpty(),
+            'hasTrendData' => $rangeRecordingHours->isNotEmpty(),
         ];
 
         return view('calls.dashboard', [

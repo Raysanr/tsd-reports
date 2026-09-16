@@ -147,6 +147,80 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertSame(1, $gemmaRow['totalLeads']);
     }
 
+    /**
+     * Regression test, 2026-09-16: "why there's a catered in this but it is
+     * not reflecting to the dashboard" (against real Sept 14 data — 11
+     * leads genuinely dialed by a TSA that day, never a logged outcome,
+     * counted as Catered on the Leads page's own filter but NOT here),
+     * confirmed the intended definition directly: "the green checkmark in
+     * the leads it is catered". Total Catered Leads now counts a dialed
+     * lead the same as a fully-called one, matching the Leads page.
+     */
+    public function test_total_catered_leads_counts_a_dialed_but_not_yet_dispositioned_lead(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => now(), 'dialed_at' => now(),
+        ]);
+        Lead::create([
+            'pancake_order_id' => '2', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame(1, $response->viewData('totalCateredLeads'));
+    }
+
+    /** The same widened definition applies to the TSA Performance
+     *  Overview table's own per-TSA Catered column, not just the
+     *  aggregate KPI card — otherwise the table would keep showing a
+     *  TSA's dialed leads as uncatered while the KPI card above it (and
+     *  the Leads page) both count them. */
+    public function test_tsa_performance_table_catered_column_counts_a_dialed_lead(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => now(), 'dialed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $tsaPerformance = collect($response->viewData('tsaPerformance'));
+        $gemmaRow = $tsaPerformance->firstWhere(fn ($row) => $row['tsa']->tsa_key === 'Gemma');
+        $this->assertSame(1, $gemmaRow['catered']);
+    }
+
+    /**
+     * Regression test, 2026-09-16: "but i filter 13 to 16" — the AHT &
+     * Unproductive Time trend chart used to be hardcoded to always show
+     * TODAY regardless of the date filter, so picking a past range left it
+     * showing "no logged calls today yet" even while the rest of the
+     * dashboard (including the TSA Performance table right below it) had
+     * real data for that range. Now follows the same picked range.
+     */
+    public function test_trend_chart_follows_the_picked_date_range_not_just_today(): void
+    {
+        CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today()->subDays(2), 'hour' => 8, 'total_seconds' => 600, 'call_count' => 2]);
+
+        $pastDay = today()->subDays(2)->toDateString();
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard', ['date_from' => $pastDay, 'date_to' => $pastDay]));
+
+        $response->assertOk();
+        $chartData = $response->viewData('chartData');
+        $this->assertTrue($chartData['hasTrendData']);
+        $this->assertSame(['8:00am'], $chartData['trend']['labels']->all());
+        $this->assertSame([300], $chartData['trend']['ahtSeconds']->all());
+    }
+
     /** Mirrors RoundRobinAssigner's own eligibility rule (active + status
      *  login) — a product flagged here is one that same rule would
      *  currently return null for. */
