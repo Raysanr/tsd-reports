@@ -187,6 +187,16 @@
                     <td class="px-4 py-3">
                         @if($event->lead)
                         <a href="{{ route('calls.leads.show', $event->lead) }}" class="text-primary hover:underline">{{ $event->lead->customer_name ?: '#'.$event->lead->pancake_order_id }}</a>
+                        {{-- How many times this customer was called within the
+                             picked range/filters (explicit request, 2026-09-16)
+                             — only shown once there's more than one, so a
+                             normal single call stays uncluttered. --}}
+                        @php $callCount = $callCountsByLeadId[$event->lead_id] ?? 1; @endphp
+                        @if($callCount > 1)
+                        <span class="inline-flex items-center justify-center ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" title="Called {{ $callCount }} times in this range">
+                            ×{{ $callCount }}
+                        </span>
+                        @endif
                         @else
                         <span class="text-slate-300 dark:text-slate-600">no match</span>
                         @endif

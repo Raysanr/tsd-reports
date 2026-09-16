@@ -177,12 +177,24 @@ class CallLogController extends Controller
                 ];
             })->values();
 
+        // Per-lead call count within the picked range/filters (explicit
+        // request, 2026-09-16: "make this like there's a count of how many
+        // call in the same customer") — counted over the FULL filtered
+        // $events, not just the ->take(200) slice below, so a customer
+        // called more than 200 rows apart still gets an accurate count
+        // instead of one that depends on where the 200-row cutoff happened
+        // to land. Keyed by lead_id; unmatched numbers ("no match") have no
+        // stable identity to group by, so they're left uncounted.
+        $callCountsByLeadId = $events->whereNotNull('lead_id')
+            ->countBy('lead_id');
+
         return view('calls.call-log', [
             'rows'             => $rows,
             'teamTsas'         => $teamTsas,
             'selectedTsa'      => $selectedTsa,
             'events'           => $events->take(200), // recent-first raw list, capped same reasoning as other reports
             'gapBeforeSeconds' => $gapBeforeSeconds,
+            'callCountsByLeadId' => $callCountsByLeadId,
             'dateFrom'         => $dateFrom,
             'dateTo'           => $dateTo,
             'teams'            => $teams,
