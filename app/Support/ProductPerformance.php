@@ -41,6 +41,42 @@ class ProductPerformance
         ['key' => 'excess',                 'label' => 'Excess<br>Leads',              'group' => 'excess', 'min_width' => 80],
     ];
 
+    /** The single source of truth for which disposition-text keywords belong
+     *  to each non-upsell outcome column — extracted out of ordersForColumn()
+     *  below (2026-09-16) so a second call site needing the same "answered"/
+     *  "unanswered" grouping over a disposition STRING directly (e.g.
+     *  AnalyticsController, which reads Lead::disposition, not an Order
+     *  collection ordersForColumn() requires) can match against the exact
+     *  same keywords instead of a second hand-copied list that could drift
+     *  out of sync with this one — precisely the class-level doc comment's
+     *  own "never drift into counting the same thing two different ways"
+     *  concern. 'upsell_confirmation' is deliberately excluded: it's matched
+     *  via Order::isBroadRealUpsell() (a real upsell order/amount check, not
+     *  a keyword), which has no disposition-string equivalent — a caller
+     *  working from disposition text alone should treat any tag containing
+     *  "upsell" as its own signal instead (see AnalyticsController's own
+     *  confirm-rate comment). */
+    public const DISPOSITION_KEYWORDS = [
+        'confirmed_via_call'     => ['confirmed via call'],
+        'call_back'              => ['call back'],
+        'call_dropped'           => ['call dropped'],
+        'repeat_order_upsell'    => ['repeat order'],
+        'rude_customer'          => ['rude customer'],
+        'relatives_confirmation' => ['relatives'],
+        'dfr'                    => ['dfr'],
+        'double_order'           => ['double order'],
+        'fsd_uncleared'          => ['fsd'],
+        'not_answering'          => ['not answering'],
+        'unattended'             => ['unattended'],
+        'invalid_number'         => ['invalid number'],
+    ];
+
+    /** Column keys from DISPOSITION_KEYWORDS whose group is 'unanswered' per
+     *  METRIC_COLUMNS above — the exact tag set behind the Leads Report's own
+     *  "Unanswered Call Leads" section (Duplicate/DFR, Double Order, FSD
+     *  Uncleared, Not Answering, Unattended, Invalid Number). */
+    public const UNANSWERED_COLUMNS = ['dfr', 'double_order', 'fsd_uncleared', 'not_answering', 'unattended', 'invalid_number'];
+
     /** One product's row: matches orders to this product (team + tag/cart-item),
      *  then counts each disposition, upsell, excess, and rate. Stateless — call it
      *  once per whole-day total, or once per hour with that hour's order subset;
@@ -558,20 +594,7 @@ class ProductPerformance
             return $orders->filter($isRealUpsell)->values();
         }
 
-        $keywordMap = [
-            'confirmed_via_call'     => ['confirmed via call'],
-            'call_back'              => ['call back'],
-            'call_dropped'           => ['call dropped'],
-            'repeat_order_upsell'    => ['repeat order'],
-            'rude_customer'          => ['rude customer'],
-            'relatives_confirmation' => ['relatives'],
-            'dfr'                    => ['dfr'],
-            'double_order'           => ['double order'],
-            'fsd_uncleared'          => ['fsd'],
-            'not_answering'          => ['not answering'],
-            'unattended'             => ['unattended'],
-            'invalid_number'         => ['invalid number'],
-        ];
+        $keywordMap = self::DISPOSITION_KEYWORDS;
 
         if (isset($keywordMap[$column])) {
             return $nonUpsell->filter(function ($o) use ($keywordMap, $column) {

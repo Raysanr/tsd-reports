@@ -4,11 +4,11 @@ namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
-use App\Models\CallEvent;
 use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
+use App\Support\ProductPerformance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -81,37 +81,67 @@ class AnalyticsController extends Controller
         // involved at all). Explicit decision, 2026-09-16: "Called" here
         // means real TSA call volume, so it now reads CallRecordingHour's
         // own call_count (same source/number the bottom table already
-        // shows) instead of a lead-matched subset. Confirm-rate/no-answer-
-        // rate/avg-response-time genuinely need a specific lead's
-        // disposition/timestamps to mean anything, so those stay computed
-        // over the lead-matched CallEvent subset separately below — "Called"
-        // (the count) and "confirmed of those called" (the rate) are no
-        // longer the same population, which is why confirm/no-answer rate
-        // can now exceed what "Called" alone would suggest for a TSA with a
-        // lot of unmatched real calls.
-        $calledLeadIdsByTsa = CallEvent::whereBetween('occurred_at', [$from, $to])
-            ->whereNotNull('lead_id')
-            ->get(['tsa_id', 'lead_id'])
-            ->groupBy('tsa_id')
-            ->map(fn ($events) => $events->pluck('lead_id')->unique());
-
-        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $calledLeadIdsByTsa, $from, $to) {
+        // shows) instead of a lead count. Confirm-rate/no-answer-rate/avg-
+        // response-time genuinely need a specific lead's disposition/
+        // timestamps to mean anything, so those stay scoped to dispositioned
+        // leads separately below (see that block's own comment) — "Called"
+        // (the count) and "confirmed of those dispositioned" (the rate) are
+        // deliberately not the same population.
+        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $from, $to) {
             $mine = $leads->where('tsa_id', $tsa->id);
 
-            // Lead-matched subset — used ONLY for confirm-rate/no-answer-
-            // rate/avg-response-time below, not for the "Called" count
-            // itself (see this method's own "Called" comment above).
-            $calledLeadIds = $calledLeadIdsByTsa->get($tsa->id, collect());
-            $calledLeads   = $mine->whereIn('id', $calledLeadIds);
+            // Confirm-rate/No-Answer-rate/Avg-Response are scoped to leads
+            // with a real logged disposition — i.e. actually dispositioned
+            // by a TSA (LeadController::updateDisposition()), not merely
+            // dialed — same "answered"/"unanswered" tag groups the Leads
+            // Report's own "Unanswered Call Leads" section and
+            // ProductPerformance::METRIC_COLUMNS already use (explicit
+            // request, 2026-09-16: these 3 columns should read the real
+            // disposition tag groups, not a loose substring guess/a
+            // CallEvent-matched subset — see ProductPerformance's own
+            // DISPOSITION_KEYWORDS/UNANSWERED_COLUMNS doc comment for why
+            // that list, not a second hand-copied one, is the source of
+            // truth here).
+            $dispositioned = $mine->filter(fn (Lead $l) => filled($l->disposition));
 
-            // Case-insensitive substring match, not an exact ->where() equals —
-            // same convention LeadController::updateDisposition() already uses
-            // for its own keyword checks: a real outcome can be several
-            // comma-joined tags (e.g. "Confirmed, Call Back").
-            $confirmed = $calledLeads->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'confirmed') !== false)->count();
-            $noAnswer  = $calledLeads->filter(fn (Lead $l) => stripos($l->disposition ?? '', 'not answering') !== false)->count();
+            // No-Answer Rate — any of the 6 UNANSWERED_COLUMNS tags (DFR,
+            // Double Order, FSD Uncleared, Not Answering, Unattended,
+            // Invalid Number), not just "not answering" alone.
+            $noAnswer = $dispositioned->filter(function (Lead $l) {
+                $disposition = str_replace("'", '', $l->disposition);
+                foreach (ProductPerformance::UNANSWERED_COLUMNS as $column) {
+                    foreach (ProductPerformance::DISPOSITION_KEYWORDS[$column] as $kw) {
+                        if (stripos($disposition, $kw) !== false) return true;
+                    }
+                }
+                return false;
+            })->count();
 
-            $responseMinutes = $calledLeads->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
+            // Confirm Rate — any real upsell/TSD confirmation tag. Lead has
+            // no is_upsell/amount flags the way Order does (isBroadRealUpsell()
+            // needs those), so this matches on the tag text itself — every
+            // real upsell tag contains the word "upsell" (see
+            // Order::hasUpsellTag()'s own "UPSELL TSD"/"TSD UPSELL" pattern),
+            // which is exactly the signal available from disposition text
+            // alone.
+            $confirmed = $dispositioned->filter(fn (Lead $l) => stripos($l->disposition, 'upsell') !== false)->count();
+
+            // Avg Response — answered leads only (explicit request: "the avg
+            // responded is answered calls disposition"), i.e. dispositioned
+            // leads that are NOT in the unanswered group above, matching
+            // ProductPerformance::tally()'s own 'answered' bucket definition
+            // (total dispositioned minus unanswered).
+            $answeredLeads = $dispositioned->reject(function (Lead $l) {
+                $disposition = str_replace("'", '', $l->disposition);
+                foreach (ProductPerformance::UNANSWERED_COLUMNS as $column) {
+                    foreach (ProductPerformance::DISPOSITION_KEYWORDS[$column] as $kw) {
+                        if (stripos($disposition, $kw) !== false) return true;
+                    }
+                }
+                return false;
+            });
+
+            $responseMinutes = $answeredLeads->filter(fn (Lead $l) => $l->assigned_at && $l->called_at)
                 ->map(fn (Lead $l) => $l->assigned_at->diffInMinutes($l->called_at));
 
             $myRecordingHours = $recordingHours->where('tsa_key', $tsa->tsa_key);
@@ -139,8 +169,8 @@ class AnalyticsController extends Controller
                 'called'              => $myCallCount,
                 'confirmed'           => $confirmed,
                 'no_answer'           => $noAnswer,
-                'confirm_rate'        => $calledLeads->count() ? round($confirmed / $calledLeads->count() * 100, 1) : null,
-                'no_answer_rate'      => $calledLeads->count() ? round($noAnswer / $calledLeads->count() * 100, 1) : null,
+                'confirm_rate'        => $dispositioned->count() ? round($confirmed / $dispositioned->count() * 100, 1) : null,
+                'no_answer_rate'      => $dispositioned->count() ? round($noAnswer / $dispositioned->count() * 100, 1) : null,
                 'avg_response_mins'   => $responseMinutes->isNotEmpty() ? round($responseMinutes->avg(), 1) : null,
                 'aht_seconds'         => $ahtSeconds,
                 'aht_call_count'      => $myCallCount,

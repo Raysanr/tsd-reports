@@ -36,13 +36,18 @@ class AnalyticsTest extends TestCase
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
-        // 2 confirmed, 1 not answering, 1 still assigned (not called) — all
-        // assigned "today" so they fall inside the default date range.
+        // 2 upsell-confirmed, 1 not answering, 1 still assigned (not called)
+        // — all assigned "today" so they fall inside the default date range.
         // 'Not Answering' (not 'No Answer' — see AnalyticsController's own
         // comment, 2026-08-12: 'No Answer' isn't a real disposition this
         // app's own Outcome picker or Pancake tag catalog ever produces).
-        Lead::create(['pancake_order_id' => 'a1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed', 'assigned_at' => now()->subMinutes(30), 'called_at' => now()->subMinutes(20)]);
-        Lead::create(['pancake_order_id' => 'a2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed', 'assigned_at' => now()->subMinutes(20), 'called_at' => now()->subMinutes(10)]);
+        // Confirm Rate reads real upsell/TSD tags specifically (explicit
+        // decision, 2026-09-16 — see AnalyticsController's own confirm-rate
+        // comment), not a bare "Confirmed" tag, hence "TSD UPSELL" here
+        // rather than the old plain "Confirmed" this test used before that
+        // decision.
+        Lead::create(['pancake_order_id' => 'a1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subMinutes(30), 'called_at' => now()->subMinutes(20)]);
+        Lead::create(['pancake_order_id' => 'a2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subMinutes(20), 'called_at' => now()->subMinutes(10)]);
         Lead::create(['pancake_order_id' => 'a3', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Not Answering', 'assigned_at' => now()->subMinutes(10), 'called_at' => now()]);
         Lead::create(['pancake_order_id' => 'a4', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
 
@@ -50,9 +55,9 @@ class AnalyticsTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($gemma->display_name);
-        $response->assertSee('66.7%'); // 2/3 confirmed
+        $response->assertSee('66.7%'); // 2/3 upsell-confirmed
         $response->assertSee('33.3%'); // 1/3 not answering
-        $response->assertSee('10 min'); // avg of 10, 10, 10
+        $response->assertSee('10 min'); // avg of 10, 10, 10 (answered leads only)
     }
 
     /** A real logged outcome can be several comma-joined tags at once (see
@@ -64,13 +69,13 @@ class AnalyticsTest extends TestCase
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
-        Lead::create(['pancake_order_id' => 'm1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed, Repeat Order', 'assigned_at' => now(), 'called_at' => now()]);
-        Lead::create(['pancake_order_id' => 'm2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Not Answering, Duplicate', 'assigned_at' => now(), 'called_at' => now()]);
+        Lead::create(['pancake_order_id' => 'm1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL, Repeat Order', 'assigned_at' => now(), 'called_at' => now()]);
+        Lead::create(['pancake_order_id' => 'm2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Not Answering, DFR', 'assigned_at' => now(), 'called_at' => now()]);
 
         $response = $this->actingAs($admin)->get(route('calls.analytics'));
 
         $response->assertOk();
-        $response->assertSee('50%'); // 1/2 confirmed
+        $response->assertSee('50%'); // 1/2 upsell-confirmed
     }
 
     public function test_a_lead_assigned_outside_the_date_range_is_excluded(): void
@@ -78,7 +83,7 @@ class AnalyticsTest extends TestCase
         $admin   = User::factory()->create(['role' => 'admin']);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
-        Lead::create(['pancake_order_id' => 'old', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Confirmed', 'assigned_at' => now()->subDays(10), 'called_at' => now()->subDays(10)]);
+        Lead::create(['pancake_order_id' => 'old', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subDays(10), 'called_at' => now()->subDays(10)]);
 
         $response = $this->actingAs($admin)->get(route('calls.analytics'));
 
