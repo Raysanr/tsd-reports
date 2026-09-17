@@ -213,6 +213,16 @@ class DashboardController extends Controller
         // date-range-scoped, same reasoning as the TSA Status board itself.
         $tsaLoginCount = $tsas->where('status', TsaShift::STATUS_LOGIN)->count();
 
+        // Wrap Up — the KPI row's 2nd card (explicit request, 2026-09-17:
+        // "change the Total Leads card to wrap up"), same live "how many of
+        // the roster right now" shape as TSA Log In just above, just a
+        // different status (TsaShift::STATUS_WRAP_UP — after-call wrap-up,
+        // set automatically, never picked by hand). Total Leads itself is
+        // UNCHANGED below — still computed and fed to the Leads Overview
+        // chart, Catered Leads Rate donut, and the TSA Performance table's
+        // own column, only this top KPI card stopped showing it.
+        $tsaWrapUpCount = $tsas->where('status', TsaShift::STATUS_WRAP_UP)->count();
+
         // Round-robin risk — a product whose entire roster is active but
         // nobody on it is currently logged in will silently stop receiving
         // new leads (RoundRobinAssigner::next() returns null), with nothing
@@ -407,6 +417,7 @@ class DashboardController extends Controller
 
         return view('calls.dashboard', [
             'tsaLoginCount'          => $tsaLoginCount,
+            'tsaWrapUpCount'         => $tsaWrapUpCount,
             'totalLeads'             => $totalLeads,
             'totalCateredLeads'      => $totalCateredLeads,
             'ahtDisplay'             => $ahtDisplay,

@@ -237,6 +237,41 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertTrue($atRisk->contains('id', $product->id));
     }
 
+    /**
+     * KPI row's 2nd card, changed from Total Leads to Wrap Up (explicit
+     * request, 2026-09-17) — a live count of the (already team-filtered)
+     * roster currently in TsaShift::STATUS_WRAP_UP, same shape as the TSA
+     * Log In card right next to it, just a different status.
+     */
+    public function test_wrap_up_count_reflects_the_roster_currently_in_wrap_up(): void
+    {
+        TsaShift::whereIn('tsa_key', ['Gemma', 'Mariel'])->update(['status' => 'wrap_up']);
+        TsaShift::where('tsa_key', 'Kathleen')->update(['status' => 'login']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame(2, $response->viewData('tsaWrapUpCount'));
+    }
+
+    /** Team filter narrows Wrap Up the same way it already narrows TSA Log
+     *  In — a TSA in Wrap Up on a DIFFERENT team must not count here.
+     *  tsa_shifts.team stores the real order_team string (e.g. "SH
+     *  Naturals"), not the config slug — see config/teams.php's own doc
+     *  comment. */
+    public function test_wrap_up_count_is_scoped_to_the_selected_team(): void
+    {
+        $shNaturalsTsa = TsaShift::where('tsa_key', 'Gemma')->first();
+        $eyecareTsa    = TsaShift::where('tsa_key', 'Mariel')->first();
+        $shNaturalsTsa->update(['status' => 'wrap_up', 'team' => 'SH Naturals']);
+        $eyecareTsa->update(['status' => 'wrap_up', 'team' => 'Eyecare Team']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard', ['team' => 'sh-naturals']));
+
+        $response->assertOk();
+        $this->assertSame(1, $response->viewData('tsaWrapUpCount'));
+    }
+
     /** Switched 2026-08-24 (explicit request) from CallEvent to
      *  CallRecordingHour — CallEvent needs each TSA's phone actually
      *  hitting the app via MacroDroid, which isn't in real use yet, so
