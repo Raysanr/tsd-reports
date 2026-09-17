@@ -58,6 +58,25 @@ class MonitorController extends Controller
         // definitions LeadController's own Overdue/Callbacks views and
         // NotificationController's sidebar badges already use, so these
         // counts can never drift from what a TSA's own Leads page shows.
+        //
+        // pancake_created_at guard added (regression fix, 2026-09-17: "this
+        // is today but it is not same in the monitor tsa page" — Monitor's
+        // own Overdue Leads/Callbacks Due tiles read 110/35 while the
+        // sidebar badge read 62/65 for the same "today") — root-caused:
+        // this query only ever checked assigned_at/callback_at, missing the
+        // SAME pancake_created_at-must-actually-be-today guard
+        // NotificationController's badge (2026-09-14 fix) and
+        // LeadController::index()'s own Overdue/Callbacks views already
+        // have — a lead whose real Pancake order is from days/weeks ago but
+        // only got assigned_at/callback_at stamped today (e.g. via
+        // SyncPancakeLeads' catch-up sweep or backfillCallbackFromTags())
+        // inflated this tile the same way it used to inflate those other
+        // two before their own fixes. Fails open for a lead with no
+        // pancake_created_at at all, same convention those two already use.
+        $createdTodayFilter = function ($q) use ($dateFrom, $dateTo) {
+            $q->whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                ->orWhereNull('pancake_created_at');
+        };
         $leadCounts = $tsas->mapWithKeys(fn (TsaShift $t) => [
             $t->id => [
                 'overdue' => Lead::where('tsa_id', $t->id)
@@ -65,11 +84,13 @@ class MonitorController extends Controller
                     ->whereNull('dialed_at')
                     ->whereBetween('assigned_at', [$dateFrom, $dateTo])
                     ->where('assigned_at', '<=', now()->subMinutes(LeadController::overdueThresholdMinutes()))
+                    ->where($createdTodayFilter)
                     ->count(),
                 'callbacks' => Lead::where('tsa_id', $t->id)
                     ->whereNotNull('callback_at')
                     ->whereBetween('callback_at', [$dateFrom, $dateTo])
                     ->where('callback_at', '<=', now())
+                    ->where($createdTodayFilter)
                     ->count(),
             ],
         ]);

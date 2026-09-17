@@ -104,6 +104,46 @@ class MonitorLeadQueueHealthTest extends TestCase
         $this->assertSame(1, $response->viewData('unassignedLeadsCount'));
     }
 
+    /**
+     * Regression test (explicit report, 2026-09-17: "this is today but it
+     * is not same in the monitor tsa page" — Monitor's own Overdue Leads/
+     * Callbacks Due tiles read a much HIGHER number than the sidebar
+     * badge for the same "today") — root-caused: this query only checked
+     * assigned_at/callback_at, missing the pancake_created_at-must-
+     * actually-be-today guard NotificationController's own badge and
+     * LeadController::index()'s Overdue/Callbacks views already have. A
+     * lead whose real Pancake order is from weeks ago but only got
+     * assigned_at/callback_at stamped today (e.g. a backlog catch-up)
+     * inflated Monitor's tiles even though it correctly stayed OUT of the
+     * sidebar badge and the actual Overdue/Callbacks pages.
+     */
+    public function test_overdue_and_callback_counts_exclude_an_old_order_only_touched_today(): void
+    {
+        Setting::set('overdue_threshold_minutes', 240);
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        // Old real order (pancake_created_at weeks ago), only just caught
+        // up (assigned_at/callback_at stamped today) — must NOT count.
+        Lead::create([
+            'pancake_order_id' => 'old-overdue-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'assigned_at' => now()->subHours(5),
+            'pancake_created_at' => now()->subDays(30),
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'old-callback-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'called', 'called_at' => now()->subHours(2), 'callback_at' => now()->subMinutes(5),
+            'pancake_created_at' => now()->subDays(30),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $leadCounts = collect($response->viewData('leadCounts'));
+        $this->assertSame(0, $leadCounts->sum('overdue'));
+        $this->assertSame(0, $leadCounts->sum('callbacks'));
+    }
+
     public function test_lead_counts_use_the_pages_own_date_range_not_always_today(): void
     {
         Setting::set('overdue_threshold_minutes', 240);
