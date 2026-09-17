@@ -113,6 +113,22 @@ class TsaShift extends Model
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
+    /** Unproductive Time formula (explicit request, 2026-09-17): "Break +
+     *  Lunch + DNA Huddle + Huddle + Coaching + Others" — time spent in any
+     *  of these statuses, from real TsaStatusLog data (see
+     *  TsaStatusLog::unproductiveSecondsFromStatusSeconds()), replaces the
+     *  old "scheduled shift minutes minus real call duration" estimate
+     *  AnalyticsController/DashboardController's own KPI cards and per-TSA
+     *  tables used before. Login/Calling/Wrap Up are deliberately excluded
+     *  (actually working); Logout/Lock are excluded too (shift not
+     *  active/admin-locked, not the TSA being unproductive during it).
+     *  Shared here, not duplicated per-controller, so the two pages that
+     *  use it can never drift on which statuses count. */
+    public const UNPRODUCTIVE_STATUSES = [
+        self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_DNA_HUDDLE,
+        self::STATUS_HUDDLE, self::STATUS_COACHING, self::STATUS_OTHERS,
+    ];
+
 
     public function restDays()
     {

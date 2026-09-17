@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\CallRecordingHour;
 use App\Models\TsaShift;
+use App\Models\TsaStatusLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -79,5 +80,63 @@ class AnalyticsControllerTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('1m 40s', $response->viewData('overallAhtDisplay'));
+    }
+
+    /**
+     * Unproductive Time formula (explicit request, 2026-09-17):
+     * "Unproductive Hours = Break + Lunch + DNA Huddle + Huddle + Coaching
+     * + Others" — real time from TsaStatusLog, replacing the old "440min/
+     * day shift constant minus real call duration (THT)" estimate this
+     * table used before. Matches the request's own worked example: Break
+     * 20 + Lunch 60 + DNA Huddle 10 + Huddle 10 + Coaching 30 + Others 10
+     * = 140 minutes.
+     */
+    public function test_unproductive_minutes_sums_break_lunch_dna_huddle_huddle_coaching_and_others(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila');
+        $start = $today->copy()->startOfDay()->addHours(8);
+
+        // Login 8:00-8:20, Break 8:20-8:40 (20min), Lunch 8:40-9:40 (60min),
+        // DNA Huddle 9:40-9:50 (10min), Huddle 9:50-10:00 (10min), Coaching
+        // 10:00-10:30 (30min), Others 10:30-10:40 (10min), then back to
+        // Login (the 140 unproductive minutes stop accumulating there).
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => $start->copy()->addMinutes(20)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'lunch', 'created_at' => $start->copy()->addMinutes(40)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'dna_huddle', 'created_at' => $start->copy()->addMinutes(100)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'huddle', 'created_at' => $start->copy()->addMinutes(110)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'coaching', 'created_at' => $start->copy()->addMinutes(120)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'others', 'created_at' => $start->copy()->addMinutes(150)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(160)]);
+
+        $response = $this->actingAs($admin)->get(route('calls.analytics', [
+            'date_from' => $today->format('Y-m-d'), 'date_to' => $today->format('Y-m-d'),
+        ]));
+
+        $response->assertOk();
+        $rows = collect($response->viewData('rows'));
+        $gemmaRow = $rows->firstWhere('tsa.id', $gemma->id);
+
+        $this->assertEquals(140, $gemmaRow['unproductive_minutes']);
+    }
+
+    /** Calling/Wrap Up/Login don't count as unproductive — confirmed here
+     *  since Gemma's default status ('login', unless a log says otherwise)
+     *  contributes nothing. */
+    public function test_unproductive_minutes_is_zero_with_no_unproductive_status_time_logged(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        $response = $this->actingAs($admin)->get(route('calls.analytics', ['date_from' => $today, 'date_to' => $today]));
+
+        $response->assertOk();
+        $rows = collect($response->viewData('rows'));
+        $gemmaRow = $rows->firstWhere('tsa.id', $gemma->id);
+
+        $this->assertEquals(0, $gemmaRow['unproductive_minutes']);
     }
 }

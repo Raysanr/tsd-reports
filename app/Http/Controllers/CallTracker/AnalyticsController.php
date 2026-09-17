@@ -17,10 +17,15 @@ class AnalyticsController extends Controller
 {
     use PersistsCallTrackerFilters;
 
-    // Fixed shift length (minutes/working day) used as "Total Logged-in Hours"
-    // in the Unproductive Time formula — a flat per-TSA constant, not derived
-    // from TsaShift::shift_start/shift_end (those currently run ~540min/9hr
-    // for most TSAs, a different number than the 440 actually used here).
+    // Fixed shift length (minutes/working day) used as "Total Logged-in
+    // Hours" — a flat per-TSA constant, not derived from TsaShift::
+    // shift_start/shift_end (those currently run ~540min/9hr for most
+    // TSAs, a different number than the 440 actually used here). No longer
+    // part of the Unproductive Time NUMERATOR itself (that's now Break +
+    // Lunch + DNA Huddle + Huddle + Coaching + Others real status-log time
+    // — see TsaShift::UNPRODUCTIVE_STATUSES' own doc comment, explicit
+    // request 2026-09-17) — still the denominator for unproductive_ratio
+    // (% of a scheduled shift spent unproductive) below.
     private const SHIFT_MINUTES_PER_DAY = 440;
 
     public function index(Request $request)
@@ -161,8 +166,18 @@ class AnalyticsController extends Controller
                 }
             }
 
-            $loggedInMinutes  = $workingDays * self::SHIFT_MINUTES_PER_DAY;
-            $unproductiveMins = max(0, $loggedInMinutes - ($thtSeconds / 60));
+            $loggedInMinutes = $workingDays * self::SHIFT_MINUTES_PER_DAY;
+
+            // Unproductive Time formula (explicit request, 2026-09-17):
+            // "Break + Lunch + DNA Huddle + Huddle + Coaching + Others" —
+            // see TsaShift::UNPRODUCTIVE_STATUSES' own doc comment. Reused
+            // (not recomputed) at $statusSeconds below, which aggregates
+            // this same per-TSA secondsByStatus() call into the team-wide
+            // Status Time section — same "call once, read twice" pattern
+            // the rest of this method already follows for $mine/
+            // $dispositioned.
+            $tsaStatusSeconds = TsaStatusLog::secondsByStatus($tsa, $from, $to);
+            $unproductiveMins = TsaStatusLog::unproductiveSecondsFromStatusSeconds($tsaStatusSeconds) / 60;
 
             return [
                 'tsa'                 => $tsa,
@@ -179,6 +194,7 @@ class AnalyticsController extends Controller
                 'logged_in_minutes'   => $loggedInMinutes,
                 'unproductive_minutes'=> $unproductiveMins,
                 'unproductive_ratio'  => $loggedInMinutes > 0 ? round($unproductiveMins / $loggedInMinutes * 100, 1) : null,
+                'status_seconds'      => $tsaStatusSeconds,
             ];
         });
 
@@ -192,10 +208,13 @@ class AnalyticsController extends Controller
         // Break/Logout/Lock — only Login/Coaching/DNA Huddle/Huddle get their
         // own bucket, matching what the KPI cards and this section actually
         // surface.
+        // Reuses each row's own 'status_seconds' (computed once above,
+        // alongside that row's own Unproductive Time) rather than calling
+        // secondsByStatus() a second time per TSA here.
         $statusSeconds = array_fill_keys(array_keys(TsaShift::STATUSES), 0);
 
-        foreach ($rows->pluck('tsa') as $statusTsa) {
-            foreach (TsaStatusLog::secondsByStatus($statusTsa, $from, $to) as $status => $seconds) {
+        foreach ($rows->pluck('status_seconds') as $tsaStatusSeconds) {
+            foreach ($tsaStatusSeconds as $status => $seconds) {
                 $statusSeconds[$status] = ($statusSeconds[$status] ?? 0) + $seconds;
             }
         }

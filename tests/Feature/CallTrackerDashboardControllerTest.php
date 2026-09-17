@@ -6,6 +6,7 @@ use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\Product;
 use App\Models\TsaShift;
+use App\Models\TsaStatusLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -239,11 +240,9 @@ class CallTrackerDashboardControllerTest extends TestCase
     /** Switched 2026-08-24 (explicit request) from CallEvent to
      *  CallRecordingHour — CallEvent needs each TSA's phone actually
      *  hitting the app via MacroDroid, which isn't in real use yet, so
-     *  these cards need to work off Google Drive-synced data instead. */
-    public function test_aht_and_unproductive_time_are_computed_from_real_synced_recording_hours(): void
+     *  this card needs to work off Google Drive-synced data instead. */
+    public function test_aht_is_computed_from_real_synced_recording_hours(): void
     {
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-
         CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 8, 'total_seconds' => 600, 'call_count' => 2]);
         CallRecordingHour::create(['tsa_key' => 'Gemma', 'date' => today(), 'hour' => 9, 'total_seconds' => 300, 'call_count' => 1]);
 
@@ -253,14 +252,12 @@ class CallTrackerDashboardControllerTest extends TestCase
         $response->assertOk();
         // AHT = pooled total_seconds / total call_count = 900 / 3 = 300s = 05:00.
         $this->assertSame('05:00', $response->viewData('ahtDisplay'));
-        // Unproductive = 1 working day * 440min - (900s / 60) = 425 minutes = 425:00.
-        $this->assertSame('425:00', $response->viewData('unproductiveDisplay'));
     }
 
-    /** An hour with no synced recording contributes nothing (not a 3-min/
-     *  call estimate, unlike TsaPerformanceController's own blended OPT) —
-     *  confirms this stays real-data-only, the explicit choice made when
-     *  wiring the Dashboard cards to CallRecordingHour. */
+    /** An hour with no synced recording contributes nothing to AHT (not a
+     *  3-min/call estimate, unlike TsaPerformanceController's own blended
+     *  OPT) — confirms this stays real-data-only, the explicit choice made
+     *  when wiring the Dashboard card to CallRecordingHour. */
     public function test_hours_with_no_synced_recording_are_not_estimated(): void
     {
         $user = $this->tsaUser('Gemma');
@@ -268,31 +265,53 @@ class CallTrackerDashboardControllerTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('—', $response->viewData('ahtDisplay'));
-        // 1 working day * 440min - 0 real seconds = 440:00, not a partial estimate.
-        $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
     }
 
     /**
-     * Explicit request, 2026-09-11: "make it like even restday is 440" —
-     * reported live as one TSA (viewing today, which happened to be her
-     * configured rest day) showing 00:00 while everyone else showed
-     * 440:00, read as wrong rather than a deliberate "day off" state.
-     * Every day in the selected range now counts toward the 440 baseline
-     * regardless of TsaShift::isOffOn() — a rest day no longer zeroes out
-     * the whole range the way it used to when the range landed entirely
-     * on one.
+     * Unproductive Time formula (explicit request, 2026-09-17):
+     * "Unproductive Hours = Break + Lunch + DNA Huddle + Huddle + Coaching
+     * + Others" — real time from TsaStatusLog, replacing the old "440min/
+     * day shift constant minus real call duration" estimate. Matches the
+     * request's own worked example: Break 20 + Lunch 60 + DNA Huddle 10 +
+     * Huddle 10 + Coaching 30 + Others 10 = 140 minutes.
      */
-    public function test_unproductive_time_still_counts_440_on_a_tsas_own_rest_day(): void
+    public function test_unproductive_time_sums_break_lunch_dna_huddle_huddle_coaching_and_others(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $gemma->update(['rest_day_of_week' => strtolower(today()->format('l'))]);
-        $this->assertTrue($gemma->isOffOn(today()), 'Test setup: today must actually be Gemma\'s rest day.');
+        $start = today()->copy()->startOfDay()->addHours(8);
+
+        // Each log's own status is credited for the time UNTIL the next log
+        // (TsaStatusLog::secondsByStatus()'s own walk) — so this lays out
+        // Login 8:00-8:20, Break 8:20-8:40 (20min), Lunch 8:40-9:40 (60min),
+        // DNA Huddle 9:40-9:50 (10min), Huddle 9:50-10:00 (10min), Coaching
+        // 10:00-10:30 (30min), Others 10:30-10:40 (10min), then Login again
+        // (the 140 unproductive minutes stop accumulating there).
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => $start->copy()->addMinutes(20)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'lunch', 'created_at' => $start->copy()->addMinutes(40)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'dna_huddle', 'created_at' => $start->copy()->addMinutes(100)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'huddle', 'created_at' => $start->copy()->addMinutes(110)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'coaching', 'created_at' => $start->copy()->addMinutes(120)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'others', 'created_at' => $start->copy()->addMinutes(150)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(160)]);
 
         $user = $this->tsaUser('Gemma');
         $response = $this->actingAs($user)->get(route('calls.dashboard'));
 
         $response->assertOk();
-        $this->assertSame('440:00', $response->viewData('unproductiveDisplay'));
+        $this->assertSame('140:00', $response->viewData('unproductiveDisplay'));
+    }
+
+    /** A TSA who never left Login (Calling/Wrap Up don't count as
+     *  unproductive either — see TsaShift::UNPRODUCTIVE_STATUSES' own doc
+     *  comment) shows 0, not a scheduled-shift baseline. */
+    public function test_unproductive_time_is_zero_with_no_unproductive_status_time_logged(): void
+    {
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame('00:00', $response->viewData('unproductiveDisplay'));
     }
 
     /** Explicit follow-up request (2026-08-25): "make this per hour" — the

@@ -95,4 +95,19 @@ class TsaStatusLog extends Model
 
         return $seconds;
     }
+
+    /** Unproductive seconds = the sum of TsaShift::UNPRODUCTIVE_STATUSES'
+     *  own buckets out of a secondsByStatus() result (explicit request,
+     *  2026-09-17 — see that constant's own doc comment for the formula
+     *  and why Login/Calling/Wrap Up/Logout/Lock are excluded). Takes the
+     *  already-computed $statusSeconds array rather than a TSA+range
+     *  itself, so a caller that's already called secondsByStatus() for
+     *  another reason (e.g. AnalyticsController's own Status Time section)
+     *  reuses that same result instead of re-walking the log a second
+     *  time. */
+    public static function unproductiveSecondsFromStatusSeconds(array $statusSeconds): int
+    {
+        return collect(TsaShift::UNPRODUCTIVE_STATUSES)
+            ->sum(fn ($status) => $statusSeconds[$status] ?? 0);
+    }
 }

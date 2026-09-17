@@ -9,6 +9,7 @@ use App\Models\Lead;
 use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\TsaShift;
+use App\Models\TsaStatusLog;
 use App\Support\HourFormatter;
 use App\Support\Teams;
 use Illuminate\Http\Request;
@@ -40,16 +41,23 @@ class DashboardController extends Controller
      * date range except TSA Log In, which — like the TSA Status board and
      * At-Risk Products below it — stays live regardless of the picker:
      * "who's logged in right now" has no historical snapshot to show for a
-     * past date. AHT/Unproductive Time were switched 2026-08-24 (explicit
-     * request) from CallEvent to CallRecordingHour (real per-hour call
-     * durations synced from Google Drive, see SyncCallRecordings) —
-     * CallEvent needs each TSA's phone to hit the app directly via
-     * MacroDroid, which isn't in real use yet, so it stayed permanently
-     * empty and made these two cards always show blank/meaningless numbers.
-     * Deliberately real-data-only, no fallback estimate for hours with no
-     * synced recording yet (unlike TsaPerformanceController's own blended
-     * OPT/AHT, which mixes in a 3-min/call guess) — an explicit choice so
-     * these cards never show a partly-fabricated number.
+     * past date. AHT was switched 2026-08-24 (explicit request) from
+     * CallEvent to CallRecordingHour (real per-hour call durations synced
+     * from Google Drive, see SyncCallRecordings) — CallEvent needs each
+     * TSA's phone to hit the app directly via MacroDroid, which isn't in
+     * real use yet, so it stayed permanently empty and made this card
+     * always show a blank/meaningless number. Deliberately real-data-only,
+     * no fallback estimate for hours with no synced recording yet (unlike
+     * TsaPerformanceController's own blended OPT/AHT, which mixes in a
+     * 3-min/call guess) — an explicit choice so this card never shows a
+     * partly-fabricated number.
+     *
+     * Unproductive Time is real TsaStatusLog data, not CallRecordingHour
+     * (explicit request, 2026-09-17: "Unproductive Hours = Break + Lunch +
+     * DNA Huddle + Huddle + Coaching + Others" — see TsaShift::
+     * UNPRODUCTIVE_STATUSES' own doc comment for the full formula and why
+     * this replaced the old "440min/day shift constant minus real call
+     * duration" estimate).
      */
     public function index(Request $request)
     {
@@ -67,17 +75,6 @@ class DashboardController extends Controller
             $dateTo = $dateFrom->copy()->endOfDay();
         }
         $isToday = $dateFrom->isToday() && $dateTo->isToday();
-        // Calendar-date count, not a fractional day count — $dateFrom is
-        // startOfDay() and $dateTo is endOfDay(), so a same-day range spans
-        // ~23h59m59s (diffInDays() ≈ 0.99999..., a float, not truncated in
-        // this Carbon version). Bug caught 2026-09-11 fixing the
-        // Unproductive Time baseline below: that near-1.0 float rounded up
-        // to 2 whole days once +1'd and multiplied by 440, doubling the
-        // baseline for the single most common case (a plain "today" view).
-        // Re-anchoring both ends to startOfDay() before diffing counts
-        // whole calendar dates only, regardless of either end's
-        // time-of-day component.
-        $daysInDateRange = $dateFrom->copy()->startOfDay()->diffInDays($dateTo->copy()->startOfDay()) + 1;
 
         // Same ALL/SH Naturals/Eyecare filter as TSD Reports' own Dashboard
         // (explicit request, 2026-08-17) — 'all' isn't a real config('teams')
@@ -174,21 +171,17 @@ class DashboardController extends Controller
             ? (int) round($rangeRecordingHours->sum('total_seconds') / $rangeRealCalls)
             : null;
 
-        // Per TSA: every day in range x the same flat 440min/day shift
-        // constant AnalyticsController uses, minus that TSA's own real
-        // synced call duration in the range — then averaged across the
-        // roster in scope for one team-wide number. Counts every day
-        // regardless of TsaShift::isOffOn() now (explicit request,
-        // 2026-09-11: "make it like even restday is 440") — this used to
-        // skip a TSA's own configured rest day, which zeroed out the whole
-        // range for a single-day "today" view that landed on one (read as
-        // wrong rather than a deliberate "day off" state — see the
-        // matching fix on the per-TSA table below for the same reasoning).
+        // Per TSA: real time spent in Break/Lunch/DNA Huddle/Huddle/
+        // Coaching/Others (TsaShift::UNPRODUCTIVE_STATUSES, explicit
+        // request 2026-09-17: "Unproductive Hours = Break + Lunch + DNA
+        // Huddle + Huddle + Coaching + Others" — replaces the old "440min/
+        // day shift constant minus real call duration" estimate), averaged
+        // across the roster in scope for one team-wide number.
         $avgUnproductiveMinutes = null;
         if ($scopeTsas->isNotEmpty()) {
-            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($rangeRecordingHours, $daysInDateRange) {
-                $realSeconds = $rangeRecordingHours->where('tsa_key', $tsa->tsa_key)->sum('total_seconds');
-                return max(0, $daysInDateRange * 440 - $realSeconds / 60);
+            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($dateFrom, $dateTo) {
+                $statusSeconds = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
+                return TsaStatusLog::unproductiveSecondsFromStatusSeconds($statusSeconds) / 60;
             });
             $avgUnproductiveMinutes = $perTsaUnproductive->avg();
         }
@@ -295,7 +288,7 @@ class DashboardController extends Controller
             ->whereDate('date', '<=', $dateTo)
             ->get();
 
-        $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfRecordingHours, $daysInDateRange, $formatMmSs) {
+        $tsaPerformance = $tsas->map(function (TsaShift $tsa) use ($perfLeads, $perfRecordingHours, $dateFrom, $dateTo, $formatMmSs) {
             $tsaLeads      = $perfLeads->where('tsa_id', $tsa->id);
             $tsaTotalLeads = $tsaLeads->count();
             $tsaCatered    = $tsaLeads->filter(fn (Lead $l) => $l->status === 'called' || $l->dialed_at !== null)->count();
@@ -303,19 +296,14 @@ class DashboardController extends Controller
             $tsaRealCalls  = $tsaHours->sum('call_count');
             $tsaAhtSeconds = $tsaRealCalls > 0 ? (int) round($tsaHours->sum('total_seconds') / $tsaRealCalls) : null;
 
-            // Every day in the range counts toward the 440-minute baseline
-            // now, rest day or not (explicit request, 2026-09-11: "make it
-            // like even restday is 440") — this used to skip a TSA's own
-            // configured rest day via isOffOn(), which zeroed out the whole
-            // baseline for a range that landed entirely on one (e.g. a
-            // single-day "today" view on her rest day showed 00:00 instead
-            // of 440:00 like everyone else, read as wrong rather than a
-            // deliberate "day off, nothing to be unproductive during").
-            // $daysInDateRange (not a per-TSA isOffOn() loop anymore) is
-            // computed once above, calendar-date-only — see its own doc
-            // comment for why a naive diffInDays() on $dateFrom/$dateTo
-            // directly would silently double this baseline.
-            $tsaUnproductiveMinutes = max(0, $daysInDateRange * 440 - $tsaHours->sum('total_seconds') / 60);
+            // Unproductive Time formula (explicit request, 2026-09-17):
+            // "Break + Lunch + DNA Huddle + Huddle + Coaching + Others" —
+            // real time from TsaStatusLog (see TsaShift::
+            // UNPRODUCTIVE_STATUSES' own doc comment), replacing the old
+            // "440min/day shift constant minus real call duration"
+            // estimate this table used before.
+            $tsaStatusSeconds      = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
+            $tsaUnproductiveMinutes = TsaStatusLog::unproductiveSecondsFromStatusSeconds($tsaStatusSeconds) / 60;
 
             return [
                 'tsa'                 => $tsa,
