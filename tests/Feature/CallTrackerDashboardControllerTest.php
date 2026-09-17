@@ -239,37 +239,53 @@ class CallTrackerDashboardControllerTest extends TestCase
 
     /**
      * KPI row's 2nd card, changed from Total Leads to Wrap Up (explicit
-     * request, 2026-09-17) — a live count of the (already team-filtered)
-     * roster currently in TsaShift::STATUS_WRAP_UP, same shape as the TSA
-     * Log In card right next to it, just a different status.
+     * request, 2026-09-17, then corrected same conversation: "i mean total
+     * minutes of wrap up" — NOT a live headcount) — team-wide TOTAL real
+     * Wrap Up time (TsaShift::STATUS_WRAP_UP) from TsaStatusLog across the
+     * roster in scope, summed (not averaged the way Unproductive Time is)
+     * for the picked date range.
      */
-    public function test_wrap_up_count_reflects_the_roster_currently_in_wrap_up(): void
+    public function test_wrap_up_display_sums_real_wrap_up_time_across_the_team(): void
     {
-        TsaShift::whereIn('tsa_key', ['Gemma', 'Mariel'])->update(['status' => 'wrap_up']);
-        TsaShift::where('tsa_key', 'Kathleen')->update(['status' => 'login']);
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $start  = today()->copy()->startOfDay()->addHours(8);
+
+        // Gemma: Wrap Up 8:00-8:05 (5min), back to Login. Mariel: Wrap Up
+        // 8:00-8:03 (3min), back to Login. Team total = 5 + 3 = 8 minutes.
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'wrap_up', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(5)]);
+        TsaStatusLog::create(['tsa_id' => $mariel->id, 'status' => 'wrap_up', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $mariel->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(3)]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
 
         $response->assertOk();
-        $this->assertSame(2, $response->viewData('tsaWrapUpCount'));
+        $this->assertSame('08:00', $response->viewData('wrapUpDisplay'));
     }
 
-    /** Team filter narrows Wrap Up the same way it already narrows TSA Log
-     *  In — a TSA in Wrap Up on a DIFFERENT team must not count here.
-     *  tsa_shifts.team stores the real order_team string (e.g. "SH
-     *  Naturals"), not the config slug — see config/teams.php's own doc
-     *  comment. */
-    public function test_wrap_up_count_is_scoped_to_the_selected_team(): void
+    /** Team filter narrows Wrap Up the same way it already narrows AHT/
+     *  Unproductive Time — a TSA on a DIFFERENT team's Wrap Up time must
+     *  not count here. tsa_shifts.team stores the real order_team string
+     *  (e.g. "SH Naturals"), not the config slug — see config/teams.php's
+     *  own doc comment. */
+    public function test_wrap_up_display_is_scoped_to_the_selected_team(): void
     {
         $shNaturalsTsa = TsaShift::where('tsa_key', 'Gemma')->first();
         $eyecareTsa    = TsaShift::where('tsa_key', 'Mariel')->first();
-        $shNaturalsTsa->update(['status' => 'wrap_up', 'team' => 'SH Naturals']);
-        $eyecareTsa->update(['status' => 'wrap_up', 'team' => 'Eyecare Team']);
+        $shNaturalsTsa->update(['team' => 'SH Naturals']);
+        $eyecareTsa->update(['team' => 'Eyecare Team']);
+        $start = today()->copy()->startOfDay()->addHours(8);
+
+        TsaStatusLog::create(['tsa_id' => $shNaturalsTsa->id, 'status' => 'wrap_up', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $shNaturalsTsa->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(10)]);
+        TsaStatusLog::create(['tsa_id' => $eyecareTsa->id, 'status' => 'wrap_up', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $eyecareTsa->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(99)]);
 
         $response = $this->actingAs($this->admin())->get(route('calls.dashboard', ['team' => 'sh-naturals']));
 
         $response->assertOk();
-        $this->assertSame(1, $response->viewData('tsaWrapUpCount'));
+        $this->assertSame('10:00', $response->viewData('wrapUpDisplay'));
     }
 
     /** Switched 2026-08-24 (explicit request) from CallEvent to

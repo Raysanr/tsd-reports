@@ -144,17 +144,20 @@ $statusBadge = fn($status) => match(true) {
      the isToday-aware suffix the old cards used.
 
      2nd card changed from Total Leads to Wrap Up (explicit request,
-     2026-09-17) — live count of the roster currently in
-     TsaShift::STATUS_WRAP_UP, same "live, not range-scoped" shape as TSA
-     Log In right next to it, not the isToday-aware suffix the other range-
-     scoped cards use. Total Leads itself is UNCHANGED elsewhere on this
-     page (Leads Overview chart, Catered Leads Rate donut, TSA Performance
-     table) — only this top card stopped showing it. Orange, matching the
-     Wrap Up color TsaStatusController's own status-dot convention already
-     uses everywhere else in Call Tracker. --}}
+     2026-09-17: "total minutes of wrap up") — team-wide TOTAL real Wrap Up
+     time (TsaShift::STATUS_WRAP_UP, real TsaStatusLog data, same source
+     Unproductive Time reads) across the roster in scope for the picked
+     date range, mm:ss like the rest of this row — a SUM across the team,
+     not a per-TSA average the way Unproductive Time is (see
+     DashboardController::index()'s own comment on $totalWrapUpSeconds).
+     Total Leads itself is UNCHANGED elsewhere on this page (Leads Overview
+     chart, Catered Leads Rate donut, TSA Performance table) — only this
+     top card stopped showing it. Orange, matching the Wrap Up color
+     TsaStatusController's own status-dot convention already uses
+     everywhere else in Call Tracker. --}}
 <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-5 mb-6">
     @include('calls.partials.stat-tile', ['label' => 'TSA Log In', 'value' => $tsaLoginCount, 'icon' => 'user', 'color' => 'text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-950/40', 'underline' => 'bg-yellow-500', 'caption' => 'Total TSA logged in'])
-    @include('calls.partials.stat-tile', ['label' => 'Wrap Up', 'value' => $tsaWrapUpCount, 'icon' => 'clock', 'color' => 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/40', 'underline' => 'bg-orange-500', 'caption' => 'Total TSA in wrap up'])
+    @include('calls.partials.stat-tile', ['label' => $isToday ? 'Wrap Up Today' : 'Wrap Up', 'value' => $wrapUpDisplay, 'icon' => 'clock', 'color' => 'text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/40', 'underline' => 'bg-orange-500', 'caption' => 'Total wrap up time (mm:ss)'])
     @include('calls.partials.stat-tile', ['label' => $isToday ? 'Total Catered Today' : 'Total Catered Leads', 'value' => $totalCateredLeads, 'icon' => 'headset', 'color' => 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40', 'underline' => 'bg-emerald-500', 'caption' => 'Total leads catered'])
     @include('calls.partials.stat-tile', ['label' => 'AHT', 'value' => $ahtDisplay, 'icon' => 'stopwatch', 'color' => 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40', 'underline' => 'bg-blue-500', 'caption' => 'Average handle time (mm:ss)'])
     @include('calls.partials.stat-tile', ['label' => 'Unproductive Time', 'value' => $unproductiveDisplay, 'icon' => 'hourglass', 'color' => 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40', 'underline' => 'bg-red-500', 'caption' => 'Average unproductive time (mm:ss)'])

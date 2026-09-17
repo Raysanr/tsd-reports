@@ -176,11 +176,16 @@ class DashboardController extends Controller
         // request 2026-09-17: "Unproductive Hours = Break + Lunch + DNA
         // Huddle + Huddle + Coaching + Others" — replaces the old "440min/
         // day shift constant minus real call duration" estimate), averaged
-        // across the roster in scope for one team-wide number.
+        // across the roster in scope for one team-wide number. Reuses each
+        // TSA's own secondsByStatus() result for the Wrap Up card below too
+        // (same call, read twice) rather than walking TsaStatusLog a
+        // second time per TSA.
         $avgUnproductiveMinutes = null;
+        $totalWrapUpSeconds     = 0;
         if ($scopeTsas->isNotEmpty()) {
-            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($dateFrom, $dateTo) {
-                $statusSeconds = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
+            $perTsaUnproductive = $scopeTsas->map(function (TsaShift $tsa) use ($dateFrom, $dateTo, &$totalWrapUpSeconds) {
+                $statusSeconds       = TsaStatusLog::secondsByStatus($tsa, $dateFrom, $dateTo);
+                $totalWrapUpSeconds += $statusSeconds[TsaShift::STATUS_WRAP_UP] ?? 0;
                 return TsaStatusLog::unproductiveSecondsFromStatusSeconds($statusSeconds) / 60;
             });
             $avgUnproductiveMinutes = $perTsaUnproductive->avg();
@@ -195,6 +200,9 @@ class DashboardController extends Controller
         };
         $ahtDisplay          = $formatMmSs($ahtSeconds);
         $unproductiveDisplay = $formatMmSs($avgUnproductiveMinutes !== null ? $avgUnproductiveMinutes * 60 : null);
+        // Wrap Up card — team-wide TOTAL (not an average like Unproductive
+        // Time above), same $formatMmSs shape as the rest of this row.
+        $wrapUpDisplay = $formatMmSs((float) $totalWrapUpSeconds);
 
         // TSA status board — every TSA regardless of who's viewing (not
         // sensitive, and a TSA benefits from seeing who else is actually
@@ -212,16 +220,6 @@ class DashboardController extends Controller
         // are actually available for round-robin right now. Live, not
         // date-range-scoped, same reasoning as the TSA Status board itself.
         $tsaLoginCount = $tsas->where('status', TsaShift::STATUS_LOGIN)->count();
-
-        // Wrap Up — the KPI row's 2nd card (explicit request, 2026-09-17:
-        // "change the Total Leads card to wrap up"), same live "how many of
-        // the roster right now" shape as TSA Log In just above, just a
-        // different status (TsaShift::STATUS_WRAP_UP — after-call wrap-up,
-        // set automatically, never picked by hand). Total Leads itself is
-        // UNCHANGED below — still computed and fed to the Leads Overview
-        // chart, Catered Leads Rate donut, and the TSA Performance table's
-        // own column, only this top KPI card stopped showing it.
-        $tsaWrapUpCount = $tsas->where('status', TsaShift::STATUS_WRAP_UP)->count();
 
         // Round-robin risk — a product whose entire roster is active but
         // nobody on it is currently logged in will silently stop receiving
@@ -417,7 +415,7 @@ class DashboardController extends Controller
 
         return view('calls.dashboard', [
             'tsaLoginCount'          => $tsaLoginCount,
-            'tsaWrapUpCount'         => $tsaWrapUpCount,
+            'wrapUpDisplay'          => $wrapUpDisplay,
             'totalLeads'             => $totalLeads,
             'totalCateredLeads'      => $totalCateredLeads,
             'ahtDisplay'             => $ahtDisplay,
