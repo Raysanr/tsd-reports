@@ -58,7 +58,16 @@ class NotificationController extends Controller
         };
         $assignedQuery   = Lead::where('status', 'assigned')->whereBetween('assigned_at', [$dateFrom, $dateTo])
             ->where($createdTodayFilter);
+        // callback_at <= now() (regression fix, 2026-09-17: "the callbacks
+        // is 65 but in the monitor tsa it is only 23") — root-caused: this
+        // was missing the same "due now or already past due, not someday
+        // in the future" clause LeadController::index()'s own Callbacks
+        // view and Monitor's own per-TSA callback count both already have,
+        // so a lead with a callback scheduled for LATER today (e.g. 6pm)
+        // counted here even though it doesn't actually show on the
+        // Callbacks page yet.
         $callbackQuery   = Lead::whereNotNull('callback_at')->whereBetween('callback_at', [$dateFrom, $dateTo])
+            ->where('callback_at', '<=', now())
             ->where($createdTodayFilter);
         $unassignedQuery = Lead::where('status', 'unassigned')->where($createdTodayFilter);
 

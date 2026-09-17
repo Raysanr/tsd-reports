@@ -105,4 +105,30 @@ class NotificationCountsTest extends TestCase
         $response->assertOk();
         $response->assertJson(['assigned' => 0, 'overdue' => 0]);
     }
+
+    /**
+     * Regression test (explicit report, 2026-09-17: "the callbacks is 65
+     * but in the monitor tsa it is only 23") — root-caused: this badge
+     * counted every callback SCHEDULED for today's date range, including
+     * one due later today (e.g. 6pm), missing the same "due now or already
+     * past due, not someday in the future" clause LeadController::index()'s
+     * own Callbacks view and Monitor's own per-TSA callback count both
+     * already have — so this badge could read higher than what the actual
+     * Callbacks page shows.
+     */
+    public function test_callbacks_count_excludes_one_scheduled_for_later_today(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'n10', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'callback_at' => now()->subHour()]);
+        Lead::create(['pancake_order_id' => 'n11', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'callback_at' => now()->addHours(3)]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->getJson(route('calls.notifications.counts'));
+
+        $response->assertOk();
+        $response->assertJson(['callbacks' => 1]);
+    }
 }
