@@ -28,18 +28,18 @@ class CallbackSchedulerTest extends TestCase
         return [$lead, $user];
     }
 
-    public function test_logging_call_back_without_a_time_defaults_the_callback_to_one_day_out(): void
-    {
-        [$lead, $user] = $this->leadAndUser();
-
-        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Call Back']);
-
-        $lead->refresh();
-        $this->assertNotNull($lead->callback_at);
-        $this->assertTrue($lead->callback_at->betweenIncluded(now()->addHours(23), now()->addHours(25)));
-    }
-
-    public function test_logging_call_back_with_an_explicit_time_uses_it(): void
+    /**
+     * Regression test for the removal of "Call Back" as a callback trigger
+     * (explicit request, 2026-09-17: "do not include call back only
+     * unattended, not answering") — "Call Back" means a TSA DID reach the
+     * customer and is promising a follow-up at their own request, a
+     * different case from Unattended/Not Answering (never reached them at
+     * all), so logging it no longer schedules a callback on its own. Even
+     * with an explicit callback_at submitted, it's dropped — only
+     * Unattended/Not Answering actually persist one (see
+     * CALLBACK_TRIGGER_KEYWORDS' own doc comment).
+     */
+    public function test_logging_call_back_no_longer_schedules_a_callback(): void
     {
         [$lead, $user] = $this->leadAndUser();
         $when = now()->addDays(3)->startOfMinute();
@@ -49,8 +49,7 @@ class CallbackSchedulerTest extends TestCase
             'callback_at' => $when->format('Y-m-d\TH:i'),
         ]);
 
-        $lead->refresh();
-        $this->assertSame($when->format('Y-m-d H:i'), $lead->callback_at->format('Y-m-d H:i'));
+        $this->assertNull($lead->refresh()->callback_at);
     }
 
     public function test_a_non_call_back_disposition_never_sets_a_callback(): void
@@ -62,10 +61,10 @@ class CallbackSchedulerTest extends TestCase
         $this->assertNull($lead->refresh()->callback_at);
     }
 
-    /** Explicit request (2026-08-12): Unattended/Not Answering mean the same
-     *  thing as Call Back for follow-up purposes — nobody actually talked to
-     *  the customer — so they now also set a due callback, same default as
-     *  Call Back itself. */
+    /** Unattended/Not Answering both mean nobody actually talked to the
+     *  customer, so logging either sets a due callback (unlike "Call Back",
+     *  which means the opposite — the customer WAS reached; see the test
+     *  above). */
     public function test_logging_unattended_also_schedules_a_callback(): void
     {
         [$lead, $user] = $this->leadAndUser();
@@ -134,7 +133,7 @@ class CallbackSchedulerTest extends TestCase
      * leads that" — Callbacks is the one queue where canAccess() already
      * lets ANY TSA act on a due lead she doesn't own; when a different TSA
      * actually resolves it (a disposition that ISN'T Unattended/Not
-     * Answering/Call Back again), ownership follows whoever did the work.
+     * Answering again), ownership follows whoever did the work.
      */
     public function test_a_different_tsa_resolving_a_due_callback_becomes_its_new_owner(): void
     {
@@ -157,10 +156,10 @@ class CallbackSchedulerTest extends TestCase
         $this->assertStringContainsString($julieUser->name, $activity->description);
     }
 
-    /** Logging ANOTHER unresolved attempt (still Unattended/Not Answering/
-     *  Call Back) is not a real pickup — the lead stays with its original
-     *  owner and up for grabs, rather than silently reassigning on every
-     *  failed re-attempt by a different TSA. */
+    /** Logging ANOTHER unresolved attempt (still Unattended/Not Answering)
+     *  is not a real pickup — the lead stays with its original owner and
+     *  up for grabs, rather than silently reassigning on every failed
+     *  re-attempt by a different TSA. */
     public function test_a_different_tsa_logging_another_unattended_does_not_take_ownership(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

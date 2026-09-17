@@ -912,9 +912,10 @@ class LeadControllerTest extends TestCase
         $response->assertRedirect();
         $lead->refresh();
         $this->assertSame('Confirmed, Call Back', $lead->disposition);
-        // "Call Back" being one of several picked tags (not the only one)
-        // still schedules a callback due date.
-        $this->assertNotNull($lead->callback_at);
+        // "Call Back" is no longer a callback trigger (explicit request,
+        // 2026-09-17 — see CALLBACK_TRIGGER_KEYWORDS' own doc comment), so
+        // picking it alongside another tag still doesn't schedule one.
+        $this->assertNull($lead->callback_at);
 
         Http::assertSent(function ($r) {
             if ($r->method() !== 'PUT') return false;

@@ -321,7 +321,7 @@ class SyncPancakeLeads extends Command
             // callback — only act if the real tags no longer justify it.
             if ($matchedTag === null) {
                 $lead->update(['disposition' => null, 'callback_at' => null]);
-                LeadActivity::log($lead, 'callback_scheduled', 'Callback cleared — Pancake tags no longer include Not Answering/Unattended/Call Back.');
+                LeadActivity::log($lead, 'callback_scheduled', 'Callback cleared — Pancake tags no longer include Not Answering/Unattended.');
             }
             return;
         }

@@ -41,16 +41,19 @@ use Illuminate\Validation\Rule;
  */
 class LeadController extends Controller
 {
-    /** Disposition keywords that mean "we didn't actually reach/confirm this
-     *  lead" and so need a follow-up attempt — see updateDisposition()'s own
-     *  comment on why Unattended/Not Answering join Call Back here. Matched
-     *  case-insensitively as a substring, same as the keywords list itself.
-     *  Public (not private): SyncPancakeLeads::backfillCallbackFromTags()
-     *  reuses this exact same list so a lead whose callback-worthy state
-     *  came from a real Pancake TAG (not a TSA's own logged Outcome) is
-     *  still recognized by the identical keyword set — one definition, not
-     *  two hand-kept-in-sync copies. */
-    public const CALLBACK_TRIGGER_KEYWORDS = ['call back', 'unattended', 'not answering'];
+    /** Disposition keywords that mean "we didn't actually reach this lead"
+     *  and so need a follow-up attempt — Unattended/Not Answering ONLY
+     *  (explicit request, 2026-09-17: "do not include call back only
+     *  unattended, not answering" — "Call Back" removed; it means a TSA
+     *  DID reach the customer and is promising a follow-up at their own
+     *  request, a different case from never having reached them at all).
+     *  Matched case-insensitively as a substring, same as the keywords
+     *  list itself. Public (not private): SyncPancakeLeads::
+     *  backfillCallbackFromTags() reuses this exact same list so a lead
+     *  whose callback-worthy state came from a real Pancake TAG (not a
+     *  TSA's own logged Outcome) is still recognized by the identical
+     *  keyword set — one definition, not two hand-kept-in-sync copies. */
+    public const CALLBACK_TRIGGER_KEYWORDS = ['unattended', 'not answering'];
 
     /** How long an assigned-but-uncatered lead (no dial, no disposition —
      *  same "catered" definition the Leads tab's own status filter uses,
@@ -1593,17 +1596,17 @@ class LeadController extends Controller
             'callback_at' => ['nullable', 'date'],
         ]);
 
-        // An outcome that means "we didn't actually reach/confirm this lead"
-        // needs a due time to ever show up on the Callbacks view — default to
-        // +1 day if the TSA didn't pick one, rather than silently having no
-        // due date at all. Explicit "Call Back" is the obvious case, but
-        // "Unattended" and "Not Answering" mean exactly the same thing in
-        // practice — nobody talked to the customer, so it still needs a
-        // follow-up attempt. Case-insensitive substring match over the WHOLE
-        // joined string, so this still fires when any of these is only one
-        // of several tags picked alongside others — same keyword convention
-        // TSD Reports itself uses for disposition matching
-        // (ProductPerformance::count()).
+        // An outcome that means "we didn't actually reach this lead" needs a
+        // due time to ever show up on the Callbacks view — default to +1
+        // day if the TSA didn't pick one, rather than silently having no
+        // due date at all. "Unattended" and "Not Answering" ONLY (see
+        // CALLBACK_TRIGGER_KEYWORDS' own doc comment for why "Call Back"
+        // was deliberately excluded) — nobody talked to the customer, so it
+        // still needs a follow-up attempt. Case-insensitive substring match
+        // over the WHOLE joined string, so this still fires when either of
+        // these is only one of several tags picked alongside others — same
+        // keyword convention TSD Reports itself uses for disposition
+        // matching (ProductPerformance::count()).
         $callbackAt = null;
         $needsFollowUp = self::CALLBACK_TRIGGER_KEYWORDS;
         if (collect($needsFollowUp)->contains(fn ($kw) => stripos($data['disposition'], $kw) !== false)) {
@@ -1625,9 +1628,9 @@ class LeadController extends Controller
         // on someone's behalf is correcting a record, not picking up the
         // call herself, so ownership must stay put; (3) the NEW disposition
         // actually resolves it ($callbackAt is null here) — logging another
-        // Unattended/Not Answering/Call Back is still an unresolved
-        // attempt, not a real pickup, so the lead stays shared/up for grabs
-        // rather than quietly reassigning on every failed re-attempt.
+        // Unattended/Not Answering is still an unresolved attempt, not a
+        // real pickup, so the lead stays shared/up for grabs rather than
+        // quietly reassigning on every failed re-attempt.
         $pickedUpViaCallbacksQueue = !$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id;
         $reassignFromLabel = null;
         if ($pickedUpViaCallbacksQueue && $callbackAt === null && $user->tsa_id) {
