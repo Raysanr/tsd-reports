@@ -77,9 +77,14 @@
                  recomputed, at the pill cell. Lowest-priority tint in the
                  source order below — pinned and selected still take
                  precedence over it, same as pinned already did over nothing
-                 before this. --}}
+                 before this. bg-emerald-100/dark:bg-emerald-800/40 (not the
+                 much fainter -50/60 and -900/10 the first pass used) —
+                 explicit follow-up, 2026-09-17: "make it more green and
+                 make it the dark mode make it visible highlight," the
+                 original shades barely read as green at all, especially in
+                 dark mode. --}}
             @php $orderStatusCode = $orderStatuses[$lead->pancake_order_id] ?? null; @endphp
-            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ (int) $orderStatusCode === 20 ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : '' }} {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }} {{ auth()->user()->isAtLeastAdmin() ? 'has-[.leadCheckbox:checked]:bg-primary/10 dark:has-[.leadCheckbox:checked]:bg-primary/15' : '' }}">
+            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ (int) $orderStatusCode === 20 ? 'bg-emerald-100 dark:bg-emerald-800/40' : '' }} {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }} {{ auth()->user()->isAtLeastAdmin() ? 'has-[.leadCheckbox:checked]:bg-primary/10 dark:has-[.leadCheckbox:checked]:bg-primary/15' : '' }}">
                 <td class="px-2 py-3">
                     <div class="flex items-center gap-1">
                         @if(auth()->user()->isAtLeastAdmin())
