@@ -135,8 +135,13 @@
      below by eye. Kept visually distinct from the TSA-status legend above
      it — this is about the LEADS, not who's doing what right now. --}}
 @php
+    // + $unassignedCallbacksDueCount (regression fix, 2026-09-17) — an
+    // unassigned lead can carry a real due callback (a Pancake tag noticed
+    // before anyone was ever assigned), invisible to $leadCounts' own
+    // per-TSA sum below since that only ever sums KNOWN tsa_ids — see
+    // MonitorController::index()'s own comment on this exact gap.
     $totalOverdueLeads   = $leadCounts->sum('overdue');
-    $totalCallbacksDue   = $leadCounts->sum('callbacks');
+    $totalCallbacksDue   = $leadCounts->sum('callbacks') + $unassignedCallbacksDueCount;
 @endphp
 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
     <div class="bg-white dark:bg-slate-900 rounded-xl border {{ $unassignedLeadsCount > 0 ? 'border-amber-300 dark:border-amber-700' : 'border-slate-200 dark:border-slate-700' }} px-4 py-3">

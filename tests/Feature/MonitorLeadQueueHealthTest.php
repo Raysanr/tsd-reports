@@ -105,6 +105,51 @@ class MonitorLeadQueueHealthTest extends TestCase
     }
 
     /**
+     * Regression test (explicit report, 2026-09-17: "the callbacks is 68
+     * but in the monitor tsa it is only 23") — root-caused live: an
+     * UNASSIGNED lead (status='unassigned', no tsa_id — e.g. a product
+     * with nobody eligible in its round-robin roster at the time) can
+     * still carry a real due callback_at, stamped by SyncPancakeLeads::
+     * backfillCallbackFromTags() noticing a Not Answering/Unattended tag
+     * directly on the Pancake order — independent of whether anyone's
+     * actually been assigned to it yet. The "Callbacks Due" tile's own
+     * $leadCounts only ever sums PER-KNOWN-TSA callback counts
+     * (Lead::where('tsa_id', $t->id)...), so these leads were invisible to
+     * it even though the sidebar badge (no tsa_id filter at all for an
+     * admin) correctly counted them — confirmed live on production: 23
+     * (Monitor's per-TSA sum) + 47 (unassigned-with-due-callback) = 70,
+     * matching the sidebar exactly.
+     */
+    public function test_callbacks_due_tile_includes_unassigned_leads_with_a_due_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        // Assigned-TSA callback — already counted by $leadCounts' own sum.
+        Lead::create([
+            'pancake_order_id' => 'assigned-callback-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'disposition' => 'Unattended', 'callback_at' => now()->subMinutes(5),
+        ]);
+        // Unassigned lead with a real due callback (e.g. backfilled from a
+        // Pancake tag before any TSA ever picked it up) — the gap this
+        // fix closes.
+        Lead::create([
+            'pancake_order_id' => 'unassigned-callback-1', 'product_id' => $product->id, 'tsa_id' => null,
+            'status' => 'unassigned', 'disposition' => 'Unattended', 'callback_at' => now()->subMinutes(5),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $this->assertSame(1, $response->viewData('unassignedCallbacksDueCount'));
+        // Both leads must be counted together on the team-wide tile — the
+        // per-TSA sum alone would miss the unassigned one.
+        $leadCounts = collect($response->viewData('leadCounts'));
+        $this->assertSame(1, $leadCounts->sum('callbacks'));
+        $this->assertSame(2, $leadCounts->sum('callbacks') + $response->viewData('unassignedCallbacksDueCount'));
+    }
+
+    /**
      * Regression test (explicit report, 2026-09-17: "this is today but it
      * is not same in the monitor tsa page" — Monitor's own Overdue Leads/
      * Callbacks Due tiles read a much HIGHER number than the sidebar

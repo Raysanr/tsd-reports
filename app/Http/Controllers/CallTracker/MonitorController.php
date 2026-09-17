@@ -110,6 +110,32 @@ class MonitorController extends Controller
         }
         $unassignedLeadsCount = $unassignedLeadsQuery->count();
 
+        // Regression fix (explicit report, 2026-09-17: "the callbacks is 65
+        // [68] but in the monitor tsa it is only 23") — root-caused: an
+        // UNASSIGNED lead (status='unassigned', no tsa_id — e.g. a product
+        // with nobody eligible in its round-robin roster) can still carry a
+        // real due callback_at, stamped by SyncPancakeLeads::
+        // backfillCallbackFromTags() noticing a Not Answering/Unattended
+        // tag directly on the Pancake order, independent of whether
+        // anyone's actually assigned to it yet. $leadCounts above only ever
+        // sums per-KNOWN-TSA callback counts (Lead::where('tsa_id', $t->id)
+        // ...), so these leads were invisible to $totalCallbacksDue below
+        // even though NotificationController's own sidebar badge (which has
+        // no tsa_id filter at all for an admin) correctly counted them —
+        // confirmed live: 23 (per-TSA sum) + 47 (unassigned-with-callback)
+        // = 70, matching the sidebar. Same "due now or already past due"
+        // definition as $leadCounts' own callback query and
+        // NotificationController's badge, same pancake_created_at guard.
+        $unassignedCallbacksDueQuery = Lead::where('status', 'unassigned')
+            ->whereNotNull('callback_at')
+            ->whereBetween('callback_at', [$dateFrom, $dateTo])
+            ->where('callback_at', '<=', now())
+            ->where($createdTodayFilter);
+        if ($selectedTeam !== 'all') {
+            $unassignedCallbacksDueQuery->whereHas('product', fn ($q2) => $q2->where('team', $teamsConfig[$selectedTeam]['order_team']));
+        }
+        $unassignedCallbacksDueCount = $unassignedCallbacksDueQuery->count();
+
         // Counts for the legend/summary cards — over every ACTIVE TSA in
         // the selected team (ignoring the search box, but still respecting
         // the status filter dropdown so the numbers stay consistent with
@@ -125,6 +151,7 @@ class MonitorController extends Controller
             'dailyRecords'         => $dailyRecords,
             'leadCounts'           => $leadCounts,
             'unassignedLeadsCount' => $unassignedLeadsCount,
+            'unassignedCallbacksDueCount' => $unassignedCallbacksDueCount,
             'statusCounts'         => $statusCounts,
             'q'                    => $q,
             'selectedStatus'       => $status,
