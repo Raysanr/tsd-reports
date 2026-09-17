@@ -95,6 +95,15 @@ class SyncPancakeLeads extends Command
         $tsaKeys  = TsaShift::pluck('tsa_key')->map(fn ($k) => strtoupper($k))->all();
         $products = Product::all();
 
+        // Stamps/clears round_robin_states.roster_available_since for every
+        // product on this tick, BEFORE any assignment below — see
+        // RoundRobinAssigner::trackRosterAvailability()'s own doc comment.
+        // Runs every minute (this command's own schedule), so a login is
+        // reflected within a minute of it actually happening.
+        foreach ($products as $product) {
+            RoundRobinAssigner::trackRosterAvailability($product);
+        }
+
         $hours = max(1, (int) $this->option('hours'));
         $from  = Carbon::now('Asia/Manila')->subHours($hours);
         $to    = Carbon::now('Asia/Manila');
@@ -427,6 +436,16 @@ class SyncPancakeLeads extends Command
         $caughtUp = 0;
         foreach ($leads as $lead) {
             if (!$lead->product) continue; // product deleted since — nothing to rotate against
+
+            // Handover buffer (explicit request, 2026-09-17) — hold off on
+            // THIS product's backlog until its roster has been continuously
+            // non-empty for RoundRobinAssigner::GAP_BUFFER_MINUTES, so the
+            // rest of a closing/opening team has a few minutes to log in
+            // too instead of the whole backlog landing on whoever logged in
+            // first. Checked per-lead (not once per product up front) since
+            // $leads spans every product in one query — a product past its
+            // buffer shouldn't wait on a different product still inside it.
+            if (!RoundRobinAssigner::isPastHandoverBuffer($lead->product)) continue;
 
             $tsa = RoundRobinAssigner::next($lead->product);
             if (!$tsa) continue; // still nobody eligible for this product — try again next run

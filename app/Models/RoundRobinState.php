@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** Ported from call-tracker (merged into one app 2026-08-12). */
 class RoundRobinState extends Model
 {
-    protected $fillable = ['product_id', 'last_tsa_id'];
+    protected $fillable = ['product_id', 'last_tsa_id', 'roster_available_since'];
+
+    protected $casts = ['roster_available_since' => 'datetime'];
 
     public function product(): BelongsTo
     {

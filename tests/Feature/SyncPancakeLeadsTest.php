@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Product;
+use App\Models\RoundRobinState;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
@@ -455,6 +456,16 @@ class SyncPancakeLeadsTest extends TestCase
             ]);
         }
 
+        // Both TSAs have been online well past the handover buffer (see
+        // RoundRobinAssigner::GAP_BUFFER_MINUTES) — this test is about
+        // batch-limit bounding, not the handover-fairness buffer itself
+        // (see test_catch_up_holds_a_products_backlog_until_the_handover_
+        // buffer_elapses below for that).
+        RoundRobinState::updateOrCreate(
+            ['product_id' => $product->id],
+            ['roster_available_since' => now()->subMinutes(10)]
+        );
+
         Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
 
         Artisan::call('pancake:sync-leads');
@@ -478,6 +489,82 @@ class SyncPancakeLeadsTest extends TestCase
         $marielCount = Lead::where('tsa_id', $mariel->id)->whereIn('pancake_order_id', array_map(fn ($i) => "batch-{$i}", range(0, $total - 1)))->count();
         $this->assertGreaterThan(0, $gemmaCount);
         $this->assertGreaterThan(0, $marielCount);
+    }
+
+    /**
+     * Shift-handover fairness (explicit request, 2026-09-17: "there's tsa
+     * that is login in 6am so all of leads will his/her... 7am that got
+     * login... is it onwards... it should not be bulk all redistribute to
+     * the one tsa that got first login") — a product's backlog of
+     * unassigned leads must NOT get swept up the instant the first TSA
+     * of the day/shift logs in; it should wait
+     * RoundRobinAssigner::GAP_BUFFER_MINUTES so the rest of the
+     * closing/opening team has a chance to log in too. Only Gemma is
+     * online here — the whole SINUXYL backlog stays unassigned for this
+     * run since her roster_available_since is still inside the buffer.
+     */
+    public function test_catch_up_holds_a_products_backlog_until_the_handover_buffer_elapses(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        TsaShift::where('tsa_key', '!=', 'Gemma')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        Lead::create([
+            'pancake_order_id' => 'gap-1', 'customer_name' => 'Overnight Lead',
+            'product_id' => $product->id, 'status' => 'unassigned',
+            'pancake_created_at' => now()->subHours(3),
+        ]);
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        // Gemma's own first sync tick — RoundRobinAssigner::trackRosterAvailability()
+        // stamps roster_available_since = now() for SINUXYL right here, since
+        // the roster just went from empty (everyone else logged out above) to
+        // non-empty (Gemma alone). The lead created above is unrelated to
+        // WHEN it went unassigned — the buffer only measures the roster.
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertSame('unassigned', Lead::where('pancake_order_id', 'gap-1')->first()->status);
+    }
+
+    /**
+     * Companion to the buffer test above: once the buffer has elapsed, the
+     * backlog releases and divides fairly across whoever logged in within
+     * that window — Mariel joining a couple minutes after Gemma still gets
+     * her fair share instead of Gemma having already absorbed everything.
+     */
+    public function test_catch_up_divides_a_gaps_backlog_fairly_once_the_buffer_elapses(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
+        TsaShift::where('tsa_key', '!=', 'Gemma')->where('tsa_key', '!=', 'Mariel')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        for ($i = 0; $i < 6; $i++) {
+            Lead::create([
+                'pancake_order_id' => "gap2-{$i}", 'customer_name' => "Overnight Lead {$i}",
+                'product_id' => $product->id, 'status' => 'unassigned',
+                'pancake_created_at' => now()->subHours(3)->addMinutes($i),
+            ]);
+        }
+
+        // Both Gemma and Mariel were already online past the buffer by the
+        // time this run fires — simulates Gemma logging in at 6:00, Mariel
+        // at 6:03, and this sync tick landing at 6:05 or later.
+        RoundRobinState::updateOrCreate(
+            ['product_id' => $product->id],
+            ['roster_available_since' => now()->subMinutes(5)]
+        );
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $orderIds = array_map(fn ($i) => "gap2-{$i}", range(0, 5));
+        $gemmaCount  = Lead::where('tsa_id', $gemma->id)->whereIn('pancake_order_id', $orderIds)->count();
+        $marielCount = Lead::where('tsa_id', $mariel->id)->whereIn('pancake_order_id', $orderIds)->count();
+        $this->assertGreaterThan(0, $gemmaCount);
+        $this->assertGreaterThan(0, $marielCount);
+        $this->assertSame(6, $gemmaCount + $marielCount);
     }
 
     /**
