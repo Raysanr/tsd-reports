@@ -3,9 +3,17 @@
 @section('subtitle', 'Real recordings from each TSA\'s own Google Drive folder')
 
 @push('topbar-right')
+{{-- No "All TSAs" option (explicit request, 2026-09-17) — this page walks
+     each TSA's own live Google Drive folder per request (no DB-backed list
+     to filter), and loading every active TSA's folder at once made the
+     page take many seconds to render (see CallRecordingController::
+     index()'s own doc comment, 2026-09-05) — "All TSAs" never actually
+     worked, it just showed the same "pick a TSA" prompt as no selection at
+     all. Removed rather than wired up, so the dropdown only ever offers
+     choices that actually load something. --}}
 <select onchange="window.location.href=this.value"
         class="text-xs font-semibold font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    <option value="{{ route('calls.call-recordings', ['tsa' => '', 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @selected(!$selectedTsa)>All TSAs</option>
+    <option value="" @selected(!$selectedTsa) disabled>Select a TSA…</option>
     @foreach($tsas as $tsa)
     <option value="{{ route('calls.call-recordings', ['tsa' => $tsa->id, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @selected($selectedTsa === $tsa->id)>{{ $tsa->display_name }}</option>
     @endforeach
