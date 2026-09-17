@@ -54,7 +54,6 @@
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Callback due</th>
                 @endif
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Outcome</th>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Upsell</th>
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Save</th>
             </tr>
         </thead>
@@ -347,19 +346,6 @@
                             <input type="datetime-local" name="callback_at"
                                    class="callback-at-input hidden text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                         </form>
-                    @else
-                        <span class="text-slate-300 dark:text-slate-600">—</span>
-                    @endif
-                </td>
-                <td class="px-4 py-3">
-                    @if($lead->pancake_order_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
-                    <button type="button" onclick="openUpsellModal({{ $lead->id }})"
-                            class="inline-flex items-center gap-1 text-xs font-mono text-slate-500 dark:text-slate-400 hover:text-primary-dark border border-dashed border-slate-300 dark:border-slate-600 hover:border-primary rounded-lg px-2 py-1.5 cursor-pointer">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
-                        </svg>
-                        Add Upsell
-                    </button>
                     @else
                         <span class="text-slate-300 dark:text-slate-600">—</span>
                     @endif

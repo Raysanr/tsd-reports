@@ -68,13 +68,12 @@
                  pos is [at] the top of displaying products ... not log
                  like log outcome or upsell") — matches Pancake's own
                  Products panel layout exactly. Same search/add endpoints
-                 the Leads table's own per-row "+ Add Upsell" button uses
-                 (LeadController::searchProducts()/addUpsell()) — a
-                 genuinely different widget/element IDs from that button's
-                 own #upsellModal (calls/partials/modals.blade.php) so the
-                 two never collide, but both write to the exact same real
-                 order. initInlineUpsellSearch() (calls.js) re-binds this on
-                 every modal open, same reason initPancakeNotesPanel() does. --}}
+                 (LeadController::searchProducts()/addUpsell()) the Leads
+                 table's own per-row "+ Add Upsell" button used to use
+                 before that column was removed (explicit request,
+                 2026-09-17) — this is now the only Add Upsell entry point.
+                 initInlineUpsellSearch() (calls.js) re-binds this on every
+                 modal open, same reason initPancakeNotesPanel() does. --}}
             @if($canManage)
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Products</p>

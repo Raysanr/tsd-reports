@@ -1483,166 +1483,15 @@ document.addEventListener('submit', (e) => {
     }
 });
 
-// Add Upsell modal — search a real Pancake product catalog, pick one, set
-// quantity, add. Single-pick + immediate write (unlike the outcome tag
-// modal's multi-select-then-batch-save), since each add is its own real
-// write to a live Pancake order via LeadController::addUpsell(), not a
-// locally-batched change.
-let activeUpsellLeadId = null;
-let selectedUpsellProduct = null;
-let upsellModalDebounce = null;
-
-window.openUpsellModal = function (leadId) {
-    activeUpsellLeadId = leadId;
-    selectedUpsellProduct = null;
-    const modal = document.getElementById('upsellModal');
-    const search = document.getElementById('upsellModalSearch');
-    showModal(modal);
-    document.getElementById('upsellModalConfirm').classList.add('hidden');
-    document.getElementById('upsellModalError').classList.add('hidden');
-    search.value = '';
-    document.getElementById('upsellModalResults').innerHTML =
-        '<p class="text-slate-400 text-center text-xs font-mono py-8">Type a product name to search…</p>';
-    search.focus();
-};
-
-window.closeUpsellModal = function () {
-    hideModal(document.getElementById('upsellModal'));
-    activeUpsellLeadId = null;
-    selectedUpsellProduct = null;
-};
-
-async function searchUpsellModal(q) {
-    if (!activeUpsellLeadId) return;
-    const results = document.getElementById('upsellModalResults');
-
-    if (!q) {
-        results.innerHTML = '<p class="text-slate-400 text-center text-xs font-mono py-8">Type a product name to search…</p>';
-        return;
-    }
-
-    try {
-        const res = await fetch(`/calls/leads/${activeUpsellLeadId}/products?q=` + encodeURIComponent(q));
-        const data = await res.json();
-        renderUpsellModalResults(data.success ? data.products : []);
-    } catch (e) {
-        renderUpsellModalResults([]);
-    }
-}
-
-function renderUpsellModalResults(products) {
-    const results = document.getElementById('upsellModalResults');
-
-    if (!products.length) {
-        results.innerHTML = '<p class="text-slate-400 text-center text-xs font-mono py-8">No products found.</p>';
-        return;
-    }
-
-    // Explicit request (2026-08-22): a TSA picking an upsell here used to see
-    // only a truncated name + price — POS itself shows a thumbnail and the
-    // FULL bundle/quantity name (e.g. "3 Haplunas Balm + 1 Clear Sight"),
-    // which matters here specifically because that combo text is exactly
-    // what distinguishes two otherwise-identical-looking rows. Image is
-    // shown only when PancakeProductApi actually returned one (unconfirmed
-    // whether this endpoint always carries one) — a plain placeholder icon
-    // otherwise, never a broken-image glyph.
-    results.innerHTML = products.map((p, i) => `
-        <div class="upsell-modal-result-row flex items-center gap-3 px-4 py-2.5 text-sm font-mono cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 border-b border-slate-50 dark:border-slate-800 text-slate-700 dark:text-slate-200" data-index="${i}">
-            ${p.image
-                ? `<img src="${escapeHtml(p.image)}" alt="" class="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-200 dark:border-slate-700" onerror="this.replaceWith(Object.assign(document.createElement('div'), {className: 'w-10 h-10 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800'}))">`
-                : `<div class="w-10 h-10 rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-300 dark:text-slate-600">
-                       <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 3h18M3 21h18M4.5 3v18m15-18v18M9 3v18m6-18v18"/></svg>
-                   </div>`}
-            <span class="flex-1 min-w-0 leading-snug line-clamp-2">${escapeHtml(p.name)}</span>
-            <span class="text-primary-dark dark:text-yellow-300 font-semibold shrink-0">₱${Number(p.retail_price).toLocaleString()}</span>
-        </div>`).join('');
-
-    // Stashed on the container (not re-fetched) so a click can recover the
-    // full {variation_id, product_id, name, retail_price} object — the DOM
-    // row itself only ever renders name + price.
-    results.dataset.products = JSON.stringify(products);
-}
-
-function selectUpsellProduct(product) {
-    selectedUpsellProduct = product;
-    document.getElementById('upsellModalConfirmName').textContent = `${product.name} — ₱${Number(product.retail_price).toLocaleString()}`;
-    document.getElementById('upsellModalQuantity').value = 1;
-    document.getElementById('upsellModalError').classList.add('hidden');
-    document.getElementById('upsellModalConfirm').classList.remove('hidden');
-}
-
-window.submitUpsell = async function () {
-    if (!activeUpsellLeadId || !selectedUpsellProduct) return;
-
-    const qty = Math.max(1, parseInt(document.getElementById('upsellModalQuantity').value, 10) || 1);
-    const btn = document.getElementById('upsellModalAddBtn');
-    const errorEl = document.getElementById('upsellModalError');
-    btn.disabled = true;
-    btn.textContent = 'Adding…';
-    errorEl.classList.add('hidden');
-
-    try {
-        const res = await fetch(`/calls/leads/${activeUpsellLeadId}/upsell`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-            },
-            body: JSON.stringify({
-                variation_id: selectedUpsellProduct.variation_id,
-                product_id: selectedUpsellProduct.product_id,
-                name: selectedUpsellProduct.name,
-                retail_price: selectedUpsellProduct.retail_price,
-                quantity: qty,
-            }),
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            btn.textContent = '✓ Added';
-            setTimeout(() => window.closeUpsellModal(), 900);
-        } else {
-            errorEl.textContent = data.error || 'Could not add this product — try again.';
-            errorEl.classList.remove('hidden');
-            btn.disabled = false;
-            btn.textContent = 'Add to order';
-        }
-    } catch (e) {
-        errorEl.textContent = 'Could not reach the server — try again.';
-        errorEl.classList.remove('hidden');
-        btn.disabled = false;
-        btn.textContent = 'Add to order';
-    }
-};
-
-document.getElementById('upsellModalSearch')?.addEventListener('input', (e) => {
-    clearTimeout(upsellModalDebounce);
-    upsellModalDebounce = setTimeout(() => searchUpsellModal(e.target.value.trim()), 250);
-});
-
-document.addEventListener('click', (e) => {
-    const row = e.target.closest('.upsell-modal-result-row');
-    if (!row) return;
-    const products = JSON.parse(document.getElementById('upsellModalResults').dataset.products || '[]');
-    const product = products[parseInt(row.dataset.index, 10)];
-    if (product) selectUpsellProduct(product);
-});
-
-document.addEventListener('click', (e) => {
-    if (e.target.id === 'upsellModal') window.closeUpsellModal(); // backdrop click
-});
-
 // Inline Add Upsell / Add Tag (lead detail modal, 2nd explicit follow-up
 // request, 2026-08-25: "the search products in the pos is [at] the top of
 // displaying products ... not log like log outcome or upsell") — same
-// search/add endpoints as the Leads table's own #upsellModal above
-// (LeadController::searchProducts()/addUpsell()) and the real-tags panel's
-// own remove flow (LeadController::searchTags()/addTag()), but rendered
-// inline in the Products/POS Tags cards instead of a separate modal or a
-// disposition-logging form, matching Pancake's own layout. Genuinely
-// different element IDs from #upsellModal's own so the two never collide —
-// the Leads table's per-row "+ Add Upsell" button keeps working unchanged.
+// search/add endpoints (LeadController::searchProducts()/addUpsell()) and
+// the real-tags panel's own remove flow (LeadController::searchTags()/
+// addTag()) the Leads table's own per-row "+ Add Upsell" button used to use
+// before that column was removed (explicit request, 2026-09-17) — this
+// inline version, rendered in the Products/POS Tags cards instead of a
+// separate modal, is the only Add Upsell entry point left.
 // init*()  functions re-query and re-bind fresh every call (not captured
 // once at page load) since this content is destroyed/recreated on every
 // modal open — same reason initPancakeNotesPanel() has to.
@@ -2745,10 +2594,6 @@ function initLiveLeadsSearch() {
         debounce = setTimeout(() => form.submit(), 250);
     });
 }
-
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') window.closeUpsellModal();
-});
 
 // Click-to-call (tel: links, Leads table + lead detail page) — clicking one
 // hands off to whatever the OS/browser has registered for tel: (Phone Link,

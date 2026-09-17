@@ -105,49 +105,6 @@
     </div>
 </div>
 
-{{-- Add Upsell modal — "+ Add Upsell" button (leads/_table.blade.php +
-     leads/show.blade.php). Same "search a real Pancake catalog as you type"
-     shape as the outcome tag modal above, but single-pick (each add is its
-     own immediate write to a real order, not a batched local save) and
-     against real sellable products+prices (LeadController::searchProducts,
-     PancakeProductApi) instead of tags. Picking a result reveals a quantity
-     field + Add button rather than adding instantly. Opened via
-     openUpsellModal(leadId) (see calls.js). --}}
-<div id="upsellModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm h-[70vh] flex flex-col overflow-hidden opacity-0 scale-95 transition-all duration-200">
-        <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
-            <h3 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Add upsell product</h3>
-            <button type="button" onclick="closeUpsellModal()" aria-label="Close"
-                    class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-        </div>
-        <div class="px-4 py-3 border-b border-slate-100 dark:border-slate-700 shrink-0">
-            <input type="text" id="upsellModalSearch" placeholder="Search products…" autocomplete="off"
-                   class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-        </div>
-        <div id="upsellModalResults" class="flex-1 overflow-y-auto">
-            {{-- Populated by openUpsellModal()/searchUpsellModal() in calls.js --}}
-        </div>
-        {{-- Hidden until a result is picked — see selectUpsellProduct() in calls.js. --}}
-        <div id="upsellModalConfirm" class="hidden px-4 py-3 border-t border-slate-100 dark:border-slate-700 shrink-0">
-            <p id="upsellModalConfirmName" class="text-sm font-semibold text-slate-700 dark:text-slate-200 font-mono truncate mb-2"></p>
-            <div class="flex items-center gap-2">
-                <label class="text-xs font-mono text-slate-400 shrink-0">Qty</label>
-                <input type="number" id="upsellModalQuantity" value="1" min="1" max="99"
-                       class="w-16 text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-                <button type="button" onclick="submitUpsell()" id="upsellModalAddBtn"
-                        class="flex-1 bg-primary hover:bg-primary-dark text-white text-xs font-semibold font-mono px-3 py-2 rounded-lg cursor-pointer">
-                    Add to order
-                </button>
-            </div>
-            <p id="upsellModalError" class="hidden text-[11px] text-red-500 font-mono mt-2"></p>
-        </div>
-    </div>
-</div>
-
 {{-- Order status panel (explicit request, 2026-08-22) — one shared floating
      panel reused by every row's Status pill in leads/_table.blade.php, same
      "one shared component, positioned to whichever trigger was clicked"
