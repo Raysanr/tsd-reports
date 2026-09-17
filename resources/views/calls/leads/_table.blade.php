@@ -67,7 +67,19 @@
                  request, 2026-08-26, "make it clean in the eyes of the users." Takes
                  priority over the existing pinned-row tint via source order (a
                  pinned AND selected row reads as selected while checked). --}}
-            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }} {{ auth()->user()->isAtLeastAdmin() ? 'has-[.leadCheckbox:checked]:bg-primary/10 dark:has-[.leadCheckbox:checked]:bg-primary/15' : '' }}">
+            {{-- Ordered-status row highlight (explicit request, 2026-09-17) —
+                 status_code 20 is "Ordered" (see Order::STATUS_PILL below,
+                 same source of truth the Status pill cell already reads) —
+                 a green row tint makes an actually-ordered lead visible at a
+                 glance while scanning the table, not just from the small
+                 pill text. Computed here (not just at the pill cell further
+                 down) since the <tr> itself needs it; reused, not
+                 recomputed, at the pill cell. Lowest-priority tint in the
+                 source order below — pinned and selected still take
+                 precedence over it, same as pinned already did over nothing
+                 before this. --}}
+            @php $orderStatusCode = $orderStatuses[$lead->pancake_order_id] ?? null; @endphp
+            <tr data-lead-id="{{ $lead->id }}" class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-150 {{ (int) $orderStatusCode === 20 ? 'bg-emerald-50/60 dark:bg-emerald-900/10' : '' }} {{ $lead->pinned_at ? 'bg-yellow-50/60 dark:bg-yellow-900/10' : '' }} {{ auth()->user()->isAtLeastAdmin() ? 'has-[.leadCheckbox:checked]:bg-primary/10 dark:has-[.leadCheckbox:checked]:bg-primary/15' : '' }}">
                 <td class="px-2 py-3">
                     <div class="flex items-center gap-1">
                         @if(auth()->user()->isAtLeastAdmin())
@@ -236,8 +248,9 @@
                          filter dropdown / status panel (openOrderStatusPill in
                          calls.js), not a centered modal, since a centered modal would
                          lose the "which row am I even changing" context a screenshot-
-                         accurate anchored dropdown keeps. --}}
-                    @php $orderStatusCode = $orderStatuses[$lead->pancake_order_id] ?? null; @endphp
+                         accurate anchored dropdown keeps. $orderStatusCode
+                         itself is computed once above the <tr>, not
+                         recomputed here — see that comment. --}}
                     @if($orderStatusCode !== null && (\App\Models\Order::STATUS_PILL[$orderStatusCode] ?? null))
                         @php $pill = \App\Models\Order::STATUS_PILL[$orderStatusCode]; @endphp
                         @if($lead->pancake_order_id && (auth()->user()->isAtLeastAdmin() || $lead->tsa_id === auth()->user()->tsa_id))
