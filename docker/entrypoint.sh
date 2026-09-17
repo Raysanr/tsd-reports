@@ -82,17 +82,17 @@ php artisan migrate --force
     fi
 ) &
 
-# PHP's built-in server (what `artisan serve` wraps) handles exactly ONE
-# request at a time unless this is set — confirmed as the root cause of a
-# real incident (2026-08-11): a single slow admin action (Sync Health's "Fix
+# FrankenPHP (explicit request, 2026-09-17 — see the Dockerfile's own doc
+# comment for the full reasoning) replaces `php artisan serve` as the web
+# server. That server handled exactly ONE request at a time unless
+# PHP_CLI_SERVER_WORKERS was set — confirmed as the root cause of a real
+# incident (2026-08-11): a single slow admin action (Sync Health's "Fix
 # Now") made every other route return 499 for every user for its entire
-# duration, because nothing else could be served while it ran. This alone
-# doesn't make any individual request faster, but it stops one slow request
-# from taking the whole app down for everyone else. Still a stopgap, not a
-# real production server (no php-fpm/nginx — see the Dockerfile's own
-# comment on this being free-tier-right-sized, not high-traffic-ready);
-# revisit if concurrent load ever outgrows a handful of workers.
-export PHP_CLI_SERVER_WORKERS="${PHP_CLI_SERVER_WORKERS:-4}"
-
-# Render injects $PORT at runtime; 8080 is only a local-testing fallback.
-exec php artisan serve --host 0.0.0.0 --port "${PORT:-8080}"
+# duration. Bumping that worker count to 4 was a stopgap, not a fix — live
+# Railway logs (2026-09-17) still showed many requests, including trivial
+# ones, clustering at exact multiples of ~500ms, consistent with requests
+# still queuing behind that same hard worker cap. FrankenPHP is a real
+# production PHP app server (built on Caddy) with genuine concurrency, no
+# fixed worker ceiling to hit. docker/Caddyfile reads $PORT itself (Railway
+# injects it at container start) — nothing to pass here.
+exec frankenphp run --config /etc/frankenphp/Caddyfile

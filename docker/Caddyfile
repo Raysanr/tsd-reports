@@ -1,0 +1,32 @@
+# FrankenPHP/Caddy config for this app's production runtime (explicit
+# request, 2026-09-17: moving off `php artisan serve` — see the Dockerfile's
+# own doc comment for the full reasoning). Classic (non-worker) mode — no
+# `worker` block here; each request boots Laravel fresh, same behavior
+# php-fpm/`artisan serve` already had, deliberately not the lower-latency
+# but state-bleed-risk worker mode (revisit later as its own change).
+#
+# {$PORT} — Railway injects PORT at container start, not build time, so it
+# has to be read here via Caddy's own env-var interpolation rather than
+# baked into a Dockerfile ENV line. 8080 is only the local-testing fallback,
+# same convention docker/entrypoint.sh's own `${PORT:-8080}` already used
+# for `php artisan serve`.
+{
+	frankenphp
+	admin off
+}
+
+:{$PORT:8080} {
+	root * /app/public
+	encode zstd br gzip
+
+	# php_server bundles static-file serving + PHP execution in one
+	# directive — no hand-written fastcgi_pass needed the way a bare nginx
+	# config would. try_files {path} index.php is the explicit front-
+	# controller rewrite (everything that isn't a real file falls through
+	# to index.php) — the exact form FrankenPHP's own official Laravel
+	# setup doc (frankenphp.dev/docs/laravel/) uses, not left to an
+	# assumed default.
+	php_server {
+		try_files {path} index.php
+	}
+}
