@@ -147,6 +147,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: addTagsToOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return collect($tagNames)->mapWithKeys(fn ($name) => [$name => $success && $matched[$name] !== null])->all();
@@ -215,6 +217,37 @@ class PancakeOrderTagApi
                 return null;
             }
         });
+    }
+
+    /**
+     * Clears fetchRawOrder()'s cached entry for one order — called after
+     * every successful write below (addTagsToOrder, removeTagFromOrder,
+     * updateNotes, updateStatus, addUpsellItem, removeItem, updateItem,
+     * updateShippingAddress). Regression fix, 2026-09-17: "when tsa add tag
+     * and the reflect of the tag ... is slow" — a TSA adding a tag
+     * immediately triggers a refresh of the lead detail card
+     * (refreshLeadDetail() in calls.js -> LeadController::show() ->
+     * getOrderDetail()), and without this, that refresh could still read
+     * fetchRawOrder()'s cache entry from BEFORE the write (up to
+     * LIVE_ORDER_CACHE_SECONDS old), so the just-added tag silently didn't
+     * show up until the cache naturally expired — reading as "the save is
+     * slow" when the save itself was actually already done; only the
+     * REFLECTED view was serving a stale cached read. Every write method
+     * does its own separate, never-cached GET+PUT (see addTagsToOrder()'s
+     * own doc comment for why: a write can never safely read a stale
+     * cache either) — this only clears the READ-side cache other methods
+     * share, so the very next getOrderDetail()/getNotes() call after a
+     * write is guaranteed to hit Pancake fresh instead of possibly
+     * re-serving pre-write data.
+     */
+    private function invalidateRawOrderCache(string $orderId): void
+    {
+        $shopId = Setting::get('shop_id', '');
+        if (empty($shopId)) {
+            return;
+        }
+
+        Cache::forget("pancake_raw_order_{$shopId}_{$orderId}");
     }
 
     /**
@@ -402,6 +435,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: updateShippingAddress PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -487,6 +522,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: updateNotes PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -543,6 +580,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: removeTagFromOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -591,6 +630,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: updateStatus PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -724,6 +765,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: addUpsellItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -776,6 +819,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: removeItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;
@@ -838,6 +883,8 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: updateItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
             }
 
             return $success;

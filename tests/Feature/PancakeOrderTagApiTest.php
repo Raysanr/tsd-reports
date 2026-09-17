@@ -367,4 +367,47 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertSame('Order 9002 note', $notesFor9002['note']);
         Http::assertSentCount(2);
     }
+
+    /**
+     * Regression test for the cache-invalidation fix (explicit report,
+     * 2026-09-17: "when tsa add tag and the reflect of the tag ... is
+     * slow ... like it saved like that") — root-caused: a getOrderDetail()
+     * call BEFORE a tag was added populated fetchRawOrder()'s cache; the
+     * write itself (addTagsToOrder()) does its own separate, never-cached
+     * GET+PUT, so the write succeeded immediately, but the very next
+     * getOrderDetail() call (the lead detail card's own post-save refresh)
+     * could still return that stale pre-write cache entry for up to
+     * LIVE_ORDER_CACHE_SECONDS — reading as "the tag isn't showing up yet"
+     * even though it had already saved. addTagsToOrder() now busts the
+     * cache on success, so the refresh right after a save always sees the
+     * new tag.
+     */
+    public function test_a_successful_tag_add_invalidates_the_cached_order_read_for_that_order(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 10, 'name' => 'Confirmed'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                // First read (before the tag exists) — populates the cache.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200)
+                // addTagsToOrder()'s own internal GET (never cached).
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200)
+                // addTagsToOrder()'s own internal PUT.
+                ->push(['success' => true], 200)
+                // The refresh AFTER the save — must be a fresh GET, not the
+                // stale cache from the very first read above.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => [['id' => 10, 'name' => 'Confirmed']]]], 200),
+        ]);
+
+        $beforeAdd = $this->api->getOrderDetail('9001');
+        $this->assertSame([], $beforeAdd['tags']);
+
+        $result = $this->api->addTagsToOrder('9001', ['Confirmed']);
+        $this->assertSame(['Confirmed' => true], $result);
+
+        $afterAdd = $this->api->getOrderDetail('9001');
+        $this->assertCount(1, $afterAdd['tags']);
+        $this->assertSame('Confirmed', $afterAdd['tags'][0]['name']);
+    }
 }
