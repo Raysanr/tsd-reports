@@ -1236,8 +1236,14 @@ window.openConversationModal = function (leadId) {
                 body.innerHTML = '<p class="text-slate-400 text-center py-10">No messages yet.</p>';
                 return;
             }
-            // API returns newest-first; render oldest-first like a normal chat thread.
-            body.innerHTML = data.messages.slice().reverse().map(renderMessage).join('');
+            // Regression fix, 2026-09-17: "the conversation is displaying
+            // upside down" — Pancake's own messages endpoint actually
+            // returns oldest-first (the getMessages() doc comment's "newest
+            // first" was wrong, confirmed live by comparing rendered
+            // timestamps), so reversing here put the newest message at the
+            // top instead of the bottom. Render in the order Pancake sends
+            // it, no reverse.
+            body.innerHTML = data.messages.map(renderMessage).join('');
             body.scrollTop = body.scrollHeight;
         })
         .catch(() => {

@@ -105,8 +105,10 @@ class PancakeConversationApi
 
     /**
      * Returns ['success' => bool, 'messages' => [...], 'error' => ?string].
-     * $messages is Pancake's raw message objects (newest first) — the
-     * caller/view decides how to render them.
+     * $messages is Pancake's raw message objects, oldest first (confirmed
+     * live, 2026-09-17 — the conversation modal's own reverse() based on an
+     * earlier "newest first" assumption here rendered threads upside down)
+     * — the caller/view decides how to render them.
      */
     public function getMessages(string $pageId, string $conversationId): array
     {
