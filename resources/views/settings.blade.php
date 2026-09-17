@@ -175,12 +175,18 @@
                             </select>
                         </div>
                         {{-- Ported from call-tracker (merged into one app 2026-08-12)
-                             — how long an assigned-but-uncalled lead sits before
-                             Call Tracker's Overdue view surfaces it. --}}
+                             — how long an assigned-but-uncatered lead (no dial, no
+                             disposition) sits before Call Tracker's Overdue view
+                             surfaces it. Unit changed from hours to minutes
+                             (explicit request, 2026-09-17 — see LeadController::
+                             overdueThresholdMinutes()'s own doc comment); the field
+                             name changed with it (overdue_threshold_minutes, not
+                             overdue_threshold_hours) so an old saved HOURS value is
+                             never silently reinterpreted as MINUTES. --}}
                         <div class="flex-1 min-w-[160px]">
-                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Overdue threshold (hours)</label>
-                            <input type="number" name="overdue_threshold_hours" min="1" max="72"
-                                value="{{ old('overdue_threshold_hours', $overdueThresholdHours) }}"
+                            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Overdue threshold (minutes)</label>
+                            <input type="number" name="overdue_threshold_minutes" min="1" max="1440"
+                                value="{{ old('overdue_threshold_minutes', $overdueThresholdMinutes) }}"
                                 class="block w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                         </div>
                         <button type="submit" id="connectBtn"

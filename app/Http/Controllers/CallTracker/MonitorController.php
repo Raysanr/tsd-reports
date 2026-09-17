@@ -62,8 +62,9 @@ class MonitorController extends Controller
             $t->id => [
                 'overdue' => Lead::where('tsa_id', $t->id)
                     ->where('status', 'assigned')
+                    ->whereNull('dialed_at')
                     ->whereBetween('assigned_at', [$dateFrom, $dateTo])
-                    ->where('assigned_at', '<=', now()->subHours(LeadController::overdueThresholdHours()))
+                    ->where('assigned_at', '<=', now()->subMinutes(LeadController::overdueThresholdMinutes()))
                     ->count(),
                 'callbacks' => Lead::where('tsa_id', $t->id)
                     ->whereNotNull('callback_at')

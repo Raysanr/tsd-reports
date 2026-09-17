@@ -390,11 +390,14 @@ class SettingsControllerTest extends TestCase
     }
 
     /**
-     * New coverage for Phase 3's overdue_threshold_hours field on the main
+     * New coverage for Phase 3's overdue_threshold_minutes field on the main
      * save() action — genuinely new, tsd-reports' pre-existing save tests
-     * never sent this field at all.
+     * never sent this field at all. Renamed from overdue_threshold_hours
+     * (explicit request, 2026-09-17 — see LeadController::
+     * overdueThresholdMinutes()'s own doc comment) — a genuinely different
+     * unit, not just a rename.
      */
-    public function test_save_persists_overdue_threshold_hours_when_provided(): void
+    public function test_save_persists_overdue_threshold_minutes_when_provided(): void
     {
         $this->actingAs(User::factory()->create());
 
@@ -406,11 +409,11 @@ class SettingsControllerTest extends TestCase
             'api_key' => 'a-working-key',
             'shop_id' => '30037101',
             'shop_name' => 'My Shop',
-            'overdue_threshold_hours' => 5,
+            'overdue_threshold_minutes' => 30,
         ]);
 
         $response->assertRedirect(route('settings'));
-        $this->assertSame(5, (int) Setting::get('overdue_threshold_hours'));
+        $this->assertSame(30, (int) Setting::get('overdue_threshold_minutes'));
     }
 
     /**
@@ -419,10 +422,10 @@ class SettingsControllerTest extends TestCase
      * SettingsController@save's own comment) — an omitted submission must
      * leave whatever was already saved alone, not clobber it to null/0.
      */
-    public function test_save_without_overdue_threshold_hours_leaves_the_existing_value_unchanged(): void
+    public function test_save_without_overdue_threshold_minutes_leaves_the_existing_value_unchanged(): void
     {
         $this->actingAs(User::factory()->create());
-        Setting::set('overdue_threshold_hours', 8);
+        Setting::set('overdue_threshold_minutes', 45);
 
         Http::fake([
             'pos.pages.fm/api/v1/shops*' => Http::response(['shops' => [['id' => 30037101, 'name' => 'My Shop']]], 200),
@@ -432,11 +435,11 @@ class SettingsControllerTest extends TestCase
             'api_key' => 'a-working-key',
             'shop_id' => '30037101',
             'shop_name' => 'My Shop',
-            // overdue_threshold_hours intentionally omitted.
+            // overdue_threshold_minutes intentionally omitted.
         ]);
 
         $response->assertRedirect(route('settings'));
-        $this->assertSame(8, (int) Setting::get('overdue_threshold_hours'));
+        $this->assertSame(45, (int) Setting::get('overdue_threshold_minutes'));
     }
 
     /** Unsigned test JWT with the given exp claim — SettingsController never

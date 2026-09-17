@@ -30,7 +30,7 @@ class MonitorLeadQueueHealthTest extends TestCase
 
     public function test_shows_a_tsas_overdue_and_callback_counts_on_their_own_card(): void
     {
-        Setting::set('overdue_threshold_hours', 4);
+        Setting::set('overdue_threshold_minutes', 240);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 
@@ -106,7 +106,7 @@ class MonitorLeadQueueHealthTest extends TestCase
 
     public function test_lead_counts_use_the_pages_own_date_range_not_always_today(): void
     {
-        Setting::set('overdue_threshold_hours', 4);
+        Setting::set('overdue_threshold_minutes', 240);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 

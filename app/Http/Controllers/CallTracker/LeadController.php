@@ -52,9 +52,17 @@ class LeadController extends Controller
      *  two hand-kept-in-sync copies. */
     public const CALLBACK_TRIGGER_KEYWORDS = ['call back', 'unattended', 'not answering'];
 
-    public static function overdueThresholdHours(): int
+    /** How long an assigned-but-uncatered lead (no dial, no disposition —
+     *  same "catered" definition the Leads tab's own status filter uses,
+     *  see this method's callers) sits before Overdue surfaces it. Changed
+     *  from a 4-HOUR default to a 20-MINUTE one (explicit request,
+     *  2026-09-17: "leads that not will be catered like no green checkmark
+     *  within 20minutes should be reflect to the overdue") — renamed from
+     *  overdueThresholdHours()/overdue_threshold_hours to make the new unit
+     *  impossible to miss at every call site, not just here. */
+    public static function overdueThresholdMinutes(): int
     {
-        return max(1, (int) Setting::get('overdue_threshold_hours', 4));
+        return max(1, (int) Setting::get('overdue_threshold_minutes', 20));
     }
 
     /**
@@ -182,10 +190,24 @@ class LeadController extends Controller
         }
 
         if ($view === 'overdue') {
-            // Assigned but nobody's called it yet, and it's been sitting
-            // long enough that this is no longer "hasn't gotten to it yet" —
-            // exactly the gap that let a lead sit uncalled for hours before
-            // anyone noticed.
+            // Assigned but not yet catered to (no dial, no disposition —
+            // same "catered" definition the default Leads view's own
+            // status=catered/uncatered filter uses below: status='called'
+            // OR dialed_at set), and it's been sitting long enough that
+            // this is no longer "hasn't gotten to it yet" — exactly the gap
+            // that let a lead sit uncalled for hours before anyone noticed.
+            //
+            // dialed_at exclusion added (explicit request, 2026-09-17,
+            // alongside lowering the threshold from 4 hours to 20 minutes —
+            // see overdueThresholdMinutes()'s own doc comment): this used
+            // to check status='assigned' alone, so a lead a TSA had
+            // already dialed (the table's own green checkmark) but not yet
+            // logged an outcome for still counted as Overdue. Barely
+            // mattered at a 4-HOUR threshold (most calls get dispositioned
+            // well within 4 hours), but at 20 minutes a dialed-not-yet-
+            // dispositioned lead is a common, not rare, state — without
+            // this it would flood Overdue with leads that already have
+            // their green checkmark, the opposite of what Overdue means.
             //
             // ALSO scoped to today's own pancake_created_at (explicit
             // report, 2026-09-14: "why the overdue is not today? it should
@@ -201,8 +223,9 @@ class LeadController extends Controller
             // first. Still fails open for a lead with no creation date at
             // all, same convention as those two fixes.
             $query->where('status', 'assigned')
+                ->whereNull('dialed_at')
                 ->whereBetween('assigned_at', [$rangeFrom, $rangeTo])
-                ->where('assigned_at', '<=', now()->subHours(self::overdueThresholdHours()))
+                ->where('assigned_at', '<=', now()->subMinutes(self::overdueThresholdMinutes()))
                 ->where(function ($q) use ($rangeFrom, $rangeTo) {
                     $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
                         ->orWhereNull('pancake_created_at');
@@ -468,7 +491,7 @@ class LeadController extends Controller
             'selectedOrderStatus'   => $orderStatus !== '' && is_numeric($orderStatus) ? (int) $orderStatus : null,
             'dateFrom'              => $dateFromInput ?: $rangeFrom->toDateString(),
             'dateTo'                => $dateToInput ?: $rangeTo->toDateString(),
-            'overdueThresholdHours' => self::overdueThresholdHours(),
+            'overdueThresholdMinutes' => self::overdueThresholdMinutes(),
         ];
 
         // The "real-time" leads table polls this same URL+filters every few

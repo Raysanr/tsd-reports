@@ -17,7 +17,7 @@ class NotificationCountsTest extends TestCase
 
     public function test_a_tsa_only_gets_counts_scoped_to_their_own_leads(): void
     {
-        Setting::set('overdue_threshold_hours', 4);
+        Setting::set('overdue_threshold_minutes', 240);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -59,7 +59,7 @@ class NotificationCountsTest extends TestCase
 
     public function test_an_admin_sees_counts_across_every_tsa_plus_unassigned(): void
     {
-        Setting::set('overdue_threshold_hours', 4);
+        Setting::set('overdue_threshold_minutes', 240);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -88,7 +88,7 @@ class NotificationCountsTest extends TestCase
      */
     public function test_overdue_and_assigned_counts_exclude_an_old_order_assigned_today(): void
     {
-        Setting::set('overdue_threshold_hours', 4);
+        Setting::set('overdue_threshold_minutes', 240);
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
 

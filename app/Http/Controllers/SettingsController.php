@@ -66,7 +66,7 @@ class SettingsController extends Controller
 
         // Ported from call-tracker (merged into one app 2026-08-12) — Call
         // Tracker's own two extra Settings fields, folded onto this page.
-        $overdueThresholdHours = LeadController::overdueThresholdHours();
+        $overdueThresholdMinutes = LeadController::overdueThresholdMinutes();
         $accessToken           = Setting::get('pancake_access_token', '');
         $accessTokenMasked     = self::mask($accessToken);
         $accessTokenExpiresAt  = self::decodeJwtExpiry($accessToken);
@@ -79,7 +79,7 @@ class SettingsController extends Controller
             'driveClientId', 'driveClientSecretMasked', 'driveRefreshTokenMasked',
             'driveFolderShNaturals', 'driveFolderEyecare', 'driveConnected',
             'driveSyncLastRun', 'driveSyncLastStatus', 'driveSyncLastMessage', 'driveSyncRunning',
-            'overdueThresholdHours', 'accessTokenMasked', 'accessTokenExpiresAt',
+            'overdueThresholdMinutes', 'accessTokenMasked', 'accessTokenExpiresAt',
             'teamsConfig'
         ));
     }
@@ -147,11 +147,17 @@ class SettingsController extends Controller
         // existing caller of this action (including tests written before
         // this field existed) doesn't send it — an unset submission leaves
         // the previously-saved value alone rather than erroring.
+        // Renamed from overdue_threshold_hours (explicit request, 2026-09-17
+        // — see LeadController::overdueThresholdMinutes()'s own doc
+        // comment) — a genuinely different unit, not just a rename for its
+        // own sake, so an old saved HOURS value is never silently
+        // reinterpreted as MINUTES. max:1440 = 24 hours in minutes, same
+        // real-world ceiling the old max:72 (hours) represented.
         $thresholdData = $request->validate([
-            'overdue_threshold_hours' => ['nullable', 'integer', 'min:1', 'max:72'],
+            'overdue_threshold_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
         ]);
-        if (array_key_exists('overdue_threshold_hours', $thresholdData) && $thresholdData['overdue_threshold_hours'] !== null) {
-            Setting::set('overdue_threshold_hours', $thresholdData['overdue_threshold_hours']);
+        if (array_key_exists('overdue_threshold_minutes', $thresholdData) && $thresholdData['overdue_threshold_minutes'] !== null) {
+            Setting::set('overdue_threshold_minutes', $thresholdData['overdue_threshold_minutes']);
         }
 
         if ($keyUnchanged) {

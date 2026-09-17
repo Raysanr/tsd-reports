@@ -80,8 +80,16 @@ class NotificationController extends Controller
             $callbackQuery->where('tsa_id', $request->integer('tsa'));
         }
 
-        $overdueQuery = (clone $assignedQuery)
-            ->where('assigned_at', '<=', now()->subHours(\App\Http\Controllers\CallTracker\LeadController::overdueThresholdHours()));
+        // dialed_at exclusion (explicit request, 2026-09-17 — see
+        // LeadController::overdueThresholdMinutes()'s own doc comment) —
+        // only on this clone, not $assignedQuery itself: the "assigned"
+        // badge counts every currently-assigned lead regardless of
+        // dial state, but "overdue" must match LeadController::index()'s
+        // own overdue view exactly, which now excludes a lead that's
+        // already been dialed (the green checkmark) even if not yet
+        // dispositioned.
+        $overdueQuery = (clone $assignedQuery)->whereNull('dialed_at')
+            ->where('assigned_at', '<=', now()->subMinutes(\App\Http\Controllers\CallTracker\LeadController::overdueThresholdMinutes()));
 
         return response()->json([
             'assigned'    => $assignedQuery->count(),

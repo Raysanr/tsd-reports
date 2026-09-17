@@ -1,7 +1,7 @@
 @extends('layouts.calls')
 @section('title', $view === 'overdue' ? 'Overdue Leads' : ($view === 'callbacks' ? "Today's Callbacks" : 'Leads'))
 @section('subtitle', match($view) {
-    'overdue'   => "Assigned but not called within {$overdueThresholdHours}h",
+    'overdue'   => "Assigned but not catered within {$overdueThresholdMinutes}min",
     'callbacks' => 'Callbacks due now or already past due',
     default     => 'Round-robin assigned leads · click to call',
 })
