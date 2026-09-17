@@ -75,6 +75,61 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame('SINUXYL', $lead->product->display_name);
     }
 
+    /**
+     * Regression test — root-caused live on production, 2026-09-18: "why is
+     * it like no leads distributed in the leads page?" at 07:41 AM Manila
+     * time, with real Pancake orders confirmed arriving (Order rows synced
+     * fine) but the Leads page ("today's" leads, filtered by
+     * pancake_created_at) showed none.
+     *
+     * Confirmed via direct DB comparison: the SAME real order's
+     * Order.pancake_created_at read 2026-09-18 07:41:56 (correct Manila
+     * time) while the matching Lead.pancake_created_at read
+     * 2026-09-17 23:41:56 — exactly 8 hours earlier, landing on the
+     * PREVIOUS calendar day. Root cause: this line parsed Pancake's raw
+     * inserted_at (a bare UTC string with NO offset marker — see
+     * SyncTodayOrders::flushOrders()'s own "Fix 1: Pancake stores UTC
+     * without TZ marker — parse as UTC, convert to Manila" comment, the
+     * SAME fix that command already has) as UTC but never converted it to
+     * Manila time before saving — so the raw UTC clock-time was stored
+     * as-is. Every Manila morning before 8:00 AM, a genuinely-today order
+     * landed with a pancake_created_at still reading as "yesterday" to
+     * every view that filters on it (Leads, Overdue, Callbacks, the
+     * sidebar badge, Monitor, Dashboard, Analytics — all of them).
+     *
+     * This test uses a BARE datetime string (no +08:00/Z suffix), matching
+     * real Pancake data and SyncTodayOrders's own test fixtures
+     * (SyncTodayOrdersBacklogTest.php) — every OTHER test in this file
+     * uses now()->toIso8601String(), which embeds an explicit offset
+     * Carbon::parse() respects regardless of the 'UTC' argument, so none
+     * of them ever exercised the real "offset-less string" case that
+     * actually triggers this bug in production.
+     */
+    public function test_pancake_created_at_is_stored_in_manila_time_not_raw_utc_clock_time(): void
+    {
+        // 23:41:56 UTC = 07:41:56 the NEXT calendar day in Manila (UTC+8) —
+        // the exact real-world case that surfaced this bug.
+        $this->fakePancake([[
+            'id'               => 9010,
+            'bill_full_name'   => 'Early Morning Order',
+            'bill_phone_number' => '09171234568',
+            'tags'        => [],
+            'items'       => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => '2026-09-17 23:41:56',
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9010')->first();
+        $this->assertNotNull($lead);
+        $this->assertSame(
+            '2026-09-18 07:41:56',
+            $lead->pancake_created_at->toDateTimeString(),
+            'pancake_created_at must be converted to Asia/Manila time, not left as the raw UTC clock-time — '
+                . 'a bare UTC 23:41:56 order is 07:41:56 the NEXT day in Manila.'
+        );
+    }
+
     public function test_an_order_with_no_conversation_link_still_syncs_fine(): void
     {
         $this->fakePancake([[

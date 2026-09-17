@@ -176,7 +176,30 @@ class SyncPancakeLeads extends Command
                     'pancake_page_id'         => isset($raw['page_id']) ? (string) $raw['page_id'] : null,
                     'pancake_conversation_id' => $raw['conversation_id'] ?? null,
                     'product_id'         => $product?->id,
-                    'pancake_created_at' => isset($raw['inserted_at']) ? Carbon::parse($raw['inserted_at'], 'UTC') : null,
+                    // Bug fix, 2026-09-18 ("why is it like no leads
+                    // distributed in the leads page?", reported ~7:41 AM
+                    // Manila) — Pancake stores inserted_at as UTC with NO
+                    // offset marker (same real behavior SyncTodayOrders::
+                    // flushOrders() already documents as "Fix 1: Pancake
+                    // stores UTC without TZ marker — parse as UTC, convert
+                    // to Manila"), but this line only ever did the first
+                    // half: Carbon::parse(..., 'UTC') correctly READS it as
+                    // UTC, but never converted it to Manila time before
+                    // saving, so the raw UTC clock-time got stored as-is.
+                    // Every Manila morning before 8:00 AM, a genuinely-today
+                    // order's pancake_created_at was still stamped with
+                    // YESTERDAY's date (UTC is 8 hours behind Manila) —
+                    // invisible to every view that filters pancake_created_at
+                    // to "today" (Leads, Overdue, Callbacks, the sidebar
+                    // badge, Monitor, Dashboard, Analytics). Confirmed live
+                    // against production: the SAME order's Order.
+                    // pancake_created_at (SyncTodayOrders' own, already-
+                    // correct conversion) read 07:41:56 while this
+                    // command's own Lead.pancake_created_at read 23:41:56
+                    // the PREVIOUS day for the identical real timestamp.
+                    'pancake_created_at' => isset($raw['inserted_at'])
+                        ? Carbon::parse($raw['inserted_at'], 'UTC')->setTimezone('Asia/Manila')
+                        : null,
                     'synced_at'          => now(),
                 ]);
 
