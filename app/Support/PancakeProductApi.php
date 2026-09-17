@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Setting;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -36,47 +37,61 @@ class PancakeProductApi
      * variation_info shape is, which DOES carry an `images` array) — falls
      * through to null, not an error, if none of them are actually present,
      * same "feature unavailable" convention as the rest of this method.
+     *
+     * Cached per (shop, query) for 5 minutes — explicit request, 2026-09-17:
+     * "why is it so slow" — every debounced keystroke pause in the Add
+     * Upsell search box fired a live, uncached Pancake call, unlike the
+     * tag search box (PancakeOrderTagApi::listTags()) which already caches
+     * its own catalog the same way. The product catalog doesn't change
+     * second-to-second, so two TSAs (or the same TSA re-typing the same
+     * partial name) searching "sinuxyl" within the same few minutes now
+     * share one real Pancake call instead of each firing their own.
      */
     public function search(string $query): array
     {
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
-        if (empty($apiKey) || empty($shopId) || trim($query) === '') {
+        $query  = trim($query);
+        if (empty($apiKey) || empty($shopId) || $query === '') {
             return [];
         }
 
-        try {
-            $response = Http::timeout(10)->get(self::BASE_URL . "/shops/{$shopId}/products/variations", [
-                'api_key'   => $apiKey,
-                'search'    => $query,
-                'page_size' => 20,
-            ]);
+        $cacheKey = 'pancake_product_search_' . $shopId . '_' . md5(strtolower($query));
 
-            if (!$response->successful()) {
+        return Cache::remember($cacheKey, 300, function () use ($apiKey, $shopId, $query) {
+            try {
+                $response = Http::timeout(10)->get(self::BASE_URL . "/shops/{$shopId}/products/variations", [
+                    'api_key'   => $apiKey,
+                    'search'    => $query,
+                    'page_size' => 20,
+                ]);
+
+                if (!$response->successful()) {
+                    return [];
+                }
+
+                // display_id (e.g. "3 Sinuxyl") is what a TSA actually sees in
+                // Pancake POS's own quick-add row — the quantity tier is part of
+                // the name, not a separate field to combine later — so it's used
+                // here as-is rather than product.name alone, which would show
+                // every quantity tier of the same product as identical rows.
+                return collect($response->json('data') ?? [])
+                    ->filter(fn ($v) => !empty($v['id']))
+                    ->map(fn ($v) => [
+                        'variation_id' => $v['id'],
+                        'product_id'   => $v['product_id'] ?? null,
+                        'name'         => $v['display_id'] ?? ($v['product']['name'] ?? ''),
+                        'retail_price' => (float) ($v['retail_price'] ?? 0),
+                        'image'        => $v['avatar_url'] ?? $v['avatar'] ?? $v['image_url']
+                            ?? ($v['images'][0]['url'] ?? $v['images'][0] ?? null)
+                            ?? ($v['product']['avatar_url'] ?? $v['product']['images'][0]['url'] ?? $v['product']['images'][0] ?? null),
+                    ])
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                Log::warning('PancakeProductApi: search threw', ['message' => $e->getMessage()]);
                 return [];
             }
-
-            // display_id (e.g. "3 Sinuxyl") is what a TSA actually sees in
-            // Pancake POS's own quick-add row — the quantity tier is part of
-            // the name, not a separate field to combine later — so it's used
-            // here as-is rather than product.name alone, which would show
-            // every quantity tier of the same product as identical rows.
-            return collect($response->json('data') ?? [])
-                ->filter(fn ($v) => !empty($v['id']))
-                ->map(fn ($v) => [
-                    'variation_id' => $v['id'],
-                    'product_id'   => $v['product_id'] ?? null,
-                    'name'         => $v['display_id'] ?? ($v['product']['name'] ?? ''),
-                    'retail_price' => (float) ($v['retail_price'] ?? 0),
-                    'image'        => $v['avatar_url'] ?? $v['avatar'] ?? $v['image_url']
-                        ?? ($v['images'][0]['url'] ?? $v['images'][0] ?? null)
-                        ?? ($v['product']['avatar_url'] ?? $v['product']['images'][0]['url'] ?? $v['product']['images'][0] ?? null),
-                ])
-                ->values()
-                ->all();
-        } catch (\Throwable $e) {
-            Log::warning('PancakeProductApi: search threw', ['message' => $e->getMessage()]);
-            return [];
-        }
+        });
     }
 }

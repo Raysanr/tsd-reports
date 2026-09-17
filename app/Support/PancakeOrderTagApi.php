@@ -157,20 +157,66 @@ class PancakeOrderTagApi
     }
 
     /**
-     * Live read of an order's two real Pancake note fields — confirmed
-     * against the real OpenAPI spec: `note` ("Internal note" / "Ghi chú nội
-     * bộ") and `note_print` ("Note for printing" / "Ghi chú đơn hàng"),
-     * both plain strings directly on the Order object, not their own
-     * sub-resource (Pancake has no dedicated /notes endpoint — reading or
-     * writing either one always goes through the order itself). Explicit
-     * request (2026-08-22): shown/edited from the lead detail page so a TSA
-     * never has to leave Call Tracker to check or add a POS note. Fetched
-     * live on every call (not cached, not synced into the local `orders`
-     * table) so it can never show a stale value if someone edited it
-     * directly in Pancake POS a moment ago — the same reasoning
-     * PancakeProductApi::search() already follows for the exact same
-     * "must reflect Pancake's real current state" requirement.
+     * Raw order GET, shared by getOrderDetail() and getNotes() below — both
+     * hit this exact same Pancake endpoint for the exact same order object,
+     * just reading different fields off it. Cached for
+     * self::LIVE_ORDER_CACHE_SECONDS (explicit request, 2026-09-17: "why is
+     * it so slow" — the lead detail modal polls BOTH getOrderDetail() (the
+     * history panel, every 8s) and getNotes() (the notes panel, also every
+     * 8s) independently, so before this every open modal fired two live
+     * Pancake GETs of the identical order roughly in lockstep, forever, for
+     * as long as it stayed open). A cache this short is deliberately much
+     * shorter than the 8s poll interval itself — it only ever collapses
+     * the notes+history polls that land within the same couple seconds of
+     * each other into one real Pancake call, it never makes a poll go a
+     * full cycle without checking Pancake again, so a genuine edit in
+     * Pancake POS is still visible within one normal poll tick same as
+     * before. Keyed by order id + shop id (not api key) since a cached
+     * response is only ever valid for the shop it was fetched from.
+     * Returns the decoded body's 'data' (or the bare body) on success, null
+     * on any failure — same "unauthorized/missing order still returns
+     * HTTP 200" check getOrderDetail() always applied, now shared instead
+     * of only ever existing on that one method's own copy.
      */
+    private const LIVE_ORDER_CACHE_SECONDS = 5;
+
+    private function fetchRawOrder(string $orderId): ?array
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return null;
+        }
+
+        return Cache::remember("pancake_raw_order_{$shopId}_{$orderId}", self::LIVE_ORDER_CACHE_SECONDS, function () use ($apiKey, $shopId, $orderId) {
+            try {
+                $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                    'api_key' => $apiKey,
+                ]);
+
+                // Real behavior confirmed live, not assumed: Pancake returns
+                // HTTP 200 even for an order it can't find/isn't authorized
+                // for — {"message":"You do not have permission to view this
+                // order","success":false} — so successful() alone isn't
+                // enough. Checking the body's own success flag is the same
+                // convention every write method below already applies (see
+                // addUpsellItem()'s own $success check) — this was just never
+                // applied on the READ side until a stale/wrong
+                // pancake_order_id on a real lead surfaced it as a silently
+                // empty Detail/Status history instead of the intended
+                // "Pancake unreachable" local-activity fallback.
+                if (!$response->successful() || $response->json('success') === false) {
+                    return null;
+                }
+
+                return $response->json('data') ?? $response->json();
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: fetchRawOrder threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+                return null;
+            }
+        });
+    }
+
     /**
      * The order's full current line-item list and tag catalog, straight
      * from Pancake — explicit request (2026-08-25): the lead detail
@@ -183,86 +229,59 @@ class PancakeOrderTagApi
      * with no way to show the base item's own line or its own price
      * alongside it). Pancake's raw items[]/tags[] were never persisted
      * locally at sync time (only the computed summary was), so unlike
-     * getNotes() above this can't fall back to anything local — a failed
+     * getNotes() below this can't fall back to anything local — a failed
      * fetch here just means the modal falls back to the local summary
-     * card instead (see calls/leads/_detail.blade.php). Same
-     * live-fetch-every-time reasoning as getNotes(): must reflect
-     * Pancake's real current state, not a synced snapshot.
+     * card instead (see calls/leads/_detail.blade.php). Reads through
+     * fetchRawOrder()'s own short cache (see that method's own doc
+     * comment) rather than fetching directly.
      */
     public function getOrderDetail(string $orderId): ?array
     {
-        $apiKey = Setting::get('pancake_api_key', '');
-        $shopId = Setting::get('shop_id', '');
-        if (empty($apiKey) || empty($shopId)) {
+        $order = $this->fetchRawOrder($orderId);
+        if ($order === null) {
             return null;
         }
 
-        try {
-            $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
-                'api_key' => $apiKey,
-            ]);
-
-            // Real behavior confirmed live, not assumed: Pancake returns
-            // HTTP 200 even for an order it can't find/isn't authorized
-            // for — {"message":"You do not have permission to view this
-            // order","success":false} — so successful() alone isn't
-            // enough. Checking the body's own success flag is the same
-            // convention every write method below already applies (see
-            // addUpsellItem()'s own $success check) — this was just never
-            // applied on the READ side until a stale/wrong
-            // pancake_order_id on a real lead surfaced it as a silently
-            // empty Detail/Status history instead of the intended
-            // "Pancake unreachable" local-activity fallback.
-            if (!$response->successful() || $response->json('success') === false) {
-                return null;
-            }
-
-            $order = $response->json('data') ?? $response->json();
-
-            return [
-                'items'    => $order['items'] ?? [],
-                'tags'     => $order['tags'] ?? [],
-                // Delivery (explicit follow-up request, 2026-08-25: "add
-                // delivery to this like in the POS") — confirmed against a
-                // real live order's own raw response: shipping_address is
-                // the recipient/full address, partner is the assigned
-                // courier (null until Pancake/the shop actually books one —
-                // e.g. still New/unprinted), estimate_delivery_date is
-                // nullable the same way. Read-only display only — Pancake's
-                // own Delivery panel is a real editable form backed by a
-                // full province/city/barangay address-cascading picker,
-                // building an equivalent editor here is a materially
-                // bigger undertaking than what was asked for.
-                'shipping_address'      => $order['shipping_address'] ?? null,
-                'shipping_fee'          => $order['shipping_fee'] ?? null,
-                'estimate_delivery_date' => $order['estimate_delivery_date'] ?? null,
-                'courier_name'          => $order['partner']['partner_name'] ?? null,
-                'tracking_link'         => $order['tracking_link'] ?? null,
-                // Real order-history (explicit follow-up request: "add
-                // history like in the POS", then "can you fetch the
-                // history from pos?" once the local LeadActivity log
-                // proved too sparse) — confirmed live against a real
-                // order's raw response: 'histories' is a field-level diff
-                // log (old/new pairs per changed field, editor_id,
-                // timestamp), 'status_history' is specifically status
-                // transitions with a resolved editor name/avatar already
-                // attached. Both already ride along in this same GET, no
-                // separate endpoint exists for them. Editor names/avatars
-                // for 'histories' entries are resolved from the order's
-                // own creator/last_editor/assigning_seller (see
-                // PancakeOrderHistoryFormatter, which does the actual
-                // diff-to-sentence translation) since 'histories' itself
-                // only carries a bare editor_id.
-                'histories'       => $order['histories'] ?? [],
-                'status_history'  => $order['status_history'] ?? [],
-                'creator'         => $order['creator'] ?? null,
-                'last_editor'     => $order['last_editor'] ?? null,
-                'assigning_seller' => $order['assigning_seller'] ?? null,
-            ];
-        } catch (\Throwable $e) {
-            Log::warning('PancakeOrderTagApi: getOrderDetail threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
-            return null;
-        }
+        return [
+            'items'    => $order['items'] ?? [],
+            'tags'     => $order['tags'] ?? [],
+            // Delivery (explicit follow-up request, 2026-08-25: "add
+            // delivery to this like in the POS") — confirmed against a
+            // real live order's own raw response: shipping_address is
+            // the recipient/full address, partner is the assigned
+            // courier (null until Pancake/the shop actually books one —
+            // e.g. still New/unprinted), estimate_delivery_date is
+            // nullable the same way. Read-only display only — Pancake's
+            // own Delivery panel is a real editable form backed by a
+            // full province/city/barangay address-cascading picker,
+            // building an equivalent editor here is a materially
+            // bigger undertaking than what was asked for.
+            'shipping_address'      => $order['shipping_address'] ?? null,
+            'shipping_fee'          => $order['shipping_fee'] ?? null,
+            'estimate_delivery_date' => $order['estimate_delivery_date'] ?? null,
+            'courier_name'          => $order['partner']['partner_name'] ?? null,
+            'tracking_link'         => $order['tracking_link'] ?? null,
+            // Real order-history (explicit follow-up request: "add
+            // history like in the POS", then "can you fetch the
+            // history from pos?" once the local LeadActivity log
+            // proved too sparse) — confirmed live against a real
+            // order's raw response: 'histories' is a field-level diff
+            // log (old/new pairs per changed field, editor_id,
+            // timestamp), 'status_history' is specifically status
+            // transitions with a resolved editor name/avatar already
+            // attached. Both already ride along in this same GET, no
+            // separate endpoint exists for them. Editor names/avatars
+            // for 'histories' entries are resolved from the order's
+            // own creator/last_editor/assigning_seller (see
+            // PancakeOrderHistoryFormatter, which does the actual
+            // diff-to-sentence translation) since 'histories' itself
+            // only carries a bare editor_id.
+            'histories'       => $order['histories'] ?? [],
+            'status_history'  => $order['status_history'] ?? [],
+            'creator'         => $order['creator'] ?? null,
+            'last_editor'     => $order['last_editor'] ?? null,
+            'assigning_seller' => $order['assigning_seller'] ?? null,
+        ];
     }
 
     /**
@@ -392,35 +411,34 @@ class PancakeOrderTagApi
         }
     }
 
+    /**
+     * Live read of an order's two real Pancake note fields — confirmed
+     * against the real OpenAPI spec: `note` ("Internal note" / "Ghi chú nội
+     * bộ") and `note_print` ("Note for printing" / "Ghi chú đơn hàng"),
+     * both plain strings directly on the Order object, not their own
+     * sub-resource (Pancake has no dedicated /notes endpoint — reading or
+     * writing either one always goes through the order itself). Explicit
+     * request (2026-08-22): shown/edited from the lead detail page so a TSA
+     * never has to leave Call Tracker to check or add a POS note. Reads
+     * through fetchRawOrder()'s own short cache (see that method's own doc
+     * comment) rather than fetching directly — this and getOrderDetail()
+     * above both poll the exact same order every 8s from the lead detail
+     * modal's two separate panels, so sharing one fetch/cache means one
+     * real Pancake call covers both instead of two.
+     */
     public function getNotes(string $orderId): array
     {
         $empty = ['note' => null, 'note_print' => null];
 
-        $apiKey = Setting::get('pancake_api_key', '');
-        $shopId = Setting::get('shop_id', '');
-        if (empty($apiKey) || empty($shopId)) {
+        $order = $this->fetchRawOrder($orderId);
+        if ($order === null) {
             return $empty;
         }
 
-        try {
-            $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
-                'api_key' => $apiKey,
-            ]);
-
-            if (!$response->successful()) {
-                return $empty;
-            }
-
-            $order = $response->json('data') ?? $response->json();
-
-            return [
-                'note'       => $order['note'] ?? null,
-                'note_print' => $order['note_print'] ?? null,
-            ];
-        } catch (\Throwable $e) {
-            Log::warning('PancakeOrderTagApi: getNotes threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
-            return $empty;
-        }
+        return [
+            'note'       => $order['note'] ?? null,
+            'note_print' => $order['note_print'] ?? null,
+        ];
     }
 
     /**

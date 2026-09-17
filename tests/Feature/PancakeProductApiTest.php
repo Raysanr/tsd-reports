@@ -126,4 +126,42 @@ class PancakeProductApiTest extends TestCase
         $this->assertCount(1, $results);
         $this->assertSame('var-1', $results[0]['variation_id']);
     }
+
+    /**
+     * Performance fix (explicit request, 2026-09-17: "why is it so slow") —
+     * every debounced keystroke pause in the Add Upsell search box used to
+     * fire a live, uncached Pancake call. Now cached per (shop, query) for
+     * 5 minutes, same convention PancakeOrderTagApi::listTags() already
+     * uses for its own catalog — confirmed here that searching the same
+     * query twice only hits Pancake once.
+     */
+    public function test_search_caches_results_for_the_same_query(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/products/variations*' => Http::response(['success' => true, 'data' => [
+                ['id' => 'var-1', 'product_id' => 'prod-1', 'display_id' => '3 Sinuxyl', 'retail_price' => 999],
+            ]], 200),
+        ]);
+
+        $first  = $this->api->search('sinuxyl');
+        $second = $this->api->search('sinuxyl');
+
+        $this->assertSame($first, $second);
+        Http::assertSentCount(1);
+    }
+
+    /** A different query must never be served from another query's cache. */
+    public function test_search_for_a_different_query_is_not_served_from_another_querys_cache(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/products/variations*' => Http::response(['success' => true, 'data' => [
+                ['id' => 'var-1', 'product_id' => 'prod-1', 'display_id' => 'Result', 'retail_price' => 100],
+            ]], 200),
+        ]);
+
+        $this->api->search('sinuxyl');
+        $this->api->search('pterygium');
+
+        Http::assertSentCount(2);
+    }
 }

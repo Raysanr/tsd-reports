@@ -318,4 +318,53 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertFalse($success);
         Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
+
+    /**
+     * Performance fix (explicit request, 2026-09-17: "why is it so slow") —
+     * getOrderDetail() and getNotes() used to each fire their own live GET
+     * of the same order; the lead detail modal polls both every 8s from its
+     * two separate panels, so every open modal fired two live Pancake calls
+     * roughly in lockstep. Both now read through fetchRawOrder()'s shared
+     * short cache — confirmed here that calling getOrderDetail() then
+     * getNotes() (or the reverse) for the SAME order only hits Pancake
+     * once.
+     */
+    public function test_get_order_detail_and_get_notes_share_one_cached_fetch_for_the_same_order(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'items' => [], 'tags' => [], 'note' => 'Internal note', 'note_print' => 'Print note',
+            ]], 200),
+        ]);
+
+        $detail = $this->api->getOrderDetail('9001');
+        $notes  = $this->api->getNotes('9001');
+
+        $this->assertNotNull($detail);
+        $this->assertSame('Internal note', $notes['note']);
+        $this->assertSame('Print note', $notes['note_print']);
+        Http::assertSentCount(1);
+    }
+
+    /** Companion to the shared-cache test above — a DIFFERENT order id must
+     *  never reuse another order's cached response just because both calls
+     *  happened close together. */
+    public function test_get_order_detail_for_a_different_order_is_not_served_from_another_orders_cache(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
+                'id' => 9001, 'items' => [], 'tags' => [], 'note' => 'Order 9001 note',
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9002*' => Http::response(['success' => true, 'data' => [
+                'id' => 9002, 'items' => [], 'tags' => [], 'note' => 'Order 9002 note',
+            ]], 200),
+        ]);
+
+        $notesFor9001 = $this->api->getNotes('9001');
+        $notesFor9002 = $this->api->getNotes('9002');
+
+        $this->assertSame('Order 9001 note', $notesFor9001['note']);
+        $this->assertSame('Order 9002 note', $notesFor9002['note']);
+        Http::assertSentCount(2);
+    }
 }
