@@ -173,6 +173,11 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/sync/status', [\App\Http\Controllers\CallTracker\DashboardController::class, 'syncStatus'])->name('dashboard.sync.status');
 
         Route::get('/leads', [\App\Http\Controllers\CallTracker\LeadController::class, 'index'])->name('leads.index');
+        // Registered BEFORE /leads/{lead} — otherwise Laravel's route
+        // matching would treat "recently-called" as a {lead} route-model-
+        // binding lookup and 404 (same reasoning the block below this one
+        // already documents for its own ordering).
+        Route::get('/leads/recently-called', [\App\Http\Controllers\CallTracker\LeadController::class, 'recentlyCalled'])->name('leads.recently-called');
         Route::get('/leads/{lead}', [\App\Http\Controllers\CallTracker\LeadController::class, 'show'])->name('leads.show');
         Route::get('/leads/{lead}/conversation', [\App\Http\Controllers\CallTracker\LeadController::class, 'conversation'])->name('leads.conversation');
         Route::get('/leads/{lead}/tags', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchTags'])->name('leads.tags');

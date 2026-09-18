@@ -185,4 +185,83 @@ class LeadCallClickTest extends TestCase
         $response->assertOk();
         $response->assertSee('Called ' . $dialed->fresh()->dialed_at->diffForHumans(), false);
     }
+
+    /**
+     * "Recently Called" panel (explicit follow-up, 2026-09-18: "they
+     * still will search to the main leads still" — after an earlier fix
+     * auto-opened a lead's detail modal right after a call, closing THAT
+     * modal too still lost the lead, back to the original "search the
+     * main Leads list" complaint). Sourced from LeadActivity (user_id =
+     * the viewer), not Lead.dialed_at — see recentlyCalled()'s own doc
+     * comment for why.
+     */
+    public function test_recently_called_lists_the_viewers_own_dials_newest_first(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $first  = $this->leadFor($gemma, '9010');
+        $second = $this->leadFor($gemma, '9011');
+        $user   = User::create(['name' => 'Gemma User', 'email' => 'gemma10@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $first))->assertOk();
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $second))->assertOk();
+
+        $response = $this->actingAs($user)->getJson(route('calls.leads.recently-called'));
+
+        $response->assertOk();
+        $ids = collect($response->json('leads'))->pluck('id')->all();
+        $this->assertSame([$second->id, $first->id], $ids);
+    }
+
+    /** A redial of the SAME lead must only ever appear once, at its most
+     *  recent position — not once per click. */
+    public function test_recently_called_deduplicates_a_lead_dialed_more_than_once(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma, '9012');
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma11@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $response = $this->actingAs($user)->getJson(route('calls.leads.recently-called'));
+
+        $ids = collect($response->json('leads'))->pluck('id')->all();
+        $this->assertSame([$lead->id], $ids);
+    }
+
+    /** Scoped to the VIEWER's own dials — an admin covering a different
+     *  lead must never see it show up on another user's own list. */
+    public function test_recently_called_is_scoped_to_the_viewer_not_the_leads_own_tsa(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $lead   = $this->leadFor($gemma, '9013');
+        $admin  = User::factory()->create(['role' => 'admin']);
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma12@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        // Admin (not Gemma) is the one who actually clicked to call.
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $adminResponse = $this->actingAs($admin)->getJson(route('calls.leads.recently-called'));
+        $this->assertSame([$lead->id], collect($adminResponse->json('leads'))->pluck('id')->all());
+
+        // Gemma herself never clicked anything — her own list is empty,
+        // even though the lead is assigned to her.
+        $gemmaResponse = $this->actingAs($gemmaUser)->getJson(route('calls.leads.recently-called'));
+        $this->assertSame([], collect($gemmaResponse->json('leads'))->pluck('id')->all());
+    }
+
+    public function test_recently_called_reflects_a_disposition_logged_since_the_call(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma, '9014');
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma13@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+        $lead->update(['disposition' => 'Confirmed']);
+
+        $response = $this->actingAs($user)->getJson(route('calls.leads.recently-called'));
+
+        $this->assertSame('Confirmed', $response->json('leads.0.disposition'));
+    }
 }

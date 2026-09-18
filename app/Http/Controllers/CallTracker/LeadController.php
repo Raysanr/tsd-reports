@@ -1621,6 +1621,69 @@ class LeadController extends Controller
     }
 
     /**
+     * JSON feed for the topbar's "Recently Called" panel (explicit
+     * request, 2026-09-18: "they still will search to the main leads
+     * still" — a follow-up to the earlier fix that auto-opens a lead's
+     * detail modal right after a call; that alone still lost the lead if
+     * the TSA closed the modal too quickly, back to exactly the same
+     * "search the main Leads list" problem the original feedback was
+     * about — "when they call in the overdue the that lead will be gone
+     * and they will search it again manually in the leads"). A small,
+     * persistent, always-reachable list of THIS viewer's own last few
+     * dials — one click back into any of them, from anywhere in the app,
+     * no typing/searching required even after closing every modal.
+     *
+     * Sourced from LeadActivity (type 'call_clicked', user_id = the
+     * VIEWER, not the lead's own tsa_id) rather than Lead.dialed_at
+     * directly — dialed_at is one shared column per lead with no record
+     * of WHO clicked it, so it can't answer "what did *I* personally
+     * just call" the way an admin covering multiple TSAs' leads needs.
+     * LeadActivity::log()'s own user_id already captures exactly that,
+     * every time logCallClick() fires.
+     */
+    public function recentlyCalled()
+    {
+        $user = Auth::user();
+
+        // orderByDesc('id'), not created_at: this column is a plain
+        // second-precision timestamp (no explicit microsecond precision),
+        // so two clicks landing in the same second — confirmed live in
+        // testing, two calls placed back-to-back — are indistinguishable
+        // by created_at alone and can come back in the wrong order. id is
+        // already a strictly-increasing insertion order, immune to that.
+        //
+        // Pulls a wider window (20) before deduping/limiting to 5 — a
+        // redial of the same lead creates a SECOND 'call_clicked' row, so
+        // limiting to 5 BEFORE dedup could consume the whole page on
+        // repeat clicks of one or two leads and leave fewer than 5 (or
+        // even 0) distinct leads in the final list.
+        $leadIds = LeadActivity::where('user_id', $user->id)
+            ->where('type', 'call_clicked')
+            ->orderByDesc('id')
+            ->limit(20)
+            ->pluck('lead_id')
+            ->unique()
+            ->take(5);
+
+        // Re-fetched by id (not just the activity rows) so this always
+        // reflects the lead's CURRENT customer_name/phone/disposition —
+        // an activity log entry is a frozen sentence from the moment it
+        // was written, the lead itself may have moved on since.
+        $leads = Lead::whereIn('id', $leadIds)->get()->sortBy(fn ($lead) => $leadIds->search($lead->id));
+
+        return response()->json([
+            'success' => true,
+            'leads'   => $leads->values()->map(fn (Lead $lead) => [
+                'id'           => $lead->id,
+                'customerName' => $lead->customer_name ?: 'this customer',
+                'phoneNumber'  => $lead->phone_number,
+                'disposition'  => $lead->disposition,
+                'calledAt'     => $lead->dialed_at?->format('M j, g:i A'),
+            ]),
+        ]);
+    }
+
+    /**
      * "End Call" in the Calling modal (explicit request, 2026-08-20) — flips
      * that TSA straight to Wrap Up the instant the button's clicked, rather
      * than only via CallEventController's webhook once the phone itself
