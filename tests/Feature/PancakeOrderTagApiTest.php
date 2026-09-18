@@ -260,12 +260,26 @@ class PancakeOrderTagApiTest extends TestCase
                 ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'],
                 ['id' => 40, 'name' => 'Gemma'],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
-                'id' => 9001,
-                'items' => [['variation_id' => 'base-item', 'quantity' => 1, 'variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 800]]],
-                'tags' => [],
-                'note' => 'do not clobber me',
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                // Pre-write GET: base state before the upsell.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'base-item', 'quantity' => 1, 'variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 800]]],
+                    'tags' => [],
+                    'note' => 'do not clobber me',
+                ]], 200)
+                // PUT response (the write itself).
+                ->push(['success' => true], 200)
+                // Post-write verify GET: confirms the item and tags landed.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [
+                        ['variation_id' => 'base-item', 'quantity' => 1, 'variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 800]],
+                        ['variation_id' => 'new-item', 'quantity' => 2, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]],
+                    ],
+                    'tags' => [['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'], ['id' => 40, 'name' => 'Gemma']],
+                    'note' => 'do not clobber me',
+                ]], 200),
         ]);
 
         $success = $this->api->addUpsellItem('9001', [
@@ -282,6 +296,57 @@ class PancakeOrderTagApiTest extends TestCase
                 && in_array(30, $tagIds) && in_array(40, $tagIds)
                 && $r['note'] === 'do not clobber me';
         });
+    }
+
+    public function test_add_upsell_item_retries_the_tag_when_the_item_landed_but_the_tag_never_attached(): void
+    {
+        // Real production bug, confirmed live 2026-09-18 (order #1369400):
+        // the combined item+tag PUT can report success and the line item
+        // genuinely lands, while the upsell tag silently never attaches —
+        // the exact same class of flaky write addTagsToOrder() already
+        // guards against, but this method's own combined PUT never did
+        // until now. The item is what actually matters for the sale, so
+        // this asserts the missing tag doesn't fail the whole call — only
+        // that a retry through addTagsToOrder() is attempted.
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                // Pre-write GET.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'items' => [], 'tags' => []]], 200)
+                // PUT response (the combined item+tag write).
+                ->push(['success' => true], 200)
+                // Post-write verify GET: item landed, tag did NOT.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'new-item', 'quantity' => 1, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [],
+                ]], 200)
+                // Retry's own pre-write GET (inside addTagsToOrder()).
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'new-item', 'quantity' => 1, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [],
+                ]], 200)
+                // Retry's own PUT.
+                ->push(['success' => true], 200)
+                // Retry's own verify GET — tag finally lands this time.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'new-item', 'quantity' => 1, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm']],
+                ]], 200),
+        ]);
+
+        $success = $this->api->addUpsellItem('9001', [
+            'variation_id' => 'new-item', 'product_id' => 'prod-1', 'name' => 'Haplunas Balm', 'retail_price' => 499.0, 'quantity' => 1,
+        ], 'UPSELL TSD - Haplunas Balm', null);
+
+        $this->assertTrue($success);
+
+        $putRequests = collect(Http::recorded(fn ($r) => $r->method() === 'PUT'));
+        $this->assertCount(2, $putRequests, 'Expected the original write plus one retry PUT.');
     }
 
     public function test_add_upsell_item_fails_gracefully_when_fetching_the_order_fails(): void

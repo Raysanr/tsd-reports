@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Lead;
+use App\Models\LeadActivity;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
@@ -1152,10 +1153,105 @@ class LeadControllerTest extends TestCase
         $this->assertNotContains('Confirmed', $order->app_added_tags ?? []);
     }
 
+    /** Real production gap, confirmed live 2026-09-18: Angel called
+     *  Marisol's "Unattended" lead through the shared Callbacks queue,
+     *  upsold it, then removed the "Unattended" tag straight from the POS
+     *  Tags chip panel (not via Log Outcome) — ownership never followed
+     *  her, leaving the lead stuck on Marisol. updateDisposition() already
+     *  reassigns ownership when a TSA resolves a shared callback that way
+     *  (see its own doc comment); removeTag() needed the same rule for
+     *  this second, equally real way a TSA resolves one. */
+    public function test_removing_the_unattended_tag_reassigns_ownership_to_whoever_picked_it_up(): void
+    {
+        $this->fakePosTags([['id' => 10, 'name' => 'Unattended']]);
+
+        $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
+        $julie   = TsaShift::where('tsa_key', 'Julie')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
+            'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
+            'disposition' => 'Unattended', 'callback_at' => now()->subHour(),
+        ]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Unattended']]);
+        $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-pickup@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
+
+        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Unattended'])->assertOk();
+
+        $lead->refresh();
+        $this->assertSame($julie->id, $lead->tsa_id);
+        $this->assertNull($lead->callback_at);
+        $this->assertNull($lead->disposition);
+        $this->assertTrue(LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')
+            ->where('description', 'like', '%from Marisol to Julie User%')->exists());
+    }
+
+    /** Removing an unrelated tag says nothing about resolving the
+     *  callback — must never reassign ownership as a side effect. */
+    public function test_removing_an_unrelated_tag_does_not_reassign_a_shared_callback(): void
+    {
+        $this->fakePosTags([['id' => 10, 'name' => 'SINUXYL']]);
+
+        $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
+        $julie   = TsaShift::where('tsa_key', 'Julie')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
+            'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
+            'disposition' => 'Unattended', 'callback_at' => now()->subHour(),
+        ]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['SINUXYL', 'Unattended']]);
+        $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-nopickup@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
+
+        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'SINUXYL'])->assertOk();
+
+        $lead->refresh();
+        $this->assertSame($marisol->id, $lead->tsa_id);
+        $this->assertNotNull($lead->callback_at);
+    }
+
+    /** Removing "Not answering" while "Unattended" (also a trigger
+     *  keyword) is still on the order hasn't actually resolved the
+     *  callback yet — must not reassign until every trigger tag is gone. */
+    public function test_removing_one_of_two_trigger_tags_does_not_reassign_yet(): void
+    {
+        $this->fakePosTags([['id' => 10, 'name' => 'Not answering'], ['id' => 11, 'name' => 'Unattended']]);
+
+        $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
+        $julie   = TsaShift::where('tsa_key', 'Julie')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
+            'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
+            'disposition' => 'Not answering', 'callback_at' => now()->subHour(),
+        ]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Not answering', 'Unattended']]);
+        $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-partial@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
+
+        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Not answering'])->assertOk();
+
+        $lead->refresh();
+        $this->assertSame($marisol->id, $lead->tsa_id);
+        $this->assertNotNull($lead->callback_at);
+    }
+
     public function test_adding_an_upsell_records_its_tag_in_app_added_tags(): void
     {
         $this->fakePosTags([
             ['id' => 10, 'name' => 'UPSELL TSD - Eye Drops'],
+        ], [
+            // addUpsellItem()'s own verify-refetch (after the combined
+            // item+tag PUT) needs to see the item/tag actually landed,
+            // unlike the bare fakePosTags() default used by every other
+            // test in this file that never reads the order back.
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::sequence()
+                ->push(['success' => true, 'data' => ['id' => 1, 'tags' => []]], 200)
+                ->push(['success' => true], 200)
+                ->push(['success' => true, 'data' => [
+                    'id' => 1,
+                    'items' => [['variation_id' => 'v1', 'quantity' => 1, 'variation_info' => ['name' => 'Eye Drops', 'retail_price' => 500]]],
+                    'tags' => [['id' => 10, 'name' => 'UPSELL TSD - Eye Drops']],
+                ]], 200),
         ]);
 
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

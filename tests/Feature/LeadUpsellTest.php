@@ -77,12 +77,33 @@ class LeadUpsellTest extends TestCase
         $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
 
         Http::fake([
-            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
-                ['id' => 40, 'name' => 'Gemma'],
-            ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
-                'id' => 9001, 'items' => [], 'tags' => [],
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::sequence()
+                // Pre-check inside createTagIfMissing(): catalog doesn't
+                // have the upsell tag yet.
+                ->push(['success' => true, 'data' => [
+                    ['id' => 40, 'name' => 'Gemma'],
+                ]], 200)
+                // The POST create.
+                ->push(['success' => true, 'data' => ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm']], 200)
+                // addUpsellItem()'s own listTags() read, after the cache
+                // was busted by createTagIfMissing() — now includes it.
+                ->push(['success' => true, 'data' => [
+                    ['id' => 40, 'name' => 'Gemma'],
+                    ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'],
+                ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                // Pre-write GET.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001, 'items' => [], 'tags' => [],
+                ]], 200)
+                // PUT response.
+                ->push(['success' => true], 200)
+                // Post-write verify GET: item + both tags landed.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'var-1', 'quantity' => 2, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'], ['id' => 40, 'name' => 'Gemma']],
+                ]], 200),
         ]);
 
         $response = $this->actingAs($user)->postJson(route('calls.leads.upsell', $lead), [

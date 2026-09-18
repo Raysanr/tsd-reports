@@ -993,11 +993,59 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: addUpsellItem PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
-            } else {
-                $this->invalidateRawOrderCache($orderId);
+                return false;
             }
 
-            return $success;
+            $this->invalidateRawOrderCache($orderId);
+
+            // Same silent-PUT-failure class as addTagsToOrder() (confirmed
+            // live, 2026-09-18: order #1369400's upsell reported success
+            // here — the line item landed — but neither "UPSELL TSD - ..."
+            // tag ever actually attached, confirmed via a direct re-fetch
+            // of the real order). This method PUTs items and tags in the
+            // same call as addTagsToOrder() but never got the verify step
+            // that method received when that bug was first found — only
+            // the item's own presence is worth confirming here (a missing
+            // tag alone shouldn't fail the whole upsell and block the sale
+            // just because Pancake's tag catalog write is flakier than its
+            // item write), so this checks the item, not the tags.
+            $verifyOrder = $this->fetchRawOrder($orderId);
+
+            if ($verifyOrder === null) {
+                Log::warning('PancakeOrderTagApi: addUpsellItem could not verify the write (Pancake unreachable) — trusting the PUT response', ['order_id' => $orderId]);
+                return true;
+            }
+
+            $itemConfirmed = collect($verifyOrder['items'] ?? [])
+                ->contains(fn ($i) => ($i['variation_id'] ?? null) === $item['variation_id']);
+
+            if (!$itemConfirmed) {
+                Log::warning('PancakeOrderTagApi: addUpsellItem PUT reported success but the item never actually landed', [
+                    'order_id'     => $orderId,
+                    'variation_id' => $item['variation_id'],
+                ]);
+                return false;
+            }
+
+            $tagsConfirmed = $matchedTags->pluck('id')
+                ->every(fn ($id) => collect($verifyOrder['tags'] ?? [])->pluck('id')->contains($id));
+
+            if (!$tagsConfirmed) {
+                Log::warning('PancakeOrderTagApi: addUpsellItem: item landed but its upsell/TSA tag never actually attached — retrying via addTagsToOrder()', [
+                    'order_id' => $orderId,
+                    'wanted'   => $wantedTagNames->all(),
+                ]);
+                // One retry through addTagsToOrder() — same GET-merge-PUT
+                // shape as the write above, but with its own verify step,
+                // so this doesn't just log the same flaky failure twice.
+                // Not fatal if it still doesn't stick: the item (the part
+                // that actually matters for the sale) is already confirmed
+                // above, same reasoning as this method not failing the
+                // whole upsell over the tag in the first place.
+                $this->addTagsToOrder($orderId, $wantedTagNames->all());
+            }
+
+            return true;
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: addUpsellItem threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
             return false;

@@ -1245,11 +1245,13 @@ class LeadController extends Controller
 
         $success = $api->removeTagFromOrder($lead->pancake_order_id, $data['tag']);
 
+        $remainingTags = collect();
         if ($success) {
             $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
             if ($order) {
-                $order->update(['raw_tags' => collect($order->raw_tags ?? [])
-                    ->reject(fn ($t) => strcasecmp($t, $data['tag']) === 0)->values()->all()]);
+                $remainingTags = collect($order->raw_tags ?? [])
+                    ->reject(fn ($t) => strcasecmp($t, $data['tag']) === 0)->values();
+                $order->update(['raw_tags' => $remainingTags->all()]);
                 $order->untrackAppAddedTag($data['tag']);
             }
         }
@@ -1259,6 +1261,32 @@ class LeadController extends Controller
             "Removed tag \"{$data['tag']}\" by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
             $user
         );
+
+        // Same "ownership follows whoever actually resolves a shared
+        // Callbacks pickup" rule updateDisposition() already applies when a
+        // TSA logs an Outcome (see that method's own doc comment, and the
+        // 2026-09-16 request it quotes). Removing the tag straight from the
+        // POS Tags chip panel is a second, equally real way a TSA resolves
+        // one — confirmed live, 2026-09-18: Angel called Marisol's
+        // "unattended" lead, upsold it, and manually removed the tag here
+        // instead of going through Log Outcome, and ownership never
+        // followed her. Only reassigns when: (1) the tag actually removed
+        // was itself a callback trigger (removing an unrelated tag says
+        // nothing about resolving the callback); (2) the lead was
+        // genuinely in the shared queue (callback_at was set); (3) no
+        // OTHER remaining real Pancake tag still matches a trigger keyword
+        // (e.g. "Not answering" AND "Unattended" both present — removing
+        // just one hasn't actually resolved it yet); (4) the acting TSA
+        // isn't already the owner; (5) not an admin override, same
+        // reasoning as updateDisposition()'s own check.
+        if ($success && $lead->callback_at !== null
+            && collect(self::CALLBACK_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($data['tag'], $kw) !== false)
+            && !$remainingTags->contains(fn ($t) => collect(self::CALLBACK_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($t, $kw) !== false))
+            && !$user->isAtLeastAdmin() && $lead->tsa_id !== $user->tsa_id && $user->tsa_id) {
+            $fromLabel = $lead->tsa?->display_name ?? 'Unassigned';
+            $lead->update(['tsa_id' => $user->tsa_id, 'disposition' => null, 'callback_at' => null]);
+            LeadActivity::log($lead, 'transferred', "Picked up from the shared Callbacks queue — reassigned from {$fromLabel} to {$user->name}.", $user);
+        }
 
         if (!$success) {
             return response()->json(['success' => false, 'error' => 'Could not remove this tag in Pancake — try again or remove it directly in POS.'], 500);
