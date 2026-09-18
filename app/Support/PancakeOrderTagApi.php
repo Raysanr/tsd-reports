@@ -257,6 +257,77 @@ class PancakeOrderTagApi
     }
 
     /**
+     * Sets ONE line item's own Assignee — the real per-item counterpart to
+     * updateAssignee() above. Regression fix, explicit report 2026-09-18:
+     * "i want the assignee is the per product like this because it is
+     * like in the pos ... but in the call tracker the 2 product including
+     * upsell it has no assignee in that" — confirmed live against real
+     * production orders that EACH item in items[] carries its own
+     * independent assigning_seller/assigning_seller_id, distinct from the
+     * order-level field; Pancake's own POS row-level icon falls back to
+     * the order-level assignee only when the item's own is null (confirmed
+     * live: a real 2-item order with both items' assigning_seller_id null
+     * still showed the order-level assignee's name on every row in POS).
+     * Same GET-then-PUT-whole-order, match-by-variation_id pattern as
+     * updateItem() above. $staffId null clears just this item's own
+     * override (it then falls back to the order-level assignee again, same
+     * as Pancake's own empty-state behavior).
+     */
+    public function updateItemAssignee(string $orderId, string $variationId, ?string $staffId): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating item assignee failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+
+            $found = false;
+            $order['items'] = collect($order['items'] ?? [])->map(function ($item) use ($variationId, $staffId, &$found) {
+                if ((string) ($item['variation_id'] ?? '') !== $variationId) {
+                    return $item;
+                }
+                $found = true;
+                $item['assigning_seller_id'] = $staffId;
+                return $item;
+            })->values()->all();
+
+            if (!$found) {
+                Log::warning('PancakeOrderTagApi: updateItemAssignee found no matching variation_id', ['order_id' => $orderId, 'variation_id' => $variationId]);
+                return false;
+            }
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateItemAssignee PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateItemAssignee threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
      * Raw order GET, shared by getOrderDetail() and getNotes() below — both
      * hit this exact same Pancake endpoint for the exact same order object,
      * just reading different fields off it. Cached for

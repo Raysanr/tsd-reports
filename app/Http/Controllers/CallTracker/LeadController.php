@@ -974,11 +974,21 @@ class LeadController extends Controller
         }
 
         $data = $request->validate([
-            'staff_id'   => ['nullable', 'string'],
-            'staff_name' => ['nullable', 'string', 'max:255'],
+            'staff_id'     => ['nullable', 'string'],
+            'staff_name'   => ['nullable', 'string', 'max:255'],
+            'variation_id' => ['nullable', 'string'],
         ]);
 
-        $success = $api->updateAssignee($lead->pancake_order_id, $data['staff_id'] ?? null);
+        // Per-item when variation_id is given (the normal path from the
+        // Products card's own per-row icon — explicit report, 2026-09-18:
+        // "i want the assignee is the per product like this because it is
+        // like in the pos ... but in the call tracker the 2 product
+        // including upsell it has no assignee in that"), order-level
+        // otherwise — see PancakeOrderTagApi::updateItemAssignee()'s own
+        // doc comment for why both exist.
+        $success = !empty($data['variation_id'])
+            ? $api->updateItemAssignee($lead->pancake_order_id, $data['variation_id'], $data['staff_id'] ?? null)
+            : $api->updateAssignee($lead->pancake_order_id, $data['staff_id'] ?? null);
 
         $label = $data['staff_name'] ?? ($data['staff_id'] ? $data['staff_id'] : 'No assigned staff');
         LeadActivity::log(

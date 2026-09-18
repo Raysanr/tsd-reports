@@ -1125,6 +1125,49 @@ class LeadControllerTest extends TestCase
         Http::assertSent(fn ($r) => $r->method() === 'PUT' && array_key_exists('assigning_seller_id', $r->data()) && $r['assigning_seller_id'] === null);
     }
 
+    /**
+     * Per-item assignee (regression fix, explicit report 2026-09-18: "i
+     * want the assignee is the per product like this because it is like
+     * in the pos ... but in the call tracker the 2 product including
+     * upsell it has no assignee in that, it should be like in the pos") —
+     * a variation_id in the payload routes to updateItemAssignee() instead
+     * of the order-level updateAssignee(), writing INTO that one item's
+     * own object in items[], not the order root.
+     */
+    public function test_setting_the_assignee_with_a_variation_id_writes_to_that_items_own_field(): void
+    {
+        $this->fakePosStaff([], [
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => [
+                'id' => 1,
+                'tags' => [],
+                'items' => [
+                    ['variation_id' => 'v1', 'assigning_seller_id' => null],
+                    ['variation_id' => 'v2', 'assigning_seller_id' => null],
+                ],
+            ]], 200),
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma19@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.assignee', $lead), [
+            'staff_id' => 'u1', 'staff_name' => 'Ray Raymundo', 'variation_id' => 'v2',
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT') return false;
+            $items = collect($r['items']);
+            $v1 = $items->firstWhere('variation_id', 'v1');
+            $v2 = $items->firstWhere('variation_id', 'v2');
+            return array_key_exists('assigning_seller_id', $v1) && $v1['assigning_seller_id'] === null
+                && ($v2['assigning_seller_id'] ?? null) === 'u1';
+        });
+    }
+
     public function test_a_tsa_cannot_set_the_assignee_on_someone_elses_lead(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();

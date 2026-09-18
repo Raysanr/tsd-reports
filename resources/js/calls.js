@@ -2023,65 +2023,72 @@ document.addEventListener('click', (e) => {
 });
 
 // Assignee picker (explicit request, 2026-09-18: "in the leads modal has
-// this icon too like can assign the asignee too like in the pos") — same
-// inline search-popup pattern as Add Tag/Add Upsell above (open on click,
-// search-as-you-type against a real Pancake catalog, no full detail-card
-// reload on pick — see submitInlineTagAdd()'s own comment for why that
-// reload was removed there; the same reasoning applies here from the
-// start). Writes straight to Pancake's real order (assigning_seller_id via
-// LeadController::updateAssignee() -> PancakeOrderTagApi::
-// updateAssignee()), not a locally-cached field — there is no local
-// column for this, same as Pancake Notes above.
+// this icon too like can assign the asignee too like in the pos", then
+// regression report: "i want the assignee is the per product like this
+// because it is like in the pos ... but in the call tracker the 2 product
+// including upsell it has no assignee in that") — PER LINE ITEM, not a
+// single order-level widget, matching Pancake's own per-row icon. This
+// means there can be MULTIPLE .inline-assignee-wrap elements on one page
+// (one per item, potentially several on a multi-item order), so — unlike
+// initInlineTagsPanel()'s single #id-based version — everything here is
+// class-based with event delegation, keyed off the closest wrap element
+// rather than a single module-level lookup. Same inline search-popup
+// pattern as Add Tag/Add Upsell above otherwise (open on click, search-
+// as-you-type, no full detail-card reload on pick — see
+// submitInlineTagAdd()'s own comment for why that reload was removed
+// there). Writes straight to Pancake's real order item
+// (items[].assigning_seller_id via LeadController::updateAssignee() ->
+// PancakeOrderTagApi::updateItemAssignee(), keyed by variation_id same as
+// updateItem()/removeItem() already are), not a locally-cached field.
 let inlineAssigneeDebounce = null;
 
 function initInlineAssigneePanel() {
-    const wrap = document.getElementById('inlineAssigneeWrap');
-    if (!wrap) return;
-
-    document.getElementById('inlineAssigneePanel')?.classList.add('hidden');
-
-    const search = document.getElementById('inlineAssigneeSearch');
-    if (search) {
-        search.addEventListener('input', (e) => {
-            clearTimeout(inlineAssigneeDebounce);
-            inlineAssigneeDebounce = setTimeout(() => searchInlineAssignee(wrap.dataset.leadId, e.target.value.trim()), 250);
-        });
-    }
+    document.querySelectorAll('.inline-assignee-panel').forEach((panel) => panel.classList.add('hidden'));
 }
 
-window.openInlineAssignee = function () {
-    const panel = document.getElementById('inlineAssigneePanel');
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.inline-assignee-btn');
+    if (!btn) return;
+
+    const wrap = btn.closest('.inline-assignee-wrap');
+    const panel = wrap?.querySelector('.inline-assignee-panel');
     if (!panel) return;
 
     const wasOpen = !panel.classList.contains('hidden');
-    panel.classList.add('hidden');
+    // Close every OTHER open assignee panel first — only one should ever
+    // be open at a time across all the item rows.
+    document.querySelectorAll('.inline-assignee-panel').forEach((p) => p.classList.add('hidden'));
     if (wasOpen) return;
 
     panel.classList.remove('hidden');
-    const wrap = document.getElementById('inlineAssigneeWrap');
-    searchInlineAssignee(wrap.dataset.leadId, '');
-    const search = document.getElementById('inlineAssigneeSearch');
-    search.value = '';
-    search.focus();
-};
+    searchInlineAssignee(wrap);
+    const search = panel.querySelector('.inline-assignee-search');
+    if (search) { search.value = ''; search.focus(); }
+});
 
-async function searchInlineAssignee(leadId, q) {
-    const results = document.getElementById('inlineAssigneeResults');
-    if (!results) return;
+document.addEventListener('input', (e) => {
+    const search = e.target.closest('.inline-assignee-search');
+    if (!search) return;
+    const wrap = search.closest('.inline-assignee-wrap');
+    clearTimeout(inlineAssigneeDebounce);
+    inlineAssigneeDebounce = setTimeout(() => searchInlineAssignee(wrap, search.value.trim()), 250);
+});
+
+async function searchInlineAssignee(wrap, q = '') {
+    const results = wrap?.querySelector('.inline-assignee-results');
+    if (!wrap || !results) return;
+    const leadId = wrap.dataset.leadId;
 
     try {
         const res = await fetch(`/calls/leads/${leadId}/staff?q=` + encodeURIComponent(q));
         const data = await res.json();
-        renderInlineAssigneeResults(data.success ? data.staff : []);
+        renderInlineAssigneeResults(results, data.success ? data.staff : []);
     } catch (e) {
-        renderInlineAssigneeResults([]);
+        renderInlineAssigneeResults(results, []);
     }
 }
 
-function renderInlineAssigneeResults(staff) {
-    const results = document.getElementById('inlineAssigneeResults');
-    if (!results) return;
-
+function renderInlineAssigneeResults(results, staff) {
     // "No assigned staff" is always the first row (clears the assignee),
     // matching Pancake's own dropdown having an empty/placeholder option —
     // not just an omission when a search happens to return zero matches.
@@ -2106,15 +2113,16 @@ function renderInlineAssigneeResults(staff) {
 document.addEventListener('click', (e) => {
     const row = e.target.closest('.inline-assignee-result-row');
     if (!row) return;
-    submitInlineAssignee(row.dataset.id || null, row.dataset.name || null);
+    const wrap = row.closest('.inline-assignee-wrap');
+    if (!wrap) return;
+    submitInlineAssignee(wrap, row.dataset.id || null, row.dataset.name || null);
 });
 
-async function submitInlineAssignee(staffId, staffName) {
-    const wrap = document.getElementById('inlineAssigneeWrap');
-    if (!wrap) return;
+async function submitInlineAssignee(wrap, staffId, staffName) {
     const leadId = wrap.dataset.leadId;
-    const label = document.getElementById('inlineAssigneeLabel');
-    const panel = document.getElementById('inlineAssigneePanel');
+    const variationId = wrap.dataset.variationId;
+    const label = wrap.querySelector('.inline-assignee-label');
+    const panel = wrap.querySelector('.inline-assignee-panel');
 
     try {
         const res = await fetch(`/calls/leads/${leadId}/assignee`, {
@@ -2124,7 +2132,7 @@ async function submitInlineAssignee(staffId, staffName) {
                 Accept: 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
             },
-            body: JSON.stringify({ staff_id: staffId, staff_name: staffName }),
+            body: JSON.stringify({ staff_id: staffId, staff_name: staffName, variation_id: variationId }),
         });
         const data = await res.json();
 
@@ -2145,8 +2153,8 @@ async function submitInlineAssignee(staffId, staffName) {
 }
 
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('#inlineAssigneeWrap')) {
-        document.getElementById('inlineAssigneePanel')?.classList.add('hidden');
+    if (!e.target.closest('.inline-assignee-wrap')) {
+        document.querySelectorAll('.inline-assignee-panel').forEach((p) => p.classList.add('hidden'));
     }
 });
 
