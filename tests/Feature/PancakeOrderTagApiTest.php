@@ -184,6 +184,45 @@ class PancakeOrderTagApiTest extends TestCase
         Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
 
+    /**
+     * Hardened, explicit follow-up 2026-09-18 ("is it possible that will
+     * be better" — after flagging that Pancake's own API is confirmed
+     * flaky, real 15s cURL timeouts observed live right after the
+     * verification fix first shipped): if the PUT itself succeeded but
+     * the FOLLOW-UP verify-GET can't reach Pancake, that must NOT be
+     * treated as "the tag failed" — that would turn Pancake's own
+     * flakiness into a brand new false-failure mode for a write that
+     * genuinely went through. Falls back to trusting the PUT's own
+     * success signal instead.
+     */
+    public function test_add_tags_to_order_trusts_the_put_when_only_the_verify_fetch_fails(): void
+    {
+        $putSucceeded = false;
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 10, 'name' => 'Confirmed'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$putSucceeded) {
+                if ($request->method() === 'PUT') {
+                    $putSucceeded = true;
+                    return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => [['id' => 10, 'name' => 'Confirmed']]]], 200);
+                }
+                // The pre-write GET must still succeed (this method needs
+                // the order's current state to build its PUT body) — only
+                // the SECOND GET, the verify fetch after a successful PUT,
+                // is the one that fails here.
+                if (!$putSucceeded) {
+                    return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200);
+                }
+                return Http::response(['message' => 'timeout'], 504);
+            },
+        ]);
+
+        $results = $this->api->addTagsToOrder('9001', ['Confirmed']);
+
+        $this->assertSame(['Confirmed' => true], $results);
+    }
+
     public function test_create_tag_if_missing_creates_a_new_tag_when_none_exists(): void
     {
         Http::fake([

@@ -164,9 +164,30 @@ class PancakeOrderTagApi
             // own PUT silently no-ops for a given request — the same
             // class of gap addTagsToOrder() can't otherwise detect from
             // the PUT response alone.
-            $verifyOrder  = $this->fetchRawOrder($orderId);
-            $verifyTagIds = collect($verifyOrder['tags'] ?? [])->pluck('id')->all();
+            //
+            // Hardened, explicit follow-up 2026-09-18 ("is it possible
+            // that will be better" — after flagging that Pancake's API is
+            // confirmed flaky, real 15s cURL timeouts observed live right
+            // after this fix shipped): fetchRawOrder() returns null on
+            // ANY failure to reach Pancake (timeout, connection error),
+            // not just a genuinely missing tag. Treating a null verify
+            // read as "tag missing" would turn Pancake's own flakiness
+            // into a NEW false-failure mode — a tag that really did save
+            // (the PUT above already confirmed 2xx/success) getting
+            // reported as failed just because the follow-up GET timed
+            // out. When verification itself couldn't run, this falls back
+            // to trusting the PUT's own success signal instead of
+            // guessing failure — only a verify read that actually
+            // SUCCEEDED and genuinely shows the tag absent counts as a
+            // real silent-failure.
+            $verifyOrder = $this->fetchRawOrder($orderId);
 
+            if ($verifyOrder === null) {
+                Log::warning('PancakeOrderTagApi: addTagsToOrder could not verify the write (Pancake unreachable) — trusting the PUT response', ['order_id' => $orderId]);
+                return collect($tagNames)->mapWithKeys(fn ($name) => [$name => $matched[$name] !== null])->all();
+            }
+
+            $verifyTagIds = collect($verifyOrder['tags'] ?? [])->pluck('id')->all();
             $confirmedIds = $toAdd->filter(fn ($tag) => in_array($tag['id'], $verifyTagIds, true))->pluck('id');
 
             if ($confirmedIds->count() < $toAdd->count()) {
