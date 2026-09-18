@@ -103,6 +103,91 @@ class LeadControllerTest extends TestCase
         $response->assertSee('Mariel Callback');
     }
 
+    /** Explicit request, 2026-09-18: "how will they know that it is
+     *  currently calling by other tsa" — Callbacks has no owner-only
+     *  guard, so two TSAs could both dial the same due callback at once
+     *  with zero visibility into it. A recent call_clicked activity from
+     *  a TSA who's still Calling/Wrap Up right now should surface as an
+     *  in-progress badge to anyone ELSE viewing that same lead. */
+    public function test_callbacks_view_shows_who_is_currently_calling_a_shared_lead(): void
+    {
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+        $mariel->update(['status' => TsaShift::STATUS_CALLING]);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        $lead = Lead::create([
+            'pancake_order_id' => 'cb-live', 'customer_name' => 'Shared Callback Customer',
+            'product_id' => $product->id, 'tsa_id' => $kathleen->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-live@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+        LeadActivity::log($lead, 'call_clicked', 'Mariel User clicked to call Shared Callback Customer.', $marielUser);
+
+        $kathleenUser = User::create(['name' => 'Kathleen User', 'email' => 'kathleen-live@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $kathleen->id]);
+
+        $response = $this->actingAs($kathleenUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertSee('Mariel User');
+    }
+
+    /** No stale badge: a click from over 10 minutes ago (the call is long
+     *  over one way or another) must not show as still in progress. */
+    public function test_callbacks_view_does_not_show_a_stale_calling_indicator(): void
+    {
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+        $mariel->update(['status' => TsaShift::STATUS_CALLING]);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        $lead = Lead::create([
+            'pancake_order_id' => 'cb-stale', 'customer_name' => 'Stale Callback Customer',
+            'product_id' => $product->id, 'tsa_id' => $kathleen->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-stale@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+        LeadActivity::log($lead, 'call_clicked', 'Mariel User clicked to call Stale Callback Customer.', $marielUser);
+        LeadActivity::where('lead_id', $lead->id)->where('type', 'call_clicked')->update(['created_at' => now()->subMinutes(20)]);
+
+        $kathleenUser = User::create(['name' => 'Kathleen User', 'email' => 'kathleen-stale@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $kathleen->id]);
+
+        $response = $this->actingAs($kathleenUser)->get(route('calls.leads.index', ['view' => 'callbacks']));
+
+        $response->assertOk();
+        $response->assertDontSee('Mariel User');
+    }
+
+    /** No badge shown to the TSA who IS the one currently calling —
+     *  telling someone "X is calling" when X is literally them adds
+     *  nothing. */
+    public function test_callbacks_view_does_not_show_the_indicator_to_the_caller_themselves(): void
+    {
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $mariel->update(['status' => TsaShift::STATUS_CALLING]);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        $lead = Lead::create([
+            'pancake_order_id' => 'cb-self', 'customer_name' => 'Self Callback Customer',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'callback_at' => now()->subHour(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-self@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+        LeadActivity::log($lead, 'call_clicked', 'Mariel User clicked to call Self Callback Customer.', $marielUser);
+
+        // X-Table-Refresh (same as the table-refresh tests above): the
+        // full page layout also shows the logged-in user's own name in
+        // the nav, so plain assertDontSee('Mariel User') against the
+        // whole page would false-positive on that, not on the row badge
+        // this test actually cares about — the table fragment alone
+        // isolates it correctly.
+        $response = $this->actingAs($marielUser)->get(route('calls.leads.index', ['view' => 'callbacks']), ['X-Table-Refresh' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('Self Callback Customer');
+        $response->assertDontSee('Mariel User');
+    }
+
     /**
      * Regression test, 2026-09-14: "the callbacks should be no tsa filter
      * because it should be visible to all users so you can remove the tsa

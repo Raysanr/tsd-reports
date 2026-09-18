@@ -420,6 +420,46 @@ class LeadController extends Controller
         // attempt that made this page slow to load and was reverted.
         $orderBaseProducts = $orders->map(fn ($o) => $o->base_product);
 
+        // "Currently being called by" indicator (explicit request,
+        // 2026-09-18: Callbacks is shared across every TSA — "how will
+        // they know that it is currently calling by other tsa" — with no
+        // signal at all, two TSAs could both dial the same due callback
+        // at once). Only computed for the Callbacks view: the plain Leads/
+        // Overdue views are already scoped to one TSA's own queue, so
+        // there's no "someone ELSE is on this" case to show there.
+        //
+        // "In progress" = the lead's most recent call_clicked activity
+        // (LeadActivity, same source the Recently Called panel already
+        // reads — user_id is the VIEWER who clicked, not the lead's own
+        // tsa_id, so this correctly attributes a shared-queue pickup to
+        // whoever actually dialed) landed within the last 10 minutes AND
+        // that clicking TSA is still in Calling/Wrap Up right now.
+        // Both conditions matter, not just one: TsaShift.status alone
+        // can't say WHICH lead someone's mid-call on (it's a per-TSA, not
+        // per-lead, field — logCallClick() flips it on the LEAD'S OWNER,
+        // not the clicker, a separate existing quirk on a shared callback
+        // — see that method's own comment), and a bare recent click alone
+        // can't tell a genuine still-in-progress call apart from one that
+        // already ended a few minutes ago. The 10-minute window is
+        // deliberately generous (a real call + wrap-up easily runs that
+        // long) but still short enough that a stale click from hours
+        // earlier never falsely shows as "in progress."
+        $callingByLead = collect();
+        if ($view === 'callbacks' && $leads->isNotEmpty()) {
+            $recentClicks = LeadActivity::whereIn('lead_id', $leads->pluck('id'))
+                ->where('type', 'call_clicked')
+                ->where('created_at', '>=', now()->subMinutes(10))
+                ->whereNotNull('user_id')
+                ->orderByDesc('id')
+                ->with('user.tsa')
+                ->get()
+                ->unique('lead_id'); // newest click per lead only (already ordered desc).
+
+            $callingByLead = $recentClicks
+                ->filter(fn ($a) => in_array($a->user?->tsa?->status, [TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP], true))
+                ->mapWithKeys(fn ($a) => [$a->lead_id => $a->user->name]);
+        }
+
         // Real tag catalog colors (explicit request, 2026-08-22) — matches each
         // real tag's dot to the same color Pancake POS itself uses, not a generic
         // gray. listTags() is cached 5 minutes (see PancakeOrderTagApi's own doc
@@ -433,6 +473,7 @@ class LeadController extends Controller
             'orderStatuses'         => $orderStatuses,
             'orderTags'             => $orderTags,
             'orderBaseProducts'     => $orderBaseProducts,
+            'callingByLead'         => $callingByLead,
             'tagColors'             => $tagColors,
             'tsas'                  => $user->isAtLeastAdmin() ? TsaShift::orderBy('sort_order')->get() : collect(),
             'selectedTsa'           => $request->integer('tsa'),

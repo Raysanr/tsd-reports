@@ -121,6 +121,24 @@
                          still work — see openLeadModalFromLink() in calls.js. --}}
                     <a href="{{ route('calls.leads.show', $lead) }}" onclick="return openLeadModalFromLink(event, {{ $lead->id }})"
                        class="hover:text-primary hover:underline">{{ $lead->customer_name ?: '—' }}</a>
+                    {{-- "Currently calling" indicator (explicit request,
+                         2026-09-18) — Callbacks is shared across every TSA
+                         with no signal otherwise for whether someone else
+                         is already on this exact lead right now (see
+                         LeadController::index()'s own comment on
+                         $callingByLead for how "in progress" is decided).
+                         Only ever shown to someone who ISN'T that TSA —
+                         no point telling a TSA "X is calling" when X is
+                         literally them. --}}
+                    @if($view === 'callbacks' && isset($callingByLead[$lead->id]) && $callingByLead[$lead->id] !== auth()->user()->name)
+                    <span class="inline-flex items-center gap-1 ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-400 align-middle animate-pulse"
+                          title="{{ $callingByLead[$lead->id] }} clicked to call this customer within the last few minutes.">
+                        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                        </svg>
+                        {{ $callingByLead[$lead->id] }}
+                    </span>
+                    @endif
                 </td>
                 <td class="px-4 py-3">
                     <div class="flex items-center gap-2">
