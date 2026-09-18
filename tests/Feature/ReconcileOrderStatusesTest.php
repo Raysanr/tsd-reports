@@ -1003,18 +1003,24 @@ class ReconcileOrderStatusesTest extends TestCase
             'app_added_tags'   => ['UPSELL TSD - 1 Haplunas Healing Eye Cream'],
         ]);
 
+        // addTagsToOrder() now re-fetches after its own PUT to verify the
+        // tag actually landed (explicit report, 2026-09-18: "look at this
+        // at angel, she tag it as upsell tsd") — a stateful fake tracking
+        // tags across every GET/PUT this reconcile pass makes for this
+        // order, not a fixed response that could never reflect the
+        // re-apply's own effect on that extra verify call.
+        $tagsOnOrder = [['id' => 1, 'name' => 'HANNAH']];
         Http::fake([
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
             'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response(['data' => [
                 ['id' => 489, 'name' => 'UPSELL TSD - 1 Haplunas Healing Eye Cream'],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/*/orders/1369280*' => Http::response(['data' => [
-                'id' => 1369280,
-                // The tag is genuinely gone from Pancake's own current
-                // state — this app's own record still knows it should be
-                // there, that mismatch is what triggers the re-apply.
-                'tags' => [['id' => 1, 'name' => 'HANNAH']],
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369280*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['data' => ['id' => 1369280, 'tags' => $tagsOnOrder]], 200);
+            },
         ]);
 
         $this->artisan('pancake:reconcile-statuses')->assertSuccessful();

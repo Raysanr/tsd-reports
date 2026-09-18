@@ -147,11 +147,41 @@ class PancakeOrderTagApi
 
             if (!$success) {
                 Log::warning('PancakeOrderTagApi: addTagsToOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
-            } else {
-                $this->invalidateRawOrderCache($orderId);
+                return array_fill_keys($tagNames, false);
             }
 
-            return collect($tagNames)->mapWithKeys(fn ($name) => [$name => $success && $matched[$name] !== null])->all();
+            $this->invalidateRawOrderCache($orderId);
+
+            // Real bug, confirmed live via a real order's own Pancake
+            // history (explicit report, 2026-09-18: "look at this at
+            // angel, she tag it as upsell tsd" — order #1369326): a PUT
+            // here can return HTTP 200 with no success:false in the body
+            // (the check above treats that as success) while the tag
+            // never actually lands on the order — confirmed by the
+            // complete absence of any corresponding tags-diff entry in
+            // Pancake's own history for that exact write. Verifying with
+            // a fresh re-fetch closes this regardless of why Pancake's
+            // own PUT silently no-ops for a given request — the same
+            // class of gap addTagsToOrder() can't otherwise detect from
+            // the PUT response alone.
+            $verifyOrder  = $this->fetchRawOrder($orderId);
+            $verifyTagIds = collect($verifyOrder['tags'] ?? [])->pluck('id')->all();
+
+            $confirmedIds = $toAdd->filter(fn ($tag) => in_array($tag['id'], $verifyTagIds, true))->pluck('id');
+
+            if ($confirmedIds->count() < $toAdd->count()) {
+                Log::warning('PancakeOrderTagApi: addTagsToOrder PUT reported success but a tag never actually landed', [
+                    'order_id' => $orderId,
+                    'missing'  => $toAdd->reject(fn ($tag) => $confirmedIds->contains($tag['id']))->pluck('name')->values()->all(),
+                ]);
+            }
+
+            // Per requested $name: true only if it matched a real catalog
+            // tag AND that tag's id is confirmed present on the re-fetched
+            // order — not just "the PUT itself didn't error."
+            return collect($tagNames)->mapWithKeys(fn ($name) => [
+                $name => $matched[$name] !== null && $confirmedIds->contains($matched[$name]['id']),
+            ])->all();
         } catch (\Throwable $e) {
             Log::warning('PancakeOrderTagApi: addTagsToOrder threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
             return array_fill_keys($tagNames, false);

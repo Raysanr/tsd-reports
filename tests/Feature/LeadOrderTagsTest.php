@@ -139,14 +139,24 @@ class LeadOrderTagsTest extends TestCase
             'raw_tags' => ['GEMMA'], 'synced_at' => now(),
         ]);
 
+        // addTagsToOrder() now re-fetches after the PUT to verify the tag
+        // actually landed (explicit report, 2026-09-18: "look at this at
+        // angel, she tag it as upsell tsd" — a real PUT reported success
+        // while the tag never actually appeared on the order) — a stateful
+        // fake tracking tags across GET -> PUT -> verify-GET, not a fixed
+        // 2-response sequence that the extra verify call would exhaust.
+        $tagsOnOrder = [['id' => 1, 'name' => 'GEMMA']];
         Http::fake([
             'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
                 ['id' => 1, 'name' => 'GEMMA'],
                 ['id' => 2, 'name' => 'SCAR CREAM'],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
-                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => [['id' => 1, 'name' => 'GEMMA']]]], 200)
-                ->push(['success' => true], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => $tagsOnOrder]], 200);
+            },
         ]);
 
         $response = $this->actingAs($user)->postJson(route('calls.leads.tags.add', $lead), ['tag' => 'SCAR CREAM']);

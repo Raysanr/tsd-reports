@@ -1066,9 +1066,32 @@ class LeadControllerTest extends TestCase
      * edit. See that command's own test file for the reconciliation
      * side; these cover only the recording side.
      */
+    /**
+     * addTagsToOrder() now verifies a tag actually landed via a follow-up
+     * GET after the PUT (explicit report, 2026-09-18: "look at this at
+     * angel, she tag it as upsell tsd" — a real PUT had reported success
+     * while the tag never actually appeared on the order, confirmed via
+     * that order's own Pancake history showing no corresponding tags-diff
+     * entry at all for that write). fakePosTags()'s own static fake
+     * always returns the SAME tags:[] on every request matching
+     * orders/1*, which can't represent "the tag exists after the write" —
+     * this test needs its own closure-based fake that actually tracks
+     * state across the GET -> PUT -> verify-GET sequence.
+     */
     public function test_adding_a_tag_records_it_in_app_added_tags(): void
     {
-        $this->fakePosTags([['id' => 10, 'name' => 'Confirmed']]);
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        $tagsOnOrder = [];
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [['id' => 10, 'name' => 'Confirmed']]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => ['id' => 1, 'tags' => $tagsOnOrder]], 200);
+            },
+        ]);
 
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -1080,6 +1103,37 @@ class LeadControllerTest extends TestCase
 
         $order = Order::where('pancake_order_id', '1')->first();
         $this->assertContains('Confirmed', $order->app_added_tags);
+    }
+
+    /** The exact real-world failure mode this fix closes: a PUT that
+     *  reports success (HTTP 200, no success:false in the body) but the
+     *  tag genuinely never lands — the follow-up verify-GET must catch
+     *  this and report failure, not trust the PUT response alone. */
+    public function test_a_tag_add_that_silently_fails_to_land_is_reported_as_a_failure(): void
+    {
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [['id' => 10, 'name' => 'Confirmed']]], 200),
+            // Every GET (both the pre-write read and the post-write
+            // verify) and the PUT itself all report tags:[] — the PUT
+            // "succeeds" but the tag is never actually reflected, same
+            // shape as the real order that surfaced this bug.
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1, 'tags' => []]], 200),
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma25@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.tags.add', $lead), ['tag' => 'Confirmed']);
+
+        $response->assertStatus(500);
+        $response->assertJson(['success' => false]);
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertNotContains('Confirmed', $order->app_added_tags ?? []);
     }
 
     public function test_removing_a_tag_untracks_it_from_app_added_tags(): void

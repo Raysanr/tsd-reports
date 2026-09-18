@@ -48,16 +48,32 @@ class PancakeOrderTagApiTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * addTagsToOrder() now verifies a tag actually landed via a follow-up
+     * GET after the PUT (explicit report, 2026-09-18: "look at this at
+     * angel, she tag it as upsell tsd" — a real PUT reported success while
+     * the tag never actually appeared, confirmed via that order's own
+     * Pancake history showing no corresponding diff for that write at
+     * all). Tests that assert a genuinely successful add need a stateful
+     * fake tracking tags across GET -> PUT -> verify-GET, not a static
+     * response that can never reflect "the tag exists after the write."
+     */
     public function test_add_tags_to_order_merges_new_tags_into_the_orders_existing_tags(): void
     {
+        $tagsOnOrder = [['id' => 99, 'name' => 'EXISTING']];
         Http::fake([
             'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
                 ['id' => 10, 'name' => 'Confirmed'],
                 ['id' => 20, 'name' => 'Gemma'],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
-                'id' => 9001, 'tags' => [['id' => 99, 'name' => 'EXISTING']], 'note' => 'do not clobber me',
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => [
+                    'id' => 9001, 'tags' => $tagsOnOrder, 'note' => 'do not clobber me',
+                ]], 200);
+            },
         ]);
 
         $results = $this->api->addTagsToOrder('9001', ['Confirmed', 'Gemma']);
@@ -107,13 +123,17 @@ class PancakeOrderTagApiTest extends TestCase
      */
     public function test_add_tags_to_order_matches_a_catalog_tag_with_trailing_whitespace(): void
     {
+        $tagsOnOrder = [];
         Http::fake([
             'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
                 ['id' => 30, 'name' => 'Not answering '],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
-                'id' => 9001, 'tags' => [],
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => $tagsOnOrder]], 200);
+            },
         ]);
 
         // TrimStrings would have already stripped this before a real
@@ -131,13 +151,17 @@ class PancakeOrderTagApiTest extends TestCase
 
     public function test_add_tags_to_order_skips_a_tag_name_with_no_real_match_and_still_adds_the_rest(): void
     {
+        $tagsOnOrder = [];
         Http::fake([
             'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
                 ['id' => 10, 'name' => 'Confirmed'],
             ]], 200),
-            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::response(['success' => true, 'data' => [
-                'id' => 9001, 'tags' => [],
-            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) use (&$tagsOnOrder) {
+                if ($request->method() === 'PUT') {
+                    $tagsOnOrder = $request['tags'] ?? [];
+                }
+                return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => $tagsOnOrder]], 200);
+            },
         ]);
 
         $results = $this->api->addTagsToOrder('9001', ['Confirmed', 'Made Up Tag']);
