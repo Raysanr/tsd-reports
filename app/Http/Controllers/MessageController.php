@@ -128,10 +128,20 @@ class MessageController extends Controller
             ->orderBy('created_at')
             ->get();
 
-        Message::where('sender_id', $user->id)
+        // Marks read AFTER $messages is already loaded — the in-memory
+        // collection below is updated in the SAME loop that flags which
+        // ones just got newly marked, so the seenAt this exact response
+        // returns reflects "now", not the stale pre-update null a fresh
+        // reload would otherwise show one poll cycle later.
+        $now = now();
+        $justRead = Message::where('sender_id', $user->id)
             ->where('recipient_id', $me->id)
             ->whereNull('read_at')
-            ->update(['read_at' => now()]);
+            ->pluck('id');
+        if ($justRead->isNotEmpty()) {
+            Message::whereIn('id', $justRead)->update(['read_at' => $now]);
+            $messages->whereIn('id', $justRead)->each(fn (Message $m) => $m->read_at = $now);
+        }
 
         if ($request->wantsJson()) {
             return response()->json([
@@ -142,6 +152,13 @@ class MessageController extends Controller
                     'fromMe'    => $m->sender_id === $me->id,
                     'createdAt' => $m->created_at->toIso8601String(),
                     'label'     => $m->created_at->format('M j, g:i A'),
+                    // Only meaningful for a message the VIEWER sent (fromMe
+                    // true) — the read_at on a message they RECEIVED is
+                    // about their own read state, already handled above,
+                    // not something the thread UI shows for those.
+                    'seenAt' => $m->sender_id === $me->id && $m->read_at
+                        ? $m->read_at->format('M j, g:i A')
+                        : null,
                 ]),
                 'partner' => ['id' => $user->id, 'name' => $user->name],
             ]);

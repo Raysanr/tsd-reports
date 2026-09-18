@@ -139,6 +139,57 @@ class MessageControllerTest extends TestCase
         $this->assertNull($mine->fresh()->read_at);
     }
 
+    /**
+     * "Seen" indicator (explicit request, 2026-09-18: "how can i identify
+     * if the message has seen?") — a message the VIEWER sent shows
+     * seenAt once the recipient has opened the thread; null before that.
+     * A message the viewer RECEIVED never carries a seenAt at all — that
+     * field is only meaningful for the viewer's own sent messages (see
+     * MessageController::thread()'s own comment).
+     */
+    public function test_a_sent_message_shows_seen_at_once_the_recipient_opens_the_thread(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+
+        Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'Please call back.']);
+
+        // Before the recipient ever opens it — not seen yet.
+        $before = $this->actingAs($sender)->getJson(route('messages.thread', $recipient));
+        $before->assertOk();
+        $this->assertNull($before->json('messages.0.seenAt'));
+
+        // Recipient opens the thread — this is the read/seen event.
+        $this->actingAs($recipient)->getJson(route('messages.thread', $sender))->assertOk();
+
+        // Sender checks again — now shows as seen, reflecting the read
+        // immediately (not a stale null from before that same request's
+        // own read_at update, see thread()'s own doc comment).
+        $after = $this->actingAs($sender)->getJson(route('messages.thread', $recipient));
+        $after->assertOk();
+        $this->assertNotNull($after->json('messages.0.seenAt'));
+    }
+
+    /** seenAt is never set on a message the VIEWER received — that field
+     *  is scoped to the viewer's own sent messages only, the received
+     *  side's read state has nothing to show a "seen" label for in the
+     *  same sense. */
+    public function test_seen_at_is_null_for_a_message_the_viewer_received(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+
+        Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'Hi']);
+
+        // Recipient views their own thread — this message is one THEY
+        // received, not one they sent, so it should never carry seenAt
+        // even though it's now genuinely read (read_at IS set).
+        $response = $this->actingAs($recipient)->getJson(route('messages.thread', $sender));
+
+        $response->assertOk();
+        $this->assertNull($response->json('messages.0.seenAt'));
+    }
+
     public function test_unread_count_reflects_only_the_viewers_own_unread_messages(): void
     {
         $a = User::factory()->normal()->create();

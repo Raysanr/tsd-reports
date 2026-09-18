@@ -308,12 +308,22 @@
             threadBody.innerHTML = '<p class="text-slate-400 text-center text-xs font-mono py-8">No messages yet — say hello.</p>';
             return;
         }
+        // "Seen" only under the LATEST message the viewer sent — standard
+        // chat convention (WhatsApp/Messenger etc.): if the newest one you
+        // sent has been seen, every earlier one necessarily has too, so
+        // showing it on every message would just be noise. lastIndexOf,
+        // not the first match, since messages is oldest-first.
+        const lastMineIndex = messages.map((m) => m.fromMe).lastIndexOf(true);
+
         const wasAtBottom = threadBody.scrollTop + threadBody.clientHeight >= threadBody.scrollHeight - 20;
-        threadBody.innerHTML = messages.map((m) => `
+        threadBody.innerHTML = messages.map((m, i) => `
             <div class="flex ${m.fromMe ? 'justify-end' : 'justify-start'}">
-                <div class="max-w-[80%] ${m.fromMe ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
-                    <p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>
-                    <p class="text-[10px] mt-1 ${m.fromMe ? 'text-yellow-100' : 'text-slate-400'}">${escapeHtml(m.label)}</p>
+                <div class="max-w-[80%] flex flex-col ${m.fromMe ? 'items-end' : 'items-start'}">
+                    <div class="${m.fromMe ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
+                        <p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>
+                        <p class="text-[10px] mt-1 ${m.fromMe ? 'text-yellow-100' : 'text-slate-400'}">${escapeHtml(m.label)}</p>
+                    </div>
+                    ${i === lastMineIndex && m.seenAt ? `<p class="text-[10px] text-slate-400 mt-0.5 mr-1">Seen ${escapeHtml(m.seenAt)}</p>` : ''}
                 </div>
             </div>`).join('');
         if (wasAtBottom) threadBody.scrollTop = threadBody.scrollHeight;
