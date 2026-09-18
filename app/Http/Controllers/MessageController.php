@@ -40,7 +40,9 @@ class MessageController extends Controller
                 'conversations' => $conversations->map(fn ($row) => [
                     'id'          => $row['user']->id,
                     'name'        => $row['user']->name,
-                    'preview'     => \Illuminate\Support\Str::limit($row['lastMessage']->body, 60),
+                    'preview'     => $row['lastMessage']->body
+                        ? \Illuminate\Support\Str::limit($row['lastMessage']->body, 60)
+                        : '📷 Photo',
                     'label'       => $row['lastMessage']->created_at->format('M j, g:i A'),
                     'unreadCount' => $row['unreadCount'],
                 ]),
@@ -146,21 +148,8 @@ class MessageController extends Controller
         if ($request->wantsJson()) {
             return response()->json([
                 'success'  => true,
-                'messages' => $messages->map(fn (Message $m) => [
-                    'id'        => $m->id,
-                    'body'      => $m->body,
-                    'fromMe'    => $m->sender_id === $me->id,
-                    'createdAt' => $m->created_at->toIso8601String(),
-                    'label'     => $m->created_at->format('M j, g:i A'),
-                    // Only meaningful for a message the VIEWER sent (fromMe
-                    // true) — the read_at on a message they RECEIVED is
-                    // about their own read state, already handled above,
-                    // not something the thread UI shows for those.
-                    'seenAt' => $m->sender_id === $me->id && $m->read_at
-                        ? $m->read_at->format('M j, g:i A')
-                        : null,
-                ]),
-                'partner' => ['id' => $user->id, 'name' => $user->name],
+                'messages' => $messages->map(fn (Message $m) => $this->formatMessage($m, $me->id)),
+                'partner'  => ['id' => $user->id, 'name' => $user->name],
             ]);
         }
 
@@ -170,10 +159,19 @@ class MessageController extends Controller
         ]);
     }
 
-    /** Sends one message to $user. No block/mute/permission check beyond
-     *  "must be a real, active account" — confirmed scope: any signed-in
-     *  user can message any other, this is small internal team tooling,
-     *  not a public-facing product needing abuse controls. */
+    /** Sends one message to $user — text, an image, or both (at least one
+     *  required). No block/mute/permission check beyond "must be a real,
+     *  active account" — confirmed scope: any signed-in user can message
+     *  any other, this is small internal team tooling, not a public-facing
+     *  product needing abuse controls.
+     *
+     *  Images are stored as base64 IN the messages row (image/image_mime
+     *  columns), not saved to local disk — the tsd-reports web service has
+     *  no attached Railway volume (confirmed via `railway volume list`:
+     *  only the Postgres service has one), so local disk is wiped on every
+     *  redeploy. 3MB cap on the uploaded file keeps the base64-inflated row
+     *  (~4MB) well within Postgres's per-value limits for this low-volume
+     *  internal chat use case. */
     public function send(Request $request, User $user)
     {
         $me = Auth::user();
@@ -183,29 +181,57 @@ class MessageController extends Controller
         }
 
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:2000'],
+            'body'  => ['nullable', 'string', 'max:2000'],
+            'image' => ['nullable', 'image', 'mimes:jpeg,jpg,png,gif,webp', 'max:3072'],
         ]);
 
-        $message = Message::create([
+        $body = trim((string) ($data['body'] ?? ''));
+        $hasImage = $request->hasFile('image');
+
+        if ($body === '' && ! $hasImage) {
+            abort(422, 'Message cannot be empty.');
+        }
+
+        $attributes = [
             'sender_id'    => $me->id,
             'recipient_id' => $user->id,
-            'body'         => trim($data['body']),
-        ]);
+            'body'         => $body !== '' ? $body : null,
+        ];
+
+        if ($hasImage) {
+            $file = $request->file('image');
+            $attributes['image']      = base64_encode($file->get());
+            $attributes['image_mime'] = $file->getMimeType();
+        }
+
+        $message = Message::create($attributes);
 
         if ($request->wantsJson()) {
             return response()->json([
                 'success' => true,
-                'message' => [
-                    'id'        => $message->id,
-                    'body'      => $message->body,
-                    'fromMe'    => true,
-                    'createdAt' => $message->created_at->toIso8601String(),
-                    'label'     => $message->created_at->format('M j, g:i A'),
-                ],
+                'message' => $this->formatMessage($message, $me->id),
             ]);
         }
 
         return back();
+    }
+
+    /** Shared shape for a single message in JSON responses — used by both
+     *  send() (the just-sent message) and thread() (the full history), see
+     *  thread()'s own doc comment for why seenAt is scoped the way it is. */
+    private function formatMessage(Message $message, int $viewerId): array
+    {
+        return [
+            'id'        => $message->id,
+            'body'      => $message->body,
+            'image'     => $message->image ? "data:{$message->image_mime};base64,{$message->image}" : null,
+            'fromMe'    => $message->sender_id === $viewerId,
+            'createdAt' => $message->created_at->toIso8601String(),
+            'label'     => $message->created_at->format('M j, g:i A'),
+            'seenAt'    => $message->sender_id === $viewerId && $message->read_at
+                ? $message->read_at->format('M j, g:i A')
+                : null,
+        ];
     }
 
     /** Explicit mark-as-read, for a poller that wants to clear the badge

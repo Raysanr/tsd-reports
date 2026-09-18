@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *  migration's own doc comment for the full feature scope. */
 class Message extends Model
 {
-    protected $fillable = ['sender_id', 'recipient_id', 'body', 'read_at'];
+    protected $fillable = ['sender_id', 'recipient_id', 'body', 'image', 'image_mime', 'read_at'];
 
     protected $casts = [
         'read_at' => 'datetime',

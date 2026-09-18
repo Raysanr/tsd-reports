@@ -72,7 +72,16 @@
             </button>
         </div>
         <div id="messagesThreadBody" class="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2"></div>
+        <div id="messagesImagePreviewWrap" class="hidden items-center gap-2 px-4 pt-2 border-t border-slate-200 dark:border-slate-700 shrink-0">
+            <img id="messagesImagePreview" class="w-12 h-12 rounded-lg object-cover border border-slate-300 dark:border-slate-600" alt="">
+            <button type="button" id="messagesImageRemoveBtn" class="text-[11px] text-slate-400 hover:text-red-500 font-mono cursor-pointer">Remove</button>
+        </div>
         <form id="messagesSendForm" class="flex items-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-700 shrink-0">
+            <input type="file" id="messagesImageInput" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden">
+            <button type="button" id="messagesAttachBtn" aria-label="Attach image"
+                    class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M4 8h.01M4 4h16a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+            </button>
             <textarea id="messagesSendInput" rows="1" placeholder="Type a message…" maxlength="2000"
                       class="flex-1 resize-none text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500"></textarea>
             <button type="submit" class="shrink-0 bg-primary hover:bg-primary-dark text-white text-xs font-semibold font-mono px-4 py-2.5 rounded-lg cursor-pointer">Send</button>
@@ -116,6 +125,37 @@
     const threadBody = document.getElementById('messagesThreadBody');
     const sendForm = document.getElementById('messagesSendForm');
     const sendInput = document.getElementById('messagesSendInput');
+    const attachBtn = document.getElementById('messagesAttachBtn');
+    const imageInput = document.getElementById('messagesImageInput');
+    const imagePreviewWrap = document.getElementById('messagesImagePreviewWrap');
+    const imagePreview = document.getElementById('messagesImagePreview');
+    const imageRemoveBtn = document.getElementById('messagesImageRemoveBtn');
+    let pendingImageFile = null;
+
+    attachBtn.addEventListener('click', () => imageInput.click());
+
+    imageInput.addEventListener('change', () => {
+        const file = imageInput.files[0];
+        if (!file) return;
+        if (file.size > 3 * 1024 * 1024) {
+            window.showToast?.('Image is too large — max 3MB.', 'error');
+            imageInput.value = '';
+            return;
+        }
+        pendingImageFile = file;
+        imagePreview.src = URL.createObjectURL(file);
+        imagePreviewWrap.classList.remove('hidden');
+        imagePreviewWrap.classList.add('flex');
+    });
+
+    imageRemoveBtn.addEventListener('click', clearPendingImage);
+
+    function clearPendingImage() {
+        pendingImageFile = null;
+        imageInput.value = '';
+        imagePreviewWrap.classList.add('hidden');
+        imagePreviewWrap.classList.remove('flex');
+    }
 
     function csrfToken() {
         return document.querySelector('meta[name="csrf-token"]')?.content || '';
@@ -320,7 +360,8 @@
             <div class="flex ${m.fromMe ? 'justify-end' : 'justify-start'}">
                 <div class="max-w-[80%] flex flex-col ${m.fromMe ? 'items-end' : 'items-start'}">
                     <div class="${m.fromMe ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
-                        <p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>
+                        ${m.image ? `<img src="${m.image}" class="messages-image-bubble rounded-lg max-w-full max-h-52 cursor-pointer mb-1" alt="Attached image">` : ''}
+                        ${m.body ? `<p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>` : ''}
                         <p class="text-[10px] mt-1 ${m.fromMe ? 'text-yellow-100' : 'text-slate-400'}">${escapeHtml(m.label)}</p>
                     </div>
                     ${i === lastMineIndex && m.seenAt ? `<p class="text-[10px] text-slate-400 mt-0.5 mr-1">Seen ${escapeHtml(m.seenAt)}</p>` : ''}
@@ -329,19 +370,30 @@
         if (wasAtBottom) threadBody.scrollTop = threadBody.scrollHeight;
     }
 
+    threadBody.addEventListener('click', (e) => {
+        const img = e.target.closest('.messages-image-bubble');
+        if (img) window.open(img.src, '_blank');
+    });
+
     function sendMessage() {
         const body = sendInput.value.trim();
-        if (!body || !currentPartnerId) return;
+        if (!body && !pendingImageFile) return;
+        if (!currentPartnerId) return;
+
+        const formData = new FormData();
+        if (body) formData.append('body', body);
+        if (pendingImageFile) formData.append('image', pendingImageFile);
 
         sendInput.value = '';
+        clearPendingImage();
+
         fetch(`${routes.threadBase}/${currentPartnerId}`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
                 Accept: 'application/json',
                 'X-CSRF-TOKEN': csrfToken(),
             },
-            body: JSON.stringify({ body }),
+            body: formData,
         })
             .then((res) => res.json())
             .then((data) => {

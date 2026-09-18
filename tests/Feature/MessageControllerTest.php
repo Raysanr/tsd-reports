@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 /**
@@ -263,5 +264,120 @@ class MessageControllerTest extends TestCase
         $response->assertOk();
         $names = collect($response->json('users'))->pluck('name')->all();
         $this->assertSame(['Marisol Lagarde'], $names);
+    }
+
+    /**
+     * Image attachments (explicit request, 2026-09-18: "is it possible that
+     * can send a picture too?"). Stored as base64 in the row itself, not on
+     * disk — see the add_image_to_messages_table migration's own doc
+     * comment for why (no persistent volume on the web service).
+     */
+    public function test_a_message_can_be_sent_with_an_image_and_no_body_text(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $image     = UploadedFile::fake()->image('lead-screenshot.png', 100, 100);
+
+        $response = $this->actingAs($sender)
+            ->post(route('messages.send', $recipient), ['image' => $image], ['Accept' => 'application/json']);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertNotNull($response->json('message.image'));
+        $this->assertStringStartsWith('data:image/', $response->json('message.image'));
+        $this->assertNull($response->json('message.body'));
+
+        $stored = Message::first();
+        $this->assertNotNull($stored->image);
+        $this->assertNotNull($stored->image_mime);
+    }
+
+    public function test_a_message_can_include_both_body_text_and_an_image(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $image     = UploadedFile::fake()->image('proof.jpg');
+
+        $response = $this->actingAs($sender)->post(
+            route('messages.send', $recipient),
+            ['body' => 'See attached.', 'image' => $image],
+            ['Accept' => 'application/json'],
+        );
+
+        $response->assertOk();
+        $this->assertSame('See attached.', $response->json('message.body'));
+        $this->assertNotNull($response->json('message.image'));
+    }
+
+    public function test_a_message_with_neither_body_nor_image_is_rejected(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+
+        $this->actingAs($sender)
+            ->postJson(route('messages.send', $recipient), ['body' => ''])
+            ->assertStatus(422);
+    }
+
+    public function test_a_non_image_file_is_rejected(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $file      = UploadedFile::fake()->create('malware.exe', 100);
+
+        $this->actingAs($sender)
+            ->post(route('messages.send', $recipient), ['image' => $file], ['Accept' => 'application/json'])
+            ->assertStatus(422);
+    }
+
+    public function test_an_oversized_image_is_rejected(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        // 3072 KB is the cap (max:3072 in the validator) — 4000 KB exceeds it.
+        $image = UploadedFile::fake()->image('huge.jpg')->size(4000);
+
+        $this->actingAs($sender)
+            ->post(route('messages.send', $recipient), ['image' => $image], ['Accept' => 'application/json'])
+            ->assertStatus(422);
+    }
+
+    public function test_thread_includes_the_image_data_uri_for_an_image_message(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+
+        Message::create([
+            'sender_id'    => $sender->id,
+            'recipient_id' => $recipient->id,
+            'image'        => base64_encode('fake-bytes'),
+            'image_mime'   => 'image/png',
+        ]);
+
+        $response = $this->actingAs($recipient)->getJson(route('messages.thread', $sender));
+
+        $response->assertOk();
+        $this->assertStringStartsWith('data:image/png;base64,', $response->json('messages.0.image'));
+    }
+
+    /** Inbox preview falls back to a placeholder label for an image-only
+     *  last message, since there's no body text to Str::limit(). */
+    public function test_inbox_preview_shows_a_placeholder_for_an_image_only_last_message(): void
+    {
+        $me     = User::factory()->normal()->create();
+        $sender = User::factory()->normal()->create(['name' => 'Marisol']);
+
+        Message::create([
+            'sender_id'    => $sender->id,
+            'recipient_id' => $me->id,
+            'image'        => base64_encode('fake-bytes'),
+            'image_mime'   => 'image/png',
+        ]);
+
+        $response = $this->actingAs($me)->getJson(route('messages.inbox'));
+
+        $response->assertOk();
+        $row = collect($response->json('conversations'))->firstWhere('name', 'Marisol');
+        $this->assertSame('📷 Photo', $row['preview']);
     }
 }
