@@ -364,11 +364,33 @@ class TsaShift extends Model
      * rather than defaulting to the primary purely because it's their
      * phone. Falls back to $primary itself only if status_changed_at is
      * somehow null on both (e.g. freshly seeded/imported rows).
+     *
+     * A logged-out side is NEVER picked, regardless of timestamp — real
+     * bug, explicit report 2026-09-18: "hannah just logout earlier but it
+     * is still calling"/"hannah just logout earlier but it should be not
+     * calling now like that". Root-caused: the recency fallback above had
+     * no logout exclusion at all — a TSA logging out stamps a fresh
+     * status_changed_at same as any other status change, so if that
+     * logout happened to be more recent than the OTHER side's last change,
+     * the very next real call from their shared phone (genuinely made by
+     * the still-working partner) got misattributed to the one who had
+     * just explicitly signed off, silently reviving them back into
+     * Calling/Wrap Up. Logging out is a deliberate "I'm done" signal that
+     * must never be overridden by a phone event neither side necessarily
+     * even intended for the logged-out one.
      */
     public static function resolveActiveOfPair(self $primary, self $partner): self
     {
         if ($primary->status === self::STATUS_CALLING) return $primary;
         if ($partner->status === self::STATUS_CALLING) return $partner;
+
+        $primaryLoggedOut = $primary->status === self::STATUS_LOGOUT;
+        $partnerLoggedOut = $partner->status === self::STATUS_LOGOUT;
+
+        if ($primaryLoggedOut && !$partnerLoggedOut) return $partner;
+        if ($partnerLoggedOut && !$primaryLoggedOut) return $primary;
+        // Both logged out (or neither) — recency is the only signal left,
+        // same as before.
 
         if ($primary->status_changed_at && $partner->status_changed_at) {
             return $partner->status_changed_at->gt($primary->status_changed_at) ? $partner : $primary;

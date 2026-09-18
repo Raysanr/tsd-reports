@@ -204,4 +204,59 @@ class CallEventControllerTest extends TestCase
         $this->assertSame(TsaShift::STATUS_WRAP_UP, $mariel->fresh()->status);
         $this->assertNotSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
     }
+
+    /**
+     * Real bug, explicit report 2026-09-18: "hannah just logout earlier
+     * but it is still calling"/"it should be not calling now like that"
+     * — resolveActiveOfPair() had no logout exclusion at all, so a
+     * partner who had just explicitly logged out could still win the
+     * recency fallback (their logout stamps a fresh status_changed_at
+     * same as any other status change) and get silently revived into
+     * Wrap Up by a call event that was really the OTHER, still-working
+     * side's own call. A logged-out side must never be picked, no matter
+     * how recent that logout was relative to the other side's own last
+     * change.
+     */
+    public function test_a_call_event_never_revives_a_partner_who_has_logged_out_even_with_the_more_recent_timestamp(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+
+        // Mariel's own last real activity is OLDER…
+        $mariel->applyStatusChange(TsaShift::STATUS_WRAP_UP);
+        // …but Gemma logged out AFTER that — a more recent status_changed_at
+        // that must NOT win just because it's newer.
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+
+        $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $mariel->id]);
+        $this->assertDatabaseMissing('call_events', ['tsa_id' => $gemma->id]);
+        $this->assertSame(TsaShift::STATUS_LOGOUT, $gemma->fresh()->status, 'the logged-out side must stay logged out');
+    }
+
+    public function test_a_call_event_falls_back_to_recency_when_neither_side_is_logged_out(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+
+        $mariel->applyStatusChange(TsaShift::STATUS_BREAK);
+        $gemma->applyStatusChange(TsaShift::STATUS_WRAP_UP); // more recent, neither logged out
+
+        $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $gemma->id]);
+    }
 }
