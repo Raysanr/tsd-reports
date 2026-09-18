@@ -184,6 +184,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/status', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateStatus'])->name('leads.status');
         Route::post('/leads/{lead}/tags/remove', [\App\Http\Controllers\CallTracker\LeadController::class, 'removeTag'])->name('leads.tags.remove');
         Route::post('/leads/{lead}/tags/add', [\App\Http\Controllers\CallTracker\LeadController::class, 'addTag'])->name('leads.tags.add');
+        Route::get('/leads/{lead}/staff', [\App\Http\Controllers\CallTracker\LeadController::class, 'searchStaff'])->name('leads.staff');
+        Route::post('/leads/{lead}/assignee', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateAssignee'])->name('leads.assignee');
         Route::post('/leads/{lead}/call-click', [\App\Http\Controllers\CallTracker\LeadController::class, 'logCallClick'])->name('leads.call-click');
         Route::post('/leads/{lead}/end-call', [\App\Http\Controllers\CallTracker\LeadController::class, 'endCall'])->name('leads.end-call');
         // Registered BEFORE the {lead}-parameterized routes below — otherwise

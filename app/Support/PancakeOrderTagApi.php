@@ -159,6 +159,104 @@ class PancakeOrderTagApi
     }
 
     /**
+     * The shop's real staff/seller directory — [{id (real user id, what
+     * assigning_seller_id actually stores), name, avatar_url}], the exact
+     * pool Pancake POS's own Assignee dropdown picks from. Confirmed live
+     * against a real, undocumented-in-the-OpenAPI-spec endpoint: GET
+     * /shops/{SHOP_ID}/users returns 261 real entries shaped
+     * {id, user: {id, name, avatar_url, ...}, ...} — the OUTER id is a
+     * shop-membership row id, not what orders reference; assigning_seller_id
+     * on an order matches the INNER user.id, confirmed by comparing a real
+     * order's own assigning_seller.id against this same endpoint's entries.
+     * Cached 5 minutes, same convention as listTags() above — a shop's
+     * staff roster doesn't change often, but this feeds the Assignee
+     * picker's own search-as-you-type.
+     */
+    public function listStaff(): array
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return [];
+        }
+
+        return Cache::remember("pancake_shop_staff_{$shopId}", 300, function () use ($apiKey, $shopId) {
+            try {
+                $response = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/users", [
+                    'api_key' => $apiKey,
+                ]);
+
+                if (!$response->successful()) {
+                    return [];
+                }
+
+                return collect($response->json('data') ?? [])
+                    ->map(fn ($row) => [
+                        'id'         => $row['user']['id'] ?? null,
+                        'name'       => $row['user']['name'] ?? null,
+                        'avatar_url' => $row['user']['avatar_url'] ?? null,
+                    ])
+                    ->filter(fn ($u) => $u['id'] && $u['name'])
+                    ->unique('id')
+                    ->values()
+                    ->all();
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: listStaff threw', ['message' => $e->getMessage()]);
+                return [];
+            }
+        });
+    }
+
+    /**
+     * Sets the real POS order's Assignee (explicit request, 2026-09-18: "i
+     * want to make it like in the leads modal has this icon too like can
+     * assign the asignee too like in the pos") — same GET-then-PUT-whole-
+     * order pattern as addTagsToOrder() above (see its own doc comment for
+     * why), just setting the single scalar assigning_seller_id field
+     * instead of merging an array. $staffId null clears the assignee
+     * (Pancake's own "Choose a staff member…" empty state).
+     */
+    public function updateAssignee(string $orderId, ?string $staffId): bool
+    {
+        $apiKey = Setting::get('pancake_api_key', '');
+        $shopId = Setting::get('shop_id', '');
+        if (empty($apiKey) || empty($shopId)) {
+            return false;
+        }
+
+        try {
+            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$getResponse->successful()) {
+                Log::warning('PancakeOrderTagApi: fetching order before updating assignee failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
+                return false;
+            }
+
+            $order = $getResponse->json('data') ?? $getResponse->json();
+            $order['assigning_seller_id'] = $staffId;
+
+            $putResponse = Http::timeout(15)
+                ->withOptions(['query' => ['api_key' => $apiKey]])
+                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+            if (!$success) {
+                Log::warning('PancakeOrderTagApi: updateAssignee PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
+            } else {
+                $this->invalidateRawOrderCache($orderId);
+            }
+
+            return $success;
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: updateAssignee threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    /**
      * Raw order GET, shared by getOrderDetail() and getNotes() below — both
      * hit this exact same Pancake endpoint for the exact same order object,
      * just reading different fields off it. Cached for

@@ -925,6 +925,79 @@ class LeadController extends Controller
     }
 
     /**
+     * JSON feed for the Assignee picker — same "search a real Pancake
+     * catalog as you type" idea as searchTags() above, but against the
+     * shop's real staff directory (PancakeOrderTagApi::listStaff()) instead
+     * of order tags, matching Pancake POS's own Assignee dropdown search
+     * (explicit request, 2026-09-18: "in the leads modal has this icon too
+     * like can assign the asignee too like in the pos").
+     */
+    public function searchStaff(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$this->canAccess($lead, $user)) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'staff' => [], 'error' => 'This lead has no linked Pancake order.']);
+        }
+
+        $q     = trim((string) $request->input('q', ''));
+        $staff = collect($api->listStaff());
+
+        if ($q !== '') {
+            $staff = $staff->filter(fn ($s) => stripos($s['name'] ?? '', $q) !== false)->values();
+        }
+
+        return response()->json(['success' => true, 'staff' => $staff->take(50)->values()]);
+    }
+
+    /**
+     * Sets the real POS order's Assignee — the write side of searchStaff()
+     * above (explicit request, 2026-09-18: same as that method's own doc
+     * comment). $staffId null clears it back to Pancake's own "Choose a
+     * staff member…" empty state, matching updateAssignee()'s own null
+     * handling.
+     */
+    public function updateAssignee(Request $request, Lead $lead, PancakeOrderTagApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$this->canAccess($lead, $user)) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_order_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake order.'], 422);
+        }
+
+        $data = $request->validate([
+            'staff_id'   => ['nullable', 'string'],
+            'staff_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $success = $api->updateAssignee($lead->pancake_order_id, $data['staff_id'] ?? null);
+
+        $label = $data['staff_name'] ?? ($data['staff_id'] ? $data['staff_id'] : 'No assigned staff');
+        LeadActivity::log(
+            $lead, 'assignee_changed',
+            "Set Pancake assignee to \"{$label}\" by {$user->name}" . ($success ? '.' : ' — Pancake write failed, verify in POS.'),
+            $user
+        );
+
+        if (!$success) {
+            return response()->json(['success' => false, 'error' => 'Could not set the assignee in Pancake — try again or set it directly in POS.'], 500);
+        }
+
+        return response()->json([
+            'success' => true,
+            'assignee' => $data['staff_id'] ? ['id' => $data['staff_id'], 'name' => $data['staff_name']] : null,
+        ]);
+    }
+
+    /**
      * JSON feed for the Add Upsell modal — same "search a real Pancake
      * catalog as you type" idea as searchTags() above, but against real
      * SELLABLE products+prices (PancakeProductApi::search()) instead of

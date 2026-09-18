@@ -1054,4 +1054,85 @@ class LeadControllerTest extends TestCase
 
         $this->actingAs($user)->get(route('calls.leads.tags', $lead))->assertForbidden();
     }
+
+    /**
+     * Assignee picker (explicit request, 2026-09-18: "in the leads modal
+     * has this icon too like can assign the asignee too like in the pos").
+     * fakePosStaff() mirrors fakePosTags() above, faking GET
+     * /shops/4/users instead of /orders/tags — the real, undocumented
+     * shop-staff-directory endpoint PancakeOrderTagApi::listStaff() reads
+     * (confirmed live, see that method's own doc comment).
+     */
+    private function fakePosStaff(array $staff, array $overrides = []): void
+    {
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        Http::fake(array_merge([
+            'pos.pages.fm/api/v1/shops/4/users*' => Http::response(['success' => true, 'data' => $staff], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1, 'tags' => []]], 200),
+        ], $overrides));
+    }
+
+    public function test_searching_staff_returns_the_shops_real_directory_filtered_by_query(): void
+    {
+        $this->fakePosStaff([
+            ['id' => 's1', 'user' => ['id' => 'u1', 'name' => 'Ray Raymundo', 'avatar_url' => null]],
+            ['id' => 's2', 'user' => ['id' => 'u2', 'name' => 'Fatima Blaise', 'avatar_url' => null]],
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma15@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.staff', $lead) . '?q=ray');
+
+        $response->assertOk();
+        $response->assertJson(['success' => true, 'staff' => [['id' => 'u1', 'name' => 'Ray Raymundo', 'avatar_url' => null]]]);
+    }
+
+    public function test_setting_the_assignee_writes_assigning_seller_id_to_the_real_pos_order(): void
+    {
+        $this->fakePosStaff([]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma16@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.assignee', $lead), [
+            'staff_id' => 'u1', 'staff_name' => 'Ray Raymundo',
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true, 'assignee' => ['id' => 'u1', 'name' => 'Ray Raymundo']]);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['assigning_seller_id'] ?? null) === 'u1');
+    }
+
+    public function test_clearing_the_assignee_writes_a_null_assigning_seller_id(): void
+    {
+        $this->fakePosStaff([]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma17@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.assignee', $lead), ['staff_id' => null]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true, 'assignee' => null]);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && array_key_exists('assigning_seller_id', $r->data()) && $r['assigning_seller_id'] === null);
+    }
+
+    public function test_a_tsa_cannot_set_the_assignee_on_someone_elses_lead(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma18@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.assignee', $lead), ['staff_id' => 'u1'])->assertForbidden();
+    }
 }

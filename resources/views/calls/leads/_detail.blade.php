@@ -143,34 +143,61 @@
                                  created leads there's a assignee ... it
                                  will display to the product like this not
                                  in the details section", follow-up: "like
-                                 in the left side of the note") — order-
+                                 in the left side of the note", then: "i
+                                 want to make it like in the leads modal
+                                 has this icon too like can assign the
+                                 asignee too like in the pos" — now
+                                 editable, not just display, matching
+                                 Pancake's own "assign staff" icon +
+                                 dropdown next to the item's Note). Order-
                                  level, not per-item, so only shown once
                                  (first row) even on a multi-item order.
                                  Distinct from the "TSA" row in Details
                                  below: that's who THIS app assigned the
                                  lead to via round-robin, this is whoever
                                  Pancake itself shows as assigned on the
-                                 order (assigning_seller, already fetched
-                                 by getOrderDetail() for the History card's
-                                 editor-name resolution, just never
-                                 surfaced in the UI before). Confirmed live
+                                 order (assigning_seller_id, written via
+                                 PancakeOrderTagApi::updateAssignee(), the
+                                 shop's real staff directory searched via
+                                 LeadController::searchStaff() — see both
+                                 their own doc comments). Confirmed live
                                  against real production orders: an
                                  unassigned order's assigning_seller is
                                  bare null (not a "System" placeholder
-                                 name) — shown as "No assigned staff". --}}
-                            <p class="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
-                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                </svg>
-                                @if(!empty($liveOrder['assigning_seller']['name']))
-                                @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
-                                <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="w-4 h-4 rounded-full object-cover">
-                                @endif
-                                <span class="text-slate-600 dark:text-slate-300 font-medium">{{ $liveOrder['assigning_seller']['name'] }}</span>
-                                @else
-                                No assigned staff
-                                @endif
-                            </p>
+                                 name) — shown as "No assigned staff".
+                                 initInlineAssigneePanel() (calls.js)
+                                 re-binds this on every modal open, same
+                                 reason initInlineTagsPanel() does. --}}
+                            <div class="relative mt-1" id="inlineAssigneeWrap" data-lead-id="{{ $lead->id }}">
+                                <button type="button" id="inlineAssigneeBtn" onclick="openInlineAssignee()"
+                                        class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-primary-dark cursor-pointer">
+                                    <span class="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-600 flex items-center justify-center shrink-0">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M18 7.5a3 3 0 11-6 0 3 3 0 016 0zM4 19a5 5 0 0110 0M17 10.5h4m-2-2v4"/>
+                                        </svg>
+                                    </span>
+                                    <span id="inlineAssigneeLabel">
+                                        @if(!empty($liveOrder['assigning_seller']['name']))
+                                        @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
+                                        <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="inline w-4 h-4 rounded-full object-cover align-middle mr-1">
+                                        @endif
+                                        <span class="text-slate-600 dark:text-slate-300 font-medium">{{ $liveOrder['assigning_seller']['name'] }}</span>
+                                        @else
+                                        No assigned staff
+                                        @endif
+                                    </span>
+                                </button>
+                                <div id="inlineAssigneePanel" class="hidden absolute z-20 mt-1 w-64 max-w-[90vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
+                                    <input type="text" id="inlineAssigneeSearch" placeholder="Search staff…" autocomplete="off"
+                                           class="w-full text-xs border-b border-slate-100 dark:border-slate-700 px-3 py-2 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none">
+                                    <div id="inlineAssigneeResults" class="max-h-48 overflow-y-auto">
+                                        <div class="inline-assignee-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-500 dark:text-slate-400" data-id="" data-name="">
+                                            <span class="w-5 h-5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 shrink-0"></span>
+                                            <span>No assigned staff</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             @endif
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">

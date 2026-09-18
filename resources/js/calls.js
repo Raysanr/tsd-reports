@@ -1115,6 +1115,7 @@ function loadLeadDetailInto(leadId, body) {
             initPancakeNotesPanel();
             initInlineUpsellSearch();
             initInlineTagsPanel();
+            initInlineAssigneePanel();
             initDeliveryPanel();
             initLineItemsPanel();
             initHistoryPanel();
@@ -2021,6 +2022,134 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Assignee picker (explicit request, 2026-09-18: "in the leads modal has
+// this icon too like can assign the asignee too like in the pos") — same
+// inline search-popup pattern as Add Tag/Add Upsell above (open on click,
+// search-as-you-type against a real Pancake catalog, no full detail-card
+// reload on pick — see submitInlineTagAdd()'s own comment for why that
+// reload was removed there; the same reasoning applies here from the
+// start). Writes straight to Pancake's real order (assigning_seller_id via
+// LeadController::updateAssignee() -> PancakeOrderTagApi::
+// updateAssignee()), not a locally-cached field — there is no local
+// column for this, same as Pancake Notes above.
+let inlineAssigneeDebounce = null;
+
+function initInlineAssigneePanel() {
+    const wrap = document.getElementById('inlineAssigneeWrap');
+    if (!wrap) return;
+
+    document.getElementById('inlineAssigneePanel')?.classList.add('hidden');
+
+    const search = document.getElementById('inlineAssigneeSearch');
+    if (search) {
+        search.addEventListener('input', (e) => {
+            clearTimeout(inlineAssigneeDebounce);
+            inlineAssigneeDebounce = setTimeout(() => searchInlineAssignee(wrap.dataset.leadId, e.target.value.trim()), 250);
+        });
+    }
+}
+
+window.openInlineAssignee = function () {
+    const panel = document.getElementById('inlineAssigneePanel');
+    if (!panel) return;
+
+    const wasOpen = !panel.classList.contains('hidden');
+    panel.classList.add('hidden');
+    if (wasOpen) return;
+
+    panel.classList.remove('hidden');
+    const wrap = document.getElementById('inlineAssigneeWrap');
+    searchInlineAssignee(wrap.dataset.leadId, '');
+    const search = document.getElementById('inlineAssigneeSearch');
+    search.value = '';
+    search.focus();
+};
+
+async function searchInlineAssignee(leadId, q) {
+    const results = document.getElementById('inlineAssigneeResults');
+    if (!results) return;
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/staff?q=` + encodeURIComponent(q));
+        const data = await res.json();
+        renderInlineAssigneeResults(data.success ? data.staff : []);
+    } catch (e) {
+        renderInlineAssigneeResults([]);
+    }
+}
+
+function renderInlineAssigneeResults(staff) {
+    const results = document.getElementById('inlineAssigneeResults');
+    if (!results) return;
+
+    // "No assigned staff" is always the first row (clears the assignee),
+    // matching Pancake's own dropdown having an empty/placeholder option —
+    // not just an omission when a search happens to return zero matches.
+    const clearRow = `
+        <div class="inline-assignee-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-500 dark:text-slate-400" data-id="" data-name="">
+            <span class="w-5 h-5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 shrink-0"></span>
+            <span>No assigned staff</span>
+        </div>`;
+
+    if (!staff.length) {
+        results.innerHTML = clearRow;
+        return;
+    }
+
+    results.innerHTML = clearRow + staff.map((s) => `
+        <div class="inline-assignee-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-700 dark:text-slate-200" data-id="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">
+            ${s.avatar_url ? `<img src="${escapeHtml(s.avatar_url)}" alt="" class="w-5 h-5 rounded-full object-cover shrink-0">` : '<span class="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 shrink-0"></span>'}
+            <span class="flex-1 min-w-0 truncate">${escapeHtml(s.name)}</span>
+        </div>`).join('');
+}
+
+document.addEventListener('click', (e) => {
+    const row = e.target.closest('.inline-assignee-result-row');
+    if (!row) return;
+    submitInlineAssignee(row.dataset.id || null, row.dataset.name || null);
+});
+
+async function submitInlineAssignee(staffId, staffName) {
+    const wrap = document.getElementById('inlineAssigneeWrap');
+    if (!wrap) return;
+    const leadId = wrap.dataset.leadId;
+    const label = document.getElementById('inlineAssigneeLabel');
+    const panel = document.getElementById('inlineAssigneePanel');
+
+    try {
+        const res = await fetch(`/calls/leads/${leadId}/assignee`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: JSON.stringify({ staff_id: staffId, staff_name: staffName }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            window.showToast?.(staffId ? `Assigned to ${staffName}.` : 'Cleared assignee.', 'success');
+            if (label) {
+                label.innerHTML = staffId
+                    ? `<span class="text-slate-600 dark:text-slate-300 font-medium">${escapeHtml(staffName)}</span>`
+                    : 'No assigned staff';
+            }
+            panel?.classList.add('hidden');
+        } else {
+            window.showToast?.(data.error || 'Could not set the assignee.', 'error');
+        }
+    } catch (e) {
+        window.showToast?.('Could not reach the server — try again.', 'error');
+    }
+}
+
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#inlineAssigneeWrap')) {
+        document.getElementById('inlineAssigneePanel')?.classList.add('hidden');
+    }
+});
+
 // Pancake Notes (lead detail page, explicit request 2026-08-22) — mirrors
 // Pancake POS's own order note panel (Internal / For printing — its only two
 // real note fields; "Conversation" in POS's own tabs isn't a third note
@@ -2605,6 +2734,7 @@ initPancakeNotesPanel();
 // initPancakeNotesPanel() just did on the line above.
 initInlineUpsellSearch();
 initInlineTagsPanel();
+initInlineAssigneePanel();
 initDeliveryPanel();
 initLineItemsPanel();
 initHistoryPanel();
