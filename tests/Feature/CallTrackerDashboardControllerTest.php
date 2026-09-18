@@ -238,6 +238,35 @@ class CallTrackerDashboardControllerTest extends TestCase
     }
 
     /**
+     * TSA Log In card (explicit request, 2026-09-18: "it should be like
+     * the TSA Log In counts card Total TSA logged in it is included
+     * wrap up and calling count") — the card's own doc comment already
+     * says "available for round-robin right now", but its filter only
+     * ever checked the literal Login status, disagreeing with
+     * RoundRobinAssigner::ELIGIBLE_STATUSES (what next() itself actually
+     * treats as available) which has always included Calling/Wrap Up
+     * too. Now uses that same shared definition.
+     */
+    public function test_tsa_login_count_includes_calling_and_wrap_up_not_just_the_login_status(): void
+    {
+        TsaShift::query()->update(['active' => false]);
+        $login   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $calling = TsaShift::where('tsa_key', 'Mariel')->first();
+        $wrapUp  = TsaShift::where('tsa_key', 'Kathleen')->first();
+        $onBreak = TsaShift::where('tsa_key', 'Julie')->first();
+        TsaShift::whereIn('id', [$login->id, $calling->id, $wrapUp->id, $onBreak->id])->update(['active' => true]);
+        $login->update(['status' => 'login']);
+        $calling->update(['status' => 'calling']);
+        $wrapUp->update(['status' => 'wrap_up']);
+        $onBreak->update(['status' => 'break']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame(3, $response->viewData('tsaLoginCount'));
+    }
+
+    /**
      * KPI row's 2nd card, changed from Total Leads to Wrap Up (explicit
      * request, 2026-09-17, then corrected same conversation: "i mean total
      * minutes of wrap up" — NOT a live headcount) — team-wide TOTAL real

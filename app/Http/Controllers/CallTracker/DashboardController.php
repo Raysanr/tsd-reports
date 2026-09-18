@@ -219,7 +219,20 @@ class DashboardController extends Controller
         // TSA Log In — how many of the (already team-filtered) roster above
         // are actually available for round-robin right now. Live, not
         // date-range-scoped, same reasoning as the TSA Status board itself.
-        $tsaLoginCount = $tsas->where('status', TsaShift::STATUS_LOGIN)->count();
+        //
+        // Includes Calling/Wrap Up, not just the literal Login status
+        // (explicit request, 2026-09-18: "it should be like the TSA Log In
+        // counts card Total TSA logged in it is included wrap up and
+        // calling count") — this card's own doc comment already says
+        // "available for round-robin right now", and RoundRobinAssigner::
+        // ELIGIBLE_STATUSES (what next() itself actually checks) has
+        // always included Calling/Wrap Up alongside Login, since a TSA
+        // mid-call or in after-call wrap-up is still receiving queued
+        // assignments, not actually offline. The card's own filter just
+        // never matched what it claimed to measure — same definition used
+        // here now, so this can never silently disagree with what a lead
+        // actually needs to get assigned.
+        $tsaLoginCount = $tsas->whereIn('status', \App\Support\RoundRobinAssigner::ELIGIBLE_STATUSES)->count();
 
         // Round-robin risk — a product whose entire roster is active but
         // nobody on it is currently logged in will silently stop receiving
