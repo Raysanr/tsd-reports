@@ -148,9 +148,19 @@
             <p class="text-sm font-mono text-slate-400">No calls reported yet.</p>
         </div>
         @else
-        <div class="overflow-x-auto">
+        {{-- Scrollable body, sticky header (explicit request, 2026-09-18:
+             "can you make the Recent calls has scroll") — this table is
+             capped at 200 rows server-side (CallLogController::index()'s
+             own ->take(200)) but was still rendering every one of them
+             inline, making the whole PAGE scroll a very long way past
+             the Per-TSA Totals table above it. A fixed-height scroll
+             container keeps Recent Calls contained to one screen's worth
+             of space; the header stays pinned (position: sticky) so the
+             column labels are never scrolled out of view while browsing
+             a long list. --}}
+        <div class="overflow-x-auto overflow-y-auto max-h-[37.5rem]">
         <table class="w-full text-sm font-mono">
-            <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
+            <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
                 <tr>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">When</th>
                     <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
