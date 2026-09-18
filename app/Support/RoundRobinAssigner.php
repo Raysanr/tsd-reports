@@ -59,17 +59,39 @@ class RoundRobinAssigner
         $roster = self::eligibleRoster($product);
         if ($roster->isEmpty()) return null;
 
+        // Fairness-by-count, not just fairness-by-turn (explicit request,
+        // 2026-09-18: "angel, mariel, lika, kathleen is same online but why
+        // is it not equal of the leads and why kathleen is leading for
+        // counts of leads?" — confirmed live all four had near-identical
+        // online TIME today (~107-113 min), yet plain rotation had handed
+        // Kathleen 25 vs Lika's 9: round-robin is fair per-TURN, not per
+        // unit of time, so whoever's position happens to line up with
+        // however leads actually trickle in over a shift can accumulate
+        // more picks than someone equally online just by timing luck —
+        // with only a few dozen leads split across a roster in any given
+        // stretch, that luck doesn't average out fast). Narrows to
+        // whoever currently has the FEWEST leads assigned today among the
+        // eligible roster, then applies the existing rotation pointer
+        // ONLY within that tied subset — self-correcting toward equal
+        // counts on every single pick, while still using rotation order
+        // (not e.g. earliest-login) to break a tie, so two TSAs tied at
+        // the current minimum don't always resolve to the same one.
+        $minCount     = $roster->min(fn (TsaShift $tsa) => $tsa->leadsAssignedToday());
+        $tiedForFewest = $roster->filter(fn (TsaShift $tsa) => $tsa->leadsAssignedToday() === $minCount)->values();
+
         $state = self::state($product);
 
         $currentIndex = $state->last_tsa_id
-            ? $roster->search(fn ($tsa) => $tsa->id === $state->last_tsa_id)
+            ? $tiedForFewest->search(fn ($tsa) => $tsa->id === $state->last_tsa_id)
             : false;
 
-        // Either this is the product's first-ever assignment (no state yet),
-        // or the last-picked TSA fell out of the roster (deactivated/removed)
-        // since — either way, wrap to the start rather than erroring.
-        $nextIndex = $currentIndex === false ? 0 : ($currentIndex + 1) % $roster->count();
-        $next      = $roster[$nextIndex];
+        // Either this is the product's first-ever assignment (no state
+        // yet), or the last-picked TSA isn't among today's current
+        // fewest-leads group (they're no longer tied for last, or fell out
+        // of the roster entirely) — either way, wrap to the start of the
+        // tied subset rather than erroring.
+        $nextIndex = $currentIndex === false ? 0 : ($currentIndex + 1) % $tiedForFewest->count();
+        $next      = $tiedForFewest[$nextIndex];
 
         $state->update(['last_tsa_id' => $next->id]);
 

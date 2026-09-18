@@ -42,6 +42,86 @@ class RoundRobinAssignerTest extends TestCase
         $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key);
     }
 
+    /**
+     * Fairness-by-count, not just fairness-by-turn (explicit request,
+     * 2026-09-18: "angel, mariel, lika, kathleen is same online but why is
+     * it not equal of the leads and why kathleen is leading for counts of
+     * leads?" — confirmed live all four had near-identical online TIME
+     * today, yet plain rotation had handed one TSA far more leads than
+     * another purely by timing luck across a shift's worth of arrivals).
+     * next() must prefer whoever currently has the FEWEST leads assigned
+     * today among the eligible roster, not just "whoever's turn it is"
+     * regardless of how lopsided that's already become.
+     */
+    public function test_prefers_the_tsa_with_the_fewest_leads_assigned_today_over_plain_rotation_order(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
+        $kathleen = TsaShift::where('tsa_key', 'Kathleen')->first();
+
+        // Gemma already has 5 today, Mariel 2, Kathleen 0 — plain rotation
+        // order is Gemma, Mariel, Kathleen, but fairness must pick
+        // Kathleen (the real current fewest) regardless of whose "turn"
+        // position-order would say is next.
+        $this->createLeadsFor($gemma, 5);
+        $this->createLeadsFor($mariel, 2);
+
+        $this->assertSame('Kathleen', RoundRobinAssigner::next($product)->tsa_key);
+    }
+
+    private function createLeadsFor(TsaShift $tsa, int $count): void
+    {
+        static $seq = 0;
+        for ($i = 0; $i < $count; $i++) {
+            \App\Models\Lead::create([
+                'pancake_order_id'   => 'rr-fairness-' . $tsa->id . '-' . (++$seq),
+                'customer_name'      => 'Test',
+                'tsa_id'             => $tsa->id,
+                'status'             => 'assigned',
+                'assigned_at'        => now(),
+                'pancake_created_at' => today(),
+            ]);
+        }
+    }
+
+    /** Once the fewest-leads TSA gets a pick, another already-tied
+     *  candidate should be next if they're STILL tied for fewest —
+     *  same rotation-order tie-break as before, just scoped to only the
+     *  tied subset rather than the whole roster. */
+    public function test_breaks_a_tie_for_fewest_leads_using_rotation_order(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        // Gemma already has 5 — Mariel and Kathleen are tied at 0, so the
+        // pick must come from {Mariel, Kathleen} in their own rotation
+        // order (Mariel first, per seeded position), never Gemma again
+        // until she's no longer the outlier.
+        $this->createLeadsFor($gemma, 5);
+
+        $this->assertSame('Mariel', RoundRobinAssigner::next($product)->tsa_key);
+        $this->assertSame('Kathleen', RoundRobinAssigner::next($product)->tsa_key);
+        // Both ported to 1 now, Gemma still at 5 — cycles back to Mariel,
+        // not Gemma, since she's still the outlier.
+        $this->assertSame('Mariel', RoundRobinAssigner::next($product)->tsa_key);
+    }
+
+    /** With everyone genuinely tied (the common all-fresh-shift-start
+     *  case), fairness-by-count collapses back to plain rotation order —
+     *  confirms the new logic doesn't change anything when there's no
+     *  real imbalance yet, same as test_rotates_through_a_products_tsas_
+     *  in_position_order above already covers implicitly (all at 0), just
+     *  asserted explicitly here for clarity. */
+    public function test_falls_back_to_plain_rotation_when_everyone_is_tied(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key);
+        $this->assertSame('Mariel', RoundRobinAssigner::next($product)->tsa_key);
+        $this->assertSame('Kathleen', RoundRobinAssigner::next($product)->tsa_key);
+    }
+
     public function test_two_different_products_rotate_independently(): void
     {
         $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
