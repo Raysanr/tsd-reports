@@ -1076,6 +1076,11 @@ class LeadController extends Controller
 
         $success = $api->addUpsellItem($lead->pancake_order_id, $data, $upsellTagName, $lead->tsa?->tsa_key);
 
+        if ($success) {
+            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
+            $order?->trackAppAddedTags(array_filter([$upsellTagName, $lead->tsa?->tsa_key]));
+        }
+
         $description = "Added upsell \"{$data['name']}\" (₱" . number_format($data['retail_price'], 2) . " × {$data['quantity']}) by {$user->name}"
             . ($success ? '.' : ' — Pancake write failed, verify in POS.');
         // Only counted toward the Dashboard's "today's upsells" total when
@@ -1245,6 +1250,7 @@ class LeadController extends Controller
             if ($order) {
                 $order->update(['raw_tags' => collect($order->raw_tags ?? [])
                     ->reject(fn ($t) => strcasecmp($t, $data['tag']) === 0)->values()->all()]);
+                $order->untrackAppAddedTag($data['tag']);
             }
         }
 
@@ -1296,6 +1302,7 @@ class LeadController extends Controller
             if ($order) {
                 $order->update(['raw_tags' => collect($order->raw_tags ?? [])
                     ->push($data['tag'])->unique(fn ($t) => strtolower($t))->values()->all()]);
+                $order->trackAppAddedTags([$data['tag']]);
             }
         }
 
@@ -1825,10 +1832,17 @@ class LeadController extends Controller
 
         $results = $api->addTagsToOrder($lead->pancake_order_id, $tagNames);
 
+        $succeeded = [];
         foreach ($results as $tagName => $success) {
-            if (!$success) {
+            if ($success) {
+                $succeeded[] = $tagName;
+            } else {
                 Log::warning("Could not tag \"{$tagName}\" on order {$lead->pancake_order_id} in Pancake.");
             }
+        }
+
+        if (!empty($succeeded)) {
+            Order::where('pancake_order_id', $lead->pancake_order_id)->first()?->trackAppAddedTags($succeeded);
         }
     }
 

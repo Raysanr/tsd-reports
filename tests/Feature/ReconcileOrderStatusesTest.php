@@ -984,4 +984,87 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertSame(0.0, (float) $order->returned_upsell_amount);
         $this->assertSame(800.0, (float) $order->amount);
     }
+
+    /**
+     * Fourth, separate pass — reconcileVanishedAppTags(). Root-caused via
+     * /systematic-debugging, explicit report 2026-09-18: "hannah just
+     * added upsell tsd tag but it is not reflecting to the pos ... when
+     * reloads the page it is gone again" — confirmed live against real
+     * order #1369280 that a tag this app successfully wrote (tracked in
+     * Order::app_added_tags) can later vanish when someone edits the same
+     * order directly in Pancake POS from a stale snapshot. This pass
+     * detects that gap (tracked tag missing from a fresh live read) and
+     * re-applies it.
+     */
+    public function test_re_applies_a_tracked_app_added_tag_that_vanished_from_the_real_order(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id' => '1369280',
+            'app_added_tags'   => ['UPSELL TSD - 1 Haplunas Healing Eye Cream'],
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response(['data' => [
+                ['id' => 489, 'name' => 'UPSELL TSD - 1 Haplunas Healing Eye Cream'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369280*' => Http::response(['data' => [
+                'id' => 1369280,
+                // The tag is genuinely gone from Pancake's own current
+                // state — this app's own record still knows it should be
+                // there, that mismatch is what triggers the re-apply.
+                'tags' => [['id' => 1, 'name' => 'HANNAH']],
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT') return false;
+            return collect($r['tags'])->pluck('name')->contains('UPSELL TSD - 1 Haplunas Healing Eye Cream');
+        });
+        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+    }
+
+    public function test_does_not_re_apply_a_tracked_tag_that_is_still_present(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id' => '1369281',
+            'app_added_tags'   => ['HANNAH'],
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/tags*' => Http::response(['data' => [
+                ['id' => 1, 'name' => 'HANNAH'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369281*' => Http::response(['data' => [
+                'id'   => 1369281,
+                'tags' => [['id' => 1, 'name' => 'HANNAH']],
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
+
+    /** A lead with no app_added_tags at all is never even checked — the
+     *  overwhelming majority of orders, no live per-order cost for them. */
+    public function test_an_order_with_no_app_added_tags_is_never_checked(): void
+    {
+        Order::factory()->create(['pancake_order_id' => '1369282', 'app_added_tags' => null]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        // No per-order GET for 1369282 was ever fired — Http::fake would
+        // otherwise throw "no matching fake response" for an unregistered
+        // pattern, so a passing assertSuccessful() here already proves it,
+        // but assert explicitly for clarity.
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'orders/1369282'));
+    }
 }

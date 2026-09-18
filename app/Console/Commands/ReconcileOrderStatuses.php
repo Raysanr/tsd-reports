@@ -181,9 +181,13 @@ class ReconcileOrderStatuses extends Command
             ? $this->reconcileUpsellAmounts($apiKey, $shopId, $from, $to)
             : [0, 0];
 
+        [$tagsChecked, $tagsCorrected] = $apiError === null
+            ? $this->reconcileVanishedAppTags(app(\App\Support\PancakeOrderTagApi::class))
+            : [0, 0];
+
         Setting::set('order_status_reconcile_last_run', now()->toIso8601String());
-        Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked + $amountChecked);
-        Setting::set('order_status_reconcile_last_corrected', $correctedCount + $upsellCorrected + $amountCorrected);
+        Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked + $amountChecked + $tagsChecked);
+        Setting::set('order_status_reconcile_last_corrected', $correctedCount + $upsellCorrected + $amountCorrected + $tagsCorrected);
         Setting::set('order_status_reconcile_last_amount_corrected', $amountCorrected);
 
         if ($apiError !== null) {
@@ -194,7 +198,76 @@ class ReconcileOrderStatuses extends Command
         $this->info("Checked {$checkedCount} Pancake-removed order(s) from the last {$days} day(s); corrected {$correctedCount} stale local record(s).");
         $this->info("Checked {$upsellChecked} still-active order(s) tagged as upsells; corrected {$upsellCorrected} whose add-on item was actually removed.");
         $this->info("Checked {$amountChecked} still-active upsell(s) against live Pancake data; corrected {$amountCorrected} whose amount had drifted.");
+        $this->info("Checked {$tagsChecked} order(s) with app-added tags; re-applied {$tagsCorrected} tag(s) lost to an external Pancake edit.");
         return self::SUCCESS;
+    }
+
+    /**
+     * Fourth, separate pass: re-applies a tag THIS app successfully wrote
+     * to a real Pancake order (Order::app_added_tags — see its own doc
+     * comment) whenever a fresh live read shows it's no longer there.
+     * Root-caused via /systematic-debugging, explicit report 2026-09-18:
+     * "hannah just added upsell tsd tag but it is not reflecting to the
+     * pos ... when reloads the page it is gone again" — confirmed live
+     * against real order #1369280: this app's own addTag() correctly
+     * wrote "UPSELL TSD - 1 Haplunas Healing Eye Cream" (its own
+     * editor_id matching this app's known service account), but ~8
+     * minutes later a DIFFERENT editor_id — resolved via
+     * PancakeOrderTagApi::listStaff() to "Ascano", Hannah's own real
+     * Pancake POS login — made a direct edit to the SAME order
+     * (shipping_address + amount_owed_to_customer changed in the same
+     * write) from what must have been a stale GET-then-save round trip
+     * that never saw this app's tag, silently overwriting the tags array
+     * and losing it. This app has no way to prevent a human editing
+     * Pancake POS directly, but it can detect and repair the result.
+     *
+     * Deliberately takes no date window, unlike the other passes above —
+     * app_added_tags itself is already a small, targeted candidate set
+     * (only orders THIS app has actually tagged), so there's no cost-
+     * control reason to also require the order be recently created; a
+     * tag lost days after being added is just as worth repairing as one
+     * lost minutes after.
+     */
+    private function reconcileVanishedAppTags(\App\Support\PancakeOrderTagApi $api): array
+    {
+        $candidates = Order::whereNotNull('app_added_tags')
+            ->where('app_added_tags', '!=', '[]')
+            ->get();
+
+        $checked   = 0;
+        $corrected = 0;
+
+        foreach ($candidates as $local) {
+            $tracked = collect($local->app_added_tags ?? [])->filter();
+            if ($tracked->isEmpty()) continue;
+
+            $checked++;
+            $live = $api->getOrderDetail($local->pancake_order_id);
+            if ($live === null) continue; // Pancake unreachable or order gone — try again next run
+
+            $liveTagNames = collect($live['tags'] ?? [])->pluck('name')->map(fn ($n) => strtolower(trim($n)));
+            $missing = $tracked->reject(fn ($t) => $liveTagNames->contains(strtolower(trim($t))))->values();
+
+            if ($missing->isEmpty()) continue;
+
+            $results = $api->addTagsToOrder($local->pancake_order_id, $missing->all());
+            $reapplied = collect($results)->filter()->keys();
+
+            if ($reapplied->isNotEmpty()) {
+                $corrected++;
+                $lead = \App\Models\Lead::where('pancake_order_id', $local->pancake_order_id)->first();
+                if ($lead) {
+                    \App\Models\LeadActivity::log(
+                        $lead, 'tag_reconciled',
+                        'Re-applied tag(s) lost to a direct Pancake edit: "' . $reapplied->implode('", "') . '".',
+                        null
+                    );
+                }
+                $this->line("  Re-applied on #{$local->pancake_order_id}: " . $reapplied->implode(', '));
+            }
+        }
+
+        return [$checked, $corrected];
     }
 
     /**

@@ -1056,6 +1056,69 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Tag-loss self-healing (root-caused via /systematic-debugging,
+     * explicit report 2026-09-18: "hannah just added upsell tsd tag but
+     * it is not reflecting to the pos ... when reloads the page it is
+     * gone again") — every successful tag write records the tag name
+     * into Order::app_added_tags, a durable local record separate from
+     * raw_tags, so ReconcileOrderStatuses::reconcileVanishedAppTags() can
+     * later detect and repair a tag lost to a direct external Pancake
+     * edit. See that command's own test file for the reconciliation
+     * side; these cover only the recording side.
+     */
+    public function test_adding_a_tag_records_it_in_app_added_tags(): void
+    {
+        $this->fakePosTags([['id' => 10, 'name' => 'Confirmed']]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma20@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.tags.add', $lead), ['tag' => 'Confirmed'])->assertOk();
+
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertContains('Confirmed', $order->app_added_tags);
+    }
+
+    public function test_removing_a_tag_untracks_it_from_app_added_tags(): void
+    {
+        $this->fakePosTags([['id' => 10, 'name' => 'Confirmed']]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1', 'app_added_tags' => ['Confirmed']]);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma21@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Confirmed'])->assertOk();
+
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertNotContains('Confirmed', $order->app_added_tags ?? []);
+    }
+
+    public function test_adding_an_upsell_records_its_tag_in_app_added_tags(): void
+    {
+        $this->fakePosTags([
+            ['id' => 10, 'name' => 'UPSELL TSD - Eye Drops'],
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma22@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.upsell', $lead), [
+            'variation_id' => 'v1', 'product_id' => 'p1', 'name' => 'Eye Drops', 'retail_price' => 500, 'quantity' => 1,
+        ])->assertOk();
+
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertContains('UPSELL TSD - Eye Drops', $order->app_added_tags);
+    }
+
+    /**
      * Assignee picker (explicit request, 2026-09-18: "in the leads modal
      * has this icon too like can assign the asignee too like in the pos").
      * fakePosStaff() mirrors fakePosTags() above, faking GET

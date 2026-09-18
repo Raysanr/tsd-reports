@@ -23,6 +23,7 @@ class Order extends Model
         'pancake_product_ids',
         'amount',
         'raw_tags',
+        'app_added_tags',
         'is_upsell',
         'is_cancelled_upsell',
         'cancelled_upsell_amount',
@@ -44,6 +45,7 @@ class Order extends Model
 
     protected $casts = [
         'raw_tags'                => 'array',
+        'app_added_tags'          => 'array',
         'pancake_product_ids'     => 'array',
         'is_upsell'               => 'boolean',
         'is_cancelled_upsell'     => 'boolean',
@@ -61,6 +63,57 @@ class Order extends Model
         'pancake_updated_at'      => 'datetime',
         'synced_at'               => 'datetime',
     ];
+
+    /**
+     * Records that THIS app successfully wrote $tagNames to the real
+     * Pancake order — a durable local record, separate from raw_tags
+     * (which just mirrors Pancake's current live state and gets
+     * overwritten by every sync run). Root-caused via /systematic-
+     * debugging, explicit report 2026-09-18: "hannah just added upsell
+     * tsd tag but it is not reflecting to the pos ... when reloads the
+     * page it is gone again" — confirmed live that a tag this app
+     * correctly wrote can later be silently lost when someone edits the
+     * same order directly in Pancake POS from a stale snapshot. This
+     * app can't prevent that human edit, but SyncTodayOrders::
+     * reconcileAppAddedTags() (see its own doc comment) uses this record
+     * to detect the loss and re-apply the tag automatically. Called from
+     * every successful tag-write path: LeadController::addTag(),
+     * addUpsell() (via PancakeOrderTagApi::addUpsellItem()'s own upsell
+     * tag), and tagTsaOnPancakeOrder() (disposition/TSA tags). Never
+     * removes a tag from this record on its own — see
+     * untrackAppAddedTag() for the deliberate removal path (a TSA
+     * explicitly clicking "×" on a tag), so an untracked external
+     * removal doesn't get silently re-added forever.
+     */
+    public function trackAppAddedTags(array $tagNames): void
+    {
+        $tagNames = array_values(array_filter($tagNames, fn ($t) => trim((string) $t) !== ''));
+        if (empty($tagNames)) {
+            return;
+        }
+
+        $this->update(['app_added_tags' => collect($this->app_added_tags ?? [])
+            ->merge($tagNames)
+            ->unique(fn ($t) => strtolower($t))
+            ->values()
+            ->all()]);
+    }
+
+    /** Removes $tagName from the app_added_tags record — called when a TSA
+     *  explicitly removes a tag via removeTag() (LeadController), so
+     *  reconcileAppAddedTags() never re-applies a tag someone deliberately
+     *  took off, only one that vanished WITHOUT this app's own knowledge. */
+    public function untrackAppAddedTag(string $tagName): void
+    {
+        $remaining = collect($this->app_added_tags ?? [])
+            ->reject(fn ($t) => strcasecmp(trim($t), trim($tagName)) === 0)
+            ->values()
+            ->all();
+
+        if ($remaining !== ($this->app_added_tags ?? [])) {
+            $this->update(['app_added_tags' => $remaining]);
+        }
+    }
 
     /** Pancake's numeric order status → display label. Source: api-docs.pancake.vn/openapi.json,
      *  components.schemas.Order.properties.status (enum / x-enum-descriptions). */
