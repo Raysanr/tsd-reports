@@ -669,6 +669,8 @@
         <div class="flex items-center justify-end gap-3 flex-wrap lg:flex-nowrap md:justify-self-end">
             @stack('topbar-right')
 
+            @include('partials.messages-panel')
+
             {{-- Reload — a fixed, always-present control (same reasoning as the dark
                  mode toggle below): re-fetches and re-renders the CURRENT view from
                  already-synced local data via softRefresh, with no outbound Pancake

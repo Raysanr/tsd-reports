@@ -253,19 +253,41 @@ class UserManagementControllerTest extends TestCase
         // of what the view renders — this test guards the view's @if(canManage())
         // gating specifically, so a future edit to the Blade template can't quietly
         // drift from the controller's own check without a test catching it.
+        //
+        // Regression fix, 2026-09-18: this used to assert on a bare
+        // data-id="X" substring appearing anywhere on the page, which also
+        // now matches messageUserBtn's own data-id — that button
+        // intentionally renders for a peer Admin's row too (messaging
+        // isn't gated by canManage(), see that button's own comment), so
+        // the old broader assertion started failing for an unrelated,
+        // correct reason once it existed. Checks each user's own
+        // editUserBtn markup block specifically instead (data-email is
+        // only ever emitted by editUserBtn — see the view's own comment
+        // that toggleActiveBtn/deleteUserBtn carry no data-email at all —
+        // so id+email co-occurring within a short window is specific to
+        // an editUserBtn button for that exact user).
         $actingAdmin = User::factory()->admin()->create();
         $peerAdmin   = User::factory()->admin()->create();
         $normalUser  = User::factory()->normal()->create();
         $this->actingAs($actingAdmin);
 
-        $response = $this->get(route('user-management'));
+        $html = $this->get(route('user-management'))->assertOk()->getContent();
 
-        $response->assertOk();
-        // Neither button renders for a peer Admin (Admin cannot manage Admin)...
-        $response->assertDontSee('data-id="' . $peerAdmin->id . '"', false);
-        // ...nor for the actor's own row (no self-service editing)...
-        $response->assertDontSee('data-id="' . $actingAdmin->id . '"', false);
-        // ...but both do render for a Normal user, who the acting Admin can manage.
-        $response->assertSee('data-id="' . $normalUser->id . '"', false);
+        $editBlockExists = function (User $user) use ($html) {
+            $pos = strpos($html, 'data-id="' . $user->id . '"');
+            while ($pos !== false) {
+                $window = substr($html, $pos, 200);
+                if (str_contains($window, 'data-email="' . $user->email . '"')) return true;
+                $pos = strpos($html, 'data-id="' . $user->id . '"', $pos + 1);
+            }
+            return false;
+        };
+
+        // Neither Admin (peer or the actor's own row — no self-service
+        // editing) gets an editUserBtn block...
+        $this->assertFalse($editBlockExists($peerAdmin), 'A peer Admin should not get an editUserBtn block.');
+        $this->assertFalse($editBlockExists($actingAdmin), 'The acting Admin should not get one on their own row.');
+        // ...but a Normal user, who the acting Admin CAN manage, does.
+        $this->assertTrue($editBlockExists($normalUser), 'A manageable Normal user should still get an editUserBtn block.');
     }
 }

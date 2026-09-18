@@ -43,6 +43,25 @@
                     <p class="text-[11px] text-slate-400 font-mono truncate">{{ $user->email }}</p>
                 </div>
 
+                {{-- Message — explicit request, 2026-09-18: "can message the
+                     tsa" — visible regardless of canManage() below (any
+                     signed-in user can message any other, not just who an
+                     admin can edit/deactivate). Excluded for the viewer's
+                     own row — see messages-panel.blade.php's own
+                     document.dispatchEvent for the shared open-thread
+                     wiring this reuses. --}}
+                @if($user->id !== auth()->id())
+                <button type="button"
+                    class="messageUserBtn p-1.5 rounded-lg text-slate-400 hover:text-primary-dark dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer shrink-0"
+                    title="Message"
+                    data-id="{{ $user->id }}"
+                    data-name="{{ $user->name }}">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-6l-4 4v-4z"/>
+                    </svg>
+                </button>
+                @endif
+
                 @if(auth()->user()->canManage($user))
                 <div class="flex items-center gap-1 shrink-0">
                     <button type="button"
@@ -182,6 +201,17 @@
     document.getElementById('addUserBtn').addEventListener('click', () => { resetForm(); openModal(); });
     document.getElementById('cancelUserModal').addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    // Reuses the SAME shared event the messages/thread.blade.php fallback
+    // page dispatches (see messages-panel.blade.php's own listener) rather
+    // than a second hand-copied "open the panel to this user" path.
+    document.querySelectorAll('.messageUserBtn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.dispatchEvent(new CustomEvent('messages:open-thread', {
+                detail: { id: parseInt(btn.dataset.id, 10), name: btn.dataset.name },
+            }));
+        });
+    });
 
     document.querySelectorAll('.editUserBtn').forEach(btn => {
         btn.addEventListener('click', () => {

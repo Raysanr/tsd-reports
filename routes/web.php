@@ -16,6 +16,7 @@ use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SyncHealthController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\InsightsController;
+use App\Http\Controllers\MessageController;
 
 // Guest-only: a signed-in user hitting these is bounced to the dashboard
 // instead of seeing the login/register form again.
@@ -67,6 +68,17 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
     Route::get('/search',          [SearchController::class,         'search'])->name('search');
+
+    // Direct messaging (explicit request, 2026-09-18: "is it possible that
+    // can have a feature that can message the tsa") — every signed-in user
+    // (not role-gated) can message any other user, both directions. See
+    // MessageController's own doc comment for the full design.
+    Route::get('/messages',                    [MessageController::class, 'inbox'])->name('messages.inbox');
+    Route::get('/messages/unread-count',        [MessageController::class, 'unreadCount'])->name('messages.unread-count');
+    Route::get('/messages/users',               [MessageController::class, 'searchUsers'])->name('messages.users');
+    Route::get('/messages/{user}',              [MessageController::class, 'thread'])->name('messages.thread');
+    Route::post('/messages/{user}',             [MessageController::class, 'send'])->name('messages.send');
+    Route::post('/messages/{user}/read',        [MessageController::class, 'markRead'])->name('messages.read');
 
     // CONFIG — Super Admin and Admin only.
     Route::middleware('role:super_admin,admin')->group(function () {

@@ -473,6 +473,8 @@
             ])
             @endif
 
+            @include('partials.messages-panel')
+
             {{-- Reload + Dark mode — fixed, always-present controls (explicit
                  request, 2026-08-17), same convention/markup/behavior as TSD
                  Reports' own layouts/app.blade.php: not per-page like the
