@@ -2882,11 +2882,33 @@ window.openCallingModal = function (name, number, dialHost, leadId) {
 };
 
 window.closeCallingModal = function () {
-    hideModal(document.getElementById('callingModal'));
+    const modal = document.getElementById('callingModal');
+    const leadId = modal?.dataset.leadId;
+    hideModal(modal);
     // "Close" (unlike "End Call") never clears the tracked call — if one's
     // still active, the banner is how a TSA gets back into it.
     const call = getActiveCall();
     if (call) showResumeBanner(call);
+
+    // Explicit TSA feedback, 2026-09-18: "when they call in the overdue
+    // that lead will be gone and they will search it again manually in
+    // the leads" — root-caused: clicking a phone number to dial only ever
+    // opened the Calling modal, never the lead's own detail modal, so a
+    // TSA who dialed straight from a table row (rather than first opening
+    // the lead) had nothing left to log the outcome on once dialed_at
+    // took that row out of Overdue on the next 15s poll (pollLeadsTable()
+    // above) — they'd have to go find it again in the full Leads list.
+    // Opening the lead detail modal here, the moment the Calling modal
+    // closes (covers every path: End Call, the X button, backdrop click,
+    // Escape — all funnel through this one function), guarantees the TSA
+    // always lands back on that exact lead afterward, ready to log the
+    // outcome, regardless of whether their account has a dial_host
+    // configured (End Call itself is hidden without one — see
+    // openCallingModal()'s own endBtn.classList.toggle — so this can't
+    // rely on that button alone).
+    if (leadId) {
+        window.openLeadModal(leadId);
+    }
 };
 
 // End Call — same Wi-Fi-direct-to-phone approach as auto-dial (see the click
