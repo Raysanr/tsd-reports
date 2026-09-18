@@ -286,7 +286,7 @@
                     </div>
                     @endif
                     @foreach($displayTags as $tagName)
-                    <span class="real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1">
+                    <span class="real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1" data-tag-name="{{ $tagName }}">
                         <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                         {{ $tagName }}
                         @if($liveTags !== null)

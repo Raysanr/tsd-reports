@@ -1942,12 +1942,21 @@ async function submitInlineTagAdd(tagName) {
     if (!list) return;
     const leadId = list.dataset.leadId;
     // Explicit follow-up request, 2026-09-04: "when users add tag like one
-    // tag it will not be closed and can add more tag like that" — the panel
-    // used to hide immediately here, then stay hidden forever since
-    // refreshLeadDetail()'s full-detail reload re-inits it closed by
-    // default (initInlineTagsPanel()'s own convention). No longer hidden up
-    // front; reopened explicitly below once the refreshed markup (a brand
-    // new #inlineTagAddPanel element) is actually in the DOM.
+    // tag it will not be closed and can add more tag like that", then
+    // 2026-09-18: "i want it to still open ... not just every add tag will
+    // be page reload like that" — the first fix kept the PANEL open but
+    // still drove a full refreshLeadDetail() reload of the whole detail
+    // card underneath it (a brand new #inlineTagAddPanel element replaces
+    // the old one, then gets manually reopened), which is visibly a
+    // flash/reload even though the popup itself didn't technically close.
+    // No detail-card refresh at all now — the new pill is appended
+    // directly into the DOM (same markup _detail.blade.php's own
+    // @foreach($displayTags) renders) and the search panel just stays
+    // exactly as it was, so adding several tags in a row never re-renders
+    // anything else on the card.
+
+    const addBtn = document.getElementById('inlineTagAddBtn');
+    if (addBtn) { addBtn.disabled = true; }
 
     try {
         const res = await fetch(`/calls/leads/${leadId}/tags/add`, {
@@ -1963,17 +1972,47 @@ async function submitInlineTagAdd(tagName) {
 
         if (data.success) {
             window.showToast?.(`Added "${tagName}".`, 'success');
-            // .then(), not await — refreshLeadDetail() only returns a real
-            // Promise when the detail modal is open (the common case here,
-            // since this action only exists inside that modal); a plain
-            // page reload has nothing to chain onto and simply skips this.
-            Promise.resolve(window.refreshLeadDetail(leadId)).then(() => window.openInlineTagAdd?.());
+            appendTagChip(list, leadId, tagName);
+            // Keep the panel open, ready for the next search — same as
+            // openInlineTagAdd()'s own "fresh search" reset, just without
+            // the open/close toggle it also does.
+            const results = document.getElementById('inlineTagAddResults');
+            const search = document.getElementById('inlineTagAddSearch');
+            if (results) results.innerHTML = '<p class="text-slate-400 text-center text-[11px] py-3">Type to search…</p>';
+            if (search) { search.value = ''; search.focus(); }
         } else {
             window.showToast?.(data.error || `Could not add "${tagName}".`, 'error');
         }
     } catch (e) {
         window.showToast?.('Could not reach the server — try again.', 'error');
+    } finally {
+        if (addBtn) { addBtn.disabled = false; }
     }
+}
+
+/** Appends one tag pill to the POS Tags list without touching anything
+ *  else on the card — same markup _detail.blade.php's own
+ *  @foreach($displayTags) loop renders for an existing tag, so a
+ *  dynamically-added pill is visually identical and its × button works
+ *  immediately (real-tag-remove is a document-level delegated handler,
+ *  see its own comment above, not bound per-element). A duplicate add
+ *  (tag already shown) is skipped rather than shown twice — case-
+ *  insensitive, same convention Order.raw_tags' own union already uses. */
+function appendTagChip(list, leadId, tagName) {
+    const already = Array.from(list.querySelectorAll('.real-tag-chip')).some(
+        (chip) => (chip.dataset.tagName || '').toLowerCase() === tagName.toLowerCase()
+    );
+    if (already) return;
+
+    const chip = document.createElement('span');
+    chip.className = 'real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1';
+    chip.dataset.tagName = tagName;
+    chip.innerHTML = `
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+        ${escapeHtml(tagName)}
+        <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="${leadId}" data-tag="${escapeHtml(tagName)}" title="Remove tag from order" aria-label="Remove ${escapeHtml(tagName)}">×</button>
+    `;
+    list.appendChild(chip);
 }
 
 document.addEventListener('click', (e) => {
