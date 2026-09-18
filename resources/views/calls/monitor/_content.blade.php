@@ -126,6 +126,58 @@
     @endforeach
 </div>
 
+{{-- TSA Call Queue (explicit request, 2026-09-18) — a flat, scannable
+     name/status/minutes table right under the status-count cards above,
+     same data those cards already summarize (live $tsa->status) but
+     broken out per TSA instead of only as totals. "Minutes" is time in
+     the CURRENT status specifically (matches each card's own per-TSA
+     "Current status time" further down this same page, not the Daily
+     minute record's running total) — ticks live client-side via the
+     same generic [data-status-changed-at] + tickStatusTimes() mechanism
+     monitor.blade.php's own script already drives for the per-TSA cards,
+     no separate JS needed here. Only rendered for a picked range that
+     includes today (same "current status has no meaning for a past day"
+     reasoning the per-TSA cards below already apply) and only when
+     there's at least one TSA to show — avoids an empty 3-column table
+     sitting above the "No TSAs match" message the section below already
+     renders for that case. --}}
+@if($isSingleDay && $dateFrom->isToday() && $tsas->isNotEmpty())
+<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-6">
+    <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-700">
+        <p class="text-xs font-bold font-mono uppercase tracking-wide text-slate-400">TSA Call Queue</p>
+    </div>
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-slate-50 dark:bg-slate-800/60 text-left">
+                <th class="px-5 py-2.5 text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400">TSA Name</th>
+                <th class="px-5 py-2.5 text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400">Status</th>
+                <th class="px-5 py-2.5 text-[10px] font-bold font-mono uppercase tracking-wide text-slate-400 text-right">Minutes</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+            @foreach($tsas as $queueTsa)
+            @php
+                $queueSecondsElapsed = $queueTsa->status_changed_at ? now('Asia/Manila')->diffInSeconds($queueTsa->status_changed_at) : 0;
+            @endphp
+            <tr>
+                <td class="px-5 py-3 font-semibold text-slate-800 dark:text-slate-100">{{ $queueTsa->display_name }}</td>
+                <td class="px-5 py-3">
+                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $statusBadgeClass($queueTsa->status) }}">
+                        <span class="w-1.5 h-1.5 rounded-full shrink-0 {{ $statusDotClass($queueTsa->status) }}"></span>
+                        {{ \App\Models\TsaShift::STATUSES[$queueTsa->status]['label'] ?? $queueTsa->status }}
+                    </span>
+                </td>
+                <td class="px-5 py-3 text-right font-bold font-mono text-slate-800 dark:text-slate-100"
+                    id="queueMinutes-{{ $queueTsa->id }}" data-status-changed-at="{{ optional($queueTsa->status_changed_at)->toIso8601String() }}" data-minutes-only="1">
+                    {{ intdiv($queueSecondsElapsed, 60) }}
+                </td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+
 {{-- Lead-queue health (explicit request, 2026-08-21) — Monitor previously
      showed TSA status/time only, with zero visibility into whether any of
      them actually have leads piling up. Same date-scoped definitions

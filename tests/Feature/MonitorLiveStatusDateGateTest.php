@@ -81,4 +81,51 @@ class MonitorLiveStatusDateGateTest extends TestCase
         $response->assertSee('Total tracked');
         $response->assertSee(TsaShift::where('tsa_key', 'Gemma')->first()->display_name);
     }
+
+    /**
+     * TSA Call Queue (explicit request, 2026-09-18) — a flat name/status/
+     * minutes table right under the status-count cards. Same date-gate
+     * reasoning as "Current status time" above — live $tsa->status has no
+     * meaning for a past day, so this table only renders for today.
+     */
+    public function test_todays_view_shows_the_tsa_call_queue_table(): void
+    {
+        TsaShift::where('tsa_key', 'Gemma')->update(['status' => TsaShift::STATUS_CALLING, 'status_changed_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $response->assertSee('TSA Call Queue');
+        // "Calling" (title case, CSS uppercase is visual only via
+        // tracking-wide/uppercase classes) — same real label
+        // TsaShift::STATUSES['calling']['label'] returns everywhere else
+        // on this page, not a literal all-caps string in the markup.
+        $response->assertSeeInOrder([
+            TsaShift::where('tsa_key', 'Gemma')->first()->display_name,
+            'Calling',
+        ]);
+    }
+
+    public function test_a_past_dates_view_hides_the_tsa_call_queue_table(): void
+    {
+        $yesterday = now('Asia/Manila')->subDay()->toDateString();
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor', [
+            'date_from' => $yesterday, 'date_to' => $yesterday,
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee('TSA Call Queue');
+    }
+
+    public function test_a_multi_day_range_also_hides_the_tsa_call_queue_table(): void
+    {
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor', [
+            'date_from' => now('Asia/Manila')->subDays(2)->toDateString(),
+            'date_to'   => now('Asia/Manila')->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee('TSA Call Queue');
+    }
 }
