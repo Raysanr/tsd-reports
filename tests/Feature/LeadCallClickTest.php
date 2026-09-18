@@ -251,7 +251,10 @@ class LeadCallClickTest extends TestCase
         $this->assertSame([], collect($gemmaResponse->json('leads'))->pluck('id')->all());
     }
 
-    public function test_recently_called_reflects_a_disposition_logged_since_the_call(): void
+    /** Disposition removed from this panel entirely (explicit request,
+     *  2026-09-18: "remove the disposition") — it's a quick way back to a
+     *  recently-dialed lead, not a second place to track outcome state. */
+    public function test_recently_called_does_not_expose_a_disposition_field(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $lead  = $this->leadFor($gemma, '9014');
@@ -262,6 +265,6 @@ class LeadCallClickTest extends TestCase
 
         $response = $this->actingAs($user)->getJson(route('calls.leads.recently-called'));
 
-        $this->assertSame('Confirmed', $response->json('leads.0.disposition'));
+        $this->assertArrayNotHasKey('disposition', $response->json('leads.0'));
     }
 }

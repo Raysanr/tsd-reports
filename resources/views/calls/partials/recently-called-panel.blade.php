@@ -87,6 +87,11 @@
             return;
         }
 
+        // Disposition badge removed entirely (explicit request,
+        // 2026-09-18: "remove the disposition") — this panel is purely a
+        // quick way back to a recently-dialed lead, not a second place to
+        // track outcome state (the lead's own detail modal already shows
+        // that).
         list.innerHTML = leads.map((l) => `
             <div class="recently-called-row flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800" data-id="${l.id}">
                 <span class="w-9 h-9 rounded-full bg-primary/10 text-primary-dark dark:text-yellow-400 flex items-center justify-center text-xs font-bold shrink-0">${escapeHtml((l.customerName || '?').charAt(0).toUpperCase())}</span>
@@ -94,9 +99,6 @@
                     <p class="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">${escapeHtml(l.customerName)}</p>
                     <p class="text-xs text-slate-400 truncate">${escapeHtml(l.phoneNumber || '')}${l.calledAt ? ' · ' + escapeHtml(l.calledAt) : ''}</p>
                 </div>
-                ${l.disposition
-                    ? `<span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 shrink-0">${escapeHtml(l.disposition)}</span>`
-                    : '<span class="text-[10px] font-mono text-amber-600 dark:text-amber-400 shrink-0">Not logged</span>'}
             </div>`).join('');
     }
 

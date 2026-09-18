@@ -1677,7 +1677,6 @@ class LeadController extends Controller
                 'id'           => $lead->id,
                 'customerName' => $lead->customer_name ?: 'this customer',
                 'phoneNumber'  => $lead->phone_number,
-                'disposition'  => $lead->disposition,
                 'calledAt'     => $lead->dialed_at?->format('M j, g:i A'),
             ]),
         ]);
