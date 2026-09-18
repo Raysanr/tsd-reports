@@ -190,14 +190,7 @@
             const changedAt = el.dataset.statusChangedAt;
             if (!changedAt) return;
             const elapsedSeconds = (Date.now() - new Date(changedAt).getTime()) / 1000;
-            // The new call-queue table's own Minutes column (explicit
-            // request, 2026-09-18) wants a bare minute count ("4"), not
-            // the h/m/s format every other [data-status-changed-at]
-            // element here uses — same live-ticking element, just a
-            // different render.
-            el.textContent = el.dataset.minutesOnly
-                ? String(Math.max(0, Math.floor(elapsedSeconds / 60)))
-                : formatElapsedSeconds(elapsedSeconds);
+            el.textContent = formatElapsedSeconds(elapsedSeconds);
         });
     }
     setInterval(tickStatusTimes, 1000);

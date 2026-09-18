@@ -129,18 +129,26 @@
 {{-- TSA Call Queue (explicit request, 2026-09-18) — a flat, scannable
      name/status/minutes table right under the status-count cards above,
      same data those cards already summarize (live $tsa->status) but
-     broken out per TSA instead of only as totals. "Minutes" is time in
-     the CURRENT status specifically (matches each card's own per-TSA
-     "Current status time" further down this same page, not the Daily
-     minute record's running total) — ticks live client-side via the
-     same generic [data-status-changed-at] + tickStatusTimes() mechanism
-     monitor.blade.php's own script already drives for the per-TSA cards,
-     no separate JS needed here. Only rendered for a picked range that
-     includes today (same "current status has no meaning for a past day"
-     reasoning the per-TSA cards below already apply) and only when
-     there's at least one TSA to show — avoids an empty 3-column table
-     sitting above the "No TSAs match" message the section below already
-     renders for that case. --}}
+     broken out per TSA instead of only as totals. The Minutes column is
+     time in the CURRENT status specifically (matches each card's own
+     per-TSA "Current status time" further down this same page, not the
+     Daily minute record's running total) — formatted with the same
+     h/m/s $formatSeconds() every other elapsed-time readout on this page
+     already uses (explicit follow-up, 2026-09-18: a bare minute count
+     was showing nonsense values like "41922" for a TSA who'd been
+     logged out since a much earlier day — status_changed_at that stale
+     isn't wrong data, just genuinely a huge number of raw minutes; the
+     h/m/s format reads sanely at any magnitude the same way "Current
+     status time" already does). Ticks live client-side via the same
+     generic [data-status-changed-at] + tickStatusTimes() mechanism
+     monitor.blade.php's own script already drives for the per-TSA
+     cards — no separate JS needed here, and no data-minutes-only flag
+     anymore now that this matches that same format exactly. Only
+     rendered for a picked range that includes today (same "current
+     status has no meaning for a past day" reasoning the per-TSA cards
+     below already apply) and only when there's at least one TSA to show
+     — avoids an empty 3-column table sitting above the "No TSAs match"
+     message the section below already renders for that case. --}}
 @if($isSingleDay && $dateFrom->isToday() && $tsas->isNotEmpty())
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden mb-6">
     <div class="px-5 py-3 border-b border-slate-200 dark:border-slate-700">
@@ -168,8 +176,8 @@
                     </span>
                 </td>
                 <td class="px-5 py-3 text-right font-bold font-mono text-slate-800 dark:text-slate-100"
-                    id="queueMinutes-{{ $queueTsa->id }}" data-status-changed-at="{{ optional($queueTsa->status_changed_at)->toIso8601String() }}" data-minutes-only="1">
-                    {{ intdiv($queueSecondsElapsed, 60) }}
+                    id="queueMinutes-{{ $queueTsa->id }}" data-status-changed-at="{{ optional($queueTsa->status_changed_at)->toIso8601String() }}">
+                    {{ $formatSeconds($queueSecondsElapsed) }}
                 </td>
             </tr>
             @endforeach
