@@ -299,6 +299,27 @@
                     </dd>
                     @endif
 
+                    @if(!empty($liveOrder['assigning_seller']['name']))
+                    {{-- Pancake POS's own order Assignee (explicit request,
+                         2026-09-18: "in the pos in every created leads
+                         there's a assignee is it possible that is can see
+                         who is that assignee") — distinct from the "TSA"
+                         row below: that's who THIS app assigned the lead
+                         to via round-robin, this is whoever Pancake itself
+                         shows as assigned on the order (assigning_seller,
+                         already fetched by getOrderDetail() for the
+                         History card's editor-name resolution, just never
+                         surfaced here before). Null when the order hasn't
+                         synced live or Pancake has no assignee set. --}}
+                    <dt class="text-slate-400">Assignee</dt>
+                    <dd class="text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                        @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
+                        <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="w-5 h-5 rounded-full object-cover">
+                        @endif
+                        {{ $liveOrder['assigning_seller']['name'] }}
+                    </dd>
+                    @endif
+
                     <dt class="text-slate-400">TSA</dt>
                     <dd class="text-slate-700 dark:text-slate-200">{{ $lead->tsa?->display_name ?? 'Unassigned' }}</dd>
 
