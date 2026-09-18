@@ -5,7 +5,6 @@ namespace App\Support;
 use App\Models\Product;
 use App\Models\RoundRobinState;
 use App\Models\TsaShift;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift.
@@ -58,24 +57,6 @@ class RoundRobinAssigner
     public static function next(Product $product): ?TsaShift
     {
         $roster = self::eligibleRoster($product);
-
-        // Temporary diagnostic logging (explicit report, 2026-09-18: "but
-        // after 1 lead she can't get another leads" — Lika, confirmed
-        // continuously online/eligible for 25+ minutes, was skipped across
-        // 48 consecutive real assignments on her own products; every
-        // read-only check of roster/cap/pairing came back clean, so this
-        // logs the REAL roster/pointer state at the exact moment a real
-        // decision is made, to catch whatever a static check can't see —
-        // e.g. a stale eager-loaded relation, a transaction visibility
-        // gap, or a race this specific sync run hits that a manual tinker
-        // check a few minutes later never reproduces). Remove once the
-        // cause is confirmed.
-        Log::info('RoundRobinAssigner::next() diagnostic', [
-            'product'          => $product->display_name,
-            'roster'           => $roster->pluck('tsa_key')->values()->all(),
-            'roster_ids'       => $roster->pluck('id')->values()->all(),
-        ]);
-
         if ($roster->isEmpty()) return null;
 
         $state = self::state($product);
@@ -89,14 +70,6 @@ class RoundRobinAssigner
         // since — either way, wrap to the start rather than erroring.
         $nextIndex = $currentIndex === false ? 0 : ($currentIndex + 1) % $roster->count();
         $next      = $roster[$nextIndex];
-
-        Log::info('RoundRobinAssigner::next() picked', [
-            'product'      => $product->display_name,
-            'last_tsa_id'  => $state->last_tsa_id,
-            'currentIndex' => $currentIndex,
-            'nextIndex'    => $nextIndex,
-            'picked'       => $next->tsa_key,
-        ]);
 
         $state->update(['last_tsa_id' => $next->id]);
 
@@ -129,23 +102,6 @@ class RoundRobinAssigner
      *  again on a new day with no separate reset job needed). */
     public static function eligibleRoster(Product $product)
     {
-        // Temporary diagnostic logging — see next()'s own comment. Logs
-        // EVERY TSA on this product's roster (not just the eligible
-        // survivors) with their raw status/active/cap fields, so a TSA
-        // who should be eligible but isn't in the final result shows
-        // exactly which condition excluded them.
-        $allOnRoster = $product->tsas()->get();
-        Log::info('RoundRobinAssigner::eligibleRoster() raw roster', [
-            'product' => $product->display_name,
-            'all'     => $allOnRoster->map(fn (TsaShift $t) => [
-                'tsa_key'            => $t->tsa_key,
-                'active'             => $t->active,
-                'status'             => $t->status,
-                'daily_lead_cap'     => $t->daily_lead_cap,
-                'leadsAssignedToday' => $t->leadsAssignedToday(),
-            ])->all(),
-        ]);
-
         return $product->tsas()->where('active', true)
             ->whereIn('status', self::ELIGIBLE_STATUSES)
             ->get()
