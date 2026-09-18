@@ -137,6 +137,41 @@
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-pink-50 text-pink-600 dark:bg-pink-900/20 dark:text-pink-300 mb-1">{{ $displayId }}</span>
                             @endif
                             <p class="font-semibold text-slate-800 dark:text-slate-100">{{ $name }}</p>
+                            @if($loop->first)
+                            {{-- Pancake POS's own order Assignee (explicit
+                                 request, 2026-09-18: "in the pos in every
+                                 created leads there's a assignee ... it
+                                 will display to the product like this not
+                                 in the details section", follow-up: "like
+                                 in the left side of the note") — order-
+                                 level, not per-item, so only shown once
+                                 (first row) even on a multi-item order.
+                                 Distinct from the "TSA" row in Details
+                                 below: that's who THIS app assigned the
+                                 lead to via round-robin, this is whoever
+                                 Pancake itself shows as assigned on the
+                                 order (assigning_seller, already fetched
+                                 by getOrderDetail() for the History card's
+                                 editor-name resolution, just never
+                                 surfaced in the UI before). Confirmed live
+                                 against real production orders: an
+                                 unassigned order's assigning_seller is
+                                 bare null (not a "System" placeholder
+                                 name) — shown as "No assigned staff". --}}
+                            <p class="flex items-center gap-1.5 text-xs text-slate-400 mt-1">
+                                <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                </svg>
+                                @if(!empty($liveOrder['assigning_seller']['name']))
+                                @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
+                                <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="w-4 h-4 rounded-full object-cover">
+                                @endif
+                                <span class="text-slate-600 dark:text-slate-300 font-medium">{{ $liveOrder['assigning_seller']['name'] }}</span>
+                                @else
+                                No assigned staff
+                                @endif
+                            </p>
+                            @endif
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
                             <input type="number" class="line-item-price-input w-20 text-sm text-right border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500" value="{{ $price }}" min="0" step="0.01" aria-label="Price">
@@ -296,27 +331,6 @@
                         @if($lead->conversation_link)
                         <a href="{{ $lead->conversation_link }}" target="_blank" rel="noopener" class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">Open in Pancake ↗</a>
                         @endif
-                    </dd>
-                    @endif
-
-                    @if(!empty($liveOrder['assigning_seller']['name']))
-                    {{-- Pancake POS's own order Assignee (explicit request,
-                         2026-09-18: "in the pos in every created leads
-                         there's a assignee is it possible that is can see
-                         who is that assignee") — distinct from the "TSA"
-                         row below: that's who THIS app assigned the lead
-                         to via round-robin, this is whoever Pancake itself
-                         shows as assigned on the order (assigning_seller,
-                         already fetched by getOrderDetail() for the
-                         History card's editor-name resolution, just never
-                         surfaced here before). Null when the order hasn't
-                         synced live or Pancake has no assignee set. --}}
-                    <dt class="text-slate-400">Assignee</dt>
-                    <dd class="text-slate-700 dark:text-slate-200 flex items-center gap-2">
-                        @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
-                        <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="w-5 h-5 rounded-full object-cover">
-                        @endif
-                        {{ $liveOrder['assigning_seller']['name'] }}
                     </dd>
                     @endif
 
