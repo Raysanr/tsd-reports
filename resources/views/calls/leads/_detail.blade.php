@@ -77,6 +77,68 @@
             @if($canManage)
             <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
                 <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3">Products</p>
+                {{-- Pancake POS's own order Assignee (explicit request,
+                     2026-09-18: "in the pos in every created leads there's
+                     a assignee ... it will display to the product like
+                     this not in the details section", follow-up: "like in
+                     the left side of the note", then: "i want to make it
+                     like in the leads modal has this icon too like can
+                     assign the asignee too like in the pos" — now
+                     editable, not just display, matching Pancake's own
+                     "assign staff" icon + dropdown next to the item's
+                     Note). Order-level, not per-item — placed once above
+                     the items list rather than tied to $loop->first
+                     (regression fix, 2026-09-18: "why the added upsell is
+                     no add assignee like that" — an upsell can become the
+                     item Pancake returns first, or the base item can get
+                     removed/reordered, so anchoring this to "whichever
+                     item happens to render first" made it disappear
+                     depending on item order; anchoring it to the card
+                     itself instead means it's always visible regardless
+                     of how many items exist or their order). Distinct
+                     from the "TSA" row in Details below: that's who THIS
+                     app assigned the lead to via round-robin, this is
+                     whoever Pancake itself shows as assigned on the order
+                     (assigning_seller_id, written via
+                     PancakeOrderTagApi::updateAssignee(), the shop's real
+                     staff directory searched via
+                     LeadController::searchStaff() — see both their own
+                     doc comments). Confirmed live against real production
+                     orders: an unassigned order's assigning_seller is
+                     bare null (not a "System" placeholder name) — shown
+                     as "No assigned staff". initInlineAssigneePanel()
+                     (calls.js) re-binds this on every modal open, same
+                     reason initInlineTagsPanel() does. --}}
+                <div class="relative mb-3" id="inlineAssigneeWrap" data-lead-id="{{ $lead->id }}">
+                    <button type="button" id="inlineAssigneeBtn" onclick="openInlineAssignee()"
+                            class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-primary-dark cursor-pointer">
+                        <span class="w-5 h-5 flex items-center justify-center shrink-0">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25v3m1.5-1.5h-3"/>
+                            </svg>
+                        </span>
+                        <span id="inlineAssigneeLabel">
+                            @if(!empty($liveOrder['assigning_seller']['name']))
+                            @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
+                            <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="inline w-4 h-4 rounded-full object-cover align-middle mr-1">
+                            @endif
+                            <span class="text-slate-600 dark:text-slate-300 font-medium">{{ $liveOrder['assigning_seller']['name'] }}</span>
+                            @else
+                            No assigned staff
+                            @endif
+                        </span>
+                    </button>
+                    <div id="inlineAssigneePanel" class="hidden absolute z-20 mt-1 w-64 max-w-[90vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
+                        <input type="text" id="inlineAssigneeSearch" placeholder="Search staff…" autocomplete="off"
+                               class="w-full text-xs border-b border-slate-100 dark:border-slate-700 px-3 py-2 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none">
+                        <div id="inlineAssigneeResults" class="max-h-48 overflow-y-auto">
+                            <div class="inline-assignee-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-500 dark:text-slate-400" data-id="" data-name="">
+                                <span class="w-5 h-5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 shrink-0"></span>
+                                <span>No assigned staff</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="relative mb-3" id="inlineUpsellSearchWrap" data-lead-id="{{ $lead->id }}">
                     <input type="text" id="inlineUpsellSearch" placeholder="Search products to add…" autocomplete="off"
                            class="w-full text-sm border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
@@ -137,68 +199,6 @@
                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-pink-50 text-pink-600 dark:bg-pink-900/20 dark:text-pink-300 mb-1">{{ $displayId }}</span>
                             @endif
                             <p class="font-semibold text-slate-800 dark:text-slate-100">{{ $name }}</p>
-                            @if($loop->first)
-                            {{-- Pancake POS's own order Assignee (explicit
-                                 request, 2026-09-18: "in the pos in every
-                                 created leads there's a assignee ... it
-                                 will display to the product like this not
-                                 in the details section", follow-up: "like
-                                 in the left side of the note", then: "i
-                                 want to make it like in the leads modal
-                                 has this icon too like can assign the
-                                 asignee too like in the pos" — now
-                                 editable, not just display, matching
-                                 Pancake's own "assign staff" icon +
-                                 dropdown next to the item's Note). Order-
-                                 level, not per-item, so only shown once
-                                 (first row) even on a multi-item order.
-                                 Distinct from the "TSA" row in Details
-                                 below: that's who THIS app assigned the
-                                 lead to via round-robin, this is whoever
-                                 Pancake itself shows as assigned on the
-                                 order (assigning_seller_id, written via
-                                 PancakeOrderTagApi::updateAssignee(), the
-                                 shop's real staff directory searched via
-                                 LeadController::searchStaff() — see both
-                                 their own doc comments). Confirmed live
-                                 against real production orders: an
-                                 unassigned order's assigning_seller is
-                                 bare null (not a "System" placeholder
-                                 name) — shown as "No assigned staff".
-                                 initInlineAssigneePanel() (calls.js)
-                                 re-binds this on every modal open, same
-                                 reason initInlineTagsPanel() does. --}}
-                            <div class="relative mt-1" id="inlineAssigneeWrap" data-lead-id="{{ $lead->id }}">
-                                <button type="button" id="inlineAssigneeBtn" onclick="openInlineAssignee()"
-                                        class="flex items-center gap-1.5 text-xs text-slate-400 hover:text-primary-dark cursor-pointer">
-                                    <span class="w-5 h-5 flex items-center justify-center shrink-0">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25v3m1.5-1.5h-3"/>
-                                        </svg>
-                                    </span>
-                                    <span id="inlineAssigneeLabel">
-                                        @if(!empty($liveOrder['assigning_seller']['name']))
-                                        @if($liveOrder['assigning_seller']['avatar_url'] ?? null)
-                                        <img src="{{ $liveOrder['assigning_seller']['avatar_url'] }}" alt="" class="inline w-4 h-4 rounded-full object-cover align-middle mr-1">
-                                        @endif
-                                        <span class="text-slate-600 dark:text-slate-300 font-medium">{{ $liveOrder['assigning_seller']['name'] }}</span>
-                                        @else
-                                        No assigned staff
-                                        @endif
-                                    </span>
-                                </button>
-                                <div id="inlineAssigneePanel" class="hidden absolute z-20 mt-1 w-64 max-w-[90vw] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
-                                    <input type="text" id="inlineAssigneeSearch" placeholder="Search staff…" autocomplete="off"
-                                           class="w-full text-xs border-b border-slate-100 dark:border-slate-700 px-3 py-2 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none">
-                                    <div id="inlineAssigneeResults" class="max-h-48 overflow-y-auto">
-                                        <div class="inline-assignee-result-row flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-500 dark:text-slate-400" data-id="" data-name="">
-                                            <span class="w-5 h-5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 shrink-0"></span>
-                                            <span>No assigned staff</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            @endif
                         </div>
                         <div class="flex items-center gap-1.5 shrink-0">
                             <input type="number" class="line-item-price-input w-20 text-sm text-right border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500" value="{{ $price }}" min="0" step="0.01" aria-label="Price">
