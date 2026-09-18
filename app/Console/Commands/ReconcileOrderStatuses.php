@@ -203,67 +203,123 @@ class ReconcileOrderStatuses extends Command
     }
 
     /**
-     * Fourth, separate pass: re-applies a tag THIS app successfully wrote
-     * to a real Pancake order (Order::app_added_tags — see its own doc
-     * comment) whenever a fresh live read shows it's no longer there.
-     * Root-caused via /systematic-debugging, explicit report 2026-09-18:
-     * "hannah just added upsell tsd tag but it is not reflecting to the
-     * pos ... when reloads the page it is gone again" — confirmed live
-     * against real order #1369280: this app's own addTag() correctly
-     * wrote "UPSELL TSD - 1 Haplunas Healing Eye Cream" (its own
-     * editor_id matching this app's known service account), but ~8
-     * minutes later a DIFFERENT editor_id — resolved via
-     * PancakeOrderTagApi::listStaff() to "Ascano", Hannah's own real
-     * Pancake POS login — made a direct edit to the SAME order
+     * Fourth, separate pass: restores whatever THIS app successfully
+     * wrote to a real Pancake order — tags (Order::app_added_tags), the
+     * Notes fields (app_note/app_note_print), and the Delivery/shipping
+     * address (app_shipping_address) — whenever a fresh live read shows
+     * Pancake no longer matches. Root-caused via /systematic-debugging,
+     * explicit report 2026-09-18: "hannah just added upsell tsd tag but
+     * it is not reflecting to the pos ... when reloads the page it is
+     * gone again" — confirmed live against real order #1369280: this
+     * app's own addTag() correctly wrote "UPSELL TSD - 1 Haplunas
+     * Healing Eye Cream" (its own editor_id matching this app's known
+     * service account), but ~8 minutes later a DIFFERENT editor_id —
+     * resolved via PancakeOrderTagApi::listStaff() to "Ascano", Hannah's
+     * own real Pancake POS login — made a direct edit to the SAME order
      * (shipping_address + amount_owed_to_customer changed in the same
      * write) from what must have been a stale GET-then-save round trip
      * that never saw this app's tag, silently overwriting the tags array
      * and losing it. This app has no way to prevent a human editing
      * Pancake POS directly, but it can detect and repair the result.
      *
+     * Extended to Notes/Delivery, explicit follow-up 2026-09-18: "even
+     * notes and the address when they edit or add it should be reflect
+     * to the pos" — updateNotes()/updateShippingAddress() use the
+     * identical GET-then-PUT-whole-order pattern as the tag write that
+     * was confirmed to lose data, so the same race applies. Unlike tags
+     * (a merge), these are whole-value OVERWRITE fields — this app's own
+     * last-saved value is restored verbatim, not merged with whatever
+     * Pancake currently has.
+     *
+     * A single live GET per candidate order covers all three checks
+     * together (not one GET per field) — same cost-control reasoning as
+     * addUpsellItem() doing its item-add and tag-add in one GET/PUT
+     * cycle rather than two.
+     *
      * Deliberately takes no date window, unlike the other passes above —
-     * app_added_tags itself is already a small, targeted candidate set
-     * (only orders THIS app has actually tagged), so there's no cost-
-     * control reason to also require the order be recently created; a
-     * tag lost days after being added is just as worth repairing as one
-     * lost minutes after.
+     * the candidate query itself is already narrow (only orders THIS
+     * app has actually written something trackable to), so there's no
+     * cost-control reason to also require the order be recently created.
      */
     private function reconcileVanishedAppTags(\App\Support\PancakeOrderTagApi $api): array
     {
-        $candidates = Order::whereNotNull('app_added_tags')
-            ->where('app_added_tags', '!=', '[]')
+        $candidates = Order::where(fn ($q) => $q
+                ->where(fn ($q2) => $q2->whereNotNull('app_added_tags')->where('app_added_tags', '!=', '[]'))
+                ->orWhereNotNull('app_note')
+                ->orWhereNotNull('app_note_print')
+                ->orWhereNotNull('app_shipping_address'))
             ->get();
 
         $checked   = 0;
         $corrected = 0;
 
         foreach ($candidates as $local) {
-            $tracked = collect($local->app_added_tags ?? [])->filter();
-            if ($tracked->isEmpty()) continue;
-
             $checked++;
             $live = $api->getOrderDetail($local->pancake_order_id);
             if ($live === null) continue; // Pancake unreachable or order gone — try again next run
 
-            $liveTagNames = collect($live['tags'] ?? [])->pluck('name')->map(fn ($n) => strtolower(trim($n)));
-            $missing = $tracked->reject(fn ($t) => $liveTagNames->contains(strtolower(trim($t))))->values();
+            $repaired = [];
 
-            if ($missing->isEmpty()) continue;
+            // Tags — merge in whatever's missing, never touch anything
+            // else already on the order (same convention addTagsToOrder()
+            // itself already follows).
+            $tracked = collect($local->app_added_tags ?? [])->filter();
+            if ($tracked->isNotEmpty()) {
+                $liveTagNames = collect($live['tags'] ?? [])->pluck('name')->map(fn ($n) => strtolower(trim($n)));
+                $missingTags  = $tracked->reject(fn ($t) => $liveTagNames->contains(strtolower(trim($t))))->values();
 
-            $results = $api->addTagsToOrder($local->pancake_order_id, $missing->all());
-            $reapplied = collect($results)->filter()->keys();
+                if ($missingTags->isNotEmpty()) {
+                    $results   = $api->addTagsToOrder($local->pancake_order_id, $missingTags->all());
+                    $reapplied = collect($results)->filter()->keys();
+                    if ($reapplied->isNotEmpty()) {
+                        $repaired[] = 'tag(s) "' . $reapplied->implode('", "') . '"';
+                    }
+                }
+            }
 
-            if ($reapplied->isNotEmpty()) {
+            // Notes — whole-value overwrite, only the field(s) this app
+            // actually has a tracked value for.
+            $liveNote      = $live['note'] ?? null;
+            $liveNotePrint = $live['note_print'] ?? null;
+            $noteChanged      = $local->app_note !== null && $local->app_note !== $liveNote;
+            $notePrintChanged = $local->app_note_print !== null && $local->app_note_print !== $liveNotePrint;
+
+            if ($noteChanged || $notePrintChanged) {
+                $success = $api->updateNotes(
+                    $local->pancake_order_id,
+                    $noteChanged ? $local->app_note : null,
+                    $notePrintChanged ? $local->app_note_print : null,
+                );
+                if ($success) {
+                    $repaired[] = 'note(s)';
+                }
+            }
+
+            // Delivery/shipping address — whole-value overwrite.
+            if (!empty($local->app_shipping_address)) {
+                $liveAddress = $live['shipping_address'] ?? [];
+                $addressChanged = collect($local->app_shipping_address)
+                    ->some(fn ($value, $key) => ($liveAddress[$key] ?? null) !== $value);
+
+                if ($addressChanged) {
+                    $success = $api->updateShippingAddress($local->pancake_order_id, $local->app_shipping_address);
+                    if ($success) {
+                        $repaired[] = 'delivery address';
+                    }
+                }
+            }
+
+            if (!empty($repaired)) {
                 $corrected++;
                 $lead = \App\Models\Lead::where('pancake_order_id', $local->pancake_order_id)->first();
                 if ($lead) {
                     \App\Models\LeadActivity::log(
                         $lead, 'tag_reconciled',
-                        'Re-applied tag(s) lost to a direct Pancake edit: "' . $reapplied->implode('", "') . '".',
+                        'Restored ' . implode(' and ', $repaired) . ' lost to a direct Pancake edit.',
                         null
                     );
                 }
-                $this->line("  Re-applied on #{$local->pancake_order_id}: " . $reapplied->implode(', '));
+                $this->line("  Restored on #{$local->pancake_order_id}: " . implode(', ', $repaired));
             }
         }
 

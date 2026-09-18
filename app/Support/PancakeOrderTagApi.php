@@ -483,6 +483,14 @@ class PancakeOrderTagApi
             'creator'         => $order['creator'] ?? null,
             'last_editor'     => $order['last_editor'] ?? null,
             'assigning_seller' => $order['assigning_seller'] ?? null,
+            // Reconciliation only (ReconcileOrderStatuses::
+            // reconcileVanishedAppTags() — see its own doc comment): a
+            // single shared GET needs tags/note/note_print/
+            // shipping_address together, so this same field getNotes()
+            // fetches on its own also rides along here rather than
+            // firing a second live request per order.
+            'note'            => $order['note'] ?? null,
+            'note_print'      => $order['note_print'] ?? null,
         ];
     }
 

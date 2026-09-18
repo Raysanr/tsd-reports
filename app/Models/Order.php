@@ -24,6 +24,9 @@ class Order extends Model
         'amount',
         'raw_tags',
         'app_added_tags',
+        'app_note',
+        'app_note_print',
+        'app_shipping_address',
         'is_upsell',
         'is_cancelled_upsell',
         'cancelled_upsell_amount',
@@ -46,6 +49,7 @@ class Order extends Model
     protected $casts = [
         'raw_tags'                => 'array',
         'app_added_tags'          => 'array',
+        'app_shipping_address'    => 'array',
         'pancake_product_ids'     => 'array',
         'is_upsell'               => 'boolean',
         'is_cancelled_upsell'     => 'boolean',

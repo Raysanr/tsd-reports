@@ -1067,4 +1067,108 @@ class ReconcileOrderStatusesTest extends TestCase
         // but assert explicitly for clarity.
         Http::assertNotSent(fn ($r) => str_contains($r->url(), 'orders/1369282'));
     }
+
+    /**
+     * Extended to Notes, explicit follow-up 2026-09-18: "even notes and
+     * the address when they edit or add it should be reflect to the
+     * pos" — same underlying race as the tag case, updateNotes() uses
+     * the identical GET-then-PUT-whole-order pattern.
+     */
+    public function test_restores_a_note_that_no_longer_matches_what_this_app_last_saved(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id' => '1369290',
+            'app_note'         => 'Call back after 5pm',
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            // Both the reconciliation's own read AND updateNotes()'s own
+            // GET-before-PUT hit this same order id — one fake response
+            // pattern serves both, matching the real single-order GET
+            // endpoint they both actually call.
+            'pos.pages.fm/api/v1/shops/*/orders/1369290*' => Http::response(['data' => [
+                'id'   => 1369290,
+                'note' => 'A totally different note someone typed directly in POS',
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['note'] ?? null) === 'Call back after 5pm');
+        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+    }
+
+    public function test_does_not_restore_a_note_that_already_matches(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id' => '1369291',
+            'app_note'         => 'Call back after 5pm',
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369291*' => Http::response(['data' => [
+                'id'   => 1369291,
+                'note' => 'Call back after 5pm',
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
+
+    /**
+     * Extended to Delivery/Address, same explicit follow-up as the note
+     * case above — updateShippingAddress() uses the same GET-then-PUT
+     * pattern.
+     */
+    public function test_restores_a_shipping_address_that_no_longer_matches_what_this_app_last_saved(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'     => '1369292',
+            'app_shipping_address' => [
+                'full_name' => 'Criselda Roda', 'phone_number' => '09526088371',
+                'address' => 'Timanan Gym', 'province_id' => '63_719', 'province_name' => 'Maguindanao',
+                'district_id' => '63_71933', 'district_name' => 'South-upi',
+            ],
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369292*' => Http::response(['data' => [
+                'id' => 1369292,
+                // A genuinely different address, as if someone else typed
+                // over it directly in Pancake POS.
+                'shipping_address' => ['full_name' => 'Criselda Roda', 'address' => 'Somewhere else entirely'],
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['shipping_address']['address'] ?? null) === 'Timanan Gym');
+        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+    }
+
+    public function test_does_not_restore_a_shipping_address_that_already_matches(): void
+    {
+        $address = ['full_name' => 'Criselda Roda', 'address' => 'Timanan Gym'];
+        Order::factory()->create([
+            'pancake_order_id'     => '1369293',
+            'app_shipping_address' => $address,
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1369293*' => Http::response(['data' => [
+                'id'               => 1369293,
+                'shipping_address' => $address,
+            ]], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
 }

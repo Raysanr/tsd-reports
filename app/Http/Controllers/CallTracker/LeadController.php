@@ -1379,6 +1379,25 @@ class LeadController extends Controller
             array_key_exists('note_print', $data) ? ($data['note_print'] ?? '') : null,
         );
 
+        // Tag-loss self-healing, extended to Notes (explicit request,
+        // 2026-09-18: "even notes and the address when they edit or add
+        // it should be reflect to the pos" — see the app_added_tags
+        // migration's own doc comment for the underlying race this
+        // protects against). Overwrite fields, not a merge, so this
+        // records this app's own last-saved VALUE verbatim, only for the
+        // field(s) actually submitted this time — a save that only sent
+        // `note` must never overwrite the tracked note_print with a
+        // stale/absent value.
+        if ($success) {
+            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
+            if ($order) {
+                $updates = [];
+                if (array_key_exists('note', $data)) $updates['app_note'] = $data['note'] ?? '';
+                if (array_key_exists('note_print', $data)) $updates['app_note_print'] = $data['note_print'] ?? '';
+                if (!empty($updates)) $order->update($updates);
+            }
+        }
+
         if (!$success) {
             return response()->json(['success' => false, 'error' => 'Could not save this note in Pancake — try again or edit it directly in POS.'], 500);
         }
@@ -1491,6 +1510,18 @@ class LeadController extends Controller
         ];
 
         $success = $api->updateShippingAddress($lead->pancake_order_id, $shippingAddress);
+
+        // Tag-loss self-healing, extended to Delivery/Address (explicit
+        // request, 2026-09-18: "even notes and the address when they
+        // edit or add it should be reflect to the pos" — see the
+        // app_added_tags migration's own doc comment for the underlying
+        // race). Records this app's own last-saved shipping address
+        // verbatim, restored if a later live check shows Pancake no
+        // longer matches it.
+        if ($success) {
+            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
+            $order?->update(['app_shipping_address' => $shippingAddress]);
+        }
 
         LeadActivity::log(
             $lead, 'delivery_updated',

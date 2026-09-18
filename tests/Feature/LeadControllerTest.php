@@ -1119,6 +1119,61 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Extended to Notes/Delivery, explicit follow-up 2026-09-18: "even
+     * notes and the address when they edit or add it should be reflect
+     * to the pos" — see ReconcileOrderStatusesTest for the reconciliation
+     * side; these cover only that a successful save records this app's
+     * own last-saved value.
+     */
+    public function test_saving_a_note_records_it_in_app_note(): void
+    {
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1]], 200),
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma23@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.notes.update', $lead), ['note' => 'Call back after 5pm'])->assertOk();
+
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertSame('Call back after 5pm', $order->app_note);
+        // note_print wasn't submitted this time — must stay untouched, not
+        // overwritten with an absent/null value.
+        $this->assertNull($order->app_note_print);
+    }
+
+    public function test_saving_delivery_details_records_the_address_in_app_shipping_address(): void
+    {
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1]], 200),
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        Order::factory()->create(['pancake_order_id' => '1']);
+        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma24@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.delivery.update', $lead), [
+            'full_name' => 'Criselda Roda', 'phone_number' => '09526088371', 'address' => 'Timanan Gym',
+            'province_id' => '63_719', 'province_name' => 'Maguindanao',
+            'district_id' => '63_71933', 'district_name' => 'South-upi',
+        ])->assertOk();
+
+        $order = Order::where('pancake_order_id', '1')->first();
+        $this->assertSame('Timanan Gym', $order->app_shipping_address['address']);
+        $this->assertSame('Criselda Roda', $order->app_shipping_address['full_name']);
+    }
+
+    /**
      * Assignee picker (explicit request, 2026-09-18: "in the leads modal
      * has this icon too like can assign the asignee too like in the pos").
      * fakePosStaff() mirrors fakePosTags() above, faking GET
