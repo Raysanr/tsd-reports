@@ -223,6 +223,76 @@ class PancakeOrderTagApiTest extends TestCase
         $this->assertSame(['Confirmed' => true], $results);
     }
 
+    /**
+     * Explicit follow-up, 2026-09-19: a confirmed silent no-op (PUT reports
+     * success, verify-GET genuinely shows the tag absent) used to fail the
+     * TSA's add immediately, surfacing "Pancake write failed, verify in
+     * POS" and forcing them out of the call tracker into POS by hand for
+     * something that's usually just Pancake's own transient flakiness (see
+     * addTagsToOrder()'s own doc comment). This asserts the whole
+     * GET-merge-PUT-verify cycle is retried before giving up, and that a
+     * tag which lands on a later attempt is reported as a genuine success.
+     */
+    public function test_add_tags_to_order_retries_a_confirmed_silent_no_op_and_succeeds(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 10, 'name' => 'Confirmed'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                // Attempt 1: pre-write GET.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200)
+                // Attempt 1: PUT reports success...
+                ->push(['success' => true], 200)
+                // Attempt 1: ...but the verify-GET shows the tag never landed.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200)
+                // Attempt 2: pre-write GET.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200)
+                // Attempt 2: PUT.
+                ->push(['success' => true], 200)
+                // Attempt 2: verify-GET — the tag finally lands.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'tags' => [['id' => 10, 'name' => 'Confirmed']]]], 200),
+        ]);
+
+        $results = $this->api->addTagsToOrder('9001', ['Confirmed']);
+
+        $this->assertSame(['Confirmed' => true], $results);
+
+        $putRequests = collect(Http::recorded(fn ($r) => $r->method() === 'PUT'));
+        $this->assertCount(2, $putRequests, 'Expected the original write plus one retry PUT.');
+    }
+
+    /**
+     * Same scenario as above, but the tag never lands across all 3
+     * attempts — this is the real "Pancake is genuinely rejecting/failing
+     * this write" case, and still has to surface as a failure (not retry
+     * forever) so the TSA's "verify in POS" fallback still exists as a
+     * last resort.
+     */
+    public function test_add_tags_to_order_gives_up_after_exhausting_retries_on_a_persistent_silent_no_op(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 10, 'name' => 'Confirmed'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => function ($request) {
+                if ($request->method() === 'PUT') {
+                    return Http::response(['success' => true], 200);
+                }
+                // Every GET (pre-write or verify) always shows the tag
+                // absent — a persistent, not transient, no-op.
+                return Http::response(['success' => true, 'data' => ['id' => 9001, 'tags' => []]], 200);
+            },
+        ]);
+
+        $results = $this->api->addTagsToOrder('9001', ['Confirmed']);
+
+        $this->assertSame(['Confirmed' => false], $results);
+
+        $putRequests = collect(Http::recorded(fn ($r) => $r->method() === 'PUT'));
+        $this->assertCount(3, $putRequests, 'Expected exactly 3 attempts, not an infinite/unbounded retry loop.');
+    }
+
     public function test_create_tag_if_missing_creates_a_new_tag_when_none_exists(): void
     {
         Http::fake([

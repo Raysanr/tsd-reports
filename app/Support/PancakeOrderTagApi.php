@@ -117,96 +117,135 @@ class PancakeOrderTagApi
             return array_fill_keys($tagNames, false);
         }
 
-        try {
-            $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
-                'api_key' => $apiKey,
-            ]);
+        // Retries the full GET-merge-PUT-verify cycle up to 3 attempts total
+        // — explicit follow-up, 2026-09-19: TSAs were hitting "Pancake write
+        // failed, verify in POS" and having to break call flow to fix it in
+        // POS by hand, for a failure mode already confirmed (2026-09-18,
+        // order #1369326) to be Pancake's own PUT silently no-op'ing on a
+        // request that otherwise succeeds — i.e. transient on Pancake's end,
+        // not a real rejection of the tag/order. Re-running the same write
+        // clears it in practice. Only retries a CONFIRMED silent no-op (verify
+        // read succeeded and genuinely shows the tag missing) — a null verify
+        // (Pancake unreachable) still falls through to the existing
+        // trust-the-PUT behavior below without burning retries against a
+        // host that's already not responding.
+        $attempts = 3;
+        $lastResult = null;
 
-            if (!$getResponse->successful()) {
-                Log::warning('PancakeOrderTagApi: fetching order before tagging failed', ['order_id' => $orderId, 'status' => $getResponse->status()]);
-                return array_fill_keys($tagNames, false);
-            }
-
-            // Real single-order GET responses wrap in {data: {...}} — same
-            // shape ReconcileOrderStatuses.php already relies on for this
-            // same endpoint.
-            $order = $getResponse->json('data') ?? $getResponse->json();
-
-            $existingTags = collect($order['tags'] ?? []);
-            $existingIds  = $existingTags->pluck('id')->all();
-            $newTags      = $toAdd->reject(fn ($tag) => in_array($tag['id'], $existingIds, true))
-                ->map(fn ($tag) => ['id' => $tag['id'], 'name' => $tag['name']]);
-
-            $order['tags'] = $existingTags->merge($newTags)->values()->all();
-
-            $putResponse = Http::timeout(15)
-                ->withOptions(['query' => ['api_key' => $apiKey]])
-                ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
-
-            $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
-
-            if (!$success) {
-                Log::warning('PancakeOrderTagApi: addTagsToOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body()]);
-                return array_fill_keys($tagNames, false);
-            }
-
-            $this->invalidateRawOrderCache($orderId);
-
-            // Real bug, confirmed live via a real order's own Pancake
-            // history (explicit report, 2026-09-18: "look at this at
-            // angel, she tag it as upsell tsd" — order #1369326): a PUT
-            // here can return HTTP 200 with no success:false in the body
-            // (the check above treats that as success) while the tag
-            // never actually lands on the order — confirmed by the
-            // complete absence of any corresponding tags-diff entry in
-            // Pancake's own history for that exact write. Verifying with
-            // a fresh re-fetch closes this regardless of why Pancake's
-            // own PUT silently no-ops for a given request — the same
-            // class of gap addTagsToOrder() can't otherwise detect from
-            // the PUT response alone.
-            //
-            // Hardened, explicit follow-up 2026-09-18 ("is it possible
-            // that will be better" — after flagging that Pancake's API is
-            // confirmed flaky, real 15s cURL timeouts observed live right
-            // after this fix shipped): fetchRawOrder() returns null on
-            // ANY failure to reach Pancake (timeout, connection error),
-            // not just a genuinely missing tag. Treating a null verify
-            // read as "tag missing" would turn Pancake's own flakiness
-            // into a NEW false-failure mode — a tag that really did save
-            // (the PUT above already confirmed 2xx/success) getting
-            // reported as failed just because the follow-up GET timed
-            // out. When verification itself couldn't run, this falls back
-            // to trusting the PUT's own success signal instead of
-            // guessing failure — only a verify read that actually
-            // SUCCEEDED and genuinely shows the tag absent counts as a
-            // real silent-failure.
-            $verifyOrder = $this->fetchRawOrder($orderId);
-
-            if ($verifyOrder === null) {
-                Log::warning('PancakeOrderTagApi: addTagsToOrder could not verify the write (Pancake unreachable) — trusting the PUT response', ['order_id' => $orderId]);
-                return collect($tagNames)->mapWithKeys(fn ($name) => [$name => $matched[$name] !== null])->all();
-            }
-
-            $verifyTagIds = collect($verifyOrder['tags'] ?? [])->pluck('id')->all();
-            $confirmedIds = $toAdd->filter(fn ($tag) => in_array($tag['id'], $verifyTagIds, true))->pluck('id');
-
-            if ($confirmedIds->count() < $toAdd->count()) {
-                Log::warning('PancakeOrderTagApi: addTagsToOrder PUT reported success but a tag never actually landed', [
-                    'order_id' => $orderId,
-                    'missing'  => $toAdd->reject(fn ($tag) => $confirmedIds->contains($tag['id']))->pluck('name')->values()->all(),
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            try {
+                $getResponse = Http::timeout(15)->get(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", [
+                    'api_key' => $apiKey,
                 ]);
-            }
 
-            // Per requested $name: true only if it matched a real catalog
-            // tag AND that tag's id is confirmed present on the re-fetched
-            // order — not just "the PUT itself didn't error."
-            return collect($tagNames)->mapWithKeys(fn ($name) => [
-                $name => $matched[$name] !== null && $confirmedIds->contains($matched[$name]['id']),
-            ])->all();
-        } catch (\Throwable $e) {
-            Log::warning('PancakeOrderTagApi: addTagsToOrder threw', ['order_id' => $orderId, 'message' => $e->getMessage()]);
-            return array_fill_keys($tagNames, false);
+                if (!$getResponse->successful()) {
+                    Log::warning('PancakeOrderTagApi: fetching order before tagging failed', ['order_id' => $orderId, 'status' => $getResponse->status(), 'attempt' => $attempt]);
+                    $lastResult = array_fill_keys($tagNames, false);
+                    break;
+                }
+
+                // Real single-order GET responses wrap in {data: {...}} — same
+                // shape ReconcileOrderStatuses.php already relies on for this
+                // same endpoint.
+                $order = $getResponse->json('data') ?? $getResponse->json();
+
+                $existingTags = collect($order['tags'] ?? []);
+                $existingIds  = $existingTags->pluck('id')->all();
+                $newTags      = $toAdd->reject(fn ($tag) => in_array($tag['id'], $existingIds, true))
+                    ->map(fn ($tag) => ['id' => $tag['id'], 'name' => $tag['name']]);
+
+                $order['tags'] = $existingTags->merge($newTags)->values()->all();
+
+                $putResponse = Http::timeout(15)
+                    ->withOptions(['query' => ['api_key' => $apiKey]])
+                    ->put(self::BASE_URL . "/shops/{$shopId}/orders/{$orderId}", $order);
+
+                $success = $putResponse->successful() && (($putResponse->json('success') ?? true) !== false);
+
+                if (!$success) {
+                    Log::warning('PancakeOrderTagApi: addTagsToOrder PUT failed', ['order_id' => $orderId, 'status' => $putResponse->status(), 'body' => $putResponse->body(), 'attempt' => $attempt]);
+                    $lastResult = array_fill_keys($tagNames, false);
+                    break;
+                }
+
+                $this->invalidateRawOrderCache($orderId);
+
+                // Real bug, confirmed live via a real order's own Pancake
+                // history (explicit report, 2026-09-18: "look at this at
+                // angel, she tag it as upsell tsd" — order #1369326): a PUT
+                // here can return HTTP 200 with no success:false in the body
+                // (the check above treats that as success) while the tag
+                // never actually lands on the order — confirmed by the
+                // complete absence of any corresponding tags-diff entry in
+                // Pancake's own history for that exact write. Verifying with
+                // a fresh re-fetch closes this regardless of why Pancake's
+                // own PUT silently no-ops for a given request — the same
+                // class of gap addTagsToOrder() can't otherwise detect from
+                // the PUT response alone.
+                //
+                // Hardened, explicit follow-up 2026-09-18 ("is it possible
+                // that will be better" — after flagging that Pancake's API is
+                // confirmed flaky, real 15s cURL timeouts observed live right
+                // after this fix shipped): fetchRawOrder() returns null on
+                // ANY failure to reach Pancake (timeout, connection error),
+                // not just a genuinely missing tag. Treating a null verify
+                // read as "tag missing" would turn Pancake's own flakiness
+                // into a NEW false-failure mode — a tag that really did save
+                // (the PUT above already confirmed 2xx/success) getting
+                // reported as failed just because the follow-up GET timed
+                // out. When verification itself couldn't run, this falls back
+                // to trusting the PUT's own success signal instead of
+                // guessing failure — only a verify read that actually
+                // SUCCEEDED and genuinely shows the tag absent counts as a
+                // real silent-failure.
+                $verifyOrder = $this->fetchRawOrder($orderId);
+
+                if ($verifyOrder === null) {
+                    Log::warning('PancakeOrderTagApi: addTagsToOrder could not verify the write (Pancake unreachable) — trusting the PUT response', ['order_id' => $orderId, 'attempt' => $attempt]);
+                    $lastResult = collect($tagNames)->mapWithKeys(fn ($name) => [$name => $matched[$name] !== null])->all();
+                    break;
+                }
+
+                $verifyTagIds = collect($verifyOrder['tags'] ?? [])->pluck('id')->all();
+                $confirmedIds = $toAdd->filter(fn ($tag) => in_array($tag['id'], $verifyTagIds, true))->pluck('id');
+
+                if ($confirmedIds->count() < $toAdd->count()) {
+                    $missingNames = $toAdd->reject(fn ($tag) => $confirmedIds->contains($tag['id']))->pluck('name')->values()->all();
+
+                    if ($attempt < $attempts) {
+                        Log::warning('PancakeOrderTagApi: addTagsToOrder PUT reported success but a tag never actually landed — retrying', [
+                            'order_id' => $orderId,
+                            'missing'  => $missingNames,
+                            'attempt'  => $attempt,
+                        ]);
+                        if (!app()->runningUnitTests()) {
+                            usleep(500_000);
+                        }
+                        continue;
+                    }
+
+                    Log::warning('PancakeOrderTagApi: addTagsToOrder PUT reported success but a tag never actually landed', [
+                        'order_id' => $orderId,
+                        'missing'  => $missingNames,
+                        'attempt'  => $attempt,
+                    ]);
+                }
+
+                // Per requested $name: true only if it matched a real catalog
+                // tag AND that tag's id is confirmed present on the re-fetched
+                // order — not just "the PUT itself didn't error."
+                $lastResult = collect($tagNames)->mapWithKeys(fn ($name) => [
+                    $name => $matched[$name] !== null && $confirmedIds->contains($matched[$name]['id']),
+                ])->all();
+                break;
+            } catch (\Throwable $e) {
+                Log::warning('PancakeOrderTagApi: addTagsToOrder threw', ['order_id' => $orderId, 'message' => $e->getMessage(), 'attempt' => $attempt]);
+                $lastResult = array_fill_keys($tagNames, false);
+                break;
+            }
         }
+
+        return $lastResult;
     }
 
     /**
