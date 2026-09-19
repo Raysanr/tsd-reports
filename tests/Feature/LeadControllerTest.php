@@ -1531,4 +1531,47 @@ class LeadControllerTest extends TestCase
 
         $this->actingAs($user)->postJson(route('calls.leads.assignee', $lead), ['staff_id' => 'u1'])->assertForbidden();
     }
+
+    /**
+     * Regression fix, explicit report 2026-09-19: "why in the leads detail
+     * modal the assigned staff in the pos is jonjon but the displaying in
+     * the modal it is jonjon nang only... it should be like the upsell has
+     * no assign staff right like in the pos" — the detail modal used to
+     * fall back to the ORDER-level assignee whenever an item's own
+     * assigning_seller was null, based on an earlier live test that turned
+     * out not to generalize. Confirmed live on a real order (#1369702) that
+     * Pancake's own POS shows an item with no per-item assignee as
+     * genuinely unassigned, even when the order/another item DOES have
+     * one — this asserts the modal now matches that: each item shows only
+     * its own assigning_seller, never inheriting the order's.
+     */
+    public function test_an_item_with_no_own_assignee_shows_unassigned_even_when_the_order_has_one(): void
+    {
+        Setting::set('pancake_api_key', 'fake-api-key');
+        Setting::set('shop_id', '4');
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => [
+                'id'                 => 1,
+                'tags'               => [],
+                'assigning_seller'   => ['id' => 'u1', 'name' => 'Jon Jon Ng'],
+                'items'              => [
+                    ['variation_id' => 'v1', 'variation_info' => ['name' => 'AudiCure'], 'assigning_seller' => ['id' => 'u1', 'name' => 'Jon Jon Ng']],
+                    ['variation_id' => 'v2', 'variation_info' => ['name' => 'Ear Relief Balm'], 'assigning_seller' => null],
+                ],
+            ]], 200),
+        ]);
+
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('calls.leads.show', $lead));
+
+        $response->assertOk();
+        // AudiCure keeps its own assignee, Ear Relief Balm shows unassigned
+        // — not silently filled in with Jon Jon Ng just because the order
+        // (and the OTHER item) has one.
+        $response->assertSeeInOrder(['AudiCure', 'Jon Jon Ng', 'Ear Relief Balm', 'No assigned staff']);
+    }
 }

@@ -150,25 +150,30 @@
                                 // OWN assigning_seller/assigning_seller_id,
                                 // independent of the order-level field
                                 // (PancakeOrderTagApi::updateItemAssignee()
-                                // — see its own doc comment) — and
-                                // confirmed Pancake's own UI falls back to
-                                // the ORDER-level assignee's name whenever
-                                // an item's own is null (a real 2-item
-                                // order with both items' assigning_seller
-                                // null still showed the order-level
-                                // assignee on every POS row), so this does
-                                // the same fallback here rather than
-                                // showing "No assigned staff" on every row
-                                // of an order that clearly has an
-                                // assignee. This REPLACES the earlier
-                                // order-level-only, shown-once version
-                                // (moved here from directly under the
-                                // "Products" header) — that version never
-                                // showed anything on item rows at all,
-                                // which is what this fixes.
-                                $itemAssignee = $item['assigning_seller'] ?? null;
-                                $effectiveAssignee = $itemAssignee ?: ($liveOrder['assigning_seller'] ?? null);
-                                $isInherited = empty($itemAssignee) && !empty($effectiveAssignee);
+                                // — see its own doc comment).
+                                //
+                                // Regression fix, 2026-09-19 ("why in the
+                                // leads detail modal the assigned staff in
+                                // the pos is jonjon but the displaying in
+                                // the modal it is jonjon nang only... it
+                                // should be like the upsell has no assign
+                                // staff right like in the pos"): the
+                                // 2026-09-18 fix above ALSO fell back to
+                                // the order-level assignee whenever an
+                                // item's own was null, based on a live test
+                                // where POS happened to show that fallback
+                                // for a 2-item order with BOTH items null.
+                                // Confirmed live on a real order (#1369702)
+                                // that this doesn't hold in general: POS
+                                // showed the upsell item (Ear Relief Balm,
+                                // assigning_seller null) with NO assignee
+                                // at all, even though the order-level/base
+                                // item's assignee (Jon Jon Ng) was set —
+                                // the earlier "confirmed live" case wasn't
+                                // representative. Each item's own
+                                // assigning_seller is now shown as-is, with
+                                // no order-level fallback.
+                                $effectiveAssignee = $item['assigning_seller'] ?? null;
                             @endphp
                             <div class="relative mt-1 inline-assignee-wrap" data-lead-id="{{ $lead->id }}" data-variation-id="{{ $variationId }}">
                                 <button type="button" class="inline-assignee-btn flex items-center gap-1.5 text-xs text-slate-400 hover:text-primary-dark cursor-pointer">
