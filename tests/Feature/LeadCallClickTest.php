@@ -159,6 +159,70 @@ class LeadCallClickTest extends TestCase
         $this->assertNull($event->duration_seconds);
     }
 
+    /**
+     * Real bug, explicit report 2026-09-19: Hannah, Marisol, and Marsha all
+     * showed LOGOUT on TSA Logs followed by later CALL/CALLING rows for the
+     * same TSA. Root cause: this endpoint unconditionally flipped
+     * $lead->tsa to Calling with no logout check at all — a genuinely
+     * solo TSA who logged out and is done for the day must stay logged out
+     * even if a stale browser tab (or an admin) still clicks to call one of
+     * their leads.
+     */
+    public function test_clicking_to_call_a_solo_tsas_lead_after_they_logged_out_does_not_revive_them(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $lead  = $this->leadFor($gemma);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_LOGOUT, $gemma->fresh()->status);
+    }
+
+    /**
+     * Same root cause as above, but for two TSAs sharing one physical phone
+     * (TsaShift::pairWith()) — the same class of bug
+     * TsaShift::resolveActiveOfPair() already fixed for the MacroDroid
+     * call-ended webhook (2026-09-18) never got applied to this
+     * click-to-call path. A lead assigned to the now-logged-out TSA can
+     * still genuinely be the one their still-working partner is dialing
+     * from the shared phone, so the partner — not the logged-out TSA —
+     * is who should flip to Calling.
+     */
+    public function test_clicking_to_call_a_logged_out_paired_tsas_lead_flips_the_partner_instead(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->pairWith($mariel);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $lead  = $this->leadFor($gemma);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_LOGOUT, $gemma->fresh()->status);
+        $this->assertSame(TsaShift::STATUS_CALLING, $mariel->fresh()->status);
+    }
+
+    /** If BOTH sides of a pair are logged out, there's genuinely nobody on
+     *  the phone to flip — neither side should be revived into Calling. */
+    public function test_clicking_to_call_when_both_paired_tsas_are_logged_out_revives_neither(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->pairWith($mariel);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $mariel->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        $lead  = $this->leadFor($gemma);
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_LOGOUT, $gemma->fresh()->status);
+        $this->assertSame(TsaShift::STATUS_LOGOUT, $mariel->fresh()->status);
+    }
+
     /** Same "nothing meaningful to log" guard as the unassigned-lead cases
      *  above — no TSA to attribute a call event to. */
     public function test_a_call_click_on_an_unassigned_lead_does_not_create_a_call_event(): void

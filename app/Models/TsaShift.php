@@ -313,6 +313,19 @@ class TsaShift extends Model
         return $this->paired_with_tsa_id !== null || $this->isPairPrimary();
     }
 
+    /** The other side of this TSA's phone-sharing pair, whichever side
+     *  $this is — null when solo. Lets a caller resolve "who's actually on
+     *  the phone" (see resolveActiveOfPair()) without first knowing whether
+     *  $this happens to be the pair's primary or its partner. */
+    public function pairPartnerEitherSide(): ?self
+    {
+        if ($this->paired_with_tsa_id !== null) {
+            return $this->pairedWith;
+        }
+
+        return $this->pairedPartner()->first();
+    }
+
     /** Pairs $this with $partner to share one phone — $this keeps its own
      *  api_token/dialer_host (becomes the pair's primary) and $partner's
      *  are cleared, since MacroDroid on the shared phone can only ever be

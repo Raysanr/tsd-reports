@@ -1665,7 +1665,29 @@ class LeadController extends Controller
                 ($lead->tsa->display_name ?? 'A TSA') . ' clicked to call ' . ($lead->customer_name ?: 'this customer') . ' (' . ($lead->phone_number ?: $lead->dialable_number) . ').',
                 $user
             );
-            $lead->tsa?->applyStatusChange(TsaShift::STATUS_CALLING);
+
+            // Never flip a logged-out TSA back to Calling — real bug,
+            // explicit report 2026-09-19 (Hannah, Marisol, Marsha all showed
+            // LOGOUT on TSA Logs followed by later CALL/CALLING rows for the
+            // same TSA). Same root cause TsaShift::resolveActiveOfPair()'s
+            // own doc comment already root-caused for the MacroDroid
+            // call-ended webhook (2026-09-18, "hannah just logout earlier
+            // but it is still calling") — two TSAs sharing one physical
+            // phone, and this click-to-call path never got the same fix:
+            // it always flips $lead->tsa specifically, but on a shared
+            // phone the person who actually clicked dial may be the
+            // partner, working through the queue after the lead's assigned
+            // TSA already logged out for the day. Logging out is a
+            // deliberate "I'm done" signal that a click on a lead still
+            // sitting in their queue must never silently override.
+            $tsaToFlip = $lead->tsa;
+            if ($tsaToFlip && $tsaToFlip->status === TsaShift::STATUS_LOGOUT) {
+                $partner = $tsaToFlip->pairPartnerEitherSide();
+                $tsaToFlip = ($partner && $partner->status !== TsaShift::STATUS_LOGOUT)
+                    ? $partner
+                    : null;
+            }
+            $tsaToFlip?->applyStatusChange(TsaShift::STATUS_CALLING);
 
             // dialed_at (explicit request, 2026-08-22): a lighter, separate
             // signal from called_at — this fires on every click, well before
