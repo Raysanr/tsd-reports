@@ -6,6 +6,7 @@ use App\Http\Controllers\CallTracker\LeadController;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadSyncRun;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
@@ -158,6 +159,26 @@ class SyncPancakeLeads extends Command
                 // Someone (a TSA, an admin) already claimed this in Pancake
                 // directly — not this tool's lead to hand out.
                 if ($tagNames->contains(fn ($t) => in_array($t, $tsaKeys, true))) {
+                    $skipped++;
+                    continue;
+                }
+
+                // A warehouse/logistics duplicate of an already-real order —
+                // explicit report, 2026-09-19 ("is it possible that can be
+                // not distribute the leads that is duplicated from
+                // logistics? like from AJ DELA CRUZ and RALPH CRUZ" — two
+                // separate real orders, each already carrying Pancake's own
+                // "DUPLICATED BY LOGISTICS" note, both still got created as
+                // Leads and round-robin assigned to a TSA to call). This is
+                // the exact same live-note check Order::isDuplicatedByLogistics()
+                // already applies at Order-sync time (SyncTodayOrders) and
+                // at reporting time (BackfillDuplicatedByLogistics) — this
+                // command just never applied it before creating/distributing
+                // a Lead, since it's a separate sync pipeline over the same
+                // raw Pancake order shape. Skipped, not silently dropped —
+                // still counted so a run's own "skipped" total accounts for
+                // it, same as an already-claimed order above.
+                if (Order::isDuplicatedByLogistics($raw)) {
                     $skipped++;
                     continue;
                 }

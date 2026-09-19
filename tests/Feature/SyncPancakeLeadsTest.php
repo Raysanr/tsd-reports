@@ -190,6 +190,34 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9002']);
     }
 
+    /**
+     * Explicit report, 2026-09-19: "is it possible that can be not
+     * distribute the leads that is duplicated from logistics? like from AJ
+     * DELA CRUZ and RALPH CRUZ" — two separate real orders, each already
+     * carrying Pancake's own "DUPLICATED BY LOGISTICS" note (staff-written
+     * when a warehouse/logistics duplicate creates a second order for the
+     * same real lead), still got pulled in as Leads and round-robin
+     * assigned to a TSA to call. Same live-note check
+     * Order::isDuplicatedByLogistics() already applies at Order-sync time
+     * and at reporting time, now also applied here before a Lead is ever
+     * created — a duplicate should never reach a TSA's queue at all.
+     */
+    public function test_an_order_flagged_duplicated_by_logistics_is_not_pulled_in_as_a_lead(): void
+    {
+        $this->fakePancake([[
+            'id'              => 9099,
+            'bill_full_name'  => 'Ralph Cruz',
+            'tags'            => [],
+            'items'           => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at'     => now()->toIso8601String(),
+            'note'            => 'DUPLICATED BY LOGISTICS',
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9099']);
+    }
+
     public function test_an_order_matching_no_known_product_is_pulled_in_as_unassigned(): void
     {
         $this->fakePancake([[
