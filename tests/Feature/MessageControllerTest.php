@@ -380,4 +380,69 @@ class MessageControllerTest extends TestCase
         $row = collect($response->json('conversations'))->firstWhere('name', 'Marisol');
         $this->assertSame('📷 Photo', $row['preview']);
     }
+
+    /**
+     * Explicit request, 2026-09-20: "can you add delete in messages" —
+     * confirmed scope: single-message delete (not a whole-thread delete),
+     * removed for BOTH sides, sender-only. A hard delete — the row is
+     * genuinely gone, not a tombstone still shown as "deleted" to the
+     * other person.
+     */
+    public function test_the_sender_can_delete_their_own_message(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $message   = Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'oops']);
+
+        $response = $this->actingAs($sender)->deleteJson(route('messages.destroy', $message));
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+        $this->assertDatabaseMissing('messages', ['id' => $message->id]);
+    }
+
+    /** A recipient must never be able to erase something someone else
+     *  sent them — matches every real chat app's own convention. */
+    public function test_the_recipient_cannot_delete_a_message_sent_to_them(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $message   = Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'oops']);
+
+        $this->actingAs($recipient)->deleteJson(route('messages.destroy', $message))->assertForbidden();
+        $this->assertDatabaseHas('messages', ['id' => $message->id]);
+    }
+
+    /** A third party (not sender or recipient) has no business deleting
+     *  a conversation they're not even part of. */
+    public function test_an_unrelated_user_cannot_delete_someone_elses_message(): void
+    {
+        $sender     = User::factory()->normal()->create();
+        $recipient  = User::factory()->normal()->create();
+        $bystander  = User::factory()->normal()->create();
+        $message    = Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'oops']);
+
+        $this->actingAs($bystander)->deleteJson(route('messages.destroy', $message))->assertForbidden();
+        $this->assertDatabaseHas('messages', ['id' => $message->id]);
+    }
+
+    /** "For both sides" means it's gone from the RECIPIENT's own view of
+     *  the thread too, not just the sender's — confirmed via a fresh
+     *  thread() fetch from the recipient's side after the sender deletes. */
+    public function test_a_deleted_message_no_longer_appears_in_the_recipients_thread(): void
+    {
+        $sender    = User::factory()->normal()->create();
+        $recipient = User::factory()->normal()->create();
+        $message   = Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'oops']);
+        Message::create(['sender_id' => $sender->id, 'recipient_id' => $recipient->id, 'body' => 'keep this one']);
+
+        $this->actingAs($sender)->deleteJson(route('messages.destroy', $message))->assertOk();
+
+        $response = $this->actingAs($recipient)->getJson(route('messages.thread', $sender));
+
+        $response->assertOk();
+        $bodies = collect($response->json('messages'))->pluck('body');
+        $this->assertFalse($bodies->contains('oops'));
+        $this->assertTrue($bodies->contains('keep this one'));
+    }
 }

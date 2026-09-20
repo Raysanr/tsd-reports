@@ -79,6 +79,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     Route::get('/messages/{user}',              [MessageController::class, 'thread'])->name('messages.thread');
     Route::post('/messages/{user}',             [MessageController::class, 'send'])->name('messages.send');
     Route::post('/messages/{user}/read',        [MessageController::class, 'markRead'])->name('messages.read');
+    Route::delete('/messages/message/{message}', [MessageController::class, 'destroy'])->name('messages.destroy');
 
     // CONFIG — Super Admin and Admin only.
     Route::middleware('role:super_admin,admin')->group(function () {

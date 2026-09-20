@@ -247,4 +247,26 @@ class MessageController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    /** Deletes one message for BOTH sides of the conversation (explicit
+     *  request, 2026-09-20: "can you add delete in messages" — confirmed
+     *  scope: single-message delete, not a whole-thread delete, and
+     *  removed for both people, not just the deleter's own view — this is
+     *  small internal team tooling with no existing block/permission
+     *  controls, same reasoning as send()'s own doc comment). Only the
+     *  ORIGINAL SENDER can delete their own message — matches every real
+     *  chat app's own convention (a recipient can't unilaterally erase
+     *  something someone else sent them). A hard delete, not a soft/
+     *  tombstone row — "for both sides" means it's genuinely gone, nothing
+     *  left to still render as "deleted message" for the other person. */
+    public function destroy(Message $message)
+    {
+        if ($message->sender_id !== Auth::id()) {
+            abort(403);
+        }
+
+        $message->delete();
+
+        return response()->json(['success' => true]);
+    }
 }

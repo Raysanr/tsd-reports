@@ -105,6 +105,7 @@
         inbox: "{{ route('messages.inbox') }}",
         users: "{{ route('messages.users') }}",
         threadBase: "{{ url('/messages') }}",
+        deleteBase: "{{ url('/messages/message') }}",
     };
 
     const toggle = document.getElementById('messagesToggle');
@@ -357,12 +358,17 @@
 
         const wasAtBottom = threadBody.scrollTop + threadBody.clientHeight >= threadBody.scrollHeight - 20;
         threadBody.innerHTML = messages.map((m, i) => `
-            <div class="flex ${m.fromMe ? 'justify-end' : 'justify-start'}">
+            <div class="flex ${m.fromMe ? 'justify-end' : 'justify-start'} group" data-message-id="${m.id}">
                 <div class="max-w-[80%] flex flex-col ${m.fromMe ? 'items-end' : 'items-start'}">
-                    <div class="${m.fromMe ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
-                        ${m.image ? `<img src="${m.image}" class="messages-image-bubble rounded-lg max-w-full max-h-52 cursor-pointer mb-1" alt="Attached image">` : ''}
-                        ${m.body ? `<p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>` : ''}
-                        <p class="text-[10px] mt-1 ${m.fromMe ? 'text-yellow-100' : 'text-slate-400'}">${escapeHtml(m.label)}</p>
+                    <div class="flex items-center gap-1 ${m.fromMe ? 'flex-row' : 'flex-row-reverse'}">
+                        <div class="${m.fromMe ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} rounded-xl px-3 py-2">
+                            ${m.image ? `<img src="${m.image}" class="messages-image-bubble rounded-lg max-w-full max-h-52 cursor-pointer mb-1" alt="Attached image">` : ''}
+                            ${m.body ? `<p class="whitespace-pre-wrap break-words text-sm">${escapeHtml(m.body)}</p>` : ''}
+                            <p class="text-[10px] mt-1 ${m.fromMe ? 'text-yellow-100' : 'text-slate-400'}">${escapeHtml(m.label)}</p>
+                        </div>
+                        ${m.fromMe ? `<button type="button" class="messages-delete-btn opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-1 text-slate-300 hover:text-red-500" title="Delete message" data-message-id="${m.id}">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"/></svg>
+                        </button>` : ''}
                     </div>
                     ${i === lastMineIndex && m.seenAt ? `<p class="text-[10px] text-slate-400 mt-0.5 mr-1">Seen ${escapeHtml(m.seenAt)}</p>` : ''}
                 </div>
@@ -372,8 +378,34 @@
 
     threadBody.addEventListener('click', (e) => {
         const img = e.target.closest('.messages-image-bubble');
-        if (img) window.open(img.src, '_blank');
+        if (img) { window.open(img.src, '_blank'); return; }
+
+        const deleteBtn = e.target.closest('.messages-delete-btn');
+        if (deleteBtn) { deleteMessage(deleteBtn.dataset.messageId); }
     });
+
+    // Own message only — enforced server-side too (MessageController::
+    // destroy() 403s on anything but the real sender), this button just
+    // never renders on someone else's message to begin with (see
+    // renderThreadMessages() above). Removed for BOTH sides (explicit
+    // scope, 2026-09-20) — a hard delete, so no confirm-and-reload dance
+    // needed beyond re-fetching the thread to drop it from view.
+    function deleteMessage(messageId) {
+        if (!messageId || !currentPartnerId) return;
+        if (!window.confirm('Delete this message? This cannot be undone.')) return;
+
+        fetch(`${routes.deleteBase}/${messageId}`, {
+            method: 'DELETE',
+            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.success) loadThread(currentPartnerId, false);
+            })
+            .catch(() => {
+                window.showToast?.('Could not delete — try again.', 'error');
+            });
+    }
 
     function sendMessage() {
         const body = sendInput.value.trim();
