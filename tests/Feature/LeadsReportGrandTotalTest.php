@@ -211,4 +211,44 @@ class LeadsReportGrandTotalTest extends TestCase
 
         $this->assertSame($allTotal, $shTotal + $eyeTotal);
     }
+
+    /**
+     * Regression test, real production bug 2026-09-21 ("in the leads report
+     * when i filter in the date picker like for example sep 15 to today it
+     * is okay when it is ALL but when i click by team filter it is error")
+     * — a wide/multi-day range takes LeadsReportController::index()'s own
+     * non-cutoff branch (dateFrom !== dateTo), whose grandTotalHourlyRows/
+     * per-product hourlyRows entries were built with only 'label'/'row',
+     * missing 'hour'/'date' — leads-report.blade.php reads $hourRow['hour']
+     * unconditionally for every row regardless of which branch built it, so
+     * any request that actually produced at least one non-empty hourly row
+     * threw "Undefined array key 'hour'". Reproduces with team=sh-naturals
+     * specifically (not team=all) because "ALL" over this same fixture
+     * happened to have zero non-empty hourly rows in the real report — this
+     * test needs an order to guarantee a non-empty row regardless of team.
+     */
+    public function test_a_multi_day_range_with_a_team_filter_and_a_real_order_does_not_error(): void
+    {
+        $shShift = TsaShift::where('team', 'SH Naturals')->first();
+
+        Order::create([
+            'pancake_order_id' => 'wide-range-team-filter', 'team' => 'SH Naturals', 'tsa_name' => $shShift->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($shShift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $response = $this->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates',
+            'date_from' => now()->subDays(6)->toDateString(), 'date_to' => now()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $grandTotalHourlyRows = $response->viewData('grandTotalHourlyRows');
+        $this->assertNotEmpty($grandTotalHourlyRows);
+        foreach ($grandTotalHourlyRows as $row) {
+            $this->assertArrayHasKey('hour', $row);
+            $this->assertArrayHasKey('date', $row);
+        }
+    }
 }

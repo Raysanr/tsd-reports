@@ -374,7 +374,14 @@ class LeadsReportController extends Controller
                 )
                 : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $product) {
                     $row = $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id);
-                    return ($row && $row['total'] !== 0) ? ['label' => $slot['label'], 'row' => $row] : null;
+                    // 'hour'/'date' included — same bug/fix as the grand-total
+                    // branch just below (see its own doc comment for the full
+                    // "Undefined array key 'hour'" reasoning); this is the
+                    // identical row shape for a PER-PRODUCT table's own hourly
+                    // rows instead, read the same unconditional way by the
+                    // view (leads-report.blade.php's per-product hourly
+                    // section, ~line 402).
+                    return ($row && $row['total'] !== 0) ? ['label' => $slot['label'], 'row' => $row, 'hour' => $slot['hour'], 'date' => $slot['date']] : null;
                 })->filter()->values()->all();
 
             return [
@@ -453,7 +460,21 @@ class LeadsReportController extends Controller
                 $rows = $products->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
-                return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row] : null;
+                // 'hour'/'date' included (bug fix, 2026-09-21) — this branch's
+                // own row shape was missing both, unlike buildHourlyRows()'s
+                // identical row construction just above (line ~490), which the
+                // view (leads-report.blade.php) reads unconditionally for
+                // EVERY row regardless of which branch built it
+                // ($ddHourAttrs's own $hourRow['hour']/$hourRow['date']). A
+                // wide/multi-day range with at least one non-empty grand-total
+                // hourly row (confirmed live: reproduces with a team filter
+                // applied, where "ALL" happened to have none) threw "Undefined
+                // array key 'hour'" on every single request. $slot always
+                // carries both keys already (see the $slots build above, both
+                // the last24h and plain-hour branches set them on every slot),
+                // so this was always available — just never actually passed
+                // through here.
+                return $row['total'] !== 0 ? ['label' => $slot['label'], 'row' => $row, 'hour' => $slot['hour'], 'date' => $slot['date']] : null;
             })->filter()->values()->all();
 
         $metricCols = ProductPerformance::METRIC_COLUMNS;
