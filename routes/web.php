@@ -234,6 +234,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             // "toggle-auto-tagging" isn't swallowed as a route-model-binding
             // id — same reason pos-users above sits ahead of it too.
             Route::post('/tsa-management/toggle-auto-tagging', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoTagging'])->name('tsa-management.toggle-auto-tagging');
+            // Same wildcard-collision reasoning as toggle-auto-tagging above.
+            Route::post('/tsa-management/toggle-midnight-auto-logout', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleMidnightAutoLogout'])->name('tsa-management.toggle-midnight-auto-logout');
             Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');
             Route::post('/tsa-management/{tsaShift}/link-user', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'linkUser'])->name('tsa-management.link-user');

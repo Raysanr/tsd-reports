@@ -497,6 +497,54 @@ class CallTrackerTsaManagementTest extends TestCase
     }
 
     /**
+     * Explicit request (2026-09-21, "can be on and off like has toggle in
+     * the tsa management"): a global switch for LogoutAllTsasAtMidnight,
+     * same shape as the auto-tagging toggle above. Defaults ON — this
+     * feature exists specifically because a forgotten logout caused a real
+     * incident, so an admin who never touches the toggle should still get
+     * the protection.
+     */
+    public function test_the_index_page_reports_midnight_auto_logout_as_on_by_default(): void
+    {
+        $this->actingAs($this->admin());
+
+        $response = $this->get(route('calls.tsa-management'));
+
+        $response->assertOk();
+        $response->assertViewHas('midnightAutoLogoutEnabled', true);
+    }
+
+    public function test_an_admin_can_turn_midnight_auto_logout_off(): void
+    {
+        $this->actingAs($this->admin());
+
+        $response = $this->postJson(route('calls.tsa-management.toggle-midnight-auto-logout'), ['enabled' => '0']);
+
+        $response->assertOk()->assertJson(['success' => true, 'enabled' => false]);
+        $this->assertFalse((bool) Setting::get('midnight_auto_logout_enabled'));
+    }
+
+    public function test_an_admin_can_turn_midnight_auto_logout_back_on(): void
+    {
+        Setting::set('midnight_auto_logout_enabled', false);
+        $this->actingAs($this->admin());
+
+        $response = $this->postJson(route('calls.tsa-management.toggle-midnight-auto-logout'), ['enabled' => '1']);
+
+        $response->assertOk()->assertJson(['success' => true, 'enabled' => true]);
+        $this->assertTrue((bool) Setting::get('midnight_auto_logout_enabled'));
+    }
+
+    public function test_a_tsa_cannot_toggle_midnight_auto_logout(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.tsa-management.toggle-midnight-auto-logout'), ['enabled' => '0'])
+            ->assertForbidden();
+    }
+
+    /**
      * Explicit request (2026-08-26), a follow-up to the "give a TSA a
      * login" attempt reverted earlier the same day: confirmed live (User
      * Management screenshot) every TSA already has a real account, role

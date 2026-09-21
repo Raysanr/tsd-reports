@@ -91,6 +91,12 @@ class TsaManagementController extends Controller
             // the Leads tab; it only stops LeadController::tagOutcomeInPancake()
             // from pushing each TSA's own tag onto the Pancake order.
             'autoTaggingEnabled' => (bool) Setting::get('pos_auto_tagging_enabled', true),
+            // Global midnight auto-logout switch — explicit request,
+            // 2026-09-21 ("can be on and off like has toggle in the tsa
+            // management"), same toggle as the one above. See
+            // LogoutAllTsasAtMidnight's own doc comment for why this exists
+            // and why it defaults to ON.
+            'midnightAutoLogoutEnabled' => (bool) Setting::get('midnight_auto_logout_enabled', true),
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -390,6 +396,32 @@ class TsaManagementController extends Controller
             : 'POS name tag auto-tagging turned off — leads still assign and show up in the Leads tab as normal; only the Pancake POS tag push is paused.';
 
         ActivityLogger::log('tsa.auto_tagging_toggled', null, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /**
+     * Global switch for LogoutAllTsasAtMidnight — explicit request,
+     * 2026-09-21 ("can be on and off like has toggle in the tsa
+     * management"), same shape as toggleAutoTagging() above (one global
+     * Setting, not per-TSA). OFF means the scheduled midnight job checks
+     * this flag and no-ops entirely that night — every TSA's status stays
+     * exactly as they left it, same as before this feature existed.
+     */
+    public function toggleMidnightAutoLogout(Request $request)
+    {
+        $enabled = $request->boolean('enabled');
+        Setting::set('midnight_auto_logout_enabled', $enabled);
+
+        $message = $enabled
+            ? 'Midnight auto-logout turned on — every TSA still logged in will be logged out automatically at 12:00 AM Manila time.'
+            : 'Midnight auto-logout turned off — TSAs will stay in whatever status they\'re in overnight until they log out themselves.';
+
+        ActivityLogger::log('tsa.midnight_auto_logout_toggled', null, $message);
 
         if ($request->wantsJson()) {
             return response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled]);

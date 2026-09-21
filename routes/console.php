@@ -10,6 +10,7 @@ use App\Console\Commands\SyncCallRecordings;
 use App\Console\Commands\SyncPancakeLeads;
 use App\Console\Commands\LinkSeparateParcelOrders;
 use App\Console\Commands\BackfillLostUpsellTags;
+use App\Console\Commands\LogoutAllTsasAtMidnight;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -209,3 +210,27 @@ Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping(10
 // than reflecting their real state. They now stay in Wrap Up until a
 // manual status change (topbar dropdown / Call Rotation / Monitor TSA),
 // same as Break/Lunch/Coaching/etc.
+
+// Force-logs-out every still-logged-in TSA at Manila midnight — explicit
+// request, 2026-09-21, directly tied to a real same-day incident: Hannah
+// forgot to log out the previous day, stayed in Login overnight absorbing
+// unattended round-robin leads, and the manual cleanup (transferring her
+// backlog to Marisol/Marsha) is what led to the "same lead visible to two
+// TSAs" confusion reported that morning. See LogoutAllTsasAtMidnight's own
+// doc comment for why this safely reuses TsaShift::applyStatusChange()
+// (the exact same path a real topbar logout uses, including
+// redistributing that TSA's uncalled leads) rather than a raw status write,
+// and why STATUS_LOCKED TSAs are deliberately skipped.
+//
+// ->timezone('Asia/Manila'), explicit not implied — config('app.timezone')
+// already IS 'Asia/Manila' so the scheduler's default already matches, but
+// stating it here means this stays correct even if that config ever drifts,
+// same "never trust an implicit default for something time-sensitive"
+// reasoning PancakeReconcile's own comment above already applies to
+// Carbon::now('Asia/Manila') explicitly, rather than bare now().
+//
+// withoutOverlapping(10): same 2026-08-21 fix as every other job here — a
+// once-a-day job has the least natural self-healing of any schedule in this
+// file (a stuck run means literally waiting until tomorrow for the next
+// tick), so the stale-mutex protection matters here as much as anywhere.
+Schedule::command(LogoutAllTsasAtMidnight::class)->dailyAt('00:00')->timezone('Asia/Manila')->withoutOverlapping(10);

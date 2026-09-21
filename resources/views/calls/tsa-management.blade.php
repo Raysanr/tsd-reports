@@ -59,6 +59,23 @@
             </button>
         </div>
 
+        {{-- Global midnight auto-logout switch — explicit request,
+             2026-09-21. Same shape/behavior as the POS name tag toggle
+             above (one global Setting, instant AJAX flip). OFF means every
+             TSA stays in whatever status they're in overnight — no
+             difference from before this feature existed. --}}
+        <div class="flex items-center gap-2" title="When on, every TSA still logged in is automatically logged out at 12:00 AM Manila time.">
+            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Midnight auto-logout</span>
+            <button type="button" id="midnightAutoLogoutToggle"
+                    data-action="{{ route('calls.tsa-management.toggle-midnight-auto-logout') }}"
+                    data-enabled="{{ $midnightAutoLogoutEnabled ? '1' : '0' }}"
+                    aria-pressed="{{ $midnightAutoLogoutEnabled ? 'true' : 'false' }}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $midnightAutoLogoutEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
+                <span id="midnightAutoLogoutKnob"
+                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $midnightAutoLogoutEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
+            </button>
+        </div>
+
         <button type="button" id="addTsaBtn"
                 class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -301,6 +318,56 @@
                     window.showToast?.(message, 'error');
                 })
                 .finally(() => { autoTaggingToggle.disabled = false; });
+        });
+    }
+
+    // Global midnight auto-logout switch — same shape/behavior as the POS
+    // name tag toggle right above (single AJAX toggle, optimistic paint,
+    // rollback on failure).
+    const midnightAutoLogoutToggle = document.getElementById('midnightAutoLogoutToggle');
+    const midnightAutoLogoutKnob   = document.getElementById('midnightAutoLogoutKnob');
+    if (midnightAutoLogoutToggle && midnightAutoLogoutKnob) {
+        function paintMidnightAutoLogout(enabled) {
+            midnightAutoLogoutToggle.dataset.enabled = enabled ? '1' : '0';
+            midnightAutoLogoutToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            midnightAutoLogoutToggle.classList.toggle('bg-primary', enabled);
+            midnightAutoLogoutToggle.classList.toggle('bg-slate-300', !enabled);
+            midnightAutoLogoutToggle.classList.toggle('dark:bg-slate-600', !enabled);
+            midnightAutoLogoutKnob.classList.toggle('translate-x-6', enabled);
+            midnightAutoLogoutKnob.classList.toggle('translate-x-1', !enabled);
+        }
+
+        midnightAutoLogoutToggle.addEventListener('click', () => {
+            const next = midnightAutoLogoutToggle.dataset.enabled !== '1';
+            paintMidnightAutoLogout(next);
+            midnightAutoLogoutToggle.disabled = true;
+
+            fetch(midnightAutoLogoutToggle.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: `enabled=${next ? '1' : '0'}`,
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => {
+                    window.showToast?.(data.message || 'Saved.', 'success');
+                })
+                .catch(async (res) => {
+                    paintMidnightAutoLogout(!next);
+                    let message = 'Could not save — try again.';
+                    if (res?.json) {
+                        try {
+                            const data = await res.json();
+                            message = data.message || message;
+                        } catch (e) { /* not JSON — keep the generic message */ }
+                    }
+                    window.showToast?.(message, 'error');
+                })
+                .finally(() => { midnightAutoLogoutToggle.disabled = false; });
         });
     }
 
