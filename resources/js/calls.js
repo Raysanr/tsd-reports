@@ -2806,7 +2806,20 @@ function initLiveLeadsSearch() {
     input.addEventListener('input', () => {
         clearTimeout(debounce);
         debounce = setTimeout(() => {
-            const url = `${form.action || window.location.pathname}?${new URLSearchParams(new FormData(form)).toString()}`;
+            // Real production bug, 2026-09-21, caught within minutes of
+            // deploy: this used to read `form.action`, but this <form> has
+            // no explicit action="" attribute — the DOM property then
+            // resolves to window.location.href (a well-known browser
+            // quirk, NOT just the path), which already carries the
+            // page's own current query string. Appending a second
+            // "?...params" onto that produced a URL like
+            // "/leads?date_from=X&tsa=Y?date_from=X&tsa=Z", with a stray
+            // "?" landing inside what Carbon then tried to parse as a
+            // date — every Leads page load threw a 500. window.location.
+            // pathname is the one that's ever actually correct here (a
+            // bare path, no query string to collide with); form.action
+            // was never a valid fallback source for this specific form.
+            const url = `${window.location.pathname}?${new URLSearchParams(new FormData(form)).toString()}`;
             pollLeadsTable(url, true);
         }, 250);
     });
