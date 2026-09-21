@@ -131,4 +131,31 @@ class NotificationCountsTest extends TestCase
         $response->assertOk();
         $response->assertJson(['callbacks' => 1]);
     }
+
+    /**
+     * Regression test, real production incident 2026-09-21: a client-side
+     * bug elsewhere (initLiveLeadsSearch()'s own URL construction) briefly
+     * let a malformed date_from like "2026-09-21?tsa=" reach this endpoint
+     * — polled every 30s on every page — and Carbon::parse() throwing on
+     * it 500'd the whole sidebar badge poll. This endpoint has no way to
+     * fully control what a browser's own JS/localStorage state sends it,
+     * so an unparseable date must fail open to today() (matching this
+     * class's own "fail open" convention elsewhere) rather than crash.
+     */
+    public function test_an_unparseable_date_from_falls_back_to_today_instead_of_erroring(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'n12', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+
+        $user = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->getJson(route('calls.notifications.counts', ['date_from' => '2026-09-21?tsa=', 'date_to' => '2026-09-21?tsa=']));
+
+        $response->assertOk();
+        // Falls back to today() exactly as if no date_from/date_to were
+        // sent at all — the lead created "now" above still counts.
+        $response->assertJson(['assigned' => 1]);
+    }
 }

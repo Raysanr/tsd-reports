@@ -201,21 +201,39 @@ function updateBadge(id, count) {
 // Analytics, etc.) even with a filter actively applied, only "coming back"
 // once you clicked into Leads again. Falls back to "today" server-side when
 // neither the URL nor localStorage has a date range.
+// Strict YYYY-MM-DD check — see leads/index.blade.php's own doc comment
+// (same real 2026-09-21 incident: a since-fixed URL-construction bug
+// briefly let a malformed date_from reach both the address bar and
+// localStorage's callsLeadsDateRange with no validation anywhere, and this
+// function — polled on EVERY page, not just Leads — kept feeding that
+// poisoned value into NotificationController::counts()'s own Carbon::
+// parse() every 30s for as long as either source stayed corrupted). Same
+// validation applied at every read site, not just the one that originally
+// wrote the bad value, since a poisoned localStorage value or an
+// already-open tab's own stale URL can outlive the write-side fix.
+function isValidDateString(s) {
+    return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
 function pollNotificationCounts() {
     const params = new URLSearchParams();
     const current = new URLSearchParams(window.location.search);
 
-    if (current.has('date_from') && current.has('date_to')) {
+    if (isValidDateString(current.get('date_from')) && isValidDateString(current.get('date_to'))) {
         params.set('date_from', current.get('date_from'));
         params.set('date_to', current.get('date_to'));
     } else {
         try {
             const saved = JSON.parse(localStorage.getItem('callsLeadsDateRange') || 'null');
-            if (saved?.from && saved?.to) {
+            if (isValidDateString(saved?.from) && isValidDateString(saved?.to)) {
                 params.set('date_from', saved.from);
                 params.set('date_to', saved.to);
+            } else if (saved) {
+                localStorage.removeItem('callsLeadsDateRange'); // self-heal a poisoned value
             }
-        } catch (e) { /* corrupt/old value — ignore */ }
+        } catch (e) {
+            localStorage.removeItem('callsLeadsDateRange');
+        }
     }
 
     if (current.has('tsa')) {

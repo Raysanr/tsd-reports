@@ -27,12 +27,30 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
 
-        $dateFrom = $request->filled('date_from')
-            ? Carbon::parse($request->query('date_from'))->startOfDay()
-            : today();
-        $dateTo = $request->filled('date_to')
-            ? Carbon::parse($request->query('date_to'))->endOfDay()
-            : today()->copy()->endOfDay();
+        // Hardened against an unparseable date_from/date_to, 2026-09-21 —
+        // real production incident: a client-side bug (initLiveLeadsSearch()'s
+        // own URL construction, since fixed) briefly let a malformed value
+        // like "2026-09-21?tsa=" reach this endpoint, and Carbon::parse()
+        // throwing on it 500'd every poll of this sidebar-badge count until
+        // fixed. This is polled every 30s on every page from whatever the
+        // browser's own JS/localStorage state happens to be — a value this
+        // endpoint can never fully control from the server side alone — so
+        // the same "fail open" convention every OTHER edge case in this
+        // method already follows (see this class's own doc comment on a
+        // null pancake_created_at) now applies here too: an unparseable date
+        // falls back to today() instead of throwing, same as no date being
+        // sent at all.
+        try {
+            $dateFrom = $request->filled('date_from')
+                ? Carbon::parse($request->query('date_from'))->startOfDay()
+                : today();
+            $dateTo = $request->filled('date_to')
+                ? Carbon::parse($request->query('date_to'))->endOfDay()
+                : today()->copy()->endOfDay();
+        } catch (\Throwable $e) {
+            $dateFrom = today();
+            $dateTo   = today()->copy()->endOfDay();
+        }
         if ($dateTo->lt($dateFrom)) {
             $dateTo = $dateFrom->copy()->endOfDay();
         }

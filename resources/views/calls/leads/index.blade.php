@@ -34,6 +34,24 @@
 // already ignores it on Overdue/Callbacks), so restoring it there is
 // harmless even though it only really does anything once back on Leads.
 (function () {
+    // Strict YYYY-MM-DD check (explicit hardening, 2026-09-21) — real
+    // production incident the same day: a since-fixed bug elsewhere
+    // (initLiveLeadsSearch()'s own AJAX rewrite) briefly wrote a malformed
+    // URL into the address bar via history.replaceState(), which this
+    // exact block then read straight out of window.location.search and
+    // persisted into localStorage with NO validation at all — poisoning
+    // callsLeadsDateRange with a value like "2026-09-21?tsa=" that then
+    // kept crashing NotificationController's own Carbon::parse() on every
+    // subsequent page load, in every browser that happened to type in the
+    // search box during that window, for as long as the browser's own
+    // localStorage sat unchanged — the WRITE bug was fixed, but anyone
+    // already poisoned before that fix landed had no way to self-recover.
+    // This regex is what's missing: only ever save/restore something that
+    // actually looks like a real date, so a garbage value gets silently
+    // dropped (and thus naturally overwritten by the next genuinely valid
+    // save) instead of being trusted and re-served forever.
+    const isValidDateString = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
     const params = new URLSearchParams(window.location.search);
     const from = params.get('date_from');
     const to   = params.get('date_to');
@@ -42,7 +60,9 @@
     const hasTeam = params.has('team');
     const hasProduct = params.has('product');
 
-    if (from && to) localStorage.setItem('callsLeadsDateRange', JSON.stringify({ from, to }));
+    if (isValidDateString(from) && isValidDateString(to)) {
+        localStorage.setItem('callsLeadsDateRange', JSON.stringify({ from, to }));
+    }
     if (hasTsa) localStorage.setItem('callsLeadsTsa', params.get('tsa') || '');
     if (hasStatus) localStorage.setItem('callsLeadsStatus', params.get('status') || '');
     if (hasTeam) localStorage.setItem('callsLeadsTeam', params.get('team') || '');
@@ -53,12 +73,21 @@
     if (!(from && to)) {
         try {
             const saved = JSON.parse(localStorage.getItem('callsLeadsDateRange') || 'null');
-            if (saved?.from && saved?.to) {
+            if (isValidDateString(saved?.from) && isValidDateString(saved?.to)) {
                 params.set('date_from', saved.from);
                 params.set('date_to', saved.to);
                 needsRedirect = true;
+            } else if (saved) {
+                // Already-poisoned value from before this validation
+                // existed — drop it now instead of leaving it to keep
+                // failing the same isValidDateString check (and thus keep
+                // silently falling back to today) on every future visit.
+                localStorage.removeItem('callsLeadsDateRange');
             }
-        } catch (e) { /* corrupt/old value — ignore, falls back to today */ }
+        } catch (e) {
+            // Corrupt/old value (not even valid JSON) — same self-heal.
+            localStorage.removeItem('callsLeadsDateRange');
+        }
     }
 
     if (!hasTsa) {
