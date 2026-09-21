@@ -4,11 +4,11 @@ namespace App\Http\Controllers\CallTracker;
 
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
+use App\Models\CallEvent;
 use App\Models\CallRecordingHour;
 use App\Models\Lead;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
-use App\Support\ProductPerformance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -79,6 +79,47 @@ class AnalyticsController extends Controller
             ->whereDate('date', '<=', $to)
             ->get();
 
+        // Avg Gap/Call — replaces Confirm Rate/No-Answer Rate (explicit
+        // request, 2026-09-21: those two read as 0%/100% for nearly every
+        // TSA on a real day with substantial call volume, confirmed live
+        // not a bug in the math — TSAs are consistently logging Unattended/
+        // Not Answering dispositions (which set a callback reminder) but
+        // essentially never logging a Confirmed/upsell disposition back in
+        // Call Tracker for a successful call, even when the linked Pancake
+        // order genuinely reaches Printed/confirmed status — so the rate
+        // was accurately measuring an unrepresentative sliver of "TSA
+        // bothered to log an outcome" rather than real call quality).
+        // Average Gap/Call sidesteps that gap-in-logging entirely: it's
+        // computed from CallEvent's own occurred_at/duration_seconds — real
+        // phone activity, no disposition/logging step required — same exact
+        // per-TSA chronological-gap algorithm CallLogController already
+        // uses (see that controller's own doc comment for the full
+        // reasoning on why occurred_at is each call's END time, and why a
+        // null-duration row's occurred_at doubles as both its own start and
+        // end). Not reused as a shared helper since the two controllers
+        // group differently downstream (CallLogController also needs
+        // longest_gap_seconds and a per-event gap-before map for its row-
+        // level display; this page only needs each TSA's own average).
+        $callEvents = CallEvent::whereIn('tsa_id', TsaShift::pluck('id'))
+            ->whereBetween('occurred_at', [$from, $to])
+            ->get(['tsa_id', 'occurred_at', 'duration_seconds']);
+
+        $avgGapSecondsByTsa = [];
+        foreach ($callEvents->groupBy('tsa_id') as $tsaId => $tsaEvents) {
+            $chronological = $tsaEvents->sortBy('occurred_at')->values();
+            $gaps = [];
+
+            for ($i = 1; $i < $chronological->count(); $i++) {
+                $previousCallEndedAt = $chronological[$i - 1]->occurred_at;
+                $thisCallStartedAt   = $chronological[$i]->occurred_at->copy()->subSeconds($chronological[$i]->duration_seconds ?? 0);
+                $gaps[] = max(0, $thisCallStartedAt->timestamp - $previousCallEndedAt->timestamp);
+            }
+
+            if (!empty($gaps)) {
+                $avgGapSecondsByTsa[$tsaId] = (int) round(array_sum($gaps) / count($gaps));
+            }
+        }
+
         // "Called" (explicit fix, 2026-09-16: this table/chart/KPI card read
         // as "no calls logged" — everyone's Called stuck at 0 — even on
         // days Call Log showed real dialing activity for the same TSAs/
@@ -105,50 +146,9 @@ class AnalyticsController extends Controller
         // involved at all). Explicit decision, 2026-09-16: "Called" here
         // means real TSA call volume, so it now reads CallRecordingHour's
         // own call_count (same source/number the bottom table already
-        // shows) instead of a lead count. Confirm-rate/no-answer-rate/avg-
-        // response-time genuinely need a specific lead's disposition/
-        // timestamps to mean anything, so those stay scoped to dispositioned
-        // leads separately below (see that block's own comment) — "Called"
-        // (the count) and "confirmed of those dispositioned" (the rate) are
-        // deliberately not the same population.
-        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $from, $to) {
+        // shows) instead of a lead count.
+        $rows = TsaShift::with('restDays')->orderBy('sort_order')->get()->map(function (TsaShift $tsa) use ($leads, $recordingHours, $avgGapSecondsByTsa, $from, $to) {
             $mine = $leads->where('tsa_id', $tsa->id);
-
-            // Confirm-rate/No-Answer-rate/Avg-Response are scoped to leads
-            // with a real logged disposition — i.e. actually dispositioned
-            // by a TSA (LeadController::updateDisposition()), not merely
-            // dialed — same "answered"/"unanswered" tag groups the Leads
-            // Report's own "Unanswered Call Leads" section and
-            // ProductPerformance::METRIC_COLUMNS already use (explicit
-            // request, 2026-09-16: these 3 columns should read the real
-            // disposition tag groups, not a loose substring guess/a
-            // CallEvent-matched subset — see ProductPerformance's own
-            // DISPOSITION_KEYWORDS/UNANSWERED_COLUMNS doc comment for why
-            // that list, not a second hand-copied one, is the source of
-            // truth here).
-            $dispositioned = $mine->filter(fn (Lead $l) => filled($l->disposition));
-
-            // No-Answer Rate — any of the 6 UNANSWERED_COLUMNS tags (DFR,
-            // Double Order, FSD Uncleared, Not Answering, Unattended,
-            // Invalid Number), not just "not answering" alone.
-            $noAnswer = $dispositioned->filter(function (Lead $l) {
-                $disposition = str_replace("'", '', $l->disposition);
-                foreach (ProductPerformance::UNANSWERED_COLUMNS as $column) {
-                    foreach (ProductPerformance::DISPOSITION_KEYWORDS[$column] as $kw) {
-                        if (stripos($disposition, $kw) !== false) return true;
-                    }
-                }
-                return false;
-            })->count();
-
-            // Confirm Rate — any real upsell/TSD confirmation tag. Lead has
-            // no is_upsell/amount flags the way Order does (isBroadRealUpsell()
-            // needs those), so this matches on the tag text itself — every
-            // real upsell tag contains the word "upsell" (see
-            // Order::hasUpsellTag()'s own "UPSELL TSD"/"TSD UPSELL" pattern),
-            // which is exactly the signal available from disposition text
-            // alone.
-            $confirmed = $dispositioned->filter(fn (Lead $l) => stripos($l->disposition, 'upsell') !== false)->count();
 
             $myRecordingHours = $recordingHours->where('tsa_key', $tsa->tsa_key);
             $myCallCount      = $myRecordingHours->sum('call_count');
@@ -174,8 +174,7 @@ class AnalyticsController extends Controller
             // (not recomputed) at $statusSeconds below, which aggregates
             // this same per-TSA secondsByStatus() call into the team-wide
             // Status Time section — same "call once, read twice" pattern
-            // the rest of this method already follows for $mine/
-            // $dispositioned.
+            // the rest of this method already follows for $mine.
             $tsaStatusSeconds = TsaStatusLog::secondsByStatus($tsa, $from, $to);
             $unproductiveMins = TsaStatusLog::unproductiveSecondsFromStatusSeconds($tsaStatusSeconds) / 60;
 
@@ -183,10 +182,7 @@ class AnalyticsController extends Controller
                 'tsa'                 => $tsa,
                 'total'               => $mine->count(),
                 'called'              => $myCallCount,
-                'confirmed'           => $confirmed,
-                'no_answer'           => $noAnswer,
-                'confirm_rate'        => $dispositioned->count() ? round($confirmed / $dispositioned->count() * 100, 1) : null,
-                'no_answer_rate'      => $dispositioned->count() ? round($noAnswer / $dispositioned->count() * 100, 1) : null,
+                'avg_gap_seconds'     => $avgGapSecondsByTsa[$tsa->id] ?? null,
                 'aht_seconds'         => $ahtSeconds,
                 'aht_call_count'      => $myCallCount,
                 'tht_seconds'         => $thtSeconds,
@@ -283,8 +279,12 @@ class AnalyticsController extends Controller
             'labels'          => $rows->pluck('tsa.display_name')->values(),
             'total'           => $rows->pluck('total')->values(),
             'called'          => $rows->pluck('called')->values(),
-            'confirmRate'     => $rows->pluck('confirm_rate')->values(),
-            'noAnswerRate'    => $rows->pluck('no_answer_rate')->values(),
+            // Minutes, not seconds — a chart axis reading "347" (seconds)
+            // is meaningless at a glance next to Login Time/AHT's own
+            // minute-scale numbers elsewhere on this page; null stays null
+            // (no calls to gap between) rather than coercing to 0, which
+            // would misread as "back-to-back calls with zero gap".
+            'avgGapMinutes'   => $rows->pluck('avg_gap_seconds')->map(fn ($s) => $s !== null ? round($s / 60, 1) : null)->values(),
             'hasAnyCalls'     => $rows->sum('called') > 0,
             'ahtSeconds'      => $rows->pluck('aht_seconds')->values(),
             'ahtTrendLabels'  => $ahtTrend->keys()->values(),

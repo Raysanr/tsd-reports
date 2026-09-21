@@ -18,6 +18,23 @@
 
 @section('content')
 
+@php
+    // Same h/m/s, drop-the-leading-zero-units shape as Call Log's own
+    // $formatGap (resources/views/calls/call-log.blade.php) — kept as its
+    // own copy here rather than a shared partial since Blade has no clean
+    // way to share a closure across views without a service-provider-level
+    // helper, and this is the only other place this exact shape is needed.
+    $formatGap = function (?int $totalSeconds) {
+        if ($totalSeconds === null) return null;
+        $hours   = intdiv($totalSeconds, 3600);
+        $minutes = intdiv($totalSeconds % 3600, 60);
+        $seconds = $totalSeconds % 60;
+        if ($hours > 0)   return "{$hours}h {$minutes}m";
+        if ($minutes > 0) return "{$minutes}m {$seconds}s";
+        return "{$seconds}s";
+    };
+@endphp
+
 {{-- Chart data — a JSON script tag, not inline JS, so a TSA's display_name
      (free-text, admin-editable) never needs escaping into a JS string
      literal; JSON.parse handles that safely regardless of its contents. --}}
@@ -60,10 +77,10 @@
         </div>
     </div>
     <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-5">
-        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Outcome Quality</h2>
-        <p class="text-xs font-mono text-slate-400 mb-4">Confirm rate vs. no-answer rate, per TSA</p>
+        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100 font-mono mb-1">Avg Gap/Call</h2>
+        <p class="text-xs font-mono text-slate-400 mb-4">Average idle minutes between one call ending and the next starting, per TSA</p>
         <div class="h-64">
-            <canvas id="chartOutcomeQuality" role="img" aria-label="Bar chart comparing confirm rate against no-answer rate as percentages, per TSA — see the table below for exact figures"></canvas>
+            <canvas id="chartAvgGap" role="img" aria-label="Bar chart comparing average minutes of idle time between calls, per TSA — see the table below for exact figures"></canvas>
         </div>
     </div>
 </div>
@@ -76,8 +93,7 @@
                 <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
                 <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Total Leads</th>
                 <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Called</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Confirm Rate</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">No-Answer Rate</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-400 uppercase tracking-wide">Avg Gap/Call</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
@@ -86,8 +102,7 @@
                 <td class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">{{ $row['tsa']->display_name }}</td>
                 <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['total'] }}</td>
                 <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['called'] }}</td>
-                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['confirm_rate'] !== null ? $row['confirm_rate'].'%' : '—' }}</td>
-                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['no_answer_rate'] !== null ? $row['no_answer_rate'].'%' : '—' }}</td>
+                <td class="px-4 py-3 text-right text-slate-600 dark:text-slate-300">{{ $row['avg_gap_seconds'] !== null ? $formatGap($row['avg_gap_seconds']) : '—' }}</td>
             </tr>
             @endforeach
         </tbody>

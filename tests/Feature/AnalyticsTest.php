@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CallEvent;
 use App\Models\Lead;
 use App\Models\Product;
 use App\Models\TsaShift;
@@ -30,51 +31,74 @@ class AnalyticsTest extends TestCase
         $this->actingAs($user)->get(route('calls.analytics'))->assertForbidden();
     }
 
-    public function test_it_computes_confirm_rate_and_no_answer_rate(): void
+    /**
+     * Replaces the old Confirm Rate/No-Answer Rate columns (explicit
+     * request, 2026-09-21 — see AnalyticsController's own doc comment on
+     * avgGapSecondsByTsa for why: those two read as 0%/100% for nearly
+     * every TSA on a real production day with substantial call volume,
+     * confirmed live not a math bug — TSAs consistently log Unattended/Not
+     * Answering (which sets a callback reminder) but essentially never log
+     * a Confirmed/upsell disposition back in Call Tracker for a successful
+     * call, so the rate was measuring an unrepresentative sliver of "TSA
+     * bothered to log an outcome," not real call quality). Avg Gap/Call is
+     * computed straight from CallEvent's own occurred_at/duration_seconds —
+     * real phone activity, no disposition-logging step required — same
+     * exact per-TSA chronological-gap algorithm and fixture shape as
+     * CallLogControllerTest::test_computes_the_idle_gap_between_a_tsas_consecutive_calls().
+     */
+    public function test_it_computes_the_average_gap_between_a_tsas_calls(): void
     {
-        $admin   = User::factory()->create(['role' => 'admin']);
-        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->startOfDay()->addHours(9);
 
-        // 2 upsell-confirmed, 1 not answering, 1 still assigned (not called)
-        // — all assigned "today" so they fall inside the default date range.
-        // 'Not Answering' (not 'No Answer' — see AnalyticsController's own
-        // comment, 2026-08-12: 'No Answer' isn't a real disposition this
-        // app's own Outcome picker or Pancake tag catalog ever produces).
-        // Confirm Rate reads real upsell/TSD tags specifically (explicit
-        // decision, 2026-09-16 — see AnalyticsController's own confirm-rate
-        // comment), not a bare "Confirmed" tag, hence "TSD UPSELL" here
-        // rather than the old plain "Confirmed" this test used before that
-        // decision.
-        Lead::create(['pancake_order_id' => 'a1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subMinutes(30), 'called_at' => now()->subMinutes(20)]);
-        Lead::create(['pancake_order_id' => 'a2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL', 'assigned_at' => now()->subMinutes(20), 'called_at' => now()->subMinutes(10)]);
-        Lead::create(['pancake_order_id' => 'a3', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Not Answering', 'assigned_at' => now()->subMinutes(10), 'called_at' => now()]);
-        Lead::create(['pancake_order_id' => 'a4', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now()]);
+        // Call 1: 9:00:00 - 9:01:00 (60s).
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => $today->copy()->addMinute()]);
+        // Call 2 starts 9:06:00 (5 idle minutes after call 1 ended), ends 9:06:30.
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '2', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(6)->addSeconds(30)]);
+        // Call 3 starts 9:20:30 (14 idle minutes after call 2 ended), ends 9:21:00.
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '3', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => $today->copy()->addMinutes(21)]);
 
-        $response = $this->actingAs($admin)->get(route('calls.analytics'));
+        $response = $this->actingAs($admin)->get(route('calls.analytics', [
+            'date_from' => $today->toDateString(), 'date_to' => $today->toDateString(),
+        ]));
 
         $response->assertOk();
-        $response->assertSee($gemma->display_name);
-        $response->assertSee('66.7%'); // 2/3 upsell-confirmed
-        $response->assertSee('33.3%'); // 1/3 not answering
+        $gemmaRow = collect($response->viewData('rows'))->firstWhere('tsa.id', $gemma->id);
+        // (300 + 840) / 2 = 570 seconds = 9m 30s.
+        $this->assertSame(570, $gemmaRow['avg_gap_seconds']);
+        $response->assertSee('9m 30s');
     }
 
-    /** A real logged outcome can be several comma-joined tags at once (see
-     *  LeadController::splitTags()) — an exact-equals check would miss these
-     *  entirely, which is exactly what happened before this fix. */
-    public function test_a_multi_tag_disposition_still_counts_toward_confirm_and_no_answer_rate(): void
+    /** A TSA with no calls in range has nothing to compute a gap from —
+     *  must show the empty-state dash, not 0/null coerced into something
+     *  that reads as "back-to-back calls with zero gap". */
+    public function test_a_tsa_with_no_calls_shows_no_gap(): void
     {
-        $admin   = User::factory()->create(['role' => 'admin']);
-        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-
-        Lead::create(['pancake_order_id' => 'm1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'TSD UPSELL - SINUXYL, Repeat Order', 'assigned_at' => now(), 'called_at' => now()]);
-        Lead::create(['pancake_order_id' => 'm2', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Not Answering, DFR', 'assigned_at' => now(), 'called_at' => now()]);
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
 
         $response = $this->actingAs($admin)->get(route('calls.analytics'));
 
         $response->assertOk();
-        $response->assertSee('50%'); // 1/2 upsell-confirmed
+        $gemmaRow = collect($response->viewData('rows'))->firstWhere('tsa.id', $gemma->id);
+        $this->assertNull($gemmaRow['avg_gap_seconds']);
+    }
+
+    /** A single call has nothing before it to gap against — same "no gap
+     *  yet" state as zero calls, not a false 0-second gap. */
+    public function test_a_tsas_single_call_has_no_gap_yet(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '1', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.analytics'));
+
+        $response->assertOk();
+        $gemmaRow = collect($response->viewData('rows'))->firstWhere('tsa.id', $gemma->id);
+        $this->assertNull($gemmaRow['avg_gap_seconds']);
     }
 
     public function test_a_lead_created_outside_the_date_range_is_excluded(): void

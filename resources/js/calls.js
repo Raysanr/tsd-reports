@@ -3100,10 +3100,7 @@ document.addEventListener('keydown', (e) => {
 
 // Call Analytics charts (calls/analytics.blade.php) — data comes from a JSON
 // script tag (#analyticsChartData), not inline JS, so TSA names never need
-// escaping into a JS string literal. Confirm/No-Answer Rate deliberately use
-// separate green/red semantic colors instead of the brand palette, since
-// "good outcome" vs "needs follow-up" is a different kind of meaning than
-// the brand accent and shouldn't share it. Guarded the same way every other
+// escaping into a JS string literal. Guarded the same way every other
 // page-specific block in this file is — canvases only exist on the Call
 // Analytics page, so this is a no-op everywhere else.
 (function initAnalyticsCharts() {
@@ -3242,31 +3239,36 @@ document.addEventListener('keydown', (e) => {
         });
     }
 
-    // Chart 2 — Outcome Quality: Confirm Rate vs No-Answer Rate, both as %.
-    // Semantic green/red, not the brand palette. Y axis pinned 0-100 (a
-    // rate, not an open-ended count) so bar heights are comparable across
-    // TSAs and across a page reload with different data.
-    const qualityCanvas = document.getElementById('chartOutcomeQuality');
-    if (qualityCanvas) {
-        new Chart(qualityCanvas, {
+    // Chart 2 — Avg Gap/Call (explicit request, 2026-09-21, replacing
+    // Confirm Rate/No-Answer Rate — see AnalyticsController's own doc
+    // comment on avgGapSecondsByTsa for why those two were misleading:
+    // they only ever measured the small, unrepresentative slice of leads a
+    // TSA bothered to log a disposition on, which in practice was nearly
+    // always Unattended/Not Answering, never a real Confirmed outcome,
+    // even on days with substantial genuine call volume). Single dataset,
+    // no fixed 0-100 ceiling — an idle-minutes gap is open-ended, not a
+    // rate, so beginAtZero without a max lets Chart.js size the axis to
+    // whatever the real data needs.
+    const gapCanvas = document.getElementById('chartAvgGap');
+    if (gapCanvas) {
+        new Chart(gapCanvas, {
             type: 'bar',
             data: {
                 labels: data.labels,
                 datasets: [
-                    { label: 'Confirm Rate', data: data.confirmRate, backgroundColor: '#16A34A', borderRadius: 4, maxBarThickness: 28 },
-                    { label: 'No-Answer Rate', data: data.noAnswerRate, backgroundColor: '#DC2626', borderRadius: 4, maxBarThickness: 28 },
+                    { label: 'Avg Gap (min)', data: data.avgGapMinutes, backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 28 },
                 ],
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'top', align: 'end', labels: { font: { family: 'Fira Sans', size: 12 }, color: tickColor, boxWidth: 12, boxHeight: 12 } },
-                    tooltip: { ...tooltipBase, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw ?? 0}%` } },
+                    legend: { display: false },
+                    tooltip: { ...tooltipBase, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.raw ?? 0}m` } },
                 },
                 scales: {
                     x: { grid: { display: false }, ticks: { ...tickFont, color: tickColor } },
-                    y: { beginAtZero: true, max: 100, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => `${v}%` } },
+                    y: { beginAtZero: true, grid: gridBase, ticks: { ...tickFont, color: tickColor, callback: (v) => `${v}m` } },
                 },
             },
         });
