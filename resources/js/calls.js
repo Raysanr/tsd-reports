@@ -682,11 +682,19 @@ document.addEventListener('click', (e) => {
 // Matched old->new by data-lead-id (_table.blade.php) — a row not present in
 // both (a freshly synced lead, or one that scrolled off this page) just
 // renders in its new spot with no animation, same as before.
-function pollLeadsTable() {
+// $forceUrl (optional): overrides container.dataset.pollUrl for this one
+// fetch — used by the live search box below, whose own typed value needs
+// to reach the server immediately rather than waiting for the NEXT regular
+// poll tick to happen to carry it (dataset.pollUrl only updates once the
+// fetch below's .then() runs, via history.replaceState). $skipFocusGuard
+// lets the search box force a refresh even though it itself is the focused
+// element — the normal guard exists to protect an admin mid-edit inside a
+// TABLE ROW, not typing that's driving this very fetch.
+function pollLeadsTable(forceUrl, skipFocusGuard) {
     const container = document.getElementById('leads-table-container');
     if (!container) return;
 
-    if (container.contains(document.activeElement) && document.activeElement !== document.body) {
+    if (!skipFocusGuard && container.contains(document.activeElement) && document.activeElement !== document.body) {
         return;
     }
 
@@ -702,14 +710,27 @@ function pollLeadsTable() {
     // as the last regular poll) could show the OLD order. Confirmed live: a
     // manual no-store fetch returned the freshly pinned lead first while the
     // page's own (cached) poll still showed the previous one.
-    fetch(container.dataset.pollUrl, { headers: { 'X-Table-Refresh': '1' }, cache: 'no-store' })
+    fetch(forceUrl || container.dataset.pollUrl, { headers: { 'X-Table-Refresh': '1' }, cache: 'no-store' })
         .then((res) => (res.ok ? res.text() : null))
         .then((html) => {
             if (html === null) return;
             // Re-check focus: the fetch is async, so the user could have
-            // clicked into a form while it was in flight.
-            if (container.contains(document.activeElement) && document.activeElement !== document.body) {
+            // clicked into a form while it was in flight. Still skipped for
+            // the search box's own forced refresh — see this function's
+            // own doc comment.
+            if (!skipFocusGuard && container.contains(document.activeElement) && document.activeElement !== document.body) {
                 return;
+            }
+
+            if (forceUrl) {
+                // Keeps the regular 15s poll (which always reads
+                // dataset.pollUrl, never forceUrl) aligned with whatever
+                // the search box last searched for, and keeps the
+                // address bar/back-button in sync — same "URL reflects
+                // real state" convention the team-pill AJAX swaps
+                // elsewhere in this file already follow.
+                container.dataset.pollUrl = forceUrl;
+                history.replaceState({}, '', forceUrl);
             }
 
             container.innerHTML = html;
@@ -2752,12 +2773,28 @@ initHistoryPanel();
 initLiveLeadsSearch();
 
 // Leads/Overdue/Callbacks search box (explicit request, 2026-09-09: "auto
-// search ... dont need to click the search button") — debounce-submits
-// the surrounding GET form as the TSA types, same 250ms convention as
-// every other search box in this file (Outcome/Upsell/inline-tag
-// pickers above). A full page reload on each submit (not a fetch/AJAX
-// swap) — same as clicking the Search button always did — so this stays
-// a plain enhancement of the existing form, not a new search mechanism.
+// search ... dont need to click the search button") — debounces as the TSA
+// types, same 250ms convention as every other search box in this file
+// (Outcome/Upsell/inline-tag pickers above).
+//
+// Regression fix, 2026-09-21 ("the user cannot type continuously because
+// every word is like saving and it will refresh") — this used to call
+// form.submit(), a real full-page reload on every debounced keystroke
+// pause. Typing at a normal pace still has gaps longer than 250ms between
+// words, so the page kept reloading mid-sentence, losing focus/cursor
+// position and forcing a re-click into the box to keep typing. Now reuses
+// pollLeadsTable()'s own AJAX fetch-and-swap (the exact same mechanism the
+// 15s background poll already uses to refresh #leads-table-container
+// without a reload) instead of a real navigation — the search input lives
+// OUTSIDE #leads-table-container (see leads/index.blade.php's own layout),
+// so it's never touched by the innerHTML swap and keeps focus/cursor
+// naturally, no special restoration needed. skipFocusGuard=true since the
+// normal "don't refresh while something inside the table is focused" guard
+// would otherwise never apply here anyway (the search box isn't inside the
+// container) but is passed explicitly for clarity. The Search button/
+// dropdown filters still do a plain full-page GET submit, unchanged —
+// scoped fix to the specific typing-interruption complaint, not a rewrite
+// of the whole filter form.
 function initLiveLeadsSearch() {
     const input = document.querySelector('[data-live-search]');
     if (!input) return;
@@ -2768,7 +2805,10 @@ function initLiveLeadsSearch() {
     let debounce = null;
     input.addEventListener('input', () => {
         clearTimeout(debounce);
-        debounce = setTimeout(() => form.submit(), 250);
+        debounce = setTimeout(() => {
+            const url = `${form.action || window.location.pathname}?${new URLSearchParams(new FormData(form)).toString()}`;
+            pollLeadsTable(url, true);
+        }, 250);
     });
 }
 
