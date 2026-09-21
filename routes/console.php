@@ -9,6 +9,7 @@ use App\Console\Commands\ReconcileOrderStatuses;
 use App\Console\Commands\SyncCallRecordings;
 use App\Console\Commands\SyncPancakeLeads;
 use App\Console\Commands\LinkSeparateParcelOrders;
+use App\Console\Commands\BackfillLostUpsellTags;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -107,6 +108,50 @@ Schedule::command(LinkSeparateParcelOrders::class)->hourly()->withoutOverlapping
 // minutes of overlap protection no longer makes sense against a 15-minute
 // gap between runs; 10 still gives comfortable headroom.
 Schedule::command(ReconcileOrderStatuses::class)->everyFifteenMinutes()->withoutOverlapping(10);
+
+// Self-heals real upsell tags Pancake's own API silently drops on a brand-
+// new tag attachment — a confirmed, external Pancake-side bug (root-caused
+// 2026-09-18, still reproducing live 2026-09-21: 16 orders lost their
+// upsell tag in a single day, most exhausting all 3 of addTagsToOrder()'s
+// own retries with the tag never landing). Explicit follow-up requests,
+// 2026-09-21 ("make it every time working", then "i want realtime working"
+// — TSA feedback that the upsell tag "sometimes it is tagging and there
+// are times that is not working"): this command already existed
+// (calls:backfill-lost-upsell-tags, 2026-09-19) as a safe, idempotent,
+// tested one-off — it only re-touches an order whose local
+// is_upsell/is_returned_upsell/is_upsell_on_voided_order are ALL still
+// false, so a re-run against an already-fixed order is a harmless no-op —
+// but it only ever ran when someone remembered to trigger it by hand,
+// leaving a real lost tag invisible to the Dashboard/Leaderboard/TSA
+// Performance until then.
+//
+// everyFiveMinutes(), settled on after two follow-ups the same day
+// ("make it every time working", then "i want realtime working" — tried
+// at everyMinute() briefly before this — then "make it every 5 mins"):
+// this only self-heals an ALREADY-failed write (Pancake's bug happens at
+// the moment of the original write; no polling frequency prevents that
+// first failure) — faster polling only shrinks how long a lost tag sits
+// broken before something notices. 5 minutes is the settled middle ground
+// between the 1-minute floor Laravel's scheduler can express at all (there
+// is no ->everySeconds(), same ceiling SyncPancakeLeads' own doc comment
+// documents) and the safer 15-minute default this codebase otherwise uses
+// for "immediately fix" requests (see ReconcileOrderStatuses' own comment
+// above) — every-minute piles live Pancake calls onto an API already
+// confirmed under real strain (frequent 15s timeouts observed live) far
+// more aggressively than the modest latency win justified.
+//
+// --days=1 (not the command's own 30-day default): only today's own lost
+// tags matter for this recurring pass — anything older either already got
+// caught by a previous run of this same schedule, or predates this fix
+// entirely and is a one-off backfill's job (calls:backfill-lost-upsell-tags
+// --days=N, run by hand), not this ongoing job's.
+//
+// withoutOverlapping(5): matches the job's own 5-minute interval, same
+// "the mutex window should track the schedule's own cadence" reasoning as
+// every other job here — a run that's merely a little slow still self-heals
+// within one missed tick, while a run genuinely stuck clears for the next
+// tick instead of blocking for several multiples of the job's own interval.
+Schedule::command(BackfillLostUpsellTags::class, ['--days' => 1])->everyFiveMinutes()->withoutOverlapping(5);
 
 // Full re-sync of the last few days, once nightly — a safety net against rare
 // completeness gaps the continuous "today" sync can miss right at the midnight
