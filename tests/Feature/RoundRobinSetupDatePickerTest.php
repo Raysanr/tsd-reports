@@ -141,4 +141,35 @@ class RoundRobinSetupDatePickerTest extends TestCase
         $tsas = collect($response->viewData('tsas'));
         $this->assertSame(1, $tsas->firstWhere('tsa.tsa_key', 'Gemma')['assigned_today']);
     }
+
+    /**
+     * Explicit request, 2026-09-21: "make this auto save in the leads
+     * setup like no save button but when it input it is auto save" — the
+     * Daily Cap input now saves via a plain AJAX POST (no page reload),
+     * same instant-toggle convention TSA Management's own switches use.
+     * This asserts the JSON response path specifically (the plain
+     * redirect-back path already existed and is unchanged).
+     */
+    public function test_updating_the_daily_cap_via_json_saves_it_and_returns_success(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        $response = $this->actingAs($this->admin())->postJson(route('calls.round-robin-setup.update', $gemma), ['daily_lead_cap' => 42]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+        $this->assertSame(42, $gemma->fresh()->daily_lead_cap);
+    }
+
+    /** An empty value clears the cap back to unlimited — same as the
+     *  plain-form path's own nullable validation. */
+    public function test_clearing_the_daily_cap_via_json_sets_it_to_null(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['daily_lead_cap' => 75]);
+
+        $response = $this->actingAs($this->admin())->postJson(route('calls.round-robin-setup.update', $gemma), ['daily_lead_cap' => '']);
+
+        $response->assertOk()->assertJson(['success' => true]);
+        $this->assertNull($gemma->fresh()->daily_lead_cap);
+    }
 }

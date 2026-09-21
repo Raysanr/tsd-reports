@@ -94,6 +94,18 @@ class RoundRobinSetupController extends Controller
 
         $tsaShift->update(['daily_lead_cap' => $data['daily_lead_cap'] ?? null]);
 
-        return back()->with('success', "{$tsaShift->display_name}'s daily lead cap updated.");
+        $message = "{$tsaShift->display_name}'s daily lead cap updated.";
+
+        // Explicit request, 2026-09-21: "make this auto save in the leads
+        // setup like no save button but when it input it is auto save" —
+        // same instant-AJAX-toggle convention already established for the
+        // TSA Management page's own switches (toggleAutoTagging()/
+        // toggleMidnightAutoLogout()). The plain form-POST fallback stays
+        // intact below for any caller that doesn't ask for JSON.
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return back()->with('success', $message);
     }
 }

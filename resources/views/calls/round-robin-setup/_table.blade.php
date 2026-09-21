@@ -100,15 +100,17 @@
                         @endif
                     </td>
                     <td class="px-5 py-4">
-                        <form method="POST" action="{{ route('calls.round-robin-setup.update', $tsa) }}" class="flex items-center gap-2">
-                            @csrf
-                            <input type="number" name="daily_lead_cap" min="1" value="{{ $cap }}" placeholder="Unlimited"
-                                   class="w-24 text-sm font-mono border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:bg-white dark:focus:bg-slate-900 transition-colors">
-                            <button type="submit"
-                                    class="text-xs font-bold text-white bg-primary hover:bg-primary-dark rounded-lg px-3.5 py-1.5 cursor-pointer transition-colors">
-                                Save
-                            </button>
-                        </form>
+                        {{-- Auto-saves on change/blur — no Save button (explicit
+                             request, 2026-09-21) — same instant-AJAX convention
+                             TSA Management's own switches already use. A small
+                             "Saved"/"Saving…" indicator next to the input takes
+                             the Save button's old place, since a plain input
+                             box alone gives no feedback that anything happened. --}}
+                        <div class="flex items-center gap-2 daily-cap-row" data-action="{{ route('calls.round-robin-setup.update', $tsa) }}">
+                            <input type="number" min="1" value="{{ $cap }}" placeholder="Unlimited"
+                                   class="daily-cap-input w-24 text-sm font-mono border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:bg-white dark:focus:bg-slate-900 transition-colors">
+                            <span class="daily-cap-status text-[11px] font-mono text-slate-400 w-12 shrink-0"></span>
+                        </div>
                     </td>
                 </tr>
             @endforeach

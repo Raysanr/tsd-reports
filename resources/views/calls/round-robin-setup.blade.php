@@ -114,6 +114,69 @@
     // Back/forward between filtered states — reload normally rather than
     // trying to re-derive which pill was active from a bfcache'd DOM.
     window.addEventListener('popstate', () => window.location.reload());
+
+    // Daily Cap auto-save (explicit request, 2026-09-21: "make this auto
+    // save in the leads setup like no save button but when it input it is
+    // auto save") — event DELEGATION on the never-replaced #rrsTableContainer,
+    // not a direct listener on each .daily-cap-input, since the team-pill
+    // swap above replaces the whole table's innerHTML on every filter
+    // change; a direct listener would silently stop working on any row
+    // rendered after the first swap. Debounced 600ms on input so a TSA
+    // typing "75" doesn't fire 2 separate saves (7, then 75) — plus an
+    // immediate save on blur/Enter so tabbing away or hitting Enter never
+    // waits out the debounce.
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const saveTimers = new WeakMap();
+
+    function saveDailyCap(input) {
+        const row = input.closest('.daily-cap-row');
+        const status = row?.querySelector('.daily-cap-status');
+        if (!row) return;
+
+        clearTimeout(saveTimers.get(input));
+        if (status) status.textContent = 'Saving…';
+
+        fetch(row.dataset.action, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: `daily_lead_cap=${encodeURIComponent(input.value)}`,
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => {
+                if (status) {
+                    status.textContent = 'Saved';
+                    setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 2000);
+                }
+            })
+            .catch(() => {
+                if (status) status.textContent = 'Failed';
+                window.showToast?.('Could not save the daily cap — try again.', 'error');
+            });
+    }
+
+    container.addEventListener('input', (e) => {
+        const input = e.target.closest('.daily-cap-input');
+        if (!input) return;
+        const status = input.closest('.daily-cap-row')?.querySelector('.daily-cap-status');
+        if (status) status.textContent = '';
+        clearTimeout(saveTimers.get(input));
+        saveTimers.set(input, setTimeout(() => saveDailyCap(input), 600));
+    });
+
+    container.addEventListener('blur', (e) => {
+        const input = e.target.closest('.daily-cap-input');
+        if (input) saveDailyCap(input);
+    }, true); // capture — 'blur' doesn't bubble, delegation needs the capture phase
+
+    container.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const input = e.target.closest('.daily-cap-input');
+        if (input) { e.preventDefault(); saveDailyCap(input); }
+    });
 })();
 </script>
 
