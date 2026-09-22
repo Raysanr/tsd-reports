@@ -302,15 +302,22 @@ class SyncPancakeLeads extends Command
 
     /**
      * Surfaces a lead on the Callbacks tab when Pancake ITSELF already
-     * carries a "Not Answering"/"Unattended"/"Call Back" tag on the order —
-     * not just when a TSA logs that outcome through this app's own Log
-     * Outcome flow (explicit request, 2026-09-08: "all of the leads in the
-     * pos that has unattended and not answering tag is should be display in
-     * the callbacks page"). Before this, a lead someone tagged directly in
-     * Pancake (or that arrived already tagged, e.g. from an earlier sync
-     * this app never ran) sat with a blank disposition and no callback_at
-     * forever — updateDisposition()'s own auto-callback logic only ever
-     * runs when a TSA submits the Log Outcome form here.
+     * carries a "Call Back" tag on the order — not just when a TSA logs
+     * that outcome through this app's own Log Outcome flow. Originally
+     * (explicit request, 2026-09-08: "all of the leads in the pos that has
+     * unattended and not answering tag is should be display in the
+     * callbacks page") this matched Not Answering/Unattended instead — see
+     * LeadController::CALLBACK_TRIGGER_KEYWORDS' own doc comment for the
+     * 2026-09-22 reversal: those two (plus Invalid Number) now get their
+     * own dedicated Unanswered Calls page, so this method's job is now
+     * "Call Back" ONLY, matching CALLBACK_TRIGGER_KEYWORDS' current value —
+     * same single-source-of-truth list, just a different set of keywords
+     * in it than when this comment was first written. Before this method
+     * existed at all, a lead someone tagged directly in Pancake (or that
+     * arrived already tagged, e.g. from an earlier sync this app never
+     * ran) sat with a blank disposition and no callback_at forever —
+     * updateDisposition()'s own auto-callback logic only ever runs when a
+     * TSA submits the Log Outcome form here.
      *
      * Runs every minute (this command's own schedule, see routes/
      * console.php) over EVERY already-synced lead this run's date window
@@ -335,13 +342,14 @@ class SyncPancakeLeads extends Command
      * LeadController::index()'s own comment). now()->addDay() is the right
      * default for a TSA who genuinely just hasn't decided WHEN to call back
      * yet (updateDisposition()'s own fallback, a real but different case) —
-     * a lead Pancake itself already flagged Not Answering/Unattended needs
-     * calling today, not tomorrow, which is the entire point of this fix.
+     * a lead Pancake itself already flagged Call Back needs calling today,
+     * not tomorrow, which is the entire point of this fix.
      *
      * Auto-CLEARS a backfill-set callback too (root-caused 2026-09-08, same
      * day: order #1365830 was tagged "Not Answering" — correctly triggered
-     * a callback — then someone called it directly in Pancake and it's now
-     * tagged "Confirmed Via Call" instead; the lead sat stuck showing as a
+     * a callback under the keyword set at the time — then someone called
+     * it directly in Pancake and it's now tagged "Confirmed Via Call"
+     * instead; the lead sat stuck showing as a
      * due callback forever, since nothing ever re-checked it once the real
      * tag moved on). Every sync tick, a lead whose callback_at is still set
      * from THIS method (status !== 'called', see above) gets re-checked

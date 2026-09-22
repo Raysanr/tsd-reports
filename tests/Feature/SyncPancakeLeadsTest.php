@@ -651,12 +651,15 @@ class SyncPancakeLeadsTest extends TestCase
     }
 
     /**
-     * Root-caused 2026-09-08 (explicit request: "all of the leads in the pos
-     * that has unattended and not answering tag is should be display in the
-     * callbacks page") — a lead someone tagged "Not Answering"/"Unattended"
-     * directly in Pancake (not through this app's own Log Outcome flow)
-     * never picked up a callback_at, so it never surfaced on the Callbacks
-     * tab. This is the every-minute sync's own re-check of an
+     * Originally root-caused 2026-09-08 (explicit request: "all of the
+     * leads in the pos that has unattended and not answering tag is
+     * should be display in the callbacks page") against Not Answering/
+     * Unattended Pancake tags. Updated 2026-09-22 for the
+     * CALLBACK_TRIGGER_KEYWORDS reversal (see that constant's own doc
+     * comment) — the mechanism under test (a lead someone tagged directly
+     * in Pancake, not through this app's own Log Outcome flow, still
+     * picks up a callback_at) is unchanged, only which tag now matches.
+     * This is the every-minute sync's own re-check of an
      * ALREADY-EXISTING lead's current tags, not the new-lead creation path
      * above.
      */
@@ -671,7 +674,7 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->fakePancake([[
             'id' => 9501, 'bill_full_name' => 'Already Synced', 'bill_phone_number' => '09171234567',
-            'tags' => [['name' => 'NOT ANSWERING']],
+            'tags' => [['name' => 'CALL BACK']],
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
         ]]);
@@ -679,7 +682,7 @@ class SyncPancakeLeadsTest extends TestCase
         Artisan::call('pancake:sync-leads');
 
         $lead->refresh();
-        $this->assertSame('NOT ANSWERING', $lead->disposition);
+        $this->assertSame('CALL BACK', $lead->disposition);
         $this->assertNotNull($lead->callback_at);
         // Due NOW, not +1 day (root-caused 2026-09-08: an earlier version of
         // this fix used +1 day, the same fallback updateDisposition() uses
@@ -716,7 +719,7 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->fakePancake([[
             'id' => 9506, 'bill_full_name' => 'Should Appear Today', 'bill_phone_number' => '09171234572',
-            'tags' => [['name' => 'NOT ANSWERING']],
+            'tags' => [['name' => 'CALL BACK']],
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
         ]]);
@@ -730,7 +733,12 @@ class SyncPancakeLeadsTest extends TestCase
         $response->assertSee('Should Appear Today');
     }
 
-    public function test_the_unattended_tag_also_backfills_a_callback(): void
+    /** Not Answering/Unattended Pancake tags no longer backfill a callback
+     *  (reversed 2026-09-22 — see CALLBACK_TRIGGER_KEYWORDS' own doc
+     *  comment) — they now belong to the Unanswered Calls page instead,
+     *  which matches on disposition directly and never touches
+     *  callback_at at all. */
+    public function test_the_unattended_tag_no_longer_backfills_a_callback(): void
     {
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -749,7 +757,7 @@ class SyncPancakeLeadsTest extends TestCase
         Artisan::call('pancake:sync-leads');
 
         $lead = Lead::where('pancake_order_id', '9502')->first();
-        $this->assertNotNull($lead->callback_at);
+        $this->assertNull($lead->callback_at);
     }
 
     public function test_a_lead_already_called_is_never_overwritten_by_a_pancake_tag(): void
@@ -764,7 +772,7 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->fakePancake([[
             'id' => 9503, 'bill_full_name' => 'Already Called', 'bill_phone_number' => '09171234569',
-            'tags' => [['name' => 'NOT ANSWERING']],
+            'tags' => [['name' => 'CALL BACK']],
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
         ]]);
@@ -789,7 +797,7 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->fakePancake([[
             'id' => 9504, 'bill_full_name' => 'Has Callback', 'bill_phone_number' => '09171234570',
-            'tags' => [['name' => 'NOT ANSWERING']],
+            'tags' => [['name' => 'CALL BACK']],
             'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
             'inserted_at' => now()->toIso8601String(),
         ]]);
@@ -826,15 +834,19 @@ class SyncPancakeLeadsTest extends TestCase
     /**
      * Root-caused 2026-09-08 (real production case: order #1365830 was
      * tagged "Not Answering" — correctly triggered a callback via
-     * backfillCallbackFromTags() — then someone called it directly in
-     * Pancake and it's now tagged "Confirmed Via Call" instead; the lead
-     * sat stuck showing as a due callback forever on the Callbacks page,
-     * since nothing ever re-checked it once the real tag moved on).
-     * status stays non-'called' the whole time here (this is the exact
-     * signal that distinguishes a backfill-set callback from a TSA's own
-     * logged Outcome — see this method's own doc comment) — a real TSA
-     * Log Outcome always sets status='called' in the same write, so it can
-     * never be silently cleared by this.
+     * backfillCallbackFromTags() under the keyword set at the time — then
+     * someone called it directly in Pancake and it's now tagged
+     * "Confirmed Via Call" instead; the lead sat stuck showing as a due
+     * callback forever on the Callbacks page, since nothing ever
+     * re-checked it once the real tag moved on). Updated 2026-09-22 to use
+     * "CALL BACK" as the initially-matching tag (CALLBACK_TRIGGER_KEYWORDS
+     * reversal — see that constant's own doc comment); the clearing
+     * behavior itself is unchanged. status stays non-'called' the whole
+     * time here (this is the exact signal that distinguishes a
+     * backfill-set callback from a TSA's own logged Outcome — see this
+     * method's own doc comment) — a real TSA Log Outcome always sets
+     * status='called' in the same write, so it can never be silently
+     * cleared by this.
      */
     public function test_a_backfilled_callback_is_cleared_once_the_real_tag_no_longer_justifies_it(): void
     {
@@ -843,7 +855,7 @@ class SyncPancakeLeadsTest extends TestCase
         $lead = Lead::create([
             'pancake_order_id' => '9506', 'customer_name' => 'Now Confirmed',
             'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
-            'disposition' => 'NOT ANSWERING', 'callback_at' => now(),
+            'disposition' => 'CALL BACK', 'callback_at' => now(),
         ]);
 
         $this->fakePancake([[

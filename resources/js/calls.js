@@ -252,11 +252,12 @@ function pollNotificationCounts() {
             updateBadge('badge-assigned', data.assigned);
             updateBadge('badge-overdue', data.overdue);
             updateBadge('badge-callbacks', data.callbacks);
+            updateBadge('badge-unanswered', data.unanswered);
         })
         .catch(() => {});
 }
 
-if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks')) {
+if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered')) {
     pollNotificationCounts();
     setInterval(pollNotificationCounts, 30000);
 }

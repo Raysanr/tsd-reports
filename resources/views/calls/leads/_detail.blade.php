@@ -19,13 +19,17 @@
     // Callbacks page should see the exact same fully-editable modal shown
     // here, able to log the call/add tags/edit delivery/Save, not a
     // stripped-down read-only version). Matches
-    // LeadController::canView()'s own definition of "due" exactly — same
-    // callback_at not null && <= now() check index()'s Callbacks branch
-    // uses — so a lead is either fully manageable here or not viewable at
-    // all via show()/history(), never a confusing in-between.
+    // LeadController::canAccess()'s own definition exactly — including its
+    // 2026-09-22 extension for Unanswered Calls (a lead matching
+    // UNANSWERED_CALLS_TRIGGER_KEYWORDS, shared the same way, can have no
+    // callback_at at all — see that method's own doc comment) — so a lead
+    // is either fully manageable here or not viewable at all via
+    // show()/history(), never a confusing in-between.
+    $unansweredCallsKeywords = ['unattended', 'not answering', 'invalid number'];
     $canManage = auth()->user()->isAtLeastAdmin()
         || $lead->tsa_id === auth()->user()->tsa_id
-        || ($lead->callback_at !== null && $lead->callback_at->lte(now()));
+        || ($lead->callback_at !== null && $lead->callback_at->lte(now()))
+        || ($lead->disposition !== null && collect($unansweredCallsKeywords)->contains(fn ($kw) => stripos($lead->disposition, $kw) !== false));
     $statusStyles = [
         'called'     => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
         'assigned'   => 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-400',

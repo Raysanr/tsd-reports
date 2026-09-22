@@ -287,6 +287,124 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Unanswered Calls view (added 2026-09-22, explicit request: "add new
+     * page next to call backs 'UNANSWERED CALLS' but all of the leads in
+     * there is has NOT ANSWERING, UNATTENDED, INVALID NUMBER tags and still
+     * accessible in all TSA") — confirmed scope is exactly these 3
+     * keywords, not the broader 6-keyword
+     * ProductPerformance::UNANSWERED_COLUMNS set (DFR/Double Order/FSD
+     * Uncleared explicitly excluded).
+     */
+    public function test_unanswered_calls_view_matches_only_the_three_target_keywords(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'u-1', 'customer_name' => 'Not Answering Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Not Answering']);
+        Lead::create(['pancake_order_id' => 'u-2', 'customer_name' => 'Unattended Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Unattended']);
+        Lead::create(['pancake_order_id' => 'u-3', 'customer_name' => 'Invalid Number Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Invalid Number']);
+        // Excluded: part of the broader UNANSWERED_COLUMNS set but not one
+        // of this page's 3 target keywords.
+        Lead::create(['pancake_order_id' => 'u-4', 'customer_name' => 'DFR Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'DFR']);
+        Lead::create(['pancake_order_id' => 'u-5', 'customer_name' => 'Confirmed Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Confirmed']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'unanswered']));
+
+        $response->assertOk();
+        $response->assertSee('Not Answering Lead');
+        $response->assertSee('Unattended Lead');
+        $response->assertSee('Invalid Number Lead');
+        $response->assertDontSee('DFR Lead');
+        $response->assertDontSee('Confirmed Lead');
+    }
+
+    /**
+     * Case-sensitivity regression guard, 2026-09-22 — real bug caught live
+     * before shipping: production is Postgres, whose LIKE is
+     * case-sensitive, so a plain ->where('disposition', 'like', ...)
+     * matched 0 of 737 real rows containing "NOT ANSWERING" in various
+     * cases. SQLite (this test's own driver, per phpunit.xml) is
+     * case-INsensitive by default, so this exact scenario would pass here
+     * even with the broken code — this test alone doesn't prove the fix,
+     * but it locks in the expected (correct) behavior either way.
+     */
+    public function test_unanswered_calls_view_matches_disposition_case_insensitively(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'u-case-1', 'customer_name' => 'Upper Case Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'NOT ANSWERING - EYECARE']);
+        Lead::create(['pancake_order_id' => 'u-case-2', 'customer_name' => 'Mixed Case Lead', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Unattended ']);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'unanswered']));
+
+        $response->assertOk();
+        $response->assertSee('Upper Case Lead');
+        $response->assertSee('Mixed Case Lead');
+    }
+
+    public function test_unanswered_calls_view_is_shared_across_every_tsa_not_just_the_viewers_own(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create(['pancake_order_id' => 'u-shared-1', 'customer_name' => 'Gemma Unanswered', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'disposition' => 'Not Answering']);
+        Lead::create(['pancake_order_id' => 'u-shared-2', 'customer_name' => 'Mariel Unanswered', 'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned', 'disposition' => 'Unattended']);
+
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-unanswered@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($gemmaUser)->get(route('calls.leads.index', ['view' => 'unanswered']));
+
+        $response->assertOk();
+        $response->assertSee('Gemma Unanswered');
+        $response->assertSee('Mariel Unanswered');
+    }
+
+    public function test_a_tsas_own_name_badge_and_tsa_filter_do_not_show_on_the_unanswered_calls_view(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-unanswered-badge@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($gemmaUser)->get(route('calls.leads.index', ['view' => 'unanswered']));
+        $response->assertOk();
+        $response->assertDontSee('data-own-tsa-badge', false);
+
+        $adminResponse = $this->actingAs($this->admin())->get(route('calls.leads.index', ['view' => 'unanswered']));
+        $adminResponse->assertOk();
+        $adminResponse->assertDontSee('name="tsa"', false);
+    }
+
+    /**
+     * canAccess() mirror, 2026-09-22 — a lead matching
+     * UNANSWERED_CALLS_TRIGGER_KEYWORDS can genuinely have no callback_at
+     * set at all (arrived already tagged straight from Pancake), so the
+     * pre-existing callback_at-based exception in canAccess() alone would
+     * list this lead on the shared page for every TSA but then 403 any
+     * non-owner who actually clicked into it.
+     */
+    public function test_a_tsa_can_view_and_edit_another_tsas_unanswered_lead_with_no_callback_at(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => 'u-access', 'customer_name' => 'Mariels Unanswered Lead',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'disposition' => 'Invalid Number', 'callback_at' => null,
+        ]);
+        $gemmaUser = User::create(['name' => 'Gemma User', 'email' => 'gemma-unanswered-view@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $showResponse = $this->actingAs($gemmaUser)->get(route('calls.leads.show', $lead));
+        $showResponse->assertOk();
+        $showResponse->assertSee('Mariels Unanswered Lead');
+
+        $editResponse = $this->actingAs($gemmaUser)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Confirmed']);
+        $editResponse->assertRedirect();
+        $this->assertSame('Confirmed', $lead->fresh()->disposition);
+    }
+
+    /**
      * Regression test, 2026-09-15: "in the callbacks it can't call any
      * leads... it is only displaying sending to your phone" — the dial
      * link used to carry the LEAD'S ASSIGNED TSA's own dialer_host, so
@@ -998,10 +1116,12 @@ class LeadControllerTest extends TestCase
         $response->assertRedirect();
         $lead->refresh();
         $this->assertSame('Confirmed, Call Back', $lead->disposition);
-        // "Call Back" is no longer a callback trigger (explicit request,
-        // 2026-09-17 — see CALLBACK_TRIGGER_KEYWORDS' own doc comment), so
-        // picking it alongside another tag still doesn't schedule one.
-        $this->assertNull($lead->callback_at);
+        // "Call Back" is the callback trigger (reversed 2026-09-22 — see
+        // CALLBACK_TRIGGER_KEYWORDS' own doc comment), so picking it
+        // alongside another tag still schedules one — same
+        // whole-joined-string substring match CallbackSchedulerTest's own
+        // "combined with another tag" test covers directly.
+        $this->assertNotNull($lead->callback_at);
 
         Http::assertSent(function ($r) {
             if ($r->method() !== 'PUT') return false;
@@ -1239,16 +1359,21 @@ class LeadControllerTest extends TestCase
     }
 
     /** Real production gap, confirmed live 2026-09-18: Angel called
-     *  Marisol's "Unattended" lead through the shared Callbacks queue,
-     *  upsold it, then removed the "Unattended" tag straight from the POS
-     *  Tags chip panel (not via Log Outcome) — ownership never followed
-     *  her, leaving the lead stuck on Marisol. updateDisposition() already
-     *  reassigns ownership when a TSA resolves a shared callback that way
-     *  (see its own doc comment); removeTag() needed the same rule for
-     *  this second, equally real way a TSA resolves one. */
-    public function test_removing_the_unattended_tag_reassigns_ownership_to_whoever_picked_it_up(): void
+     *  Marisol's shared-callback lead, upsold it, then removed the trigger
+     *  tag straight from the POS Tags chip panel (not via Log Outcome) —
+     *  ownership never followed her, leaving the lead stuck on Marisol.
+     *  updateDisposition() already reassigns ownership when a TSA resolves
+     *  a shared callback that way (see its own doc comment); removeTag()
+     *  needed the same rule for this second, equally real way a TSA
+     *  resolves one. Uses "Call Back" as the trigger tag (updated
+     *  2026-09-22 — CALLBACK_TRIGGER_KEYWORDS changed from Unattended/Not
+     *  Answering to Call Back only, see that constant's own doc comment;
+     *  the original 2026-09-18 incident was actually an "Unattended" tag,
+     *  but this test locks in whatever CALLBACK_TRIGGER_KEYWORDS currently
+     *  matches, not that specific keyword). */
+    public function test_removing_the_call_back_tag_reassigns_ownership_to_whoever_picked_it_up(): void
     {
-        $this->fakePosTags([['id' => 10, 'name' => 'Unattended']]);
+        $this->fakePosTags([['id' => 10, 'name' => 'Call Back']]);
 
         $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
         $julie   = TsaShift::where('tsa_key', 'Julie')->first();
@@ -1256,12 +1381,12 @@ class LeadControllerTest extends TestCase
         $lead = Lead::create([
             'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
             'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
-            'disposition' => 'Unattended', 'callback_at' => now()->subHour(),
+            'disposition' => 'Call Back', 'callback_at' => now()->subHour(),
         ]);
-        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Unattended']]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Call Back']]);
         $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-pickup@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
 
-        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Unattended'])->assertOk();
+        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Call Back'])->assertOk();
 
         $lead->refresh();
         $this->assertSame($julie->id, $lead->tsa_id);
@@ -1283,9 +1408,9 @@ class LeadControllerTest extends TestCase
         $lead = Lead::create([
             'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
             'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
-            'disposition' => 'Unattended', 'callback_at' => now()->subHour(),
+            'disposition' => 'Call Back', 'callback_at' => now()->subHour(),
         ]);
-        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['SINUXYL', 'Unattended']]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['SINUXYL', 'Call Back']]);
         $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-nopickup@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
 
         $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'SINUXYL'])->assertOk();
@@ -1295,12 +1420,15 @@ class LeadControllerTest extends TestCase
         $this->assertNotNull($lead->callback_at);
     }
 
-    /** Removing "Not answering" while "Unattended" (also a trigger
-     *  keyword) is still on the order hasn't actually resolved the
-     *  callback yet — must not reassign until every trigger tag is gone. */
+    /** Removing one trigger-matching tag while another trigger-matching
+     *  tag is still on the order hasn't actually resolved the callback
+     *  yet — must not reassign until every trigger tag is gone. Uses two
+     *  differently-worded "Call Back" tags (both match the single
+     *  CALLBACK_TRIGGER_KEYWORDS entry via substring) since that constant
+     *  is now just one keyword, not two — see its own doc comment. */
     public function test_removing_one_of_two_trigger_tags_does_not_reassign_yet(): void
     {
-        $this->fakePosTags([['id' => 10, 'name' => 'Not answering'], ['id' => 11, 'name' => 'Unattended']]);
+        $this->fakePosTags([['id' => 10, 'name' => 'Call Back Later'], ['id' => 11, 'name' => 'Call Back Tomorrow']]);
 
         $marisol = TsaShift::where('tsa_key', 'Marisol')->first();
         $julie   = TsaShift::where('tsa_key', 'Julie')->first();
@@ -1308,12 +1436,12 @@ class LeadControllerTest extends TestCase
         $lead = Lead::create([
             'pancake_order_id' => '1', 'customer_name' => 'Joemarie',
             'product_id' => $product->id, 'tsa_id' => $marisol->id, 'status' => 'assigned',
-            'disposition' => 'Not answering', 'callback_at' => now()->subHour(),
+            'disposition' => 'Call Back Later', 'callback_at' => now()->subHour(),
         ]);
-        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Not answering', 'Unattended']]);
+        Order::factory()->create(['pancake_order_id' => '1', 'raw_tags' => ['Call Back Later', 'Call Back Tomorrow']]);
         $julieUser = User::create(['name' => 'Julie User', 'email' => 'julie-partial@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $julie->id]);
 
-        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Not answering'])->assertOk();
+        $this->actingAs($julieUser)->postJson(route('calls.leads.tags.remove', $lead), ['tag' => 'Call Back Later'])->assertOk();
 
         $lead->refresh();
         $this->assertSame($marisol->id, $lead->tsa_id);

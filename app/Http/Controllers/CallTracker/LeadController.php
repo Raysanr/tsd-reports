@@ -41,19 +41,43 @@ use Illuminate\Validation\Rule;
  */
 class LeadController extends Controller
 {
-    /** Disposition keywords that mean "we didn't actually reach this lead"
-     *  and so need a follow-up attempt — Unattended/Not Answering ONLY
-     *  (explicit request, 2026-09-17: "do not include call back only
-     *  unattended, not answering" — "Call Back" removed; it means a TSA
-     *  DID reach the customer and is promising a follow-up at their own
-     *  request, a different case from never having reached them at all).
-     *  Matched case-insensitively as a substring, same as the keywords
-     *  list itself. Public (not private): SyncPancakeLeads::
-     *  backfillCallbackFromTags() reuses this exact same list so a lead
-     *  whose callback-worthy state came from a real Pancake TAG (not a
-     *  TSA's own logged Outcome) is still recognized by the identical
-     *  keyword set — one definition, not two hand-kept-in-sync copies. */
-    public const CALLBACK_TRIGGER_KEYWORDS = ['unattended', 'not answering'];
+    /** Disposition keyword that puts a lead in the shared Callbacks queue —
+     *  "Call Back" ONLY (explicit request, 2026-09-22: "make the call backs
+     *  should be only will have a call back tag" — a full reversal of the
+     *  2026-09-17 decision below, now that Unattended/Not Answering/Invalid
+     *  Number have their own dedicated page, Unanswered Calls, see
+     *  UNANSWERED_CALLS_TRIGGER_KEYWORDS just below. Keeping both on
+     *  Callbacks too would have meant the exact same lead showing on both
+     *  pages at once).
+     *
+     *  Previously (2026-09-17: "do not include call back only unattended,
+     *  not answering") this was Unattended/Not Answering ONLY, deliberately
+     *  excluding "Call Back" — the reasoning then was that Call Back means
+     *  a TSA DID reach the customer and is promising a follow-up at their
+     *  own request, a different case from never having reached them at
+     *  all. That distinction is now moot: Unattended/Not Answering get
+     *  their own page instead of sharing this one.
+     *
+     *  Matched case-insensitively as a substring. Public (not private):
+     *  SyncPancakeLeads::backfillCallbackFromTags() reuses this exact same
+     *  list so a lead whose callback-worthy state came from a real Pancake
+     *  TAG (not a TSA's own logged Outcome) is still recognized by the
+     *  identical keyword set — one definition, not two hand-kept-in-sync
+     *  copies. */
+    public const CALLBACK_TRIGGER_KEYWORDS = ['call back'];
+
+    /** Disposition keywords for the Unanswered Calls view (explicit
+     *  request, 2026-09-22: "add new page next to callbacks 'UNANSWERED
+     *  CALLS' but all of the leads in there is has NOT ANSWERING,
+     *  UNATTENDED, INVALID NUMBER tags") — deliberately its OWN 3-keyword
+     *  list, not a reuse of CALLBACK_TRIGGER_KEYWORDS above (which is only
+     *  2 of these 3 — Invalid Number was explicitly excluded there since a
+     *  callback reminder makes no sense for a number that can't be
+     *  called), and not the 6-keyword ProductPerformance::UNANSWERED_COLUMNS
+     *  either (confirmed scope, 2026-09-22: DFR/Double Order/FSD Uncleared
+     *  are explicitly NOT part of this page). Matched case-insensitively
+     *  as a substring, same convention as CALLBACK_TRIGGER_KEYWORDS. */
+    public const UNANSWERED_CALLS_TRIGGER_KEYWORDS = ['unattended', 'not answering', 'invalid number'];
 
     /** How long an assigned-but-uncatered lead (no dial, no disposition —
      *  same "catered" definition the Leads tab's own status filter uses,
@@ -98,7 +122,28 @@ class LeadController extends Controller
             return true;
         }
 
-        return $lead->callback_at !== null && $lead->callback_at->lte(now());
+        if ($lead->callback_at !== null && $lead->callback_at->lte(now())) {
+            return true;
+        }
+
+        // Unanswered Calls (added 2026-09-22) is shared the same way — a
+        // lead matching UNANSWERED_CALLS_TRIGGER_KEYWORDS can genuinely
+        // have no callback_at at all (see index()'s own 'unanswered'
+        // branch doc comment: it can arrive already tagged straight from
+        // Pancake before this app's own callback-set logic ever runs on
+        // it), so the callback_at check above alone would list a lead on
+        // this shared page for every TSA to see, then 403 any non-owner
+        // who actually clicked into it to work it — listed but
+        // unmanageable is worse than not shown at all.
+        if ($lead->disposition !== null) {
+            foreach (self::UNANSWERED_CALLS_TRIGGER_KEYWORDS as $keyword) {
+                if (stripos($lead->disposition, $keyword) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /** Valid values for the status filter re-added below — kept as its own
@@ -152,7 +197,12 @@ class LeadController extends Controller
         // solve in the first place for the plain default view. $request's
         // tsa param is simply ignored on this view now, not just hidden
         // from the UI.
-        if ($view !== 'callbacks') {
+        // Unanswered Calls (added 2026-09-22) is the SAME kind of shared
+        // team knowledge as Callbacks — a customer nobody reached yet
+        // isn't any one TSA's private problem, any TSA logged in should be
+        // able to see and act on it — so it gets the identical carve-out
+        // from the per-TSA scoping below.
+        if ($view !== 'callbacks' && $view !== 'unanswered') {
             if (!$user->isAtLeastAdmin()) {
                 $query->where('tsa_id', $user->tsa_id);
             } elseif ($request->filled('tsa')) {
@@ -236,7 +286,13 @@ class LeadController extends Controller
                 ->orderBy('assigned_at');
         } elseif ($view === 'callbacks') {
             // A TSA promised to call back by a specific time — due now or
-            // already past due, not "someday in the future".
+            // already past due, not "someday in the future". This view
+            // just reads callback_at regardless of which tag set it, so it
+            // needed no change for the 2026-09-22 CALLBACK_TRIGGER_KEYWORDS
+            // reversal (Call Back only, no longer Unattended/Not
+            // Answering/Invalid Number — see that constant's own doc
+            // comment) — only updateDisposition() and
+            // backfillCallbackFromTags() (what SETS callback_at) changed.
             //
             // ALSO scoped to today's own pancake_created_at (explicit
             // report, 2026-09-14: "the callbacks page will be leads today
@@ -265,6 +321,55 @@ class LeadController extends Controller
                         ->orWhereNull('pancake_created_at');
                 })
                 ->orderBy('callback_at');
+        } elseif ($view === 'unanswered') {
+            // Explicit request, 2026-09-22: "add new page next to callbacks
+            // 'UNANSWERED CALLS' but all of the leads in there is has NOT
+            // ANSWERING, UNATTENDED, INVALID NUMBER tags and still
+            // accessible in all TSA" — a real logged disposition matching
+            // any of UNANSWERED_CALLS_TRIGGER_KEYWORDS, case-insensitive
+            // substring, same match style updateDisposition() itself
+            // already uses for CALLBACK_TRIGGER_KEYWORDS. Deliberately NOT
+            // scoped to callback_at at all (unlike the Callbacks view
+            // above) — this is every lead CARRYING one of these 3 tags
+            // right now, not specifically the ones with a due follow-up
+            // reminder attached; a lead can genuinely have the tag without
+            // callback_at ever getting set (e.g. it arrived already tagged
+            // straight from Pancake before this app's own callback-set
+            // logic ever ran on it — see SyncPancakeLeads::
+            // backfillCallbackFromTags()'s own doc comment for that exact
+            // class of gap).
+            //
+            // Scoped to today's own pancake_created_at, same convention as
+            // Overdue/Callbacks above — orderBy('pancake_created_at')
+            // (not assigned_at/callback_at, neither of which this view's
+            // own membership rule depends on) so the newest orders show
+            // first, matching the default Leads view's own ordering.
+            // LOWER(disposition) LIKE, not a bare 'like' (real bug caught
+            // live before this ever shipped, 2026-09-22): production runs
+            // Postgres, whose LIKE is case-sensitive — a plain
+            // ->where('disposition', 'like', '%not answering%') matched
+            // ZERO of the 737 real rows containing "NOT ANSWERING" in
+            // various cases ("Not answering ", "NOT ANSWERING - EYECARE",
+            // etc. — confirmed live via tinker), which would have shipped
+            // as a silently-empty page. Tests alone wouldn't have caught
+            // this either: phpunit.xml runs SQLite, whose LIKE is
+            // case-INsensitive by default, so the exact same code passes
+            // there while returning nothing on the real database. LOWER()
+            // on both sides works identically and correctly on every
+            // driver this app runs on (sqlite for tests, pgsql in
+            // production) — no driver-specific ILIKE/whereRaw branching
+            // needed.
+            $query->whereNotNull('disposition')
+                ->where(function ($q) {
+                    foreach (self::UNANSWERED_CALLS_TRIGGER_KEYWORDS as $keyword) {
+                        $q->orWhereRaw('LOWER(disposition) LIKE ?', ['%' . strtolower($keyword) . '%']);
+                    }
+                })
+                ->where(function ($q) use ($rangeFrom, $rangeTo) {
+                    $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+                        ->orWhereNull('pancake_created_at');
+                })
+                ->orderByDesc('pancake_created_at');
         }
         // Status filter, brought back (explicit request, 2026-08-21) — the
         // old Assigned/Called/Unassigned filter that lived here was removed
@@ -444,8 +549,14 @@ class LeadController extends Controller
         // deliberately generous (a real call + wrap-up easily runs that
         // long) but still short enough that a stale click from hours
         // earlier never falsely shows as "in progress."
+        // Unanswered Calls (added 2026-09-22) is shared across every TSA
+        // the same way Callbacks is (see this view's own scoping comment
+        // above), so the same double-dial risk applies — any TSA can pick
+        // up any lead here, meaning two TSAs really can both be dialing
+        // the same customer at once with no other signal warning either
+        // of them.
         $callingByLead = collect();
-        if ($view === 'callbacks' && $leads->isNotEmpty()) {
+        if (in_array($view, ['callbacks', 'unanswered'], true) && $leads->isNotEmpty()) {
             $recentClicks = LeadActivity::whereIn('lead_id', $leads->pluck('id'))
                 ->where('type', 'call_clicked')
                 ->where('created_at', '>=', now()->subMinutes(10))
@@ -1309,16 +1420,19 @@ class LeadController extends Controller
         // 2026-09-16 request it quotes). Removing the tag straight from the
         // POS Tags chip panel is a second, equally real way a TSA resolves
         // one — confirmed live, 2026-09-18: Angel called Marisol's
-        // "unattended" lead, upsold it, and manually removed the tag here
-        // instead of going through Log Outcome, and ownership never
-        // followed her. Only reassigns when: (1) the tag actually removed
-        // was itself a callback trigger (removing an unrelated tag says
-        // nothing about resolving the callback); (2) the lead was
-        // genuinely in the shared queue (callback_at was set); (3) no
-        // OTHER remaining real Pancake tag still matches a trigger keyword
-        // (e.g. "Not answering" AND "Unattended" both present — removing
-        // just one hasn't actually resolved it yet); (4) the acting TSA
-        // isn't already the owner; (5) not an admin override, same
+        // callback-trigger-tagged lead, upsold it, and manually removed the
+        // tag here instead of going through Log Outcome, and ownership
+        // never followed her (at the time this was an "unattended" tag —
+        // CALLBACK_TRIGGER_KEYWORDS has since changed to "call back" only,
+        // 2026-09-22, but the same reassignment logic still applies to
+        // whatever that constant currently matches). Only reassigns when:
+        // (1) the tag actually removed was itself a callback trigger
+        // (removing an unrelated tag says nothing about resolving the
+        // callback); (2) the lead was genuinely in the shared queue
+        // (callback_at was set); (3) no OTHER remaining real Pancake tag
+        // still matches a trigger keyword (removing just one of several
+        // matching tags hasn't actually resolved it yet); (4) the acting
+        // TSA isn't already the owner; (5) not an admin override, same
         // reasoning as updateDisposition()'s own check.
         if ($success && $lead->callback_at !== null
             && collect(self::CALLBACK_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($data['tag'], $kw) !== false)
@@ -1870,17 +1984,17 @@ class LeadController extends Controller
             'callback_at' => ['nullable', 'date'],
         ]);
 
-        // An outcome that means "we didn't actually reach this lead" needs a
-        // due time to ever show up on the Callbacks view — default to +1
-        // day if the TSA didn't pick one, rather than silently having no
-        // due date at all. "Unattended" and "Not Answering" ONLY (see
-        // CALLBACK_TRIGGER_KEYWORDS' own doc comment for why "Call Back"
-        // was deliberately excluded) — nobody talked to the customer, so it
-        // still needs a follow-up attempt. Case-insensitive substring match
-        // over the WHOLE joined string, so this still fires when either of
-        // these is only one of several tags picked alongside others — same
-        // keyword convention TSD Reports itself uses for disposition
-        // matching (ProductPerformance::count()).
+        // "Call Back" ONLY needs a due time to ever show up on the
+        // Callbacks view (see CALLBACK_TRIGGER_KEYWORDS' own doc comment —
+        // reversed 2026-09-22, previously Unattended/Not Answering) —
+        // default to +1 day if the TSA didn't pick one via the datetime
+        // input the frontend reveals for this exact same tag (calls.js'
+        // setSelectedTags(), gated on 'call back' too), rather than
+        // silently having no due date at all. Case-insensitive substring
+        // match over the WHOLE joined string, so this still fires when
+        // "Call Back" is only one of several tags picked alongside others
+        // — same keyword convention TSD Reports itself uses for
+        // disposition matching (ProductPerformance::count()).
         $callbackAt = null;
         $needsFollowUp = self::CALLBACK_TRIGGER_KEYWORDS;
         if (collect($needsFollowUp)->contains(fn ($kw) => stripos($data['disposition'], $kw) !== false)) {

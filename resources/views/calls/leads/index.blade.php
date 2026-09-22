@@ -1,9 +1,15 @@
 @extends('layouts.calls')
-@section('title', $view === 'overdue' ? 'Overdue Leads' : ($view === 'callbacks' ? "Today's Callbacks" : 'Leads'))
+@section('title', match($view) {
+    'overdue'    => 'Overdue Leads',
+    'callbacks'  => "Today's Callbacks",
+    'unanswered' => 'Unanswered Calls',
+    default      => 'Leads',
+})
 @section('subtitle', match($view) {
-    'overdue'   => "Assigned but not catered within {$overdueThresholdMinutes}min",
-    'callbacks' => 'Callbacks due now or already past due',
-    default     => 'Round-robin assigned leads · click to call',
+    'overdue'    => "Assigned but not catered within {$overdueThresholdMinutes}min",
+    'callbacks'  => 'Callbacks due now or already past due',
+    'unanswered' => 'Not Answering, Unattended, or Invalid Number · shared across every TSA',
+    default      => 'Round-robin assigned leads · click to call',
 })
 
 @section('content')
@@ -140,7 +146,7 @@
             $statusLabels = ['catered' => 'Catered', 'uncatered' => 'Uncatered'];
         @endphp
 
-        @if(auth()->user()->isAtLeastAdmin() && $view !== 'callbacks')
+        @if(auth()->user()->isAtLeastAdmin() && !in_array($view, ['callbacks', 'unanswered'], true))
         {{-- Custom dropdown (explicit request, 2026-08-20; the same
              trigger+floating-panel design was then extended to Team/Product/
              Status below, explicit request 2026-08-28) instead of a plain
@@ -457,7 +463,7 @@
         ])
         @endif
 
-        @if($view !== 'callbacks' && !auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
+        @if(!in_array($view, ['callbacks', 'unanswered'], true) && !auth()->user()->isAtLeastAdmin() && auth()->user()->tsa)
         {{-- A logged-in TSA sees their own name here, same avatar+name shape
              as the admin Team/TSA dropdowns above minus the chevron/click
              handler — explicit request, 2026-08-26: "the one tsa can only

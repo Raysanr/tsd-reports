@@ -322,6 +322,17 @@
                         </span>
                         <span id="badge-callbacks" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+
+                    <a href="{{ route('calls.leads.index', ['view' => 'unanswered'] + $leadsTsaParam) }}"
+                       class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'unanswered' ? 'nav-active' : '' }}">
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 5.636a9 9 0 010 12.728m-3.536-3.536a4.5 4.5 0 010-6.364M12 12h.008v.008H12V12zm-6.364 6.364a9 9 0 010-12.728"/>
+                            </svg>
+                            Unanswered Calls
+                        </span>
+                        <span id="badge-unanswered" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
+                    </a>
                 </div>
             </div>
         </div>

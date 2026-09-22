@@ -29,17 +29,18 @@ class CallbackSchedulerTest extends TestCase
     }
 
     /**
-     * Regression test for the removal of "Call Back" as a callback trigger
-     * (explicit request, 2026-09-17: "do not include call back only
-     * unattended, not answering") — "Call Back" means a TSA DID reach the
-     * customer and is promising a follow-up at their own request, a
-     * different case from Unattended/Not Answering (never reached them at
-     * all), so logging it no longer schedules a callback on its own. Even
-     * with an explicit callback_at submitted, it's dropped — only
-     * Unattended/Not Answering actually persist one (see
-     * CALLBACK_TRIGGER_KEYWORDS' own doc comment).
+     * Reversed 2026-09-22 (explicit request: "make the call backs should
+     * be only will have a call back tag") — "Call Back" is now the ONLY
+     * disposition that schedules a callback; Unattended/Not Answering/
+     * Invalid Number moved to their own dedicated page (Unanswered Calls)
+     * instead and no longer touch callback_at at all (see
+     * LeadController::CALLBACK_TRIGGER_KEYWORDS' own doc comment for the
+     * full history — this constant was Unattended/Not Answering ONLY from
+     * 2026-09-17 until this reversal). An explicit callback_at submitted
+     * alongside "Call Back" is honored (this is the datetime input
+     * calls.js reveals specifically for this tag, per setSelectedTags()).
      */
-    public function test_logging_call_back_no_longer_schedules_a_callback(): void
+    public function test_logging_call_back_schedules_a_callback_at_the_chosen_time(): void
     {
         [$lead, $user] = $this->leadAndUser();
         $when = now()->addDays(3)->startOfMinute();
@@ -49,7 +50,20 @@ class CallbackSchedulerTest extends TestCase
             'callback_at' => $when->format('Y-m-d\TH:i'),
         ]);
 
-        $this->assertNull($lead->refresh()->callback_at);
+        $this->assertTrue($when->equalTo($lead->refresh()->callback_at));
+    }
+
+    /** No explicit callback_at picked — defaults to +1 day, same
+     *  fallback updateDisposition() already used before this reversal. */
+    public function test_logging_call_back_with_no_chosen_time_defaults_to_plus_one_day(): void
+    {
+        [$lead, $user] = $this->leadAndUser();
+
+        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Call Back']);
+
+        $lead->refresh();
+        $this->assertNotNull($lead->callback_at);
+        $this->assertTrue($lead->callback_at->betweenIncluded(now()->addHours(23), now()->addHours(25)));
     }
 
     public function test_a_non_call_back_disposition_never_sets_a_callback(): void
@@ -61,48 +75,45 @@ class CallbackSchedulerTest extends TestCase
         $this->assertNull($lead->refresh()->callback_at);
     }
 
-    /** Unattended/Not Answering both mean nobody actually talked to the
-     *  customer, so logging either sets a due callback (unlike "Call Back",
-     *  which means the opposite — the customer WAS reached; see the test
-     *  above). */
-    public function test_logging_unattended_also_schedules_a_callback(): void
+    /** Unattended/Not Answering no longer schedule a callback (reversed
+     *  2026-09-22) — they now belong to the Unanswered Calls page instead,
+     *  which matches on disposition directly and doesn't depend on
+     *  callback_at at all (see LeadController::index()'s own 'unanswered'
+     *  branch). */
+    public function test_logging_unattended_no_longer_schedules_a_callback(): void
     {
         [$lead, $user] = $this->leadAndUser();
 
         $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Unattended']);
 
-        $lead->refresh();
-        $this->assertNotNull($lead->callback_at);
-        $this->assertTrue($lead->callback_at->betweenIncluded(now()->addHours(23), now()->addHours(25)));
+        $this->assertNull($lead->refresh()->callback_at);
     }
 
-    public function test_logging_not_answering_also_schedules_a_callback(): void
+    public function test_logging_not_answering_no_longer_schedules_a_callback(): void
     {
         [$lead, $user] = $this->leadAndUser();
 
         $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Not Answering']);
 
-        $lead->refresh();
-        $this->assertNotNull($lead->callback_at);
-        $this->assertTrue($lead->callback_at->betweenIncluded(now()->addHours(23), now()->addHours(25)));
+        $this->assertNull($lead->refresh()->callback_at);
     }
 
-    /** Same case-insensitive-substring-over-the-whole-joined-string behavior
-     *  Call Back already had — Not Answering picked alongside an unrelated
-     *  tag still schedules a callback. */
-    public function test_not_answering_combined_with_another_tag_still_schedules_a_callback(): void
+    /** Same case-insensitive-substring-over-the-whole-joined-string
+     *  behavior CALLBACK_TRIGGER_KEYWORDS always had — "Call Back" picked
+     *  alongside an unrelated tag still schedules a callback. */
+    public function test_call_back_combined_with_another_tag_still_schedules_a_callback(): void
     {
         [$lead, $user] = $this->leadAndUser();
 
-        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Not Answering, Duplicate']);
+        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Call Back, Duplicate']);
 
         $this->assertNotNull($lead->refresh()->callback_at);
     }
 
-    public function test_unattended_and_not_answering_leads_show_on_the_callbacks_view_when_due(): void
+    public function test_a_call_back_lead_shows_on_the_callbacks_view_when_due(): void
     {
         [$lead, $user] = $this->leadAndUser();
-        $lead->update(['status' => 'called', 'disposition' => 'Unattended', 'callback_at' => now()->subMinute()]);
+        $lead->update(['status' => 'called', 'disposition' => 'Call Back', 'callback_at' => now()->subMinute()]);
 
         $response = $this->actingAs($user)->get(route('calls.leads.index', ['view' => 'callbacks']));
 
@@ -132,8 +143,12 @@ class CallbackSchedulerTest extends TestCase
      * like that, i want to make it like it will automatically julie's
      * leads that" — Callbacks is the one queue where canAccess() already
      * lets ANY TSA act on a due lead she doesn't own; when a different TSA
-     * actually resolves it (a disposition that ISN'T Unattended/Not
-     * Answering again), ownership follows whoever did the work.
+     * actually resolves it (a disposition that ISN'T the trigger keyword
+     * again), ownership follows whoever did the work. Uses "Call Back" as
+     * the original trigger disposition (updated 2026-09-22 — the original
+     * 2026-09-16 incident was actually "Unattended", but
+     * CALLBACK_TRIGGER_KEYWORDS no longer matches that; the reassignment
+     * rule itself is unchanged).
      */
     public function test_a_different_tsa_resolving_a_due_callback_becomes_its_new_owner(): void
     {
@@ -142,7 +157,7 @@ class CallbackSchedulerTest extends TestCase
         $product = Product::where('display_name', 'SINUXYL')->first();
         $lead = Lead::create([
             'pancake_order_id' => 'cb3', 'customer_name' => 'Shared Callback', 'product_id' => $product->id,
-            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Unattended', 'callback_at' => now()->subMinute(),
+            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Call Back', 'callback_at' => now()->subMinute(),
         ]);
         $julieUser = User::factory()->create(['role' => 'tsa', 'tsa_id' => $julie->id]);
 
@@ -156,22 +171,22 @@ class CallbackSchedulerTest extends TestCase
         $this->assertStringContainsString($julieUser->name, $activity->description);
     }
 
-    /** Logging ANOTHER unresolved attempt (still Unattended/Not Answering)
-     *  is not a real pickup — the lead stays with its original owner and
-     *  up for grabs, rather than silently reassigning on every failed
+    /** Logging ANOTHER unresolved attempt (still the trigger keyword) is
+     *  not a real pickup — the lead stays with its original owner and up
+     *  for grabs, rather than silently reassigning on every failed
      *  re-attempt by a different TSA. */
-    public function test_a_different_tsa_logging_another_unattended_does_not_take_ownership(): void
+    public function test_a_different_tsa_logging_another_call_back_does_not_take_ownership(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $julie = TsaShift::where('tsa_key', 'Julie')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
         $lead = Lead::create([
             'pancake_order_id' => 'cb4', 'customer_name' => 'Still Unresolved', 'product_id' => $product->id,
-            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Unattended', 'callback_at' => now()->subMinute(),
+            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Call Back', 'callback_at' => now()->subMinute(),
         ]);
         $julieUser = User::factory()->create(['role' => 'tsa', 'tsa_id' => $julie->id]);
 
-        $this->actingAs($julieUser)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Not Answering']);
+        $this->actingAs($julieUser)->post(route('calls.leads.disposition', $lead), ['disposition' => 'Call Back']);
 
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
         $this->assertSame(0, LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->count());
@@ -186,7 +201,7 @@ class CallbackSchedulerTest extends TestCase
         $product = Product::where('display_name', 'SINUXYL')->first();
         $lead = Lead::create([
             'pancake_order_id' => 'cb5', 'customer_name' => 'Admin Corrected', 'product_id' => $product->id,
-            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Unattended', 'callback_at' => now()->subMinute(),
+            'tsa_id' => $gemma->id, 'status' => 'called', 'disposition' => 'Call Back', 'callback_at' => now()->subMinute(),
         ]);
         $admin = User::factory()->create(['role' => 'admin']);
 

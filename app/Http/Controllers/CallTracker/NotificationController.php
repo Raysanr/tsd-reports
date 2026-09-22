@@ -89,6 +89,23 @@ class NotificationController extends Controller
             ->where($createdTodayFilter);
         $unassignedQuery = Lead::where('status', 'unassigned')->where($createdTodayFilter);
 
+        // Unanswered Calls badge (added 2026-09-22) — must match
+        // LeadController::index()'s own 'unanswered' branch exactly: any of
+        // UNANSWERED_CALLS_TRIGGER_KEYWORDS, case-insensitive substring
+        // against disposition, same today/no-pancake_created_at fail-open
+        // as every other count here. LOWER(disposition) LIKE, not a plain
+        // 'like' — production is Postgres, whose LIKE is case-sensitive
+        // (confirmed live via tinker while building that view: a bare
+        // 'like' matched 0 of 737 real rows), so this must use the same
+        // whereRaw('LOWER(...) LIKE ?') fix that view itself required.
+        $unansweredQuery = Lead::whereNotNull('disposition')
+            ->where(function ($q) {
+                foreach (\App\Http\Controllers\CallTracker\LeadController::UNANSWERED_CALLS_TRIGGER_KEYWORDS as $keyword) {
+                    $q->orWhereRaw('LOWER(disposition) LIKE ?', ['%' . strtolower($keyword) . '%']);
+                }
+            })
+            ->where($createdTodayFilter);
+
         // Callbacks is shared across every TSA now (explicit request,
         // 2026-09-08, same reasoning as LeadController::index()'s own
         // matching comment: a promised follow-up is team knowledge, not one
@@ -106,6 +123,9 @@ class NotificationController extends Controller
         if ($request->filled('tsa')) {
             $callbackQuery->where('tsa_id', $request->integer('tsa'));
         }
+        if ($request->filled('tsa')) {
+            $unansweredQuery->where('tsa_id', $request->integer('tsa'));
+        }
 
         // dialed_at exclusion (explicit request, 2026-09-17 — see
         // LeadController::overdueThresholdMinutes()'s own doc comment) —
@@ -122,6 +142,7 @@ class NotificationController extends Controller
             'assigned'    => $assignedQuery->count(),
             'overdue'     => $overdueQuery->count(),
             'callbacks'   => $callbackQuery->count(),
+            'unanswered'  => $unansweredQuery->count(),
             'unassigned'  => $user->isAtLeastAdmin() ? $unassignedQuery->count() : 0,
         ]);
     }
