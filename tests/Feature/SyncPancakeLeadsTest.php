@@ -907,4 +907,228 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame('Call Back', $lead->disposition);
         $this->assertEquals($original->timestamp, $lead->callback_at->timestamp);
     }
+
+    /**
+     * Real production gap, root-caused 2026-09-22 the same day Unanswered
+     * Calls shipped: "why the unanswered is in tsd report leads is this
+     * much but it is only displaying in unanswered calls is only 1" —
+     * confirmed live via tinker: 65 of 66 leads tagged Not Answering/
+     * Unattended/Invalid Number in Pancake today had disposition still
+     * null, because the CALLBACK_TRIGGER_KEYWORDS reversal earlier that
+     * day silently removed the ONLY mechanism that ever copied those 3
+     * tags into Lead::disposition (it used to happen as a side effect of
+     * backfillCallbackFromTags() scheduling a callback, back when those
+     * keywords were still part of that constant). This is
+     * backfillUnansweredDispositionFromTags()'s own regression test —
+     * disposition gets backfilled from a real Pancake tag with NO TSA
+     * having logged an outcome, same mechanism as Call Back's own
+     * backfill, just without ever touching callback_at.
+     */
+    public function test_an_existing_leads_not_answering_tag_backfills_disposition_with_no_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9510', 'customer_name' => 'Should Backfill',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9510, 'bill_full_name' => 'Should Backfill', 'bill_phone_number' => '09171234580',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('NOT ANSWERING', $lead->disposition);
+        // The whole point of splitting this into its own method — Call
+        // Back is the only thing that schedules a callback now.
+        $this->assertNull($lead->callback_at);
+        $this->assertSame('assigned', $lead->status);
+    }
+
+    public function test_the_unattended_tag_also_backfills_disposition_with_no_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '9511', 'customer_name' => 'Unattended Backfill',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9511, 'bill_full_name' => 'Unattended Backfill', 'bill_phone_number' => '09171234581',
+            'tags' => [['name' => 'Unattended']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9511')->first();
+        $this->assertSame('Unattended', $lead->disposition);
+        $this->assertNull($lead->callback_at);
+    }
+
+    public function test_the_invalid_number_tag_also_backfills_disposition_with_no_callback(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '9512', 'customer_name' => 'Invalid Number Backfill',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9512, 'bill_full_name' => 'Invalid Number Backfill', 'bill_phone_number' => '09171234582',
+            'tags' => [['name' => 'Invalid Number']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9512')->first();
+        $this->assertSame('Invalid Number', $lead->disposition);
+        $this->assertNull($lead->callback_at);
+    }
+
+    /** The actual end-to-end proof — confirming the backfilled lead
+     *  genuinely appears on the real Unanswered Calls page, not just that
+     *  disposition got set to SOME value. */
+    public function test_a_backfilled_unanswered_lead_actually_shows_on_the_unanswered_calls_page(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        Lead::create([
+            'pancake_order_id' => '9513', 'customer_name' => 'Should Appear Unanswered',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9513, 'bill_full_name' => 'Should Appear Unanswered', 'bill_phone_number' => '09171234583',
+            'tags' => [['name' => 'NOT ANSWERING']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $user = User::factory()->create(['role' => 'admin']);
+        $response = $this->actingAs($user)->get(route('calls.leads.index', ['view' => 'unanswered']));
+
+        $response->assertOk();
+        $response->assertSee('Should Appear Unanswered');
+    }
+
+    /** Call Back's own backfill must be untouched by this sibling method —
+     *  each keyword set owns its own lane (disposition-only vs
+     *  disposition+callback_at) and never interferes with the other. */
+    public function test_a_call_back_tag_is_not_touched_by_the_unanswered_backfill(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9514', 'customer_name' => 'Call Back Only',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9514, 'bill_full_name' => 'Call Back Only', 'bill_phone_number' => '09171234584',
+            'tags' => [['name' => 'CALL BACK']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('CALL BACK', $lead->disposition);
+        $this->assertNotNull($lead->callback_at);
+    }
+
+    /** A lead already carrying a disposition this method didn't set (e.g.
+     *  Call Back's own backfill) must never be overwritten by an
+     *  unanswered-keyword tag appearing alongside it. */
+    public function test_a_lead_with_an_existing_call_back_disposition_is_never_overwritten_by_an_unanswered_tag(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9515', 'customer_name' => 'Already Call Back',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'disposition' => 'Call Back', 'callback_at' => now()->addDay(),
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9515, 'bill_full_name' => 'Already Call Back', 'bill_phone_number' => '09171234585',
+            'tags' => [['name' => 'CALL BACK'], ['name' => 'Not Answering']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('Call Back', $lead->disposition);
+    }
+
+    /** Mirrors backfillCallbackFromTags()'s own auto-clear behavior — a
+     *  lead this method backfilled must have its disposition cleared once
+     *  the real Pancake tags no longer justify it, so a resolved lead
+     *  doesn't sit stuck on the Unanswered Calls page forever. */
+    public function test_a_backfilled_unanswered_disposition_is_cleared_once_the_real_tag_no_longer_justifies_it(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9516', 'customer_name' => 'Now Confirmed Unanswered',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'disposition' => 'NOT ANSWERING',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9516, 'bill_full_name' => 'Now Confirmed Unanswered', 'bill_phone_number' => '09171234586',
+            'tags' => [['name' => 'CONFIRMED VIA CALL']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertNull($lead->disposition);
+        $this->assertSame('assigned', $lead->status);
+    }
+
+    /** A TSA's own logged outcome (status='called') must never be
+     *  overwritten OR cleared by this backfill, even if it happens to
+     *  match one of the 3 keywords — a human's own Log Outcome record
+     *  always outranks a bare Pancake tag. */
+    public function test_a_tsas_own_logged_not_answering_outcome_is_never_touched(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9517', 'customer_name' => 'TSA Logged Not Answering',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'called',
+            'disposition' => 'Not Answering',
+        ]);
+
+        $this->fakePancake([[
+            'id' => 9517, 'bill_full_name' => 'TSA Logged Not Answering', 'bill_phone_number' => '09171234587',
+            'tags' => [['name' => 'CONFIRMED VIA CALL']],
+            'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead->refresh();
+        $this->assertSame('Not Answering', $lead->disposition);
+        $this->assertSame('called', $lead->status);
+    }
 }

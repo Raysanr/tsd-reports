@@ -150,6 +150,7 @@ class SyncPancakeLeads extends Command
                 $existing = Lead::where('pancake_order_id', $id)->first();
                 if ($existing) {
                     $this->backfillCallbackFromTags($existing, $raw);
+                    $this->backfillUnansweredDispositionFromTags($existing, $raw);
                     $skipped++;
                     continue;
                 }
@@ -319,6 +320,15 @@ class SyncPancakeLeads extends Command
      * updateDisposition()'s own auto-callback logic only ever runs when a
      * TSA submits the Log Outcome form here.
      *
+     * See backfillUnansweredDispositionFromTags() just below for this
+     * method's sibling — the 2026-09-22 reversal above initially left NO
+     * mechanism backfilling disposition for Not Answering/Unattended/
+     * Invalid Number at all (a real gap, caught live the same day: "why
+     * the unanswered is in tsd report leads is this much but it is only
+     * displaying in unanswered calls is only 1"), which that method now
+     * covers independently — same "re-check every sync tick" pattern,
+     * disposition only, never touching callback_at.
+     *
      * Runs every minute (this command's own schedule, see routes/
      * console.php) over EVERY already-synced lead this run's date window
      * touches, not just brand-new ones — so a tag added in Pancake well
@@ -388,6 +398,78 @@ class SyncPancakeLeads extends Command
         ]);
 
         LeadActivity::log($lead, 'callback_scheduled', 'Callback due now (Pancake tag "' . $matchedTag . '", not a logged Outcome).');
+    }
+
+    /**
+     * Sibling of backfillCallbackFromTags() above, added 2026-09-22 — real
+     * production gap found the same day the Unanswered Calls page shipped:
+     * "why the unanswered is in tsd report leads is this much but it is
+     * only displaying in unanswered calls is only 1". Root cause: before
+     * this method existed, NOTHING ever copied a Not Answering/Unattended/
+     * Invalid Number Pancake tag into Lead::disposition unless a TSA
+     * manually logged that exact outcome through this app's own Log
+     * Outcome flow — backfillCallbackFromTags() used to do it as a side
+     * effect of scheduling a callback, back when those 3 keywords were
+     * still part of CALLBACK_TRIGGER_KEYWORDS, but the 2026-09-22 reversal
+     * that narrowed that constant to "Call Back" only silently removed the
+     * ONLY thing that ever wrote these 3 tags into disposition at all.
+     * Confirmed live: 65 of 66 leads tagged one of these 3 in Pancake
+     * today had disposition still null, while the real TSD Report (which
+     * reads Order::raw_tags directly, not Lead::disposition) correctly
+     * showed the true count — the two pages were reading two different,
+     * silently-diverged sources of truth for the same real-world tag.
+     *
+     * Deliberately does NOT touch callback_at at all — that's
+     * backfillCallbackFromTags()'s own job now, and Unanswered Calls
+     * doesn't depend on callback_at (see LeadController::index()'s own
+     * 'unanswered' branch doc comment). Only ever fills in disposition,
+     * never overwrites one that's already set — a lead a TSA already
+     * logged an outcome for (status='called') or that already picked up
+     * ANY disposition (including from backfillCallbackFromTags() itself,
+     * e.g. "Call Back") keeps that value; this only fills in a genuinely
+     * blank one.
+     *
+     * Auto-clears too, same "re-checked every sync tick" convention as
+     * backfillCallbackFromTags() — a lead this method backfilled
+     * (still status !== 'called', still carrying the disposition THIS
+     * method set) whose current real tags no longer include any of these
+     * 3 keywords gets its disposition cleared back to null, so a
+     * resolved-in-Pancake lead doesn't sit stuck on the Unanswered Calls
+     * page forever. Never touches a disposition a TSA logged herself or
+     * that backfillCallbackFromTags() itself set (e.g. "Call Back") —
+     * status='called' or a disposition outside these 3 keywords both mean
+     * "not this method's to manage", same ownership boundary
+     * backfillCallbackFromTags() already draws for callback_at.
+     */
+    private function backfillUnansweredDispositionFromTags(Lead $lead, array $raw): void
+    {
+        if ($lead->status === 'called') {
+            return;
+        }
+
+        $tagNames = collect($raw['tags'] ?? [])->pluck('name')->filter();
+        $matchedTag = $tagNames->first(
+            fn ($tag) => collect(LeadController::UNANSWERED_CALLS_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($tag, $kw) !== false)
+        );
+
+        $dispositionIsOwnedByThisMethod = $lead->disposition !== null
+            && collect(LeadController::UNANSWERED_CALLS_TRIGGER_KEYWORDS)->contains(fn ($kw) => stripos($lead->disposition, $kw) !== false);
+
+        if ($dispositionIsOwnedByThisMethod) {
+            if ($matchedTag === null) {
+                $lead->update(['disposition' => null]);
+                LeadActivity::log($lead, 'callback_scheduled', 'Unanswered Calls tag cleared — Pancake tags no longer include Not Answering/Unattended/Invalid Number.');
+            }
+            return;
+        }
+
+        if ($lead->disposition !== null || $matchedTag === null) {
+            return;
+        }
+
+        $lead->update(['disposition' => $matchedTag]);
+
+        LeadActivity::log($lead, 'callback_scheduled', 'Tagged for Unanswered Calls (Pancake tag "' . $matchedTag . '", not a logged Outcome).');
     }
 
     /**
