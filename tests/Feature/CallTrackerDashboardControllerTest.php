@@ -394,6 +394,30 @@ class CallTrackerDashboardControllerTest extends TestCase
         $this->assertSame('00:00', $response->viewData('unproductiveDisplay'));
     }
 
+    /**
+     * Explicit request, 2026-09-22: "add new status like CALL BACKS...
+     * but the leads is still continuous" — Call Backs time must not count
+     * as unproductive, same reasoning as Login/Calling/Wrap Up (see
+     * TsaShift::UNPRODUCTIVE_STATUSES' own doc comment) — a TSA working
+     * the Callbacks/Unanswered Calls queue is still actively calling
+     * customers, not away from work.
+     */
+    public function test_call_backs_status_time_does_not_count_as_unproductive(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $start = today()->copy()->startOfDay()->addHours(8);
+
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'call_backs', 'created_at' => $start->copy()->addMinutes(20)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => $start->copy()->addMinutes(80)]);
+
+        $user = $this->tsaUser('Gemma');
+        $response = $this->actingAs($user)->get(route('calls.dashboard'));
+
+        $response->assertOk();
+        $this->assertSame('00:00', $response->viewData('unproductiveDisplay'));
+    }
+
     /** Explicit follow-up request (2026-08-25): "make this per hour" — the
      *  AHT & Unproductive Time trend chart switched from a trailing-7-day
      *  view to today's real hour-by-hour breakdown, same CallRecordingHour

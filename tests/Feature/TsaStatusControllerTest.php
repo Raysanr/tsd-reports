@@ -43,6 +43,20 @@ class TsaStatusControllerTest extends TestCase
         $this->assertSame('break', $user->tsa->fresh()->status);
     }
 
+    /** Explicit request, 2026-09-22: "add new status like CALL BACKS that
+     *  is the indicator of they are in the call backs page or unanswered
+     *  calls page" — a normal self-service status, freely settable same
+     *  as Coaching/Break/etc. */
+    public function test_a_tsa_can_switch_to_call_backs_status(): void
+    {
+        $user = $this->tsaUser('Gemma');
+
+        $response = $this->actingAs($user)->postJson('/calls/tsa-status', ['status' => 'call_backs']);
+
+        $response->assertOk()->assertJson(['success' => true, 'status' => 'call_backs']);
+        $this->assertSame('call_backs', $user->tsa->fresh()->status);
+    }
+
     public function test_switching_status_writes_a_timestamped_log_entry(): void
     {
         $user = $this->tsaUser('Gemma');

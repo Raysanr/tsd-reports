@@ -40,6 +40,7 @@ class TsaShift extends Model
     public const STATUS_LOGIN       = 'login';
     public const STATUS_CALLING     = 'calling';
     public const STATUS_WRAP_UP     = 'wrap_up';
+    public const STATUS_CALL_BACKS  = 'call_backs';
     public const STATUS_BREAK       = 'break';
     public const STATUS_LUNCH       = 'lunch';
     public const STATUS_DNA_HUDDLE  = 'dna_huddle';
@@ -69,11 +70,28 @@ class TsaShift extends Model
      *  2026-09-01, explicit request — see applyStatusChange()'s own doc
      *  comment) — a TSA leaves it the same way they leave any other
      *  status, by manually picking a real next one from
-     *  SELF_SERVICE_STATUSES. */
+     *  SELF_SERVICE_STATUSES.
+     *
+     *  Call Backs added (explicit request, 2026-09-22: "add new status
+     *  like CALL BACKS that is the indicator of they are in the call
+     *  backs page or unanswered calls page... but the leads is still
+     *  continuous") — unlike Calling/Wrap Up, this one IS a normal
+     *  self-service status a TSA picks by hand (added to
+     *  SELF_SERVICE_STATUSES below) when they start working the shared
+     *  Callbacks or Unanswered Calls queue instead of the main Leads
+     *  queue, so Monitor/TSA Logs/Analytics can show that distinctly
+     *  instead of it just reading "Login" the whole time. "Leads is still
+     *  continuous" confirmed as: round-robin eligibility unaffected (see
+     *  RoundRobinAssigner::ELIGIBLE_STATUSES, which includes this status
+     *  too) — a TSA working Callbacks/Unanswered is still actively
+     *  working, just on a different queue, same as Calling/Wrap Up
+     *  already don't pause round-robin either. Also deliberately excluded
+     *  from UNPRODUCTIVE_STATUSES below, same reasoning. */
     public const STATUSES = [
         self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
         self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'wrap_up'],
+        self::STATUS_CALL_BACKS => ['label' => 'Call Backs', 'description' => 'Working the Callbacks/Unanswered Calls queue — still receives round-robin leads', 'icon' => 'call_backs'],
         self::STATUS_BREAK      => ['label' => 'Break',      'description' => "Stepped away, can't receive leads right now",  'icon' => 'break'],
         self::STATUS_LUNCH      => ['label' => 'Lunch',      'description' => "On lunch, can't receive leads",                 'icon' => 'lunch'],
         self::STATUS_COACHING   => ['label' => 'Coaching',   'description' => "In a coaching session, can't receive leads",    'icon' => 'coaching'],
@@ -97,9 +115,12 @@ class TsaShift extends Model
      *  tsa_shifts.status column, within its own poll.
      *
      *  Lunch and Others added (explicit request, 2026-08-20) — Logout stays
-     *  last, same position it's always had. */
+     *  last, same position it's always had. Call Backs added (explicit
+     *  request, 2026-09-22 — see STATUSES' own doc comment above), placed
+     *  right after Login since it's the other "actively working" status a
+     *  TSA picks for themselves. */
     public const SELF_SERVICE_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_COACHING,
+        self::STATUS_LOGIN, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_COACHING,
         self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS, self::STATUS_LOGOUT,
     ];
 
@@ -107,9 +128,10 @@ class TsaShift extends Model
      *  card's own "Daily minute record" list show a live count/duration
      *  for — including Calling and Wrap Up, which a TSA can end up in even
      *  though neither is ever set by hand (see STATUSES' own doc comment
-     *  above). */
+     *  above). Call Backs added (explicit request, 2026-09-22) alongside
+     *  them. */
     public const MONITOR_LEGEND_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH,
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
@@ -122,6 +144,10 @@ class TsaShift extends Model
      *  tables used before. Login/Calling/Wrap Up are deliberately excluded
      *  (actually working); Logout/Lock are excluded too (shift not
      *  active/admin-locked, not the TSA being unproductive during it).
+     *  Call Backs (explicit request, 2026-09-22 — see STATUSES' own doc
+     *  comment) is excluded for the same reason as Login/Calling/Wrap Up —
+     *  a TSA working the Callbacks/Unanswered Calls queue is still
+     *  actively calling customers, not away from work.
      *  Shared here, not duplicated per-controller, so the two pages that
      *  use it can never drift on which statuses count. */
     public const UNPRODUCTIVE_STATUSES = [

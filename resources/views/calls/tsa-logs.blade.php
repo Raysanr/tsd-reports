@@ -11,10 +11,11 @@
 // since it can render standalone via an X-Table-Refresh AJAX swap without
 // this parent view's own @php block ever running.
 $statusColor = fn($status) => match($status) {
-    'login'  => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
-    'logout' => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
-    'locked' => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
-    default  => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
+    'login'      => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
+    'call_backs' => 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-400',
+    'logout'     => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
+    'locked'     => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
+    default      => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',
 };
 
 // Selectable options for the Status filter (explicit request, 2026-09-22;

@@ -59,6 +59,7 @@
             \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
             \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
             \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
+            \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',
             \App\Models\TsaShift::STATUS_BREAK      => 'bg-yellow-400',
             \App\Models\TsaShift::STATUS_LUNCH      => 'bg-amber-800',
             \App\Models\TsaShift::STATUS_COACHING   => 'bg-blue-500',

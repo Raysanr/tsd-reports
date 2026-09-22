@@ -200,6 +200,22 @@ class RoundRobinAssignerTest extends TestCase
         $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key);
     }
 
+    /**
+     * Explicit request, 2026-09-22: "add new status like CALL BACKS...
+     * but the leads is still continuous" — a TSA working the Callbacks/
+     * Unanswered Calls queue must keep receiving new round-robin leads,
+     * same as Calling/Wrap Up already don't pause round-robin either (see
+     * ELIGIBLE_STATUSES' own doc comment).
+     */
+    public function test_a_tsa_on_call_backs_status_stays_eligible_for_round_robin(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        TsaShift::where('tsa_key', 'Mariel')->update(['status' => TsaShift::STATUS_CALL_BACKS]);
+
+        $this->assertSame('Gemma', RoundRobinAssigner::next($product)->tsa_key);
+        $this->assertSame('Mariel', RoundRobinAssigner::next($product)->tsa_key);
+    }
+
     /** A capped TSA is skipped in favor of an uncapped one online for the
      *  same product — the ordinary case this cap exists for. */
     public function test_skips_a_tsa_who_has_reached_their_daily_lead_cap(): void

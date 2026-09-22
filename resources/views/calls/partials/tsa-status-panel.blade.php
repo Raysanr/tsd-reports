@@ -48,6 +48,10 @@
         // system-only), kept here for completeness in case this partial's
         // ever handed it as $current to render read-only.
         'wrap_up'   => '<svg class="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.25"/><path d="M10 6v4l3 2"/></svg>',
+        // A phone with a return arrow — "calling back" (explicit request,
+        // 2026-09-22), teal so it reads distinctly from Calling's red and
+        // every other status color already in this list.
+        'call_backs'=> '<svg class="w-4 h-4 text-teal-500" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 20 20"><path d="M4 3.5c0-.55.45-1 1-1h2.1c.46 0 .87.32.97.77l.6 2.7a1 1 0 01-.27.95l-1.2 1.2a10.5 10.5 0 004.7 4.7l1.2-1.2a1 1 0 01.95-.27l2.7.6c.45.1.77.51.77.97V15.5c0 .55-.45 1-1 1h-1.25C8.8 16.5 3.5 11.2 3.5 4.75V3.5z"/><path d="M15 3l2 2-2 2"/><path d="M17 5h-4"/></svg>',
         // Distinct from the others (explicit request, 2026-08-19) — a door-
         // with-arrow "exit" glyph, slate not amber, matching $dotColor's own
         // already-separate treatment of Logout below (Logout ends the shift
@@ -59,6 +63,7 @@
         $current === \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
         $current === \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
         $current === \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
+        $current === \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',
         $current === \App\Models\TsaShift::STATUS_BREAK      => 'bg-yellow-500',
         $current === \App\Models\TsaShift::STATUS_LUNCH      => 'bg-amber-800',
         $current === \App\Models\TsaShift::STATUS_COACHING   => 'bg-blue-500',

@@ -220,11 +220,18 @@ class AnalyticsController extends Controller
         // same "everything that isn't Login/Coaching/DNA Huddle/Huddle"
         // definition this bucket already had, just extended so time TSAs
         // now log via Monitor TSA doesn't silently vanish from this total.
+        // Call Backs added the same way (explicit request, 2026-09-22) —
+        // this hand-maintained sum is NOT derived from TsaShift::STATUSES/
+        // MONITOR_LEGEND_STATUSES, so a new status here is real drift risk:
+        // without this line, Call Backs time would silently vanish from
+        // Analytics' Status Time section entirely rather than folding into
+        // "Others" the way every other non-named status already does.
         $othersSeconds = ($statusSeconds[TsaShift::STATUS_BREAK] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_LOGOUT] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_LOCKED] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_CALLING] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_WRAP_UP] ?? 0)
+            + ($statusSeconds[TsaShift::STATUS_CALL_BACKS] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_LUNCH] ?? 0)
             + ($statusSeconds[TsaShift::STATUS_OTHERS] ?? 0);
 

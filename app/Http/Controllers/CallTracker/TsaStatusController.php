@@ -122,8 +122,10 @@ class TsaStatusController extends Controller
      *
      * dot_class mirrors partials/tsa-status-panel.blade.php's own
      * $dotColor match() exactly — a third copy (Monitor TSA's own
-     * _content.blade.php has one too); keep all three in sync if a status
-     * ever gets a new color.
+     * _content.blade.php and monitor.blade.php each have one too, four
+     * total); keep all four in sync if a status ever gets a new color
+     * (confirmed still true adding Call Backs, 2026-09-22 — teal in every
+     * one of the four).
      */
     public function own(Request $request)
     {
@@ -136,6 +138,7 @@ class TsaStatusController extends Controller
             $tsa->status === TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
             $tsa->status === TsaShift::STATUS_CALLING    => 'bg-red-500',
             $tsa->status === TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
+            $tsa->status === TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',
             $tsa->status === TsaShift::STATUS_BREAK      => 'bg-yellow-500',
             $tsa->status === TsaShift::STATUS_LUNCH      => 'bg-amber-800',
             $tsa->status === TsaShift::STATUS_COACHING   => 'bg-blue-500',

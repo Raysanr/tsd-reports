@@ -26,8 +26,12 @@ class RoundRobinAssigner
      *  flagged "no TSA logged in" here while next() below would still
      *  happily assign to a Calling/Wrap Up TSA would be a confusing, wrong
      *  warning). See next()'s own doc comment for why Calling/Wrap Up count
-     *  as available alongside Login. */
-    public const ELIGIBLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP];
+     *  as available alongside Login. Call Backs joins them (explicit
+     *  request, 2026-09-22: "the leads is still continuous" — a TSA
+     *  working the Callbacks/Unanswered Calls queue must keep receiving
+     *  new round-robin leads too, same as Calling/Wrap Up already do; see
+     *  TsaShift::STATUSES' own doc comment on that status). */
+    public const ELIGIBLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP, TsaShift::STATUS_CALL_BACKS];
 
     /** How long a product's eligible roster must stay continuously
      *  non-empty before catchUpUnassignedLeads() will hand out that
