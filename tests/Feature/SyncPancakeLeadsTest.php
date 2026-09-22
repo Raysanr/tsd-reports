@@ -12,6 +12,7 @@ use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -609,6 +610,132 @@ class SyncPancakeLeadsTest extends TestCase
         Artisan::call('pancake:sync-leads');
 
         $this->assertSame('unassigned', Lead::where('pancake_order_id', 'gap-1')->first()->status);
+    }
+
+    /**
+     * Explicit request, 2026-09-22: "even tsa login... before 6am like
+     * 5:40... i want even when she is login the leads still distribute
+     * around 6:03... when tsa login before 6 it should always start 6am
+     * the backlog" — an early login (Gemma's own real shift_start is
+     * 06:00) must NOT start the 3-minute buffer counting from 5:40; that
+     * would hand the WHOLE backlog to her alone by 5:43, before the rest
+     * of the 06:00 team has had any real chance to log in — exactly the
+     * "bulk all redistribute to the one tsa that got first login" problem
+     * GAP_BUFFER_MINUTES exists to prevent, just triggered by an early
+     * login instead of a same-time-different-instant race. Confirms the
+     * buffer stays held even once 3 real minutes have passed since the
+     * actual (early) login, as long as it's still before 6am.
+     */
+    public function test_an_early_login_before_shift_start_does_not_start_the_buffer_early(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['shift_start' => '06:00']);
+        TsaShift::where('tsa_key', '!=', 'Gemma')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        Lead::create([
+            'pancake_order_id' => 'early-gap-1', 'customer_name' => 'Overnight Lead',
+            'product_id' => $product->id, 'status' => 'unassigned',
+            'pancake_created_at' => now()->subHours(3),
+        ]);
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        // Freeze "now" at 5:40am, well before Gemma's 6:00 shift_start —
+        // her own first sync tick here is what would previously have
+        // stamped roster_available_since = 5:40am.
+        Carbon::setTestNow(today()->setTime(5, 40));
+        Artisan::call('pancake:sync-leads');
+
+        // Fast-forward to 5:44am — 4 real minutes past the actual login,
+        // more than GAP_BUFFER_MINUTES (3), but still before 6am. The OLD
+        // (pre-fix) behavior would have released the backlog here.
+        Carbon::setTestNow(today()->setTime(5, 44));
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertSame('unassigned', Lead::where('pancake_order_id', 'early-gap-1')->first()->status);
+
+        Carbon::setTestNow();
+    }
+
+    /** Companion to the early-login test above — once 6:00 actually
+     *  arrives, the SAME 3-minute buffer still applies from there (not
+     *  released immediately just because the clock caught up to
+     *  shift_start), and releases at 6:03 same as a normal on-time
+     *  login would. */
+    public function test_the_backlog_releases_three_minutes_after_shift_start_not_immediately_at_it(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['shift_start' => '06:00']);
+        TsaShift::where('tsa_key', '!=', 'Gemma')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        Lead::create([
+            'pancake_order_id' => 'early-gap-2', 'customer_name' => 'Overnight Lead',
+            'product_id' => $product->id, 'status' => 'unassigned',
+            'pancake_created_at' => now()->subHours(3),
+        ]);
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        Carbon::setTestNow(today()->setTime(5, 40));
+        Artisan::call('pancake:sync-leads');
+
+        // 6:02am — 2 minutes past shift_start, still inside the buffer.
+        Carbon::setTestNow(today()->setTime(6, 2));
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('unassigned', Lead::where('pancake_order_id', 'early-gap-2')->first()->status);
+
+        // 6:03am — exactly 3 minutes past shift_start, buffer elapsed.
+        Carbon::setTestNow(today()->setTime(6, 3, 1));
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('assigned', Lead::where('pancake_order_id', 'early-gap-2')->first()->status);
+
+        Carbon::setTestNow();
+    }
+
+    /** A normal on-time login (shift_start already in the past, e.g.
+     *  logging in mid-shift after a break, or shift_start left unset)
+     *  keeps anchoring to the real login time exactly as before this
+     *  fix — "the current behavior is right" outside the early-login
+     *  case specifically. */
+    public function test_an_on_time_login_still_anchors_to_the_real_login_time(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['shift_start' => '06:00']);
+        TsaShift::where('tsa_key', '!=', 'Gemma')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        Lead::create([
+            'pancake_order_id' => 'ontime-gap-1', 'customer_name' => 'Overnight Lead',
+            'product_id' => $product->id, 'status' => 'unassigned',
+            'pancake_created_at' => now()->subHours(3),
+        ]);
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        // Logs in at 6:05am — already past her own 6:00 shift_start, so
+        // this is a normal (slightly late) login, not an early one.
+        Carbon::setTestNow(today()->setTime(6, 5));
+        Artisan::call('pancake:sync-leads');
+
+        // 6:07 — only 2 minutes after the real login, still inside the
+        // buffer measured from THAT login time (not from 6:00).
+        Carbon::setTestNow(today()->setTime(6, 7));
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('unassigned', Lead::where('pancake_order_id', 'ontime-gap-1')->first()->status);
+
+        // 6:09 — 4 minutes after the real login, buffer elapsed.
+        Carbon::setTestNow(today()->setTime(6, 9));
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('assigned', Lead::where('pancake_order_id', 'ontime-gap-1')->first()->status);
+
+        Carbon::setTestNow();
     }
 
     /**

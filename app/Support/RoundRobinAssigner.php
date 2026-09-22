@@ -5,6 +5,8 @@ namespace App\Support;
 use App\Models\Product;
 use App\Models\RoundRobinState;
 use App\Models\TsaShift;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift.
@@ -154,17 +156,67 @@ class RoundRobinAssigner
      * by this — only already-stuck backlog waits; a lead arriving fresh
      * while at least one TSA is already past the buffer assigns immediately
      * same as today.
+     *
+     * Anchored to shift_start, not an early login (explicit request,
+     * 2026-09-22: "even tsa login... before 6am like 5:40... i want even
+     * when she is login the leads still distribute around 6:03... the
+     * current behavior is right but i want to make it like when tsa login
+     * before 6 it should always start 6am the backlog") — a TSA logging in
+     * early for a 6:00 shift must NOT start the 3-minute countdown at
+     * 5:40; that would hand the whole backlog to her alone at 5:43, before
+     * the rest of the 6:00 team has had any real chance to log in, which
+     * is exactly the "bulk all redistribute to the one tsa that got first
+     * login" problem this buffer exists to prevent in the first place —
+     * just triggered by an early login instead of the timing race
+     * GAP_BUFFER_MINUTES was originally built for. Only pulls the anchor
+     * FORWARD to a future shift_start, never backward — a normal on-time
+     * or late login (shift_start already in the past, or none set) keeps
+     * anchoring to now(), unchanged ("the current behavior is right"
+     * outside this specific early-login case).
+     *
+     * Per-TSA, not a single global cutoff: a product's roster genuinely
+     * mixes both shift teams (confirmed live — e.g. SINUXYL's roster spans
+     * Gemma/Marisol/Hannah's 06:00 shift AND Kathleen/Mariel/Joana's 15:00
+     * one), so "the shift start" has no one fixed value per product — only
+     * per TSA. Takes the EARLIEST upcoming shift_start among the
+     * currently-eligible roster (not just whoever triggered this specific
+     * tick) — if Gemma (06:00) and Hannah (06:15, hypothetically) both
+     * happen to already be logged in when this first evaluates, the
+     * buffer should still anchor to 06:00, the earliest of the two, not
+     * whichever one's status change happened to flip the roster
+     * empty→non-empty on this particular tick.
      */
     public static function trackRosterAvailability(Product $product): void
     {
         $state      = self::state($product);
-        $hasRoster  = self::eligibleRoster($product)->isNotEmpty();
+        $roster     = self::eligibleRoster($product);
+        $hasRoster  = $roster->isNotEmpty();
 
         if ($hasRoster && !$state->roster_available_since) {
-            $state->update(['roster_available_since' => now()]);
+            $anchor = self::earliestUpcomingShiftStart($roster) ?? now();
+            $state->update(['roster_available_since' => $anchor]);
         } elseif (!$hasRoster && $state->roster_available_since) {
             $state->update(['roster_available_since' => null]);
         }
+    }
+
+    /** The earliest currently-eligible TSA's shift_start that's still in
+     *  the FUTURE relative to now — i.e. someone logging in ahead of their
+     *  own scheduled shift. Returns null when every eligible TSA's
+     *  shift_start is already in the past (or unset) — a normal on-time
+     *  roster, where trackRosterAvailability() should keep anchoring to
+     *  now() same as before this method existed. A bare "HH:MM" parses to
+     *  TODAY at that time (Carbon::parse(), same convention already
+     *  established for a bare-time callback_at — see LeadController::
+     *  updateDisposition()'s own comment on that). */
+    private static function earliestUpcomingShiftStart(Collection $roster): ?Carbon
+    {
+        return $roster
+            ->filter(fn (TsaShift $tsa) => $tsa->shift_start)
+            ->map(fn (TsaShift $tsa) => Carbon::parse($tsa->shift_start))
+            ->filter(fn (Carbon $start) => $start->isFuture())
+            ->sort()
+            ->first();
     }
 
     /** True once a product's roster has been continuously non-empty for at
