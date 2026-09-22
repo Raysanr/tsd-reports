@@ -195,17 +195,24 @@ class TsaStatusController extends Controller
         // "uncheck everything" — the picker's own JS never submits with
         // zero boxes checked, see the view's own comment) means "no
         // filter", same as omitting the param entirely.
-        // Corrected same day (explicit follow-up: "the statuses is only
-        // this: Login, Calling, Wrap Up, Break, Lunch, Coaching, DNA
-        // Huddle, Huddle, Others, Logout") — 'call' and 'locked' are NOT
-        // selectable options in this filter (see the view's own doc
-        // comment on $statusFilterOptions), so this only ever narrows
-        // TsaStatusLog::status rows. Click-to-call rows ($callRows below)
-        // stay unaffected by this filter entirely — always shown, same as
-        // before this filter existed — there's no checkbox that could
-        // exclude them any more, so this is the only behavior a TSA
-        // clicking through the picker could reasonably expect.
+        //
+        // 'call' is a THIRD state, reversed twice on the same day: first
+        // corrected out of this filter entirely ("the statuses is only
+        // this: Login, Calling, ... Logout" — 'call' and 'locked' both
+        // excluded), then added back in as its own checkbox after a bug
+        // report ("if i filter login the displaying too is has call in
+        // the table... but you can add call in the filter too") — checking
+        // ONLY Login was expected to hide Call rows too, not leave them
+        // permanently unaffected by this filter. 'locked' stays excluded
+        // (still no real TSA-settable status to filter by — see the
+        // view's own $statusFilterOptions comment). Split out here since
+        // it's not a real TsaStatusLog::status value to whereIn() against —
+        // it instead gates whether $callRows (LeadActivity's
+        // 'call_clicked' events, a completely different table) gets
+        // queried at all.
         $selectedStatuses = $request->has('status') ? array_values(array_filter((array) $request->input('status'))) : [];
+        $wantsCallRows     = empty($selectedStatuses) || in_array('call', $selectedStatuses, true);
+        $statusOnlyFilters = array_values(array_diff($selectedStatuses, ['call']));
 
         $statusQuery = TsaStatusLog::with('tsa');
         if ($tsaId) {
@@ -214,8 +221,14 @@ class TsaStatusController extends Controller
         if ($range) {
             $statusQuery->whereBetween('created_at', $range);
         }
+        // Selecting ONLY "Call" must show call rows and nothing else — an
+        // empty $statusOnlyFilters here means "no real status survived the
+        // 'call' diff above", not "no filter", so this must still narrow
+        // to zero status rows rather than falling through to unfiltered
+        // (the ORIGINAL $selectedStatuses is what decides "no filter at
+        // all", not the post-diff list).
         if (!empty($selectedStatuses)) {
-            $statusQuery->whereIn('status', $selectedStatuses);
+            $statusQuery->whereIn('status', $statusOnlyFilters);
         }
         // stdClass, not a plain array — ->status/->tsa_id/->created_at
         // property access (not ['status']/['tsa_id']) matches how a real
@@ -232,22 +245,25 @@ class TsaStatusController extends Controller
             'detail'     => null,
         ]);
 
-        $callQuery = LeadActivity::where('type', 'call_clicked')->with('lead.tsa');
-        if ($tsaId) {
-            $callQuery->whereHas('lead', fn ($q) => $q->where('tsa_id', $tsaId));
+        $callRows = collect();
+        if ($wantsCallRows) {
+            $callQuery = LeadActivity::where('type', 'call_clicked')->with('lead.tsa');
+            if ($tsaId) {
+                $callQuery->whereHas('lead', fn ($q) => $q->where('tsa_id', $tsaId));
+            }
+            if ($range) {
+                $callQuery->whereBetween('created_at', $range);
+            }
+            $callRows = $callQuery->get()->map(fn (LeadActivity $activity) => (object) [
+                'created_at' => $activity->created_at,
+                'id'         => $activity->id,
+                'tsa'        => $activity->lead->tsa ?? null,
+                'tsa_id'     => $activity->lead->tsa_id ?? null,
+                'kind'       => 'call',
+                'status'     => null,
+                'detail'     => $activity->description,
+            ]);
         }
-        if ($range) {
-            $callQuery->whereBetween('created_at', $range);
-        }
-        $callRows = $callQuery->get()->map(fn (LeadActivity $activity) => (object) [
-            'created_at' => $activity->created_at,
-            'id'         => $activity->id,
-            'tsa'        => $activity->lead->tsa ?? null,
-            'tsa_id'     => $activity->lead->tsa_id ?? null,
-            'kind'       => 'call',
-            'status'     => null,
-            'detail'     => $activity->description,
-        ]);
 
         // Sort key mixes both sources' ids into one lexicographic string —
         // not a meaningful cross-table identity, just a stable tiebreak so

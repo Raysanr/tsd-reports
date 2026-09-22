@@ -234,9 +234,11 @@ class TsaStatusControllerTest extends TestCase
      * selectable statuses" — a multi-select checkbox filter on top of the
      * already-existing tsa/date ones. Corrected same day: only
      * TsaShift::STATUSES's real 10 values (Login/Calling/Wrap Up/Break/
-     * Lunch/Coaching/DNA Huddle/Huddle/Others/Logout) are selectable here
-     * — Lock and the synthetic 'call' kind are explicitly NOT part of this
-     * filter (see the view's own doc comment on $statusFilterOptions).
+     * Lunch/Coaching/DNA Huddle/Huddle/Others/Logout) plus a synthetic
+     * 'call' entry (added back the same day, see
+     * test_selecting_only_call_shows_only_call_click_events()'s own doc
+     * comment) are selectable here — only Lock stays excluded (see the
+     * view's own doc comment on $statusFilterOptions).
      */
     public function test_tsa_logs_page_filters_by_a_single_real_status(): void
     {
@@ -252,10 +254,15 @@ class TsaStatusControllerTest extends TestCase
         $this->assertSame('login', $logs->first()->status);
     }
 
-    /** Click-to-call rows have no checkbox of their own any more — they
-     *  stay visible regardless of which real statuses are filtered,
-     *  exactly as they were before this filter existed at all. */
-    public function test_tsa_logs_page_status_filter_never_hides_call_click_events(): void
+    /**
+     * Reversed 2026-09-22 (bug report, same day as the filter itself
+     * shipped: "if i filter login the displaying too is has call in the
+     * table... but you can add call in the filter too") — checking ONLY
+     * "Login" is now expected to hide Call rows too, not leave them
+     * permanently visible. See TsaStatusController::index()'s own doc
+     * comment on $wantsCallRows for the full history.
+     */
+    public function test_selecting_only_login_now_hides_call_click_events(): void
     {
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -268,8 +275,44 @@ class TsaStatusControllerTest extends TestCase
 
         $response->assertOk();
         $logs = $response->viewData('logs');
-        // Only 'login' matched by the status filter, but the call row is
-        // unaffected — 2 rows total (1 status + 1 call), 'break' excluded.
+        $this->assertSame(1, $logs->total());
+        $this->assertFalse($logs->pluck('kind')->contains('call'));
+        $this->assertTrue($logs->contains(fn ($l) => $l->kind === 'status' && $l->status === 'login'));
+    }
+
+    /** "Call" is now its own checkbox (value 'call') — selecting it alone
+     *  shows only call rows, no TsaStatusLog rows at all. */
+    public function test_selecting_only_call_shows_only_call_click_events(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead    = Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        LeadActivity::log($lead, 'call_clicked', 'Called the lead.');
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs', ['status' => ['call']]));
+
+        $response->assertOk();
+        $logs = $response->viewData('logs');
+        $this->assertSame(1, $logs->total());
+        $this->assertSame('call', $logs->first()->kind);
+    }
+
+    /** Login + Call both checked is a real-world OR, same as any other
+     *  multi-select combination — both kinds of row show. */
+    public function test_selecting_login_and_call_shows_both(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead    = Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()]);
+        LeadActivity::log($lead, 'call_clicked', 'Called the lead.');
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs', ['status' => ['login', 'call']]));
+
+        $response->assertOk();
+        $logs = $response->viewData('logs');
         $this->assertSame(2, $logs->total());
         $this->assertTrue($logs->pluck('kind')->contains('call'));
         $this->assertTrue($logs->contains(fn ($l) => $l->kind === 'status' && $l->status === 'login'));

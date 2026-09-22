@@ -20,17 +20,29 @@ $statusColor = fn($status) => match($status) {
 // Selectable options for the Status filter (explicit request, 2026-09-22;
 // corrected same day — "the statuses is only this: Login, Calling, Wrap
 // Up, Break, Lunch, Coaching, DNA Huddle, Huddle, Others, Logout" — Lock
-// and the synthetic 'call' entry, both present in an earlier draft, are
-// explicitly NOT part of this filter's own list; a locked TSA's status
+// was explicitly NOT part of this filter's own list; a locked TSA's status
 // still shows correctly in the TABLE via $statusColor's own 'locked'
 // branch and a real Lock status change, it's just never a checkbox HERE).
 // Built from TsaShift::STATUSES directly, filtered down to exactly that
 // list rather than hand-typing 10 option rows that could drift out of
 // sync with the real status labels/order over time.
+//
+// The synthetic 'call' entry appended below is a SECOND reversal, same
+// day (bug report, 2026-09-22: "if i filter login the displaying too is
+// has call in the table... but you can add call in the filter too") — the
+// CALL rows ($callRows in the controller, from LeadActivity's
+// 'call_clicked' events, not a TsaStatusLog status at all) were always
+// shown regardless of this filter, which read as a bug once a TSA
+// actually expected checking ONLY "Login" to hide everything else,
+// including Calls. 'call' is not a TsaShift::STATUSES key, so it's
+// appended here rather than coming from that collection — the
+// controller's own selectedStatuses check treats it as a special case
+// gating $callRows, not a TsaStatusLog::status value to whereIn() against.
 $statusFilterOptions = collect($statuses)
     ->except('locked')
     ->map(fn ($def, $key) => ['value' => $key, 'label' => strtoupper($def['label'])])
-    ->values();
+    ->values()
+    ->push(['value' => 'call', 'label' => 'CALL']);
 @endphp
 
 <div class="mb-6 flex items-center gap-3 flex-wrap">
