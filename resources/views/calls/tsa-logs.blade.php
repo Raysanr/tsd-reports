@@ -5,6 +5,11 @@
 @section('content')
 
 @php
+// Duplicated in tsa-logs/_table.blade.php (its own copy, not shared) —
+// this parent view still needs it for the Status filter's own dropdown
+// badge colors below, while the table fragment needs it independently
+// since it can render standalone via an X-Table-Refresh AJAX swap without
+// this parent view's own @php block ever running.
 $statusColor = fn($status) => match($status) {
     'login'  => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
     'logout' => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
@@ -30,7 +35,12 @@ $statusFilterOptions = collect($statuses)
 
 <div class="mb-6 flex items-center gap-3 flex-wrap">
     <form method="GET" id="tsaLogsFilterForm" class="flex items-center gap-3 flex-wrap">
-        <select name="tsa" onchange="this.form.submit()"
+        {{-- onchange used to call this.form.submit() directly (a hard
+             reload) — now just fires the form's own 'change' event, which
+             the AJAX submit handler below listens for on non-text form
+             controls (see that script's own doc comment for why change,
+             not submit, is what a <select> and checkboxes actually need). --}}
+        <select name="tsa"
                 class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
             <option value="">All TSAs</option>
             @foreach($tsas as $tsa)
@@ -97,18 +107,81 @@ $statusFilterOptions = collect($statuses)
 @push('scripts')
 <script>
 (function () {
-    const wrap     = document.getElementById('tsaLogsStatusFilterWrap');
-    const trigger  = document.getElementById('tsaLogsStatusFilterTrigger');
-    const panel    = document.getElementById('tsaLogsStatusFilterPanel');
-    const selectAll = document.getElementById('tsaLogsStatusSelectAll');
-    const boxes    = Array.from(document.querySelectorAll('.tsa-logs-status-checkbox'));
-    const form     = document.getElementById('tsaLogsFilterForm');
-    if (!wrap || !trigger || !panel || !form) return;
+    const wrap        = document.getElementById('tsaLogsStatusFilterWrap');
+    const trigger      = document.getElementById('tsaLogsStatusFilterTrigger');
+    const panel        = document.getElementById('tsaLogsStatusFilterPanel');
+    const selectAll    = document.getElementById('tsaLogsStatusSelectAll');
+    const boxes        = Array.from(document.querySelectorAll('.tsa-logs-status-checkbox'));
+    const form         = document.getElementById('tsaLogsFilterForm');
+    const container    = document.getElementById('tsaLogsTableContainer');
+    if (!wrap || !trigger || !panel || !form || !container) return;
 
     trigger.addEventListener('click', () => panel.classList.toggle('hidden'));
     document.addEventListener('click', (e) => {
         if (!wrap.contains(e.target)) panel.classList.add('hidden');
     });
+
+    // AJAX submit (regression fix, 2026-09-22: "why every time i select
+    // the dropdown will close and the page will full reload" — every
+    // filter here, including the pre-existing TSA dropdown and date
+    // picker, used to be a plain form.submit()/requestSubmit() full page
+    // reload. For the Status checkboxes specifically that meant the
+    // dropdown panel got destroyed and re-created CLOSED on every single
+    // box checked, making it impossible to pick more than one status
+    // before losing the panel — but the same root cause affected the
+    // TSA/date filters too, just less visibly since they don't have an
+    // open panel to lose). Fetches just the table fragment (tsa-logs/
+    // _table.blade.php, via X-Table-Refresh — same convention
+    // LeadController::index() already uses for the Leads page's own
+    // table) and swaps it into #tsaLogsTableContainer, leaving the
+    // dropdown panel, TSA select, and date picker's own DOM nodes
+    // untouched. Pagination links stay plain full-page navigations,
+    // unchanged — same as the Leads page's own pagination, never
+    // intercepted by JS there either.
+    //
+    // URL built from `${window.location.pathname}?...FormData(form)`, NOT
+    // form.action (real production bug, 2026-09-21, on the Leads search
+    // box: an unset action="" attribute makes the DOM property resolve to
+    // window.location.href — the FULL current URL, own query string
+    // included — so appending a second "?...params" onto that produced a
+    // malformed URL and a live 500; see that incident's own commit
+    // message for the full story). pathname alone can never contain a
+    // "?", so this can't repeat that bug.
+    function submitFilters() {
+        const url = `${window.location.pathname}?${new URLSearchParams(new FormData(form)).toString()}`;
+        container.dataset.pollUrl = url;
+        history.replaceState({}, '', url);
+
+        fetch(url, { headers: { 'X-Table-Refresh': '1' }, cache: 'no-store' })
+            .then((res) => (res.ok ? res.text() : null))
+            .then((html) => {
+                if (html === null) return;
+                container.innerHTML = html;
+            })
+            .catch(() => {
+                // Fetch itself failed (offline, etc.) — a real navigation
+                // is the only remaining way to actually apply the filter.
+                window.location.href = url;
+            });
+    }
+
+    // Real <form> submit (the date picker's own Apply button calls
+    // form.requestSubmit(), which fires this) — intercepted the same way
+    // app.js's generic GET-form soft-refresh already does for other pages
+    // (see that file's own "GET filter forms → soft refresh" section),
+    // just scoped to this one page/container instead of a whole-page swap
+    // (this page's layout, layouts.calls, never loads app.js at all).
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitFilters();
+    });
+
+    // The TSA <select> and every status checkbox fire 'change', not
+    // 'submit' — routed through the exact same submitFilters() so the URL/
+    // table swap logic never has two different implementations to keep in
+    // sync.
+    const tsaSelect = form.querySelector('select[name="tsa"]');
+    tsaSelect?.addEventListener('change', submitFilters);
 
     // "All Statuses" is genuinely a clear-and-submit action, not just a
     // client-side check-everything toggle — unchecking every individual
@@ -118,7 +191,7 @@ $statusFilterOptions = collect($statuses)
     selectAll?.addEventListener('change', () => {
         if (!selectAll.checked) return; // only fires on check, never on uncheck
         boxes.forEach((b) => { b.checked = false; });
-        form.submit();
+        submitFilters();
     });
 
     // A real status box submits on its own change too (explicit request:
@@ -126,58 +199,38 @@ $statusFilterOptions = collect($statuses)
     // reference screenshot's own instant-filter behavior, no separate
     // Apply button) — checking any individual box also implicitly clears
     // "All Statuses" visually, though it never had a form value to begin
-    // with (it's not name="status[]").
+    // with (it's not name="status[]"). The panel deliberately stays OPEN
+    // after this (no panel.classList.add('hidden') here) — that's the
+    // entire point of this fix, letting several boxes be checked in a row.
     boxes.forEach((box) => {
-        box.addEventListener('change', () => form.submit());
+        box.addEventListener('change', submitFilters);
     });
+
+    // Back/forward between filtered states — same convention every other
+    // AJAX-swapped filter bar in this app uses (round-robin-setup.blade.php,
+    // leads/index.blade.php): a full reload correctly re-renders from the
+    // restored URL rather than trying to re-derive checkbox/select state
+    // from a bfcache'd DOM.
+    window.addEventListener('popstate', () => window.location.reload());
 })();
 </script>
 @endpush
 
-<div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-    @if($logs->isEmpty())
-    <div class="py-20 flex flex-col items-center justify-center gap-3">
-        <svg class="w-10 h-10 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3-15H6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 006 21h12a2.25 2.25 0 002.25-2.25V6.108c0-.53-.211-1.04-.586-1.414l-3.808-3.808a2.25 2.25 0 00-1.414-.586H15z"/>
-        </svg>
-        <p class="text-sm font-mono text-slate-400">No status changes or calls recorded yet.</p>
-        <p class="text-xs font-mono text-slate-300 dark:text-slate-600">Status changes appear here as soon as a TSA switches Login/Break/etc., and calls as soon as one clicks a customer's number.</p>
-    </div>
-    @else
-    <div class="overflow-x-auto overflow-y-auto max-h-[70vh]">
-    <table class="w-full text-sm font-mono">
-        <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
-            <tr>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Time</th>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Status</th>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Detail</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-            @foreach($logs as $log)
-            <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
-                <td class="px-4 py-3 text-slate-500 dark:text-slate-400 whitespace-nowrap tabular-nums">{{ $log->created_at->format('g:ia') }}</td>
-                <td class="px-4 py-3 text-slate-700 dark:text-slate-200 font-semibold">{{ $log->tsa->display_name ?? '—' }}</td>
-                <td class="px-4 py-3">
-                    @if($log->kind === 'call')
-                    <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400">Call</span>
-                    @else
-                    <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $statusColor($log->status) }}">
-                        {{ $statuses[$log->status]['label'] ?? $log->status }}
-                    </span>
-                    @endif
-                </td>
-                <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ $log->detail ?? '—' }}</td>
-            </tr>
-            @endforeach
-        </tbody>
-    </table>
-    </div>
-    <div class="px-4 py-3 border-t border-slate-100 dark:border-slate-700">
-        {{ $logs->links('partials.pagination') }}
-    </div>
-    @endif
+{{-- AJAX-swapped container (explicit request, 2026-09-22: "why every time
+     i select the dropdown will close and the page will full reload" —
+     every filter here used to be a plain form.submit() full-page reload,
+     which for the multi-select Status checkboxes specifically meant the
+     dropdown panel got destroyed and re-created closed on every single
+     box clicked, making it impossible to check more than one status
+     before losing the panel. Same #leads-table-container/data-poll-url +
+     X-Table-Refresh convention LeadController::index()'s own doc comment
+     describes for the Leads page — fetches just the table fragment
+     (tsa-logs/_table.blade.php) and swaps it in, keeping the dropdown
+     panel open and the rest of the page untouched. Pagination links
+     themselves stay plain full-page navigations, unchanged — same as the
+     Leads page's own pagination, never intercepted by JS there either. --}}
+<div id="tsaLogsTableContainer" data-poll-url="{{ url()->full() }}">
+    @include('calls.tsa-logs._table')
 </div>
 
 @endsection

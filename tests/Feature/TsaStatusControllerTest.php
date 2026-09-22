@@ -312,6 +312,46 @@ class TsaStatusControllerTest extends TestCase
     }
 
     /**
+     * Regression fix, 2026-09-22: "why every time i select the dropdown
+     * will close and the page will full reload" — every filter on this
+     * page (TSA select, date picker, Status checkboxes) used to be a
+     * plain form.submit() full-page reload; for the Status checkboxes
+     * specifically that destroyed and re-created the dropdown panel
+     * CLOSED on every single box checked. Now AJAX-swaps just the table
+     * fragment via X-Table-Refresh, same convention LeadController::index()
+     * already uses for the Leads page's own table.
+     */
+    public function test_a_table_refresh_request_returns_only_the_table_fragment_not_the_full_layout(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs'), ['X-Table-Refresh' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('Login');
+        $response->assertDontSee('Call Tracker', false);
+        $response->assertDontSee('id="tsaLogsTableContainer"', false);
+    }
+
+    /** A table-refresh request must respect the exact same status filter
+     *  as a normal request — this is the actual fetch the AJAX filter bar
+     *  makes on every checkbox change. */
+    public function test_a_table_refresh_request_still_respects_the_status_filter(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()]);
+
+        $response = $this->actingAs($this->admin())
+            ->get(route('calls.tsa-logs', ['status' => ['login']]), ['X-Table-Refresh' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('Login');
+        $response->assertDontSee('Break');
+    }
+
+    /**
      * Explicit request (2026-08-22): the topbar badge should reflect
      * Calling/Wrap Up — both system-only, set automatically — without the
      * TSA reloading the page. This endpoint is what the badge polls.

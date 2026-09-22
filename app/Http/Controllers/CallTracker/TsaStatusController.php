@@ -267,7 +267,7 @@ class TsaStatusController extends Controller
         );
         $logs->withQueryString();
 
-        return view('calls.tsa-logs', [
+        $data = [
             'logs'             => $logs,
             'tsas'             => TsaShift::orderBy('sort_order')->get(),
             'selectedTsa'      => $tsaId,
@@ -275,6 +275,19 @@ class TsaStatusController extends Controller
             'dateTo'           => $dateTo,
             'statuses'         => TsaShift::STATUSES,
             'selectedStatuses' => $selectedStatuses,
-        ]);
+        ];
+
+        // The filter bar's own AJAX submit (regression fix, 2026-09-22 —
+        // see the view's own script doc comment for the full "every
+        // filter reloaded the whole page, closing the Status dropdown on
+        // every single box checked" story) fetches this same URL+filters
+        // and swaps in just the table fragment — same X-Table-Refresh
+        // convention LeadController::index() already uses for the Leads
+        // page's own table.
+        if ($request->header('X-Table-Refresh')) {
+            return view('calls.tsa-logs._table', $data);
+        }
+
+        return view('calls.tsa-logs', $data);
     }
 }
