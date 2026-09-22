@@ -259,13 +259,56 @@ class SyncPancakeLeads extends Command
                 $itemName = $raw['items'][0]['variation_info']['name'] ?? $raw['items'][0]['product_name'] ?? null;
                 $product  = $products->first(fn (Product $p) => $p->matchesText($itemName) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
 
+                $rawPhone = $raw['bill_phone_number'] ?? ($raw['customer']['phone_numbers'][0] ?? null);
+                $rawCreatedAt = isset($raw['inserted_at'])
+                    ? Carbon::parse($raw['inserted_at'], 'UTC')->setTimezone('Asia/Manila')
+                    : null;
+
+                // Duplicate-order exclusion (explicit request, 2026-09-22:
+                // "is it possible in the leads all of the leads that is
+                // duplicate orders like double order is will not be in the
+                // leads... it should be 1 order right? that is the first
+                // one that is created from the pos... it should be the has
+                // duplicate will not appear in any leads") — a full
+                // reversal of the 2026-08-26 behavior just below
+                // (findLikelyDuplicateLead()'s own doc comment): that
+                // version still created a Lead for the duplicate order,
+                // just auto-routed it to the SAME TSA as the original
+                // instead of a fresh round-robin pick. Confirmed via real
+                // production orders #1371023 (the original, created
+                // 20:24, already tagged/assigned/worked by Margallo) and
+                // #1371025 (created 20:25, one minute later, same
+                // customer/phone/product — Pancake's own UI already flags
+                // it "Duplicate") that a second order for the same
+                // customer+product+day is never a second real thing to
+                // call, just a re-order/accidental resubmit — Margallo
+                // already has the conversation. No Lead is created at all
+                // for it now (same "skip, don't create, still counted"
+                // treatment as the DUPLICATED BY LOGISTICS check above),
+                // and — explicit follow-up confirming scope — the
+                // duplicate order itself is NOT tagged in Pancake either;
+                // it's purely ignored, not silently claimed on someone's
+                // behalf. Checked BEFORE building $lead at all (unlike the
+                // old auto-route version, which needed a real $lead object
+                // to route) since there's nothing left to construct once
+                // this decides to skip. Deliberately still checked even
+                // when the "original" itself has no tsa_id yet (unlike the
+                // old version's `$duplicateOf->tsa_id` guard) — "1 order,
+                // the first one created" means the duplicate is excluded
+                // regardless of whether the original has been picked up
+                // yet, not only once someone's already claimed it.
+                if ($product && $rawPhone && $rawCreatedAt && $this->findLikelyDuplicateLead($rawPhone, $product->id, $rawCreatedAt)) {
+                    $skipped++;
+                    continue;
+                }
+
                 $lead = new Lead([
                     'pancake_order_id'   => $id,
                     // bill_full_name/bill_phone_number are the real top-level
                     // fields on a Pancake order; customer.phone_numbers is a
                     // plural array fallback.
                     'customer_name'      => $raw['bill_full_name'] ?? $raw['customer']['name'] ?? null,
-                    'phone_number'       => $raw['bill_phone_number'] ?? ($raw['customer']['phone_numbers'][0] ?? null),
+                    'phone_number'       => $rawPhone,
                     'conversation_link'  => $raw['customer']['conversation_link'] ?? null,
                     'pancake_page_id'         => isset($raw['page_id']) ? (string) $raw['page_id'] : null,
                     'pancake_conversation_id' => $raw['conversation_id'] ?? null,
@@ -291,27 +334,11 @@ class SyncPancakeLeads extends Command
                     // correct conversion) read 07:41:56 while this
                     // command's own Lead.pancake_created_at read 23:41:56
                     // the PREVIOUS day for the identical real timestamp.
-                    'pancake_created_at' => isset($raw['inserted_at'])
-                        ? Carbon::parse($raw['inserted_at'], 'UTC')->setTimezone('Asia/Manila')
-                        : null,
+                    'pancake_created_at' => $rawCreatedAt,
                     'synced_at'          => now(),
                 ]);
 
-                // Likely-duplicate check (explicit request, 2026-08-26) — see
-                // findLikelyDuplicateLead()'s own doc comment for why. Only
-                // matters when there's an existing lead to route to AND that
-                // lead already has a TSA — an unassigned "original" has
-                // nothing to inherit, so this one just falls through to a
-                // normal round-robin pick same as before.
-                $duplicateOf = ($product && $lead->phone_number && $lead->pancake_created_at)
-                    ? $this->findLikelyDuplicateLead($lead->phone_number, $product->id, $lead->pancake_created_at)
-                    : null;
-
-                if ($duplicateOf && $duplicateOf->tsa_id) {
-                    $lead->tsa_id      = $duplicateOf->tsa_id;
-                    $lead->assigned_at = now();
-                    $lead->status      = 'assigned';
-                } elseif ($product) {
+                if ($product) {
                     $tsa = RoundRobinAssigner::next($product);
                     if ($tsa) {
                         $lead->tsa_id      = $tsa->id;
@@ -332,13 +359,7 @@ class SyncPancakeLeads extends Command
 
                 LeadActivity::log($lead, 'created', "Lead pulled in from Pancake order #{$id}.");
 
-                if ($duplicateOf && $duplicateOf->tsa_id) {
-                    LeadActivity::log(
-                        $lead, 'assigned',
-                        "Likely duplicate of order #{$duplicateOf->pancake_order_id} (same phone, product, and day) — "
-                            . "auto-routed to {$lead->tsa->display_name} instead of a fresh round-robin pick."
-                    );
-                } elseif ($lead->tsa) {
+                if ($lead->tsa) {
                     LeadActivity::log($lead, 'assigned', "Round-robin assigned to {$lead->tsa->display_name}.");
                 }
 
@@ -545,16 +566,23 @@ class SyncPancakeLeads extends Command
     }
 
     /**
-     * A likely duplicate of the order about to become a brand-new,
-     * independently round-robin-assigned lead — explicit request,
-     * 2026-08-26: Pancake sometimes creates two separate orders for what's
-     * really the same customer inquiry (confirmed live: orders #1357483 and
-     * #1357480, same phone number, same SINUXYL product, both landing on
-     * Gemma De Guzman purely by round-robin coincidence, not because they
-     * were meant to go together). Today nothing catches this until a TSA
-     * notices and manually tags the call "DFR" (Duplicate) after the fact —
-     * by which point a round-robin slot, and possibly a second TSA's time,
-     * is already spent.
+     * A likely duplicate of the order about to become a brand-new lead —
+     * originally (explicit request, 2026-08-26) Pancake sometimes creates
+     * two separate orders for what's really the same customer inquiry
+     * (confirmed live: orders #1357483 and #1357480, same phone number,
+     * same SINUXYL product, both landing on Gemma De Guzman purely by
+     * round-robin coincidence, not because they were meant to go
+     * together). Today nothing catches this until a TSA notices and
+     * manually tags the call "DFR" (Duplicate) after the fact — by which
+     * point a round-robin slot, and possibly a second TSA's time, is
+     * already spent.
+     *
+     * Reversed 2026-09-22 (see this method's own call site's doc comment
+     * for the full story) from "still create a Lead, just auto-route it
+     * to the original's TSA" to "no Lead at all" — confirmed via real
+     * production orders #1371023/#1371025 (Pancake's own UI already
+     * flags the second one "Duplicate") that a same customer+product+day
+     * repeat is never a second real thing to call.
      *
      * Matched on last-9-digits phone number (same "different formatting,
      * same real PH mobile number" reasoning CallTracker\LeadController::
