@@ -1346,40 +1346,41 @@ class SyncPancakeLeadsTest extends TestCase
      * pancake_sync_leads_running). Since the flag lives in Postgres, not
      * in-process memory, it survived the restart and blocked every sync
      * attempt — including a manual "Sync Now" click — until
-     * runningFlagIsStale() finally cleared it. Confirmed live: with the
-     * threshold at 5 minutes (its value at the time), the flag stayed
-     * stuck for the full 5 minutes; lowered to 2 minutes the same day
-     * (see that method's own doc comment for why 2 minutes is still safe
-     * headroom — real runs are ~5 pages, ~50s even in a fully-timed-out
-     * worst case). This test locks in the NEW threshold directly against
-     * the running flag/last_run Settings this method actually reads,
-     * without waiting 2 real minutes — same "freeze the clock, don't
-     * sleep the test" approach as every other time-window test in this
-     * suite (e.g. pancake_created_at range tests).
+     * runningFlagIsStale() finally cleared it. Threshold was briefly
+     * lowered to 2 minutes the same day, then reverted back to 5 (see
+     * that method's own doc comment for the full story — 2 minutes
+     * stopped being safe headroom once the fetch loop's per-page timeout
+     * was ITSELF reverted from 10s back to 30s, since a real run's own
+     * worst case then exceeds 2 minutes). This test locks in the CURRENT
+     * (5-minute) threshold directly against the running flag/last_run
+     * Settings this method actually reads, without waiting 5 real
+     * minutes — same "freeze the clock, don't sleep the test" approach
+     * as every other time-window test in this suite (e.g.
+     * pancake_created_at range tests).
      */
-    public function test_an_orphaned_running_flag_is_treated_as_stale_after_two_minutes(): void
+    public function test_an_orphaned_running_flag_is_treated_as_stale_after_five_minutes(): void
     {
         Setting::set('pancake_sync_leads_running', '1');
-        Setting::set('pancake_sync_leads_last_run', now()->subMinutes(2)->subSecond()->toIso8601String());
+        Setting::set('pancake_sync_leads_last_run', now()->subMinutes(5)->subSecond()->toIso8601String());
 
         $this->fakePancake([]);
         Artisan::call('pancake:sync-leads');
 
         // A real run happened (not skipped) — proves the stale flag was
         // ignored and a fresh sync actually ran, overwriting last_run to
-        // just now rather than leaving it at the 2-minute-1-second-old
+        // just now rather than leaving it at the 5-minute-1-second-old
         // orphaned value.
         $this->assertTrue(\Illuminate\Support\Carbon::parse(Setting::get('pancake_sync_leads_last_run'))->diffInSeconds(now()) < 5);
     }
 
-    /** The other half of the same guard — a flag younger than 2 minutes
+    /** The other half of the same guard — a flag younger than 5 minutes
      *  must still be honored as a genuinely in-progress run, not treated
      *  as stale just because SOME time has passed. Without this, lowering
      *  the threshold too far would defeat the overlap guard's entire
      *  purpose (letting two real syncs run concurrently). */
-    public function test_a_running_flag_under_two_minutes_old_still_blocks_a_second_run(): void
+    public function test_a_running_flag_under_five_minutes_old_still_blocks_a_second_run(): void
     {
-        $orphanedLastRun = now()->subMinutes(1)->toIso8601String();
+        $orphanedLastRun = now()->subMinutes(3)->toIso8601String();
         Setting::set('pancake_sync_leads_running', '1');
         Setting::set('pancake_sync_leads_last_run', $orphanedLastRun);
 

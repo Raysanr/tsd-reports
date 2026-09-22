@@ -71,28 +71,30 @@ class SyncPancakeLeads extends Command
 
     /** A real run has taken a few seconds to low tens of seconds in
      *  practice (single-shop Pancake pagination, not a heavy Drive
-     *  download loop like SyncCallRecordings) — confirmed live, 2026-09-22:
-     *  ~440-450 orders per 24h window resolves to exactly 5 pages every
-     *  time (nowhere near the 100-page ceiling), and even in the
-     *  pathological case where every one of those 5 pages takes the full
-     *  10s per-page timeout (see the fetch loop's own doc comment) before
-     *  the run finally gives up, that's ~50s worst case — 2 minutes is
-     *  still generous headroom over that, just proportionate headroom now
-     *  (SyncCallRecordings' own 20-minute threshold is ~2-4x ITS real
-     *  worst case of 5-10 minutes; this was previously ~10-100x its own
-     *  real worst case, not the same ratio).
+     *  download loop like SyncCallRecordings) — 5 minutes is generous
+     *  headroom over that.
      *
-     *  Lowered from 5 minutes the same day (real incident: a deploy's
-     *  container restart killed an in-flight detached background sync
-     *  process — see handle()'s own doc comment on why this runs
-     *  detached — mid-run, before it ever reached the finally block that
-     *  clears this flag; since the flag lives in Postgres, not in-process
-     *  memory, it survived the restart and blocked every sync attempt,
-     *  including a manual "Sync Now" click, for the full 5 minutes until
-     *  this exact staleness check finally cleared it). A deploy happens
-     *  routinely, not as a rare edge case, so this flag getting orphaned
-     *  is a normal, expected event this threshold needs to recover from
-     *  quickly — not a scenario to pad generously against.
+     *  Briefly lowered to 2 minutes, same day, then reverted back to 5
+     *  (2026-09-22) — the 2-minute value was sized against the fetch
+     *  loop's own 10s-per-page timeout (~440-450 orders/24h = 5 pages,
+     *  ~50s pathological worst case), but that 10s timeout was ITSELF
+     *  reverted back to 30s the same day (see the fetch loop's own doc
+     *  comment for the full story — Pancake's real response time settled
+     *  right at ~10s, so the shorter timeout was failing nearly every
+     *  run outright instead of ever letting a real page finish). With 30s
+     *  pages back, a real run's own worst case is ~2.5 minutes (5 pages
+     *  × up to 30s each) — comfortably OVER a 2-minute stale threshold,
+     *  which would then misfire and treat a still-genuinely-running
+     *  healthy sync as orphaned, letting a second overlapping run start
+     *  on top of it. 5 minutes restores the original, correct headroom
+     *  ratio for a 30s-per-page timeout.
+     *
+     *  (The scenario that motivated 2 minutes in the first place — a
+     *  deploy's container restart orphaning this flag for the full stale
+     *  window until it self-heals — is still real and will still take up
+     *  to 5 minutes to recover from now; that tradeoff was accepted
+     *  explicitly when reverting, in favor of correctness against a
+     *  30s-per-page real run over faster deploy-restart recovery.)
      *
      *  No timestamp at all can't be a genuinely in-progress run, so treat
      *  it as stale too rather than block forever on a flag with nothing
@@ -100,7 +102,7 @@ class SyncPancakeLeads extends Command
     private function runningFlagIsStale(): bool
     {
         $lastRun = Setting::get('pancake_sync_leads_last_run');
-        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 2;
+        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 5;
     }
 
     private function doSync(): int
@@ -139,21 +141,39 @@ class SyncPancakeLeads extends Command
         $errorMessage = null;
 
         while ($page <= 100) {
-            // 10s, not 30s (root-caused 2026-09-22, live incident: Sync
-            // Health showed "stale — last synced 4 minutes ago" — Pancake's
-            // own /orders endpoint was responding at ~18 KB/s that day,
-            // confirmed live via a direct timed request; a 30s timeout let
-            // ONE slow page eat half the 1-minute scheduler gap, so a run
-            // that hit even 2-3 slow pages in a row took 60-94+ seconds —
-            // longer than the gap before the NEXT scheduled tick, which
-            // then found $running still '1' and skipped, compounding into
-            // the visible "stale" state). A page that times out here isn't
-            // lost — this loop's own 24-hour lookback window means the NEXT
-            // tick, one minute later, re-fetches the exact same page's
-            // orders again; cutting a slow page off early trades "maybe 1
-            // extra minute of delay for THAT page's orders" for "the whole
-            // sync pipeline stops piling up behind itself." Wrapped in
-            // try/catch (new — previously Http::timeout() throwing a
+            // 30s (reverted 2026-09-22, same day as the 10s attempt below
+            // that replaced it) — root-caused live: dropping this to 10s
+            // to stop a slow page eating the 1-minute scheduler gap
+            // (see that incident's own history below) backfired once
+            // Pancake's real response time for this endpoint settled
+            // right around 10s itself — confirmed live via a direct timed
+            // fetch (9.96s for a normal page) AND via SyncTodayOrders (a
+            // completely separate, untouched command, still on its
+            // original 30s timeout) failing MOST of its own runs too over
+            // the same window, its failures showing only 5-15 KB/s
+            // received in a full 30 seconds — proof this is Pancake's own
+            // API being broadly slow right now, not something a shorter
+            // timeout on this one command could route around. 30 of 30
+            // consecutive lead-sync runs failed outright at the 10s cutoff
+            // before this revert. 30s gives a real page a real chance to
+            // finish instead of guaranteed-failing at a threshold sitting
+            // right on top of Pancake's own current baseline latency.
+            //
+            // Original 10s reasoning, for whenever Pancake's own latency
+            // profile changes again and this tradeoff is worth revisiting:
+            // Sync Health showed "stale — last synced 4 minutes ago" —
+            // Pancake was responding at ~18 KB/s that day, and a 30s
+            // timeout let ONE slow page eat half the 1-minute scheduler
+            // gap, so a run that hit 2-3 slow pages in a row took 60-94+
+            // seconds — longer than the gap before the NEXT scheduled
+            // tick, which then found $running still '1' and skipped,
+            // compounding into the visible "stale" state. A page that
+            // times out isn't lost either way — this loop's own 24-hour
+            // lookback window means the NEXT tick, one minute later,
+            // re-fetches the exact same page's orders again.
+            //
+            // try/catch stays regardless of the timeout value (unrelated
+            // fix, keep on revert) — previously Http::timeout() throwing a
             // ConnectionException on an actual cURL timeout, as opposed to
             // a non-2xx response, propagated straight past this loop's own
             // `if (!$response->successful())` check, uncaught, all the way
@@ -161,9 +181,9 @@ class SyncPancakeLeads extends Command
             // still reset $running correctly on that path, but recordRun()
             // never ran, so a timed-out tick left NO LeadSyncRun row at
             // all, silently invisible to Sync Health's own "last synced"
-            // readout instead of showing up as a real failed run).
+            // readout instead of showing up as a real failed run.
             try {
-                $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(10)->get($url, [
+                $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(30)->get($url, [
                     'api_key'       => $apiKey,
                     'page_size'     => 100,
                     'page_number'   => $page,
