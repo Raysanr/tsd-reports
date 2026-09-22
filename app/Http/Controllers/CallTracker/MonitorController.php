@@ -5,8 +5,10 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
+use App\Models\LeadActivity;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
+use App\Models\User;
 use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -77,23 +79,75 @@ class MonitorController extends Controller
             $q->whereBetween('pancake_created_at', [$dateFrom, $dateTo])
                 ->orWhereNull('pancake_created_at');
         };
-        $leadCounts = $tsas->mapWithKeys(fn (TsaShift $t) => [
-            $t->id => [
-                'overdue' => Lead::where('tsa_id', $t->id)
-                    ->where('status', 'assigned')
-                    ->whereNull('dialed_at')
-                    ->whereBetween('assigned_at', [$dateFrom, $dateTo])
-                    ->where('assigned_at', '<=', now()->subMinutes(LeadController::overdueThresholdMinutes()))
-                    ->where($createdTodayFilter)
-                    ->count(),
-                'callbacks' => Lead::where('tsa_id', $t->id)
-                    ->whereNotNull('callback_at')
-                    ->whereBetween('callback_at', [$dateFrom, $dateTo])
-                    ->where('callback_at', '<=', now())
-                    ->where($createdTodayFilter)
-                    ->count(),
-            ],
-        ]);
+        // callbackCount/unansweredCount (explicit request, 2026-09-22: "i
+        // mean every leads of the tsa is there's call back they tag or
+        // unanswered (not answering, unattended, invalid number) they
+        // tag") — deliberately the BROADER "currently carries this
+        // disposition tag" count, not the narrower "callbacks" key above
+        // (due now/past due only). Same LOWER(disposition) LIKE keyword
+        // match LeadController::index()'s own 'callbacks'/'unanswered'
+        // branches use (see CALLBACK_TRIGGER_KEYWORDS/
+        // UNANSWERED_CALLS_TRIGGER_KEYWORDS' own doc comments) — a lead
+        // tagged Call Back with a callback_at still hours away counts
+        // here even though it wouldn't show as "due" in the pill above,
+        // same for an Unanswered-tagged lead regardless of callback_at
+        // (that page never depended on callback_at at all, see
+        // LeadController::index()'s own 'unanswered' branch comment).
+        //
+        // callsCalled (same request: "the LEADS CALLED is how many number
+        // calls like click to call of all TSA") — LeadActivity.user_id is
+        // the VIEWER who actually clicked (see recentlyCalled()'s own doc
+        // comment on why this, not lead.tsa_id, answers "what did THIS
+        // person personally call" — an admin logging on someone's behalf,
+        // or a different TSA picking up a shared Callbacks lead, would
+        // otherwise misattribute the click). Scoped to every User account
+        // pointing at this TsaShift (User::tsa_id), not just one — a TSA
+        // could in principle have more than one login over time.
+        $callbackKeywordFilter = function ($q) {
+            foreach (LeadController::CALLBACK_TRIGGER_KEYWORDS as $keyword) {
+                $q->orWhereRaw('LOWER(disposition) LIKE ?', ['%' . strtolower($keyword) . '%']);
+            }
+        };
+        $unansweredKeywordFilter = function ($q) {
+            foreach (LeadController::UNANSWERED_CALLS_TRIGGER_KEYWORDS as $keyword) {
+                $q->orWhereRaw('LOWER(disposition) LIKE ?', ['%' . strtolower($keyword) . '%']);
+            }
+        };
+        $leadCounts = $tsas->mapWithKeys(function (TsaShift $t) use ($dateFrom, $dateTo, $createdTodayFilter, $callbackKeywordFilter, $unansweredKeywordFilter) {
+            $userIds = User::where('tsa_id', $t->id)->pluck('id');
+
+            return [
+                $t->id => [
+                    'overdue' => Lead::where('tsa_id', $t->id)
+                        ->where('status', 'assigned')
+                        ->whereNull('dialed_at')
+                        ->whereBetween('assigned_at', [$dateFrom, $dateTo])
+                        ->where('assigned_at', '<=', now()->subMinutes(LeadController::overdueThresholdMinutes()))
+                        ->where($createdTodayFilter)
+                        ->count(),
+                    'callbacks' => Lead::where('tsa_id', $t->id)
+                        ->whereNotNull('callback_at')
+                        ->whereBetween('callback_at', [$dateFrom, $dateTo])
+                        ->where('callback_at', '<=', now())
+                        ->where($createdTodayFilter)
+                        ->count(),
+                    'callbackCount' => Lead::where('tsa_id', $t->id)
+                        ->whereNotNull('disposition')
+                        ->where($callbackKeywordFilter)
+                        ->where($createdTodayFilter)
+                        ->count(),
+                    'unansweredCount' => Lead::where('tsa_id', $t->id)
+                        ->whereNotNull('disposition')
+                        ->where($unansweredKeywordFilter)
+                        ->where($createdTodayFilter)
+                        ->count(),
+                    'callsCalled' => LeadActivity::where('type', 'call_clicked')
+                        ->whereIn('user_id', $userIds)
+                        ->whereBetween('created_at', [$dateFrom, $dateTo])
+                        ->count(),
+                ],
+            ];
+        });
 
         // Unassigned leads have no tsa_id, so there's no per-TSA card to put
         // this on — shown instead as its own team-wide summary tile (same

@@ -260,14 +260,14 @@
         </div>
 
         @php
-            $tsaLeadCounts = $leadCounts[$tsa->id] ?? ['overdue' => 0, 'callbacks' => 0];
+            $tsaLeadCounts = $leadCounts[$tsa->id] ?? ['overdue' => 0, 'callbacks' => 0, 'callbackCount' => 0, 'unansweredCount' => 0, 'callsCalled' => 0];
         @endphp
         @if($tsaLeadCounts['overdue'] > 0 || $tsaLeadCounts['callbacks'] > 0)
         {{-- Lead-queue health pills — only shown when there's actually
              something to flag, same "quiet card, nothing to see" convention
              the rest of this page already follows (e.g. the End Call button
              below only renders while actually Calling). --}}
-        <div class="flex items-center gap-2 mb-4">
+        <div class="flex items-center gap-2 mb-2 flex-wrap">
             @if($tsaLeadCounts['overdue'] > 0)
             <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
                 {{ $tsaLeadCounts['overdue'] }} Overdue
@@ -276,6 +276,38 @@
             @if($tsaLeadCounts['callbacks'] > 0)
             <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-800">
                 {{ $tsaLeadCounts['callbacks'] }} Callback{{ $tsaLeadCounts['callbacks'] === 1 ? '' : 's' }} Due
+            </span>
+            @endif
+        </div>
+        @endif
+
+        {{-- Second pill row (explicit request, 2026-09-22: "COUNT OF
+             CALLBACK, UNANSWERED CALLS, LEADS CALLED") — deliberately
+             separate booleans from the row above: Callback Count/
+             Unanswered Calls are the BROADER "currently carries this tag"
+             totals (not just due-now, see MonitorController::index()'s own
+             comment on $callbackKeywordFilter/$unansweredKeywordFilter),
+             so a TSA can have e.g. 8 Callback Count while the "Callbacks
+             Due" pill above reads lower (or zero) if none are due yet —
+             two genuinely different questions, not a duplicate display of
+             the same number. Calls Called is this TSA's own click-to-call
+             total for the day (LeadActivity.user_id = the viewer who
+             clicked, not lead.tsa_id — see that query's own comment). --}}
+        @if($tsaLeadCounts['callbackCount'] > 0 || $tsaLeadCounts['unansweredCount'] > 0 || $tsaLeadCounts['callsCalled'] > 0)
+        <div class="flex items-center gap-2 mb-4 flex-wrap">
+            @if($tsaLeadCounts['callbackCount'] > 0)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                Callback Count: {{ $tsaLeadCounts['callbackCount'] }}
+            </span>
+            @endif
+            @if($tsaLeadCounts['callsCalled'] > 0)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                Calls Called: {{ $tsaLeadCounts['callsCalled'] }}
+            </span>
+            @endif
+            @if($tsaLeadCounts['unansweredCount'] > 0)
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold font-mono uppercase tracking-wide bg-yellow-50 dark:bg-yellow-950/30 text-yellow-800 dark:text-yellow-500 border border-yellow-200 dark:border-yellow-800">
+                Unanswered Calls: {{ $tsaLeadCounts['unansweredCount'] }}
             </span>
             @endif
         </div>
