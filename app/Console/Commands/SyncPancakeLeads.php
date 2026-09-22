@@ -71,14 +71,36 @@ class SyncPancakeLeads extends Command
 
     /** A real run has taken a few seconds to low tens of seconds in
      *  practice (single-shop Pancake pagination, not a heavy Drive
-     *  download loop like SyncCallRecordings) — 5 minutes is generous
-     *  headroom over that. No timestamp at all can't be a genuinely
-     *  in-progress run, so treat it as stale too rather than block forever
-     *  on a flag with nothing to measure staleness against. */
+     *  download loop like SyncCallRecordings) — confirmed live, 2026-09-22:
+     *  ~440-450 orders per 24h window resolves to exactly 5 pages every
+     *  time (nowhere near the 100-page ceiling), and even in the
+     *  pathological case where every one of those 5 pages takes the full
+     *  10s per-page timeout (see the fetch loop's own doc comment) before
+     *  the run finally gives up, that's ~50s worst case — 2 minutes is
+     *  still generous headroom over that, just proportionate headroom now
+     *  (SyncCallRecordings' own 20-minute threshold is ~2-4x ITS real
+     *  worst case of 5-10 minutes; this was previously ~10-100x its own
+     *  real worst case, not the same ratio).
+     *
+     *  Lowered from 5 minutes the same day (real incident: a deploy's
+     *  container restart killed an in-flight detached background sync
+     *  process — see handle()'s own doc comment on why this runs
+     *  detached — mid-run, before it ever reached the finally block that
+     *  clears this flag; since the flag lives in Postgres, not in-process
+     *  memory, it survived the restart and blocked every sync attempt,
+     *  including a manual "Sync Now" click, for the full 5 minutes until
+     *  this exact staleness check finally cleared it). A deploy happens
+     *  routinely, not as a rare edge case, so this flag getting orphaned
+     *  is a normal, expected event this threshold needs to recover from
+     *  quickly — not a scenario to pad generously against.
+     *
+     *  No timestamp at all can't be a genuinely in-progress run, so treat
+     *  it as stale too rather than block forever on a flag with nothing
+     *  to measure staleness against. */
     private function runningFlagIsStale(): bool
     {
         $lastRun = Setting::get('pancake_sync_leads_last_run');
-        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 5;
+        return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 2;
     }
 
     private function doSync(): int
