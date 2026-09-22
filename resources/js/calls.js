@@ -1403,6 +1403,31 @@ function renderChipsInto(container, tags) {
     `).join('');
 }
 
+// Live "Call back at 10:00 AM" readout next to the time-only callback
+// input (explicit request, 2026-09-22: "i want to make it like when they
+// set it there will be like they can see the time of they should call
+// that customer" — picking a raw HH:MM value had no readable confirmation
+// anywhere until after the form was actually saved and the page re-showed
+// it elsewhere). No date in the readout — the input itself is time-only
+// now (same day, "there's no date should be only time": a callback is
+// always today), so restating "today" would be redundant, not helpful.
+function updateCallbackAtPreview(input) {
+    const preview = input.closest('form')?.querySelector('.callback-at-preview');
+    if (!preview) return;
+    if (!input.value) {
+        preview.classList.add('hidden');
+        return;
+    }
+    const [hours, minutes] = input.value.split(':').map(Number);
+    const d = new Date();
+    d.setHours(hours, minutes, 0, 0);
+    preview.textContent = 'Call back at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    preview.classList.remove('hidden');
+}
+document.addEventListener('input', (e) => {
+    if (e.target.matches('.callback-at-input')) updateCallbackAtPreview(e.target);
+});
+
 function setSelectedTags(picker, tags) {
     picker.dataset.selected = JSON.stringify(tags);
     picker.querySelector('.disposition-hidden-input').value = tags.join(', ');
@@ -1410,7 +1435,10 @@ function setSelectedTags(picker, tags) {
 
     const callbackInput = picker.closest('form').querySelector('.callback-at-input');
     if (callbackInput) {
-        callbackInput.classList.toggle('hidden', !tags.some((t) => t.toLowerCase().includes('call back')));
+        const showsCallback = tags.some((t) => t.toLowerCase().includes('call back'));
+        callbackInput.classList.toggle('hidden', !showsCallback);
+        const preview = picker.closest('form').querySelector('.callback-at-preview');
+        if (preview && !showsCallback) preview.classList.add('hidden');
     }
 
     // If the modal is open for THIS row, keep its own chip strip + result
@@ -2949,6 +2977,8 @@ window.openCallingModal = function (name, number, dialHost, leadId) {
     muteBtn.dataset.muted = '0';
     document.getElementById('muteCallBtnLabel').textContent = 'Mute';
 
+    resetCallbackSection();
+
     hideResumeBanner();
     showModal(modal);
 };
@@ -3032,6 +3062,197 @@ window.toggleMute = function () {
 
     btn.dataset.muted = nowMuted ? '1' : '0';
     document.getElementById('muteCallBtnLabel').textContent = nowMuted ? 'Unmute' : 'Mute';
+};
+
+// Callback quick-pick section (explicit request, 2026-09-22: "i want to
+// make it like this in my dial modal") — collapsed by default (see the
+// section's own doc comment in modals.blade.php), reset to that collapsed/
+// blank state on every openCallingModal() so a previous lead's picked time/
+// reason never carries over onto the next call.
+function resetCallbackSection() {
+    const body = document.getElementById('callbackSectionBody');
+    const chevron = document.getElementById('callbackSectionChevron');
+    if (body) body.classList.add('hidden');
+    if (chevron) chevron.classList.remove('rotate-180');
+
+    document.querySelectorAll('.callback-quick-pick').forEach((btn) => btn.classList.remove('border-primary', 'text-primary-dark', 'dark:text-primary', 'bg-yellow-50', 'dark:bg-yellow-900/20'));
+
+    const timeInput = document.getElementById('callbackModalTimeInput');
+    if (timeInput) timeInput.value = '';
+    const timeWrap = document.getElementById('callbackCustomTimeWrap');
+    if (timeWrap) timeWrap.classList.add('hidden');
+
+    const preview = document.getElementById('callbackModalPreview');
+    if (preview) { preview.classList.add('hidden'); preview.textContent = ''; delete preview.dataset.isoValue; }
+
+    const reason = document.getElementById('callbackModalReason');
+    if (reason) reason.value = '';
+
+    const error = document.getElementById('callbackModalError');
+    if (error) { error.classList.add('hidden'); error.textContent = ''; }
+
+    const submitBtn = document.getElementById('callbackModalSubmit');
+    const submitLabel = document.getElementById('callbackModalSubmitLabel');
+    if (submitBtn) submitBtn.disabled = false;
+    if (submitLabel) submitLabel.textContent = 'Schedule Callback';
+}
+
+window.toggleCallbackSection = function () {
+    const body = document.getElementById('callbackSectionBody');
+    const chevron = document.getElementById('callbackSectionChevron');
+    if (!body) return;
+    body.classList.toggle('hidden');
+    chevron?.classList.toggle('rotate-180');
+};
+
+// Marks exactly one quick-pick button as selected — same "one active choice
+// at a time" convention as the disposition-picker's own chip highlighting.
+function markQuickPickSelected(selectedBtn) {
+    document.querySelectorAll('.callback-quick-pick').forEach((btn) => {
+        const isSelected = btn === selectedBtn;
+        btn.classList.toggle('border-primary', isSelected);
+        btn.classList.toggle('text-primary-dark', isSelected);
+        btn.classList.toggle('dark:text-primary', isSelected);
+        btn.classList.toggle('bg-yellow-50', isSelected);
+        btn.classList.toggle('dark:bg-yellow-900/20', isSelected);
+    });
+}
+
+// Sets the modal's own callback-at-preview + a hidden ISO value the submit
+// handler reads back — isoValue carries the full computed instant (needed
+// for "Tomorrow", which a bare time-only value can't express on its own,
+// unlike the Leads table's own picker which is always today — see that
+// input's own doc comment for why IT can stay time-only).
+function setCallbackPreview(date, label) {
+    const preview = document.getElementById('callbackModalPreview');
+    if (!preview) return;
+    preview.dataset.isoValue = date.toISOString();
+    preview.textContent = label;
+    preview.classList.remove('hidden');
+}
+
+document.addEventListener('click', (e) => {
+    const quickPick = e.target.closest('.callback-quick-pick');
+    if (quickPick) {
+        const timeWrap = document.getElementById('callbackCustomTimeWrap');
+        const timeInput = document.getElementById('callbackModalTimeInput');
+        markQuickPickSelected(quickPick);
+
+        if (quickPick.dataset.minutes) {
+            const d = new Date(Date.now() + Number(quickPick.dataset.minutes) * 60000);
+            timeWrap?.classList.add('hidden');
+            setCallbackPreview(d, 'Call back at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
+        } else if (quickPick.dataset.laterToday) {
+            // "Later today" — no single agreed time, so this reveals the
+            // time input (defaulted to 3 hours from now, editable) rather
+            // than silently picking a number nobody agreed to.
+            const d = new Date(Date.now() + 3 * 60 * 60000);
+            timeWrap?.classList.remove('hidden');
+            if (timeInput) timeInput.value = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+            setCallbackPreview(d, 'Call back at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
+        } else if (quickPick.dataset.tomorrow) {
+            const d = new Date();
+            d.setDate(d.getDate() + 1);
+            d.setHours(9, 0, 0, 0);
+            timeWrap?.classList.remove('hidden');
+            if (timeInput) timeInput.value = '09:00';
+            setCallbackPreview(d, 'Call back tomorrow at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
+        } else if (quickPick.dataset.custom) {
+            timeWrap?.classList.remove('hidden');
+            timeInput?.focus();
+            const preview = document.getElementById('callbackModalPreview');
+            if (preview) { preview.classList.add('hidden'); delete preview.dataset.isoValue; }
+        }
+        return;
+    }
+});
+
+// Editing the custom time input directly (after "Later today"/"Tomorrow"
+// pre-filled it, or after picking "Custom…") keeps the preview + hidden ISO
+// value in sync — same live-readout idea as the Leads table's own
+// updateCallbackAtPreview(), but this one needs to know which DAY (today vs
+// tomorrow) it's editing, which the table's own always-today input never
+// has to care about.
+document.getElementById('callbackModalTimeInput')?.addEventListener('input', function () {
+    if (!this.value) {
+        const preview = document.getElementById('callbackModalPreview');
+        if (preview) { preview.classList.add('hidden'); delete preview.dataset.isoValue; }
+        return;
+    }
+    const [hours, minutes] = this.value.split(':').map(Number);
+    const selectedTomorrow = document.querySelector('.callback-quick-pick[data-tomorrow]')?.classList.contains('border-primary');
+    const d = new Date();
+    if (selectedTomorrow) d.setDate(d.getDate() + 1);
+    d.setHours(hours, minutes, 0, 0);
+    setCallbackPreview(d, (selectedTomorrow ? 'Call back tomorrow at ' : 'Call back at ') + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
+});
+
+// Submits straight to the SAME calls.leads.disposition endpoint the Leads
+// table's own disposition-form posts to — disposition is always the literal
+// "Call Back" tag (the one real Pancake tag CALLBACK_TRIGGER_KEYWORDS
+// matches, see LeadController's own doc comment), so this schedules a real,
+// visible-on-the-Callbacks-page callback exactly the same way picking that
+// tag from the table row does, just from inside this modal instead.
+window.scheduleCallbackFromModal = function () {
+    const modal = document.getElementById('callingModal');
+    const leadId = modal?.dataset.leadId;
+    const preview = document.getElementById('callbackModalPreview');
+    const errorEl = document.getElementById('callbackModalError');
+    const submitBtn = document.getElementById('callbackModalSubmit');
+    const submitLabel = document.getElementById('callbackModalSubmitLabel');
+
+    if (errorEl) { errorEl.classList.add('hidden'); errorEl.textContent = ''; }
+
+    if (!leadId) {
+        if (errorEl) { errorEl.textContent = 'No lead is linked to this call — close and try again.'; errorEl.classList.remove('hidden'); }
+        return;
+    }
+    if (!preview?.dataset.isoValue) {
+        if (errorEl) { errorEl.textContent = 'Pick a callback time first.'; errorEl.classList.remove('hidden'); }
+        return;
+    }
+
+    const reason = document.getElementById('callbackModalReason')?.value || '';
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (submitLabel) submitLabel.textContent = 'Scheduling…';
+
+    fetch(`/calls/leads/${leadId}/disposition`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({
+            disposition: 'Call Back',
+            callback_at: preview.dataset.isoValue,
+            notes: reason || null,
+        }),
+    })
+        .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
+        .then(({ ok, data }) => {
+            if (!ok) {
+                const message = data?.message || (data?.errors && Object.values(data.errors)[0]?.[0]) || 'Could not schedule the callback — try again.';
+                if (errorEl) { errorEl.textContent = message; errorEl.classList.remove('hidden'); }
+                if (submitBtn) submitBtn.disabled = false;
+                if (submitLabel) submitLabel.textContent = 'Schedule Callback';
+                return;
+            }
+
+            if (submitLabel) submitLabel.textContent = 'Scheduled ✓';
+            // Same fetch(...).catch(() => {}) fire-and-forget convention as
+            // endCall()'s own Wrap Up trigger just above — the callback is
+            // already saved server-side regardless of whether this poll
+            // refresh succeeds, so a failure here is silently ignored.
+            window.pollLeadsTable?.();
+            setTimeout(() => window.closeCallingModal(), 700);
+        })
+        .catch(() => {
+            if (errorEl) { errorEl.textContent = 'Network error — the callback may not have saved. Check the lead before retrying.'; errorEl.classList.remove('hidden'); }
+            if (submitBtn) submitBtn.disabled = false;
+            if (submitLabel) submitLabel.textContent = 'Schedule Callback';
+        });
 };
 
 document.addEventListener('click', (e) => {

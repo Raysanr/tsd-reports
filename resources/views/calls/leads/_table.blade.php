@@ -361,8 +361,30 @@
                                     Add tag
                                 </button>
                             </div>
-                            <input type="datetime-local" name="callback_at"
+                            {{-- Time-only, not datetime-local (explicit request,
+                                 2026-09-22: "there's no date should be only
+                                 time" — a callback is always today, so making
+                                 the TSA also pick a date was one extra,
+                                 pointless step; a bare "HH:MM" string still
+                                 parses correctly server-side, Carbon::parse()
+                                 defaults a time-only string to today's date,
+                                 same as updateDisposition()'s own fallback
+                                 already assumes). The .callback-at-preview
+                                 span (explicit request, same day: "i want to
+                                 make it like when they set it there will be
+                                 like they can see the time of they should
+                                 call that customer" — the TSA picking a raw
+                                 HH:MM value had no readable confirmation
+                                 anywhere until AFTER saving) is populated live
+                                 by updateCallbackAtPreview() in calls.js on
+                                 every 'input' event, formatted the same
+                                 "M j, g:i A" style the Callbacks column/detail
+                                 modal already use for a SAVED callback_at, so
+                                 the picker and the saved display read
+                                 identically. --}}
+                            <input type="time" name="callback_at"
                                    class="callback-at-input hidden text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                            <span class="callback-at-preview hidden text-xs font-mono text-red-600 dark:text-red-400 font-semibold whitespace-nowrap"></span>
                         </form>
                     @else
                         <span class="text-slate-300 dark:text-slate-600">—</span>

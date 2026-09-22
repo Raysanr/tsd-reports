@@ -1956,6 +1956,25 @@ class LeadController extends Controller
             abort(403);
         }
 
+        // The callback picker submits a bare "HH:MM" now, not a full
+        // datetime (explicit request, 2026-09-22: "there's no date should
+        // be only time" — see leads/_table.blade.php's own comment on the
+        // <input type="time"> that replaced type="datetime-local"). Real
+        // bug caught by this method's own test before it ever shipped:
+        // Laravel's 'date' validation rule uses strtotime()/DateTime, NOT
+        // Carbon::parse() — strtotime('14:30') actually fails validation
+        // even though Carbon::parse('14:30') (used just below, after
+        // validation) resolves it to today just fine. Left as a bare
+        // "HH:MM" the whole request 422'd, silently dropping every
+        // callback a TSA tried to schedule. Normalized to today's full
+        // datetime HERE, before validation ever runs, so 'date' always
+        // sees a value it actually accepts — same value Carbon::parse()
+        // below would have produced anyway, just computed a few lines
+        // earlier so validation doesn't reject it first.
+        if ($request->filled('callback_at') && preg_match('/^\d{1,2}:\d{2}$/', $request->input('callback_at'))) {
+            $request->merge(['callback_at' => today()->format('Y-m-d') . ' ' . $request->input('callback_at')]);
+        }
+
         $data = $request->validate([
             // Outcome is now one or more real tags the TSA picked from the
             // shop's own POS order-tag catalog (see searchTags()/the
@@ -2046,6 +2065,24 @@ class LeadController extends Controller
         }
 
         $this->tagOutcomeInPancake($lead, $data['disposition'], $api);
+
+        // JSON branch (explicit request, 2026-09-22: "i want to make it
+        // like this in my dial modal" — the Calling modal's own new
+        // Callback quick-pick section submits here via fetch, not a plain
+        // form POST, since the modal itself stays open/gets replaced by
+        // the resume banner rather than navigating away — same
+        // wantsJson() convention TsaStatusController::update() already
+        // uses). The plain-form path (Leads table row's own
+        // disposition-form) is completely unaffected — back() with a
+        // flash message, unchanged.
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success'     => true,
+                'disposition' => $data['disposition'],
+                'callback_at' => $callbackAt?->toIso8601String(),
+                'message'     => "Logged \"{$data['disposition']}\" for {$lead->customer_name}.",
+            ]);
+        }
 
         return back()->with('success', "Logged \"{$data['disposition']}\" for {$lead->customer_name}.");
     }

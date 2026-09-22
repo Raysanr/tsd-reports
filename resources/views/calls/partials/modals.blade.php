@@ -205,9 +205,21 @@
      hit a MacroDroid macro listening on the TSA's own phone over Wi-Fi. With
      no Dialer address configured, dialing falls back to a plain tel: handoff
      and Mute/End Call have nothing to hit, so both are hidden. Opened via
-     openCallingModal(name, number, dialerHost) in calls.js. --}}
-<div id="callingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200" data-dial-host="">
-    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-xs p-6 text-center opacity-0 scale-95 transition-all duration-200">
+     openCallingModal(name, number, dialerHost) in calls.js.
+
+     Callback quick-pick section (explicit request, 2026-09-22: "i want to
+     make it like this in my dial modal" — a reference screenshot showing a
+     phone-app calling UI with a Callback scheduler built in). Added directly
+     here rather than only in the lead detail modal that already auto-opens
+     on Close/End Call (explicit follow-up: confirmed this modal, not that
+     one, since a TSA calling right now already knows they'll need a
+     callback and shouldn't have to wait for Close to get there). Submits
+     via fetch to the SAME calls.leads.disposition endpoint the Leads
+     table's own disposition-form posts to — disposition is always the
+     literal "Call Back" tag, notes carries the picked reason, callback_at
+     the computed time — see scheduleCallbackFromModal() in calls.js. --}}
+<div id="callingModal" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-6 opacity-0 transition-opacity duration-200" data-dial-host="" data-lead-id="">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto p-6 text-center opacity-0 scale-95 transition-all duration-200">
         <div class="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-950/40 flex items-center justify-center mb-4 animate-pulse">
             <svg class="w-7 h-7 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
@@ -239,6 +251,77 @@
                     class="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-sm font-semibold font-mono px-4 py-2.5 rounded-lg cursor-pointer">
                 Close
             </button>
+        </div>
+
+        {{-- Callback quick-pick — hidden until the lead detail modal ever
+             loaded (needs a real lead id, which openCallingModal() always
+             has via its own leadId param). Kept collapsed by default (a
+             disclosure toggle, not shown open every time) since not every
+             call ends in a scheduled callback — a TSA who confirms/upsells
+             right there has no reason to see this at all before Close. --}}
+        <div class="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 text-left">
+            <button type="button" id="callbackSectionToggle" onclick="toggleCallbackSection()"
+                    class="w-full flex items-center justify-between text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 cursor-pointer">
+                <span class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    Schedule a callback
+                </span>
+                <svg id="callbackSectionChevron" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+
+            <div id="callbackSectionBody" class="hidden mt-3 space-y-3">
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-minutes="15">In 15 min</button>
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-minutes="30">In 30 min</button>
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-minutes="60">In 1 hour</button>
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-later-today="1">Later today</button>
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-tomorrow="1">Tomorrow</button>
+                    <button type="button" class="callback-quick-pick text-xs font-mono font-semibold border border-slate-200 dark:border-slate-700 rounded-lg py-2.5 px-2 text-center hover:border-primary hover:text-primary-dark dark:hover:text-primary cursor-pointer" data-custom="1">Custom…</button>
+                </div>
+
+                {{-- Only revealed by the "Custom…" quick-pick above (or once
+                     any quick-pick has set a value, so a TSA can still see/
+                     fine-tune exactly what was picked) — same time-only,
+                     assume-today input the Leads table's own callback field
+                     uses (explicit request, same day: "there's no date
+                     should be only time"), sharing its .callback-at-input/
+                     .callback-at-preview live-readout pair via the same
+                     updateCallbackAtPreview() in calls.js. "Tomorrow"
+                     is the one quick-pick that isn't really "today" — its
+                     own preview text says so explicitly rather than
+                     silently mislabeling a tomorrow time as if it were
+                     today's. --}}
+                <div id="callbackCustomTimeWrap" class="hidden">
+                    <input type="time" id="callbackModalTimeInput" class="callback-at-input w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                </div>
+                <p id="callbackModalPreview" class="callback-at-preview hidden text-xs font-mono text-red-600 dark:text-red-400 font-semibold"></p>
+
+                <div>
+                    <label class="block text-[11px] font-semibold font-mono text-slate-500 dark:text-slate-400 mb-1">Reason (optional)</label>
+                    <select id="callbackModalReason" class="w-full text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                        <option value="">Select reason…</option>
+                        <option value="Customer requested">Customer requested</option>
+                        <option value="Needs more time">Needs more time</option>
+                        <option value="No answer / busy">No answer / busy</option>
+                        <option value="Follow-up">Follow-up</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <p id="callbackModalError" class="hidden text-xs font-mono text-red-600 dark:text-red-400"></p>
+
+                <button type="button" id="callbackModalSubmit" onclick="scheduleCallbackFromModal()"
+                        class="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2.5 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <span id="callbackModalSubmitLabel">Schedule Callback</span>
+                </button>
+            </div>
         </div>
     </div>
 </div>

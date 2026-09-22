@@ -53,6 +53,31 @@ class CallbackSchedulerTest extends TestCase
         $this->assertTrue($when->equalTo($lead->refresh()->callback_at));
     }
 
+    /**
+     * The picker itself changed from datetime-local to a bare time input
+     * (explicit request, 2026-09-22: "there's no date should be only
+     * time" — a callback is always today, so picking a date too was one
+     * extra, pointless step) — this is what the real <input type="time">
+     * now actually submits: a plain "HH:MM" string, no date component at
+     * all. Confirms Carbon::parse() resolves that to TODAY's date at that
+     * time, not some other default, with no frontend change needed to
+     * updateDisposition()'s own 'nullable','date' validation.
+     */
+    public function test_logging_call_back_with_a_time_only_value_resolves_to_today(): void
+    {
+        [$lead, $user] = $this->leadAndUser();
+
+        $this->actingAs($user)->post(route('calls.leads.disposition', $lead), [
+            'disposition' => 'Call Back',
+            'callback_at' => '14:30',
+        ]);
+
+        $lead->refresh();
+        $this->assertNotNull($lead->callback_at);
+        $this->assertTrue($lead->callback_at->isToday());
+        $this->assertSame('14:30', $lead->callback_at->format('H:i'));
+    }
+
     /** No explicit callback_at picked — defaults to +1 day, same
      *  fallback updateDisposition() already used before this reversal. */
     public function test_logging_call_back_with_no_chosen_time_defaults_to_plus_one_day(): void
@@ -209,5 +234,49 @@ class CallbackSchedulerTest extends TestCase
 
         $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
         $this->assertSame(0, LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->count());
+    }
+
+    /**
+     * Explicit request, 2026-09-22: "i want to make it like this in my
+     * dial modal" — the Calling modal's own new Callback quick-pick
+     * section (resources/views/calls/partials/modals.blade.php,
+     * scheduleCallbackFromModal() in calls.js) submits here via a JSON
+     * fetch instead of a plain form POST, so this method needs a JSON
+     * response branch alongside the existing back()-redirect one the
+     * Leads table's own disposition-form still uses unmodified.
+     */
+    public function test_updating_disposition_via_json_returns_a_json_response_not_a_redirect(): void
+    {
+        [$lead, $user] = $this->leadAndUser();
+        $when = now()->addMinutes(30)->startOfMinute();
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.disposition', $lead), [
+            'disposition' => 'Call Back',
+            'callback_at' => $when->toIso8601String(),
+            'notes'       => 'Customer requested',
+        ]);
+
+        $response->assertOk()->assertJson([
+            'success'     => true,
+            'disposition' => 'Call Back',
+        ]);
+        $lead->refresh();
+        $this->assertTrue($when->equalTo($lead->callback_at));
+        $this->assertSame('Customer requested', $lead->notes);
+        $this->assertSame('called', $lead->status);
+    }
+
+    /** The pre-existing plain-form path (Leads table's own
+     *  disposition-form) must still redirect, completely unaffected by
+     *  the new JSON branch above. */
+    public function test_updating_disposition_via_plain_form_still_redirects(): void
+    {
+        [$lead, $user] = $this->leadAndUser();
+
+        $response = $this->actingAs($user)->post(route('calls.leads.disposition', $lead), [
+            'disposition' => 'Confirmed',
+        ]);
+
+        $response->assertRedirect();
     }
 }
