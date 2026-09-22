@@ -494,7 +494,7 @@
             <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
             </svg>
-            <input type="text" name="q" value="{{ $q }}" placeholder="Search name, phone, order ID…"
+            <input type="text" name="q" value="{{ $q }}" placeholder="Search name, phone, order ID… (paste multiple)"
                    data-live-search
                    class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 w-64">
         </div>

@@ -447,13 +447,30 @@ class LeadController extends Controller
         // 73-74 already restricts the base $query to only this TSA's own
         // leads before this ever runs), so a TSA searching can only ever
         // search within their own queue, never anyone else's.
+        //
+        // Multi-value search (explicit request, 2026-09-22: "i want in the
+        // leads page can search multiple order id") — split on whitespace
+        // AND commas (a TSA pasting a list from Pancake/a spreadsheet could
+        // reasonably use either separator), each token matched as its own
+        // OR against the SAME 3 fields the single-value search already
+        // used — so a mixed paste of names/phones/order IDs works too, not
+        // just order IDs specifically. A single token with no separator at
+        // all (today's normal case) behaves identically to before: one
+        // token, same 3-field OR. array_filter drops empty tokens from
+        // e.g. a trailing comma or repeated spaces.
         if ($request->filled('q')) {
-            $q = trim($request->string('q'));
-            $query->where(function ($sub) use ($q) {
-                $sub->where('customer_name', 'like', "%{$q}%")
-                    ->orWhere('phone_number', 'like', "%{$q}%")
-                    ->orWhere('pancake_order_id', 'like', "%{$q}%");
-            });
+            $tokens = array_filter(preg_split('/[\s,]+/', trim($request->string('q'))));
+            if (!empty($tokens)) {
+                $query->where(function ($sub) use ($tokens) {
+                    foreach ($tokens as $token) {
+                        $sub->orWhere(function ($tokenGroup) use ($token) {
+                            $tokenGroup->where('customer_name', 'like', "%{$token}%")
+                                ->orWhere('phone_number', 'like', "%{$token}%")
+                                ->orWhere('pancake_order_id', 'like', "%{$token}%");
+                        });
+                    }
+                });
+            }
         }
 
         // The default view now always has a window too — defaulting to
