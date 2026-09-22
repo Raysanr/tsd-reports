@@ -1790,10 +1790,34 @@ class LeadController extends Controller
         }
 
         if ($lead->tsa_id) {
+            // Shared-queue pickup (explicit request, 2026-09-22: "i want to
+            // make it like even shared queue it will not be same calling or
+            // wrap up like that") — real gap: canAccess() already lets a
+            // non-owning TSA dial a lead still sitting in Callbacks/
+            // Unanswered Calls (its own due-callback/UNANSWERED_CALLS_
+            // TRIGGER_KEYWORDS branches — see that method's own doc
+            // comment), but this method always flipped $lead->tsa (the
+            // lead's ORIGINAL owner) to Calling regardless of who actually
+            // clicked. Confirmed live: TSA 1 owns an Unattended lead sitting
+            // in the shared queue, steps away from her PC entirely; TSA 2
+            // opens Callbacks/Unanswered Calls and dials it — TSA 1 (who
+            // never touched anything) showed Calling, then later Wrap Up,
+            // on Monitor/TSA Logs, while TSA 2 (the one actually on the
+            // phone) showed no change at all. Now flips whichever TSA is
+            // TRUE for this specific click: the lead's own owner for a
+            // normal (non-shared) lead — unchanged, same as before this
+            // fix, since owner and clicker are almost always the same
+            // person there anyway — but the CLICKING user's own TSA
+            // whenever they're picking up a lead they don't own (only
+            // reachable at all via canAccess()'s shared-queue branches,
+            // confirmed by the guard above already having passed).
+            $isSharedQueuePickup = $lead->tsa_id !== $user->tsa_id && $user->tsa_id !== null;
+            $clickerTsa = $isSharedQueuePickup ? $user->tsa : null;
+
             LeadActivity::log(
                 $lead,
                 'call_clicked',
-                ($lead->tsa->display_name ?? 'A TSA') . ' clicked to call ' . ($lead->customer_name ?: 'this customer') . ' (' . ($lead->phone_number ?: $lead->dialable_number) . ').',
+                ($clickerTsa?->display_name ?? $lead->tsa->display_name ?? 'A TSA') . ' clicked to call ' . ($lead->customer_name ?: 'this customer') . ' (' . ($lead->phone_number ?: $lead->dialable_number) . ').',
                 $user
             );
 
@@ -1810,9 +1834,14 @@ class LeadController extends Controller
             // partner, working through the queue after the lead's assigned
             // TSA already logged out for the day. Logging out is a
             // deliberate "I'm done" signal that a click on a lead still
-            // sitting in their queue must never silently override.
-            $tsaToFlip = $lead->tsa;
-            if ($tsaToFlip && $tsaToFlip->status === TsaShift::STATUS_LOGOUT) {
+            // sitting in their queue must never silently override. This
+            // pair-partner fallback only still applies to the OWNER path —
+            // a genuine shared-queue pickup (clickerTsa set above) already
+            // flips the real, currently-logged-in clicker directly, so
+            // there's no "who else could this be" question to answer for
+            // that case at all.
+            $tsaToFlip = $clickerTsa ?? $lead->tsa;
+            if (!$clickerTsa && $tsaToFlip && $tsaToFlip->status === TsaShift::STATUS_LOGOUT) {
                 $partner = $tsaToFlip->pairPartnerEitherSide();
                 $tsaToFlip = ($partner && $partner->status !== TsaShift::STATUS_LOGOUT)
                     ? $partner
@@ -1925,8 +1954,16 @@ class LeadController extends Controller
             abort(403);
         }
 
-        if ($lead->tsa_id && $lead->tsa?->status === TsaShift::STATUS_CALLING) {
-            $lead->tsa->applyStatusChange(TsaShift::STATUS_WRAP_UP);
+        // Same shared-queue-pickup fix as logCallClick() above (explicit
+        // request, 2026-09-22) — must check/flip the SAME TSA that method
+        // actually flipped to Calling for this click, or a shared-queue
+        // pickup either wrongly wraps up the lead's original owner (who
+        // was never the one on this call) or silently no-ops (since the
+        // real caller, not the owner, is the one actually sitting in
+        // Calling).
+        $tsaToFlip = ($lead->tsa_id !== $user->tsa_id && $user->tsa_id !== null) ? $user->tsa : $lead->tsa;
+        if ($tsaToFlip && $tsaToFlip->status === TsaShift::STATUS_CALLING) {
+            $tsaToFlip->applyStatusChange(TsaShift::STATUS_WRAP_UP);
         }
 
         return response()->json(['success' => true]);

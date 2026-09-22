@@ -331,4 +331,103 @@ class LeadCallClickTest extends TestCase
 
         $this->assertArrayNotHasKey('disposition', $response->json('leads.0'));
     }
+
+    /**
+     * Real gap, explicit request 2026-09-22: "i want to make it like even
+     * shared queue it will not be same calling or wrap up like that" —
+     * confirmed live: Gemma owns a lead with a due callback_at (so it sits
+     * in the shared Callbacks queue, visible/dialable by anyone per
+     * canAccess()'s own due-callback branch), Gemma steps away entirely,
+     * and Mariel (who never owned it) opens Callbacks and dials it — Gemma
+     * (who touched nothing) used to flip to Calling on Monitor/TSA Logs
+     * while Mariel (the one actually on the phone) showed no change at
+     * all. Now flips the REAL clicker (Mariel) instead of the lead's
+     * original owner (Gemma).
+     */
+    public function test_a_shared_queue_pickup_flips_the_clickers_own_status_not_the_owners(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->applyStatusChange(TsaShift::STATUS_DNA_HUDDLE);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9020', 'customer_name' => 'Juan', 'phone_number' => '09171234567',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'callback_at' => now()->subMinute(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-pickup@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+
+        $this->actingAs($marielUser)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_DNA_HUDDLE, $gemma->fresh()->status);
+        $this->assertSame(TsaShift::STATUS_CALLING, $mariel->fresh()->status);
+    }
+
+    /** The activity log's own description must also credit the real
+     *  clicker, not the lead's owner, for the same shared-queue pickup —
+     *  otherwise TSA Logs would show "Gemma clicked to call Juan" even
+     *  though Gemma never touched anything. */
+    public function test_a_shared_queue_pickups_activity_log_credits_the_real_clicker(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9021', 'customer_name' => 'Juan', 'phone_number' => '09171234567',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'callback_at' => now()->subMinute(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-log@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+
+        $this->actingAs($marielUser)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'call_clicked')->first();
+        $this->assertStringContainsString($mariel->display_name, $activity->description);
+        $this->assertStringNotContainsString($gemma->display_name, $activity->description);
+    }
+
+    /** A NORMAL (non-shared) lead is unaffected by this fix — the owner
+     *  is the one clicking, so flipping "the clicker" and "the owner"
+     *  land on the exact same person either way, same as before. */
+    public function test_a_normal_non_shared_lead_still_flips_its_own_owner(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma, '9022');
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma-normal@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_CALLING, $gemma->fresh()->status);
+    }
+
+    /**
+     * endCall() needs the identical fix (same call site's own doc
+     * comment) — must flip the SAME TSA logCallClick() actually flipped
+     * to Calling for this pickup, or a shared-queue "End Call" either
+     * wrongly wraps up the lead's original owner (who was never on this
+     * call) or silently no-ops.
+     */
+    public function test_ending_a_shared_queue_call_wraps_up_the_real_caller_not_the_owner(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead = Lead::create([
+            'pancake_order_id' => '9023', 'customer_name' => 'Juan', 'phone_number' => '09171234567',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'callback_at' => now()->subMinute(),
+        ]);
+        $marielUser = User::create(['name' => 'Mariel User', 'email' => 'mariel-end@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $mariel->id]);
+
+        $this->actingAs($marielUser)->postJson(route('calls.leads.call-click', $lead))->assertOk();
+        $this->assertSame(TsaShift::STATUS_CALLING, $mariel->fresh()->status);
+
+        $this->actingAs($marielUser)->postJson(route('calls.leads.end-call', $lead))->assertOk();
+
+        $this->assertSame(TsaShift::STATUS_WRAP_UP, $mariel->fresh()->status);
+        // Gemma (the owner, who never touched anything) is untouched
+        // throughout — still whatever she was before this pickup.
+        $this->assertNotSame(TsaShift::STATUS_CALLING, $gemma->fresh()->status);
+        $this->assertNotSame(TsaShift::STATUS_WRAP_UP, $gemma->fresh()->status);
+    }
 }
