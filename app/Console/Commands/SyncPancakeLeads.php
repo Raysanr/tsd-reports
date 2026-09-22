@@ -117,14 +117,44 @@ class SyncPancakeLeads extends Command
         $errorMessage = null;
 
         while ($page <= 100) {
-            $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(30)->get($url, [
-                'api_key'       => $apiKey,
-                'page_size'     => 100,
-                'page_number'   => $page,
-                'updateStatus'  => 'inserted_at',
-                'startDateTime' => $from->timestamp,
-                'endDateTime'   => $to->timestamp,
-            ]);
+            // 10s, not 30s (root-caused 2026-09-22, live incident: Sync
+            // Health showed "stale — last synced 4 minutes ago" — Pancake's
+            // own /orders endpoint was responding at ~18 KB/s that day,
+            // confirmed live via a direct timed request; a 30s timeout let
+            // ONE slow page eat half the 1-minute scheduler gap, so a run
+            // that hit even 2-3 slow pages in a row took 60-94+ seconds —
+            // longer than the gap before the NEXT scheduled tick, which
+            // then found $running still '1' and skipped, compounding into
+            // the visible "stale" state). A page that times out here isn't
+            // lost — this loop's own 24-hour lookback window means the NEXT
+            // tick, one minute later, re-fetches the exact same page's
+            // orders again; cutting a slow page off early trades "maybe 1
+            // extra minute of delay for THAT page's orders" for "the whole
+            // sync pipeline stops piling up behind itself." Wrapped in
+            // try/catch (new — previously Http::timeout() throwing a
+            // ConnectionException on an actual cURL timeout, as opposed to
+            // a non-2xx response, propagated straight past this loop's own
+            // `if (!$response->successful())` check, uncaught, all the way
+            // out of doSync() — the outer handle()'s bare try{}finally{}
+            // still reset $running correctly on that path, but recordRun()
+            // never ran, so a timed-out tick left NO LeadSyncRun row at
+            // all, silently invisible to Sync Health's own "last synced"
+            // readout instead of showing up as a real failed run).
+            try {
+                $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(10)->get($url, [
+                    'api_key'       => $apiKey,
+                    'page_size'     => 100,
+                    'page_number'   => $page,
+                    'updateStatus'  => 'inserted_at',
+                    'startDateTime' => $from->timestamp,
+                    'endDateTime'   => $to->timestamp,
+                ]);
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                $errorMessage = "Connection error on page {$page}: " . $e->getMessage();
+                $this->error($errorMessage);
+                Log::error('pancake:sync-leads connection failed', ['page' => $page, 'message' => $e->getMessage()]);
+                break;
+            }
 
             if (!$response->successful()) {
                 $errorMessage = "API error on page {$page}: HTTP " . $response->status() . ' — ' . $response->body();

@@ -4,12 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Lead;
 use App\Models\LeadActivity;
+use App\Models\LeadSyncRun;
 use App\Models\Product;
 use App\Models\RoundRobinState;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -1130,5 +1132,81 @@ class SyncPancakeLeadsTest extends TestCase
         $lead->refresh();
         $this->assertSame('Not Answering', $lead->disposition);
         $this->assertSame('called', $lead->status);
+    }
+
+    /**
+     * Root-caused live, 2026-09-22 (Sync Health: "Sync appears stale —
+     * last synced 4 minutes ago"): confirmed via a direct timed request
+     * from production that Pancake's own /orders endpoint was responding
+     * at roughly 18 KB/s that day — Http::timeout(30)->get(...) then
+     * throws Illuminate\Http\Client\ConnectionException on an actual cURL
+     * timeout (distinct from a non-2xx response, which the loop's own
+     * `if (!$response->successful())` already handled), and that
+     * exception previously propagated straight past this loop, all the
+     * way out of doSync() uncaught — the outer handle()'s bare
+     * try{}finally{} still reset the $running flag on that path, but
+     * recordRun() never ran, so a timed-out tick left NO LeadSyncRun row
+     * at all, silently invisible to Sync Health's "last synced" readout
+     * instead of showing up as a real failed run. Confirms the fix: a
+     * connection timeout now resolves the same way a non-2xx response
+     * already did — breaks the pagination loop, records a real (failed)
+     * LeadSyncRun row, and returns cleanly instead of throwing.
+     */
+    public function test_a_connection_timeout_on_the_list_fetch_records_a_failed_run_instead_of_crashing(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => function () {
+                throw new ConnectionException('cURL error 28: Operation timed out after 10001 milliseconds with 474711 out of 2754467 bytes received');
+            },
+        ]);
+
+        $exitCode = Artisan::call('pancake:sync-leads');
+
+        $this->assertSame(1, $exitCode); // self::FAILURE
+        $run = LeadSyncRun::latest('id')->first();
+        $this->assertNotNull($run);
+        $this->assertFalse($run->success);
+        $this->assertStringContainsString('Connection error on page 1', $run->error_message);
+
+        // The overlap-guard flag must still be cleared afterward (the
+        // outer handle()'s finally{} block), same as it always was on the
+        // non-2xx failure path — a timeout must never leave the NEXT
+        // tick permanently locked out.
+        $this->assertSame('', Setting::get('pancake_sync_leads_running'));
+    }
+
+    /** Orders already fetched on an EARLIER page before a later page times
+     *  out must still be processed and reflected in the recorded run —
+     *  a timeout on page 2 doesn't undo page 1's already-synced leads. */
+    public function test_a_connection_timeout_on_a_later_page_still_records_earlier_pages_progress(): void
+    {
+        // A full 100-row page (not just 5) — the loop's own pagination
+        // guard (`if (count($orders) < 100) break;`) would otherwise stop
+        // after page 1 on its own, never reaching page 2's timeout at all.
+        // An unmatched product name (not "Sinuxyl") lands each as
+        // 'unassigned' (see test_an_order_matching_no_known_product_is_
+        // pulled_in_as_unassigned() above) — deliberately avoids the real
+        // round-robin + tagTsaOnPancakeOrder() Pancake-tagging path 100
+        // matched leads would each trigger, which is irrelevant to what
+        // THIS test actually verifies (partial-progress recording on a
+        // timeout) and was making the test itself take ~47s just from 100
+        // extra faked HTTP round-trips.
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*page_number=1*' => Http::response(['data' => collect(range(1, 100))->map(fn ($i) => [
+                'id' => 20000 + $i, 'bill_full_name' => 'Page One Lead ' . $i, 'bill_phone_number' => '09170' . str_pad((string) $i, 6, '0', STR_PAD_LEFT),
+                'tags' => [], 'items' => [['variation_info' => ['name' => 'Some Other Thing']]],
+                'inserted_at' => now()->toIso8601String(),
+            ])->all()], 200),
+            'pos.pages.fm/api/v1/shops/*/orders?*page_number=2*' => function () {
+                throw new ConnectionException('cURL error 28: Operation timed out');
+            },
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertSame(100, Lead::whereIn('pancake_order_id', range(20001, 20100))->count());
+        $run = LeadSyncRun::latest('id')->first();
+        $this->assertFalse($run->success);
+        $this->assertSame(100, $run->total_fetched);
     }
 }
