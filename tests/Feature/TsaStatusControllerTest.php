@@ -230,6 +230,88 @@ class TsaStatusControllerTest extends TestCase
     }
 
     /**
+     * Explicit request, 2026-09-22: "add in TSA logs page this like
+     * selectable statuses" — a multi-select checkbox filter on top of the
+     * already-existing tsa/date ones. Corrected same day: only
+     * TsaShift::STATUSES's real 10 values (Login/Calling/Wrap Up/Break/
+     * Lunch/Coaching/DNA Huddle/Huddle/Others/Logout) are selectable here
+     * — Lock and the synthetic 'call' kind are explicitly NOT part of this
+     * filter (see the view's own doc comment on $statusFilterOptions).
+     */
+    public function test_tsa_logs_page_filters_by_a_single_real_status(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()->subMinutes(5)]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs', ['status' => ['login']]));
+
+        $response->assertOk();
+        $logs = $response->viewData('logs');
+        $this->assertSame(1, $logs->total());
+        $this->assertSame('login', $logs->first()->status);
+    }
+
+    /** Click-to-call rows have no checkbox of their own any more — they
+     *  stay visible regardless of which real statuses are filtered,
+     *  exactly as they were before this filter existed at all. */
+    public function test_tsa_logs_page_status_filter_never_hides_call_click_events(): void
+    {
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $lead    = Lead::create(['pancake_order_id' => '1', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()]);
+        LeadActivity::log($lead, 'call_clicked', 'Called the lead.');
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs', ['status' => ['login']]));
+
+        $response->assertOk();
+        $logs = $response->viewData('logs');
+        // Only 'login' matched by the status filter, but the call row is
+        // unaffected — 2 rows total (1 status + 1 call), 'break' excluded.
+        $this->assertSame(2, $logs->total());
+        $this->assertTrue($logs->pluck('kind')->contains('call'));
+        $this->assertTrue($logs->contains(fn ($l) => $l->kind === 'status' && $l->status === 'login'));
+        $this->assertFalse($logs->contains(fn ($l) => $l->kind === 'status' && $l->status === 'break'));
+    }
+
+    /** Several boxes checked at once is a real-world OR, not an AND —
+     *  picking Login + Break should surface rows of either kind. */
+    public function test_tsa_logs_page_filters_by_multiple_statuses_at_once(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'lunch', 'created_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs', ['status' => ['login', 'break']]));
+
+        $response->assertOk();
+        $logs = $response->viewData('logs');
+        $this->assertSame(2, $logs->total());
+        $this->assertTrue($logs->pluck('status')->contains('login'));
+        $this->assertTrue($logs->pluck('status')->contains('break'));
+        $this->assertFalse($logs->pluck('status')->contains('lunch'));
+    }
+
+    /** No status[] in the request at all (a genuinely fresh page load) must
+     *  mean "no filter" — every row shows, same as this page's existing
+     *  pre-filter default. */
+    public function test_tsa_logs_page_with_no_status_param_shows_every_status(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'login', 'created_at' => now()]);
+        TsaStatusLog::create(['tsa_id' => $gemma->id, 'status' => 'break', 'created_at' => now()]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.tsa-logs'));
+
+        $response->assertOk();
+        $this->assertSame(2, $response->viewData('logs')->total());
+        $this->assertSame([], $response->viewData('selectedStatuses'));
+    }
+
+    /**
      * Explicit request (2026-08-22): the topbar badge should reflect
      * Calling/Wrap Up — both system-only, set automatically — without the
      * TSA reloading the page. This endpoint is what the badge polls.

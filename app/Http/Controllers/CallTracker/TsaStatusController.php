@@ -183,12 +183,39 @@ class TsaStatusController extends Controller
             ? [Carbon::parse($dateFrom)->startOfDay(), Carbon::parse($dateTo)->endOfDay()]
             : null;
 
+        // Multi-select Status filter (explicit request, 2026-09-22) — not
+        // remembered across a tab-away-and-back navigation the way tsa/date
+        // are (PersistsCallTrackerFilters's own rememberedFilter() only
+        // stores one scalar string in session, not an array); this page's
+        // own existing default is already "unfiltered history" with
+        // nothing remembered, so a fresh visit showing every status again
+        // matches that same convention rather than needing new session
+        // plumbing just for this one filter. status[] with no values at
+        // all in the request (a genuinely fresh page load, not an explicit
+        // "uncheck everything" — the picker's own JS never submits with
+        // zero boxes checked, see the view's own comment) means "no
+        // filter", same as omitting the param entirely.
+        // Corrected same day (explicit follow-up: "the statuses is only
+        // this: Login, Calling, Wrap Up, Break, Lunch, Coaching, DNA
+        // Huddle, Huddle, Others, Logout") — 'call' and 'locked' are NOT
+        // selectable options in this filter (see the view's own doc
+        // comment on $statusFilterOptions), so this only ever narrows
+        // TsaStatusLog::status rows. Click-to-call rows ($callRows below)
+        // stay unaffected by this filter entirely — always shown, same as
+        // before this filter existed — there's no checkbox that could
+        // exclude them any more, so this is the only behavior a TSA
+        // clicking through the picker could reasonably expect.
+        $selectedStatuses = $request->has('status') ? array_values(array_filter((array) $request->input('status'))) : [];
+
         $statusQuery = TsaStatusLog::with('tsa');
         if ($tsaId) {
             $statusQuery->where('tsa_id', $tsaId);
         }
         if ($range) {
             $statusQuery->whereBetween('created_at', $range);
+        }
+        if (!empty($selectedStatuses)) {
+            $statusQuery->whereIn('status', $selectedStatuses);
         }
         // stdClass, not a plain array — ->status/->tsa_id/->created_at
         // property access (not ['status']/['tsa_id']) matches how a real
@@ -241,12 +268,13 @@ class TsaStatusController extends Controller
         $logs->withQueryString();
 
         return view('calls.tsa-logs', [
-            'logs'        => $logs,
-            'tsas'        => TsaShift::orderBy('sort_order')->get(),
-            'selectedTsa' => $tsaId,
-            'dateFrom'    => $dateFrom,
-            'dateTo'      => $dateTo,
-            'statuses'    => TsaShift::STATUSES,
+            'logs'             => $logs,
+            'tsas'             => TsaShift::orderBy('sort_order')->get(),
+            'selectedTsa'      => $tsaId,
+            'dateFrom'         => $dateFrom,
+            'dateTo'           => $dateTo,
+            'statuses'         => TsaShift::STATUSES,
+            'selectedStatuses' => $selectedStatuses,
         ]);
     }
 }
