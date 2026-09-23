@@ -96,6 +96,10 @@ class ProjectionCalculator
         'tax_allocation'              => 0.026042,
         'product_cost'                => 0.09,
 
+        'advertising_cost'            => 0.0,
+        'ads_vat'                     => 0.0,
+        'ai_expense'                  => 0.0,
+        'ad_account_rental_fee'       => 0.0,
         'shipping_fee'                => 0.0,
         'cod_fee'                     => 0.01568,
         'fulfillment_fee'             => 0.03125,
@@ -131,9 +135,16 @@ class ProjectionCalculator
      *  copies" convention as ProductPerformance::DISPOSITION_KEYWORDS). */
     public const SELLING_COST_ROWS = [
         // Advertising Cost, Ads VAT, AI Expense, and Ad Account Rental Fee
-        // all removed (explicit request, 2026-09-23: "remove the ads
-        // cost" then "the ads remove that") — every one of them was always
-        // 0.00 in the source sheet's own columns anyway.
+        // restored (explicit request, 2026-09-23: "the ad cost can you
+        // put it back? make it same as in the sheets") — reversing the
+        // earlier removal from the same day. Every one of them is 0.00 by
+        // DEFAULT in the source sheet's own columns, but the rows
+        // themselves are real, editable line items there, same as every
+        // other Selling And Marketing row.
+        'advertising_cost'      => 'Advertising Cost',
+        'ads_vat'                => 'Ads VAT',
+        'ai_expense'             => 'AI Expense',
+        'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
         'cod_fee'                => 'COD Fee',
         'fulfillment_fee'        => 'Fulfillment Fee',
