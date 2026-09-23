@@ -683,6 +683,57 @@ class LeadControllerTest extends TestCase
     }
 
     /**
+     * Explicit request, 2026-09-23: "is it possible it TSA view(normal
+     * user) leads pages is has date picker" — was admin-only with no
+     * doc comment ever explaining why; LeadController::index() itself
+     * has never gated date_from/date_to by role, so a TSA picking a
+     * range was already fully supported server-side, just never exposed
+     * in this view.
+     */
+    public function test_a_tsa_now_sees_the_date_picker_on_the_leads_page(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma-datepicker@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.index'));
+
+        $response->assertOk();
+        $response->assertSee('id="callsLeadsDrpTrigger"', false);
+    }
+
+    /** A TSA picking a past date range only ever narrows HER OWN leads —
+     *  same access boundary as the rest of this page, unaffected by
+     *  opening the date picker to her. */
+    public function test_a_tsa_can_actually_filter_her_own_leads_by_date_range(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $user   = User::create(['name' => 'Gemma User', 'email' => 'gemma-daterange@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        $pastDate = now()->subDays(3);
+        Lead::create([
+            'pancake_order_id' => 'gemma-past-1', 'customer_name' => 'Gemma Past Lead',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+            'pancake_created_at' => $pastDate,
+        ]);
+        // Another TSA's lead on that same past day must never leak in.
+        Lead::create([
+            'pancake_order_id' => 'mariel-past-1', 'customer_name' => 'Mariel Past Lead',
+            'product_id' => $product->id, 'tsa_id' => $mariel->id, 'status' => 'assigned',
+            'pancake_created_at' => $pastDate,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('calls.leads.index', [
+            'date_from' => $pastDate->toDateString(), 'date_to' => $pastDate->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Gemma Past Lead');
+        $response->assertDontSee('Mariel Past Lead');
+    }
+
+    /**
      * Regression test, 2026-09-14: "when this all product has check in
      * tsa management it should be like the filter of product in tsa view
      * is the only checked product" — the Product filter's own option list

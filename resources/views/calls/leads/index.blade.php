@@ -506,13 +506,29 @@
              to control exactly when the reload happens. --}}
         <button type="submit" class="text-sm font-mono font-semibold text-white bg-primary hover:bg-primary-dark rounded-lg px-4 py-2 cursor-pointer">Search</button>
 
-        @if(auth()->user()->isAtLeastAdmin())
+        {{-- Opened to a TSA too (explicit request, 2026-09-23: "is it
+             possible it TSA view(normal user) leads pages is has date
+             picker") — was admin-only with no doc comment ever explaining
+             why, and LeadController::index() already parses date_from/
+             date_to unconditionally regardless of role (no isAtLeastAdmin()
+             gate on the backend side at all), so a TSA picking a range here
+             was already fully supported server-side, just never exposed in
+             this view. Safe to open: a TSA's own base query is already
+             scoped to $user->tsa_id before date_from/date_to is ever
+             applied (same as every other view here), so picking a range
+             only ever narrows/widens which of HER OWN leads show, never
+             exposes another TSA's — same access boundary as the rest of
+             this page, unaffected by this. Unlike the admin-only TSA/Team/
+             Product/Status filter dropdown above (genuinely meaningless for
+             a TSA, who can only ever see her own single-TSA queue anyway),
+             a date range is a real, useful filter for anyone — "show me my
+             leads from yesterday" is as valid a question for a TSA to ask
+             as it is for an admin. --}}
         @include('partials.date-picker', [
             'mode' => 'range', 'id' => 'callsLeadsDrp',
             'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom ?: now()),
             'dateTo'   => \Illuminate\Support\Carbon::parse($dateTo ?: now()),
         ])
-        @endif
     </form>
 </div>
 
