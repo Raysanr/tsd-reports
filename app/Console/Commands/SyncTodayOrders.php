@@ -166,10 +166,7 @@ class SyncTodayOrders extends Command
             $responses = count($pages) === 1
                 ? [(string) $pages[0] => $this->safeGet($url, $headers, $fetchParams + ['page_number' => $pages[0]])]
                 : Http::pool(fn ($pool) => array_map(
-                    // ->connectTimeout(30) — see safeGet()'s own doc comment
-                    // just below, same fix applied here for the pooled/
-                    // concurrent-page path.
-                    fn ($p) => $pool->as((string) $p)->withHeaders($headers)->timeout(30)->connectTimeout(30)->get($url, $fetchParams + ['page_number' => $p]),
+                    fn ($p) => $pool->as((string) $p)->withHeaders($headers)->timeout(30)->get($url, $fetchParams + ['page_number' => $p]),
                     $pages
                   ));
 
@@ -251,12 +248,7 @@ class SyncTodayOrders extends Command
     private function safeGet(string $url, array $headers, array $params): Response|\Throwable
     {
         try {
-            // ->connectTimeout(30) added 2026-09-23 — Laravel's HTTP client
-            // defaults connect_timeout to 10s regardless of ->timeout(), a
-            // separate setting capping only TCP/TLS connection setup itself,
-            // before any request is even sent; see SyncPancakeLeads::doSync()'s
-            // own doc comment for the full incident this was found from.
-            return Http::withHeaders($headers)->timeout(30)->connectTimeout(30)->get($url, $params);
+            return Http::withHeaders($headers)->timeout(30)->get($url, $params);
         } catch (\Throwable $e) {
             return $e;
         }

@@ -182,23 +182,8 @@ class SyncPancakeLeads extends Command
             // never ran, so a timed-out tick left NO LeadSyncRun row at
             // all, silently invisible to Sync Health's own "last synced"
             // readout instead of showing up as a real failed run.
-            //
-            // ->connectTimeout(30) added 2026-09-23 — Laravel's HTTP
-            // client defaults connect_timeout to 10s regardless of
-            // ->timeout(), an entirely separate setting that caps only
-            // how long TCP/TLS connection setup itself may take, BEFORE
-            // any request is even sent. Sync Health showed a run failing
-            // at exactly "10000 milliseconds" with the request never
-            // reaching the point of receiving any bytes at all — Pancake
-            // (or the network path to it) was slow to accept the
-            // connection, not slow to respond to it, a different failure
-            // mode than the ->timeout(30) cases above/below it, which all
-            // show partial bytes received. Left at the 10s default this
-            // whole time by omission, not by choice — every reason
-            // ->timeout() was raised to 30s above applies just as much to
-            // the connection phase, so the two are now consistent.
             try {
-                $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(30)->connectTimeout(30)->get($url, [
+                $response = Http::withHeaders(['Accept' => 'application/json'])->timeout(30)->get($url, [
                     'api_key'       => $apiKey,
                     'page_size'     => 100,
                     'page_number'   => $page,
