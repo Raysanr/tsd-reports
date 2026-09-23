@@ -322,7 +322,7 @@
                 </svg>
             </div>
             <span class="card-tag">Reporting</span>
-            <h3>TSD Reports</h3>
+            <h3>TSD Leads Reports</h3>
             <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
             <span class="card-open">Open →</span>
         </a>
@@ -341,7 +341,7 @@
                 </svg>
             </div>
             <span class="card-tag">Operations</span>
-            <h3>Call Tracker</h3>
+            <h3>TSD Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
             <span class="card-open">Open →</span>
         </a>
@@ -353,10 +353,28 @@
                 </svg>
             </div>
             <span class="card-tag">Operations</span>
-            <h3>Call Tracker</h3>
+            <h3>TSD Call Tracker</h3>
             <p>Pancake-connected round-robin lead assignment with free click-to-call.</p>
             <span class="coming-soon-badge">Coming soon</span>
         </div>
+        @endif
+
+        {{-- Admin-only (explicit request, 2026-09-23) — manages real
+             financial planning targets/rates, not day-to-day TSA-facing
+             data, so it's hidden from normal-role users the same way the
+             route group itself is gated (role:super_admin,admin). --}}
+        @if(auth()->user()->isAtLeastAdmin())
+        <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.projections') }}">
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+                </svg>
+            </div>
+            <span class="card-tag">Finance</span>
+            <h3>TSD Data Management</h3>
+            <p>Editable P&amp;L targets and planning projections — department, shift, and per-TSA goals.</p>
+            <span class="card-open">Open →</span>
+        </a>
         @endif
 
     </div>

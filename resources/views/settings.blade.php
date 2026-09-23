@@ -445,14 +445,14 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 pb-8 border-b border-slate-100 dark:border-slate-800">
             <div>
                 <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">Pancake Access Token</h3>
-                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Feeds Call Tracker's conversation viewer</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Feeds TSD Call Tracker's conversation viewer</p>
                 @if($accessTokenExpiresAt)
                 <p class="mt-2 text-xs {{ $accessTokenExpiresAt->isPast() ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400' }}">
                     {{ $accessTokenExpiresAt->isPast() ? 'Expired' : 'Expires' }} {{ $accessTokenExpiresAt->diffForHumans() }}
                 </p>
                 @endif
                 @if($accessTokenMasked)
-                <form method="POST" action="{{ route('settings.access-token.clear') }}" onsubmit="return confirm('Clear the Pancake access token? Conversation history will stop loading in Call Tracker until a new one is saved.');" class="mt-3">
+                <form method="POST" action="{{ route('settings.access-token.clear') }}" onsubmit="return confirm('Clear the Pancake access token? Conversation history will stop loading in TSD Call Tracker until a new one is saved.');" class="mt-3">
                     @csrf
                     <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
                     <button type="submit" class="px-3 py-1.5 text-xs font-semibold font-mono text-red-500 dark:text-red-400 border border-red-200 dark:border-red-800 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer">

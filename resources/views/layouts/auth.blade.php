@@ -15,7 +15,7 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>TSD Reports — @yield('title', 'Sign In')</title>
+    <title>TSD Leads Reports — @yield('title', 'Sign In')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -33,7 +33,7 @@
                 </svg>
             </div>
             <div>
-                <div class="text-white font-bold text-sm leading-tight font-mono">TSD Reports</div>
+                <div class="text-white font-bold text-sm leading-tight font-mono">TSD Leads Reports</div>
                 <div class="text-yellow-300 text-[10px] font-mono tracking-widest uppercase">Telesales Dashboard</div>
             </div>
         </div>
@@ -63,7 +63,7 @@
                     </svg>
                 </div>
                 <div>
-                    <div class="text-slate-800 dark:text-slate-100 font-bold text-sm leading-tight font-mono">TSD Reports</div>
+                    <div class="text-slate-800 dark:text-slate-100 font-bold text-sm leading-tight font-mono">TSD Leads Reports</div>
                     <div class="text-accent text-[10px] font-mono tracking-widest uppercase">Telesales Dashboard</div>
                 </div>
             </div>

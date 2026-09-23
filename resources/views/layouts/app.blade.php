@@ -26,7 +26,7 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>TSD Reports — @yield('title', 'Dashboard')</title>
+    <title>TSD Leads Reports — @yield('title', 'Dashboard')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -413,7 +413,7 @@
                     </svg>
                 </div>
                 <div class="min-w-0 sidebar-label">
-                    <div class="text-white font-bold text-sm leading-tight font-mono truncate">TSD Reports</div>
+                    <div class="text-white font-bold text-sm leading-tight font-mono truncate">TSD Leads Reports</div>
                     <div class="text-yellow-300 text-[10px] font-mono tracking-widest uppercase truncate">Telesales Dashboard</div>
                 </div>
             </div>
@@ -638,7 +638,7 @@
             </button>
             <div class="min-w-0 shrink-0">
                 <h1 class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">@yield('title', 'Dashboard')</h1>
-                <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Reports · Pancake POS Integration')</p>
+                <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Leads Reports · Pancake POS Integration')</p>
             </div>
 
             {{-- Global search — TSA agents and Products only (see SearchController for

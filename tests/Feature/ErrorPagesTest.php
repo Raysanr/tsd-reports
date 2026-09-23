@@ -24,7 +24,7 @@ class ErrorPagesTest extends TestCase
         $response = $this->get(route('product-management'));
 
         $response->assertForbidden();
-        $response->assertSee('TSD Reports', false);
+        $response->assertSee('TSD Leads Reports', false);
         $response->assertSee('Access denied', false);
         $response->assertSee(route('dashboard'), false);
     }
@@ -36,7 +36,7 @@ class ErrorPagesTest extends TestCase
         $response = $this->get('/this-route-does-not-exist-anywhere');
 
         $response->assertNotFound();
-        $response->assertSee('TSD Reports', false);
+        $response->assertSee('TSD Leads Reports', false);
         $response->assertSee('Page not found', false);
     }
 }

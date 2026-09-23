@@ -269,4 +269,24 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
         });
     });
+
+    // TSD Data Management — a new, standalone module (explicit request,
+    // 2026-09-23: "create new module TSD DATA MANAGEMENT") alongside TSD
+    // Leads Reports and TSD Call Tracker, same "own Hub card, own
+    // prefix/layout" pattern as Call Tracker's own group above. Admin-only
+    // throughout — this manages real financial planning targets/rates, not
+    // day-to-day TSA-facing data, so it sits under the same
+    // role:super_admin,admin gate CONFIG pages already use rather than
+    // Call Tracker's "opened to a TSA too" precedent.
+    Route::prefix('data')->name('data.')->middleware('role:super_admin,admin')->group(function () {
+        Route::get('/', fn () => redirect()->route('data.projections'));
+        Route::get('/projections', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'index'])->name('projections');
+        // /rates registered BEFORE the {projectionColumn} wildcard — PATCH
+        // routes match in registration order, and the wildcard would
+        // otherwise swallow "rates" as a (non-existent) column id, 404ing
+        // via silent route-model-binding failure instead of ever reaching
+        // updateRates().
+        Route::patch('/projections/rates', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateRates'])->name('projections.update-rates');
+        Route::patch('/projections/{projectionColumn}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateColumn'])->name('projections.update-column');
+    });
 });

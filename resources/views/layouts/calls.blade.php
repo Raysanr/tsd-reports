@@ -15,7 +15,7 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Call Tracker — @yield('title', 'Dashboard')</title>
+    <title>TSD Call Tracker — @yield('title', 'Dashboard')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('images/call-tracker-favicon.svg') }}">
     {{-- Ported from call-tracker (merged into one app 2026-08-12), unmodified
          except route names/model renames below — a DEDICATED layout, not a
@@ -228,7 +228,7 @@
                     </svg>
                 </div>
                 <div class="min-w-0">
-                    <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">Call Tracker</div>
+                    <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">TSD Call Tracker</div>
                     <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">TSD Telesales</div>
                 </div>
             </div>
