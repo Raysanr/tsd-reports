@@ -65,28 +65,6 @@
     'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
     'submit' => 'navigate', 'navigateBase' => route('calls.call-log'),
 ])
-
-{{-- Search by customer name/phone (explicit request, 2026-09-23: "is it
-     possible in the call log page add search bar like can search the
-     number, name of the customer") — a plain GET form, same "full page
-     reload, no live-search AJAX" convention every other filter on this
-     page already uses (this page has no partial-swap infrastructure at
-     all, unlike the Leads page's own live search). Hidden fields carry
-     every OTHER currently-active filter forward so searching never
-     resets Team/TSA/date, same "bake every other filter into this one's
-     own submission" convention the Team pills/TSA select above already
-     follow for each other. --}}
-<form method="GET" action="{{ route('calls.call-log') }}" class="relative">
-    <input type="hidden" name="team" value="{{ $selectedTeam }}">
-    <input type="hidden" name="tsa" value="{{ $selectedTsa }}">
-    <input type="hidden" name="date_from" value="{{ $dateFrom }}">
-    <input type="hidden" name="date_to" value="{{ $dateTo }}">
-    <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
-    </svg>
-    <input type="text" name="q" value="{{ $q }}" placeholder="Search name or phone…"
-           class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 w-52">
-</form>
 @endpush
 
 @php
@@ -164,86 +142,84 @@
 </div>
 
 <div>
-    <h2 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Recent calls</h2>
-    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        @if($events->isEmpty())
-        <div class="py-12 flex flex-col items-center justify-center gap-2">
-            <svg class="w-9 h-9 text-slate-200 dark:text-slate-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.517l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+    <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <h2 class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Recent calls</h2>
+        {{-- Search by customer name/phone (explicit request, 2026-09-23:
+             "is it possible in the call log page add search bar like can
+             search the number, name of the customer"; follow-up same day:
+             "i want the search bar is in the recent calls" AND "i want to
+             make it auto search like don't need to click the enter to
+             search, i want to make it auto") — sits right above THIS
+             table specifically (not the topbar, where every other filter
+             lives), since it only ever affects Recent calls, never the
+             Per-TSA Totals table above (see CallLogController::index()'s
+             own comment on why $events there stays completely unfiltered
+             by $q — searching for one customer shouldn't make everyone
+             else's real totals look like they made fewer calls today).
+             Auto-submits on typing (debounced, same 250ms/pattern
+             initLiveLeadsSearch() already uses for the Leads page's own
+             search) via a plain <input>, not a <form> — this one has no
+             other fields to submit alongside it (Team/TSA/date live in
+             the topbar's own separate GET navigation), so there's nothing
+             here for Enter/a submit button to do that isn't already
+             covered by the debounced fetch. --}}
+        <div class="relative">
+            <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
             </svg>
-            <p class="text-sm font-mono text-slate-400">No calls reported yet.</p>
+            <input type="text" id="callLogSearch" value="{{ $q }}" placeholder="Search name or phone…"
+                   class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 w-56">
         </div>
-        @else
-        {{-- Scrollable body, sticky header (explicit request, 2026-09-18:
-             "can you make the Recent calls has scroll") — this table is
-             capped at 200 rows server-side (CallLogController::index()'s
-             own ->take(200)) but was still rendering every one of them
-             inline, making the whole PAGE scroll a very long way past
-             the Per-TSA Totals table above it. A fixed-height scroll
-             container keeps Recent Calls contained to one screen's worth
-             of space; the header stays pinned (position: sticky) so the
-             column labels are never scrolled out of view while browsing
-             a long list. --}}
-        <div class="overflow-x-auto overflow-y-auto max-h-[37.5rem]">
-        <table class="w-full text-sm font-mono">
-            <thead class="bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
-                <tr>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">When</th>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">TSA</th>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Number</th>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Duration</th>
-                    {{-- Gap to next customer (explicit request, 2026-08-24) —
-                         idle time between this TSA's PREVIOUS call ending and
-                         this one starting, not this row's own call length
-                         (that's the Duration column already). "First call"
-                         when there's nothing earlier for this TSA in the
-                         picked range — see CallLogController::index()'s own
-                         comment for exactly how this is computed. --}}
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Gap Before</th>
-                    <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-400 uppercase tracking-wide">Matched Lead</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-slate-700">
-                @foreach($events as $event)
-                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
-                    <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{ $event->occurred_at->format('M j, g:i A') }}</td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->tsa?->display_name ?? '—' }}</td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->phone_number }}</td>
-                    <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{ $event->duration_seconds !== null ? gmdate('i:s', $event->duration_seconds) : '—' }}</td>
-                    <td class="px-4 py-3">
-                        @php $gap = $gapBeforeSeconds[$event->id] ?? null; @endphp
-                        @if($gap !== null)
-                        <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide {{ $gapSeverityClass($gap) }}">
-                            {{ $formatGap($gap) }}
-                        </span>
-                        @else
-                        <span class="text-xs text-slate-300 dark:text-slate-600">First call</span>
-                        @endif
-                    </td>
-                    <td class="px-4 py-3">
-                        @if($event->lead)
-                        <a href="{{ route('calls.leads.show', $event->lead) }}" class="text-primary hover:underline">{{ $event->lead->customer_name ?: '#'.$event->lead->pancake_order_id }}</a>
-                        {{-- How many times this customer was called within the
-                             picked range/filters (explicit request, 2026-09-16)
-                             — only shown once there's more than one, so a
-                             normal single call stays uncluttered. --}}
-                        @php $callCount = $callCountsByLeadId[$event->lead_id] ?? 1; @endphp
-                        @if($callCount > 1)
-                        <span class="inline-flex items-center justify-center ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300" title="Called {{ $callCount }} times in this range">
-                            ×{{ $callCount }}
-                        </span>
-                        @endif
-                        @else
-                        <span class="text-slate-300 dark:text-slate-600">no match</span>
-                        @endif
-                    </td>
-                </tr>
-                @endforeach
-            </tbody>
-        </table>
-        </div>
-        @endif
+    </div>
+    <div id="recentCallsContainer" data-poll-url="{{ url()->full() }}">
+        @include('calls.call-log._recent-calls')
     </div>
 </div>
+
+@push('scripts')
+<script>
+(function () {
+    const input = document.getElementById('callLogSearch');
+    const container = document.getElementById('recentCallsContainer');
+    if (!input || !container) return;
+
+    let debounce = null;
+    input.addEventListener('input', () => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => {
+            const params = new URLSearchParams(window.location.search);
+            if (input.value) {
+                params.set('q', input.value);
+            } else {
+                params.delete('q');
+            }
+            // pathname, NOT window.location.href/a <form>'s own .action —
+            // real production bug, 2026-09-21 (Leads page search box): a
+            // form with no explicit action="" resolves .action to the
+            // FULL current URL including its own query string, so
+            // appending a second "?...params" onto that produced a
+            // malformed URL and a live 500. pathname is a bare path, no
+            // query string of its own to collide with — see that
+            // incident's own commit for the full story.
+            const url = `${window.location.pathname}?${params.toString()}`;
+            container.dataset.pollUrl = url;
+
+            fetch(url, { headers: { 'X-Table-Refresh': '1' }, cache: 'no-store' })
+                .then((res) => (res.ok ? res.text() : null))
+                .then((html) => {
+                    if (html === null) return;
+                    container.innerHTML = html;
+                    // Keeps the URL bar/back button/a page refresh in sync
+                    // with whatever's actually on screen, without a real
+                    // navigation — same reasoning the Leads page's own
+                    // live search already established.
+                    window.history.replaceState({}, '', url);
+                })
+                .catch(() => {});
+        }, 250);
+    });
+})();
+</script>
+@endpush
 
 @endsection

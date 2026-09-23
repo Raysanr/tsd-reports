@@ -100,31 +100,40 @@ class CallLogController extends Controller
         // which happens to be exactly correct for a click row too —
         // occurred_at IS the dial/start moment for these, not a call's end
         // the way it is for every other row.
-        // Search by customer name/phone (explicit request, 2026-09-23: "is
-        // it possible in the call log page add search bar like can search
-        // the number, name of the customer") — plain, non-remembered
-        // request param, same convention LeadController::index()'s own 'q'
-        // search already uses (never persisted via rememberedFilter() the
-        // way Team/TSA/date are here, since a stale search term silently
-        // surviving a tab-away-and-back would hide rows with no visible
-        // reason why). phone_number lives directly on CallEvent (every row
-        // has one, matched or not); customer_name only exists via the
-        // linked Lead (whereHas — a call with no lead match, per this
-        // method's own $callCountsByLeadId comment, is excluded by a name
-        // search but still matchable by phone, which is why this is an OR
-        // across both, not a single combined condition).
-        $q = trim((string) $request->input('q', ''));
-
         $events = CallEvent::with(['tsa', 'lead'])
             ->whereBetween('occurred_at', [$from, $to])
             ->when($orderTeam, fn ($qr) => $qr->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
             ->when($selectedTsa, fn ($qr) => $qr->where('tsa_id', $selectedTsa))
-            ->when($q !== '', fn ($qr) => $qr->where(function ($sub) use ($q) {
-                $sub->where('phone_number', 'like', "%{$q}%")
-                    ->orWhereHas('lead', fn ($l) => $l->where('customer_name', 'like', "%{$q}%"));
-            }))
             ->orderByDesc('occurred_at')
             ->get();
+
+        // Search by customer name/phone (explicit request, 2026-09-23: "is
+        // it possible in the call log page add search bar like can search
+        // the number, name of the customer"; follow-up same day: "i want
+        // the search bar is in the recent calls" — confirmed scope: Recent
+        // calls ONLY, Per-TSA Totals below keeps showing everyone's real
+        // totals for the range regardless of search, so $events (used for
+        // $rows/$tsaGapStats/$callCountsByLeadId below) stays completely
+        // unfiltered by $q — only $recentCallEvents, built from it after
+        // all of that, ever gets narrowed). Plain, non-remembered request
+        // param, same convention LeadController::index()'s own 'q' search
+        // already uses (never persisted via rememberedFilter() the way
+        // Team/TSA/date are here, since a stale search term silently
+        // surviving a tab-away-and-back would hide rows with no visible
+        // reason why). Filtered in PHP over the already-fetched
+        // Eloquent collection, not a second DB query — phone_number lives
+        // directly on CallEvent (every row has one, matched or not);
+        // customer_name only exists via the already-eager-loaded ->lead
+        // relation (a call with no lead match, per $callCountsByLeadId's
+        // own comment below, is excluded by a name search but still
+        // matchable by phone).
+        $q = trim((string) $request->input('q', ''));
+        $qLower = strtolower($q);
+        $recentCallEvents = $q === ''
+            ? $events
+            : $events->filter(fn (CallEvent $e) => str_contains(strtolower($e->phone_number ?? ''), $qLower)
+                || str_contains(strtolower($e->lead?->customer_name ?? ''), $qLower))
+                ->values();
 
         // Gap-to-next-customer (explicit request, 2026-08-24) — replaces the
         // outgoing/incoming/missed/duration breakdown with "how much idle
@@ -207,11 +216,11 @@ class CallLogController extends Controller
         $callCountsByLeadId = $events->whereNotNull('lead_id')
             ->countBy('lead_id');
 
-        return view('calls.call-log', [
+        $data = [
             'rows'             => $rows,
             'teamTsas'         => $teamTsas,
             'selectedTsa'      => $selectedTsa,
-            'events'           => $events->take(200), // recent-first raw list, capped same reasoning as other reports
+            'events'           => $recentCallEvents->take(200), // recent-first raw list, capped same reasoning as other reports
             'gapBeforeSeconds' => $gapBeforeSeconds,
             'callCountsByLeadId' => $callCountsByLeadId,
             'dateFrom'         => $dateFrom,
@@ -219,6 +228,20 @@ class CallLogController extends Controller
             'teams'            => $teams,
             'selectedTeam'     => $selectedTeam,
             'q'                => $q,
-        ]);
+        ];
+
+        // Live search (explicit request, 2026-09-23: "i want to make it
+        // auto search like don't need to click the enter to search") —
+        // same X-Table-Refresh convention LeadController::index()/
+        // TsaStatusController::index() already use for their own live
+        // search/filter: the frontend fetches this same URL on every
+        // keystroke (debounced) and swaps in just this fragment, not the
+        // whole page — Per-TSA Totals above and the topbar filters stay
+        // untouched by a search-triggered refresh.
+        if ($request->header('X-Table-Refresh')) {
+            return view('calls.call-log._recent-calls', $data);
+        }
+
+        return view('calls.call-log', $data);
     }
 }

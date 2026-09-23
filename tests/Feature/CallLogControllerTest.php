@@ -286,6 +286,69 @@ class CallLogControllerTest extends TestCase
         $this->assertSame('09171234567', $events->first()->phone_number);
     }
 
+    /**
+     * Explicit follow-up, 2026-09-23: "i want the search bar is in the
+     * recent calls" — confirmed scope: search only ever narrows the
+     * Recent calls list; the Per-TSA Totals table above it keeps showing
+     * everyone's real totals for the picked range regardless of what's
+     * typed, so searching one customer's name doesn't make it LOOK like
+     * every other TSA made fewer calls today.
+     */
+    public function test_search_narrows_recent_calls_but_never_the_per_tsa_totals(): void
+    {
+        $admin  = User::factory()->create(['role' => 'admin']);
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $today  = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $mariel->id, 'phone_number' => '09998887777', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today, 'date_to' => $today, 'q' => '1234567',
+        ]));
+
+        $response->assertOk();
+        // Recent calls: narrowed to just the matching call.
+        $this->assertCount(1, $response->viewData('events'));
+        // Per-TSA Totals: BOTH TSAs still show their real, unfiltered
+        // total_calls — Mariel's 1 call is untouched by a search that
+        // only matched Gemma's own number.
+        $rows = collect($response->viewData('rows'))->keyBy(fn ($r) => $r['tsa']->id);
+        $this->assertSame(1, $rows[$gemma->id]['total_calls']);
+        $this->assertSame(1, $rows[$mariel->id]['total_calls']);
+    }
+
+    /**
+     * Explicit follow-up, 2026-09-23: "i want to make it auto search like
+     * don't need to click the enter to search, i want to make it auto" —
+     * the frontend fetches this same URL on every keystroke with an
+     * X-Table-Refresh header (same convention LeadController::index()/
+     * TsaStatusController::index() already use for their own live
+     * search/filters) and expects back just the Recent calls fragment,
+     * not the full page with its own layout/topbar/Per-TSA Totals table.
+     */
+    public function test_an_x_table_refresh_request_returns_only_the_recent_calls_fragment(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today, 'date_to' => $today, 'q' => '1234567',
+        ]), ['X-Table-Refresh' => '1']);
+
+        $response->assertOk();
+        $response->assertSee('09171234567');
+        // The full page's own chrome (Per-TSA totals heading, the page's
+        // own subtitle) must be absent — only the Recent calls fragment
+        // itself, same as the Leads page's own X-Table-Refresh convention.
+        $response->assertDontSee('Per-TSA totals');
+        $response->assertDontSee('the basis for load reimbursement');
+    }
+
     public function test_search_matches_by_customer_name_via_the_linked_lead(): void
     {
         $admin   = User::factory()->create(['role' => 'admin']);
