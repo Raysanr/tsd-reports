@@ -302,4 +302,97 @@ class MonitorLeadQueueHealthTest extends TestCase
         $response->assertOk();
         $response->assertSee('1 Overdue', false);
     }
+
+    /**
+     * Explicit request, 2026-09-23: "is it possible that can be see in
+     * the tsa monitor page how many leads they got every tsa like in the
+     * leads setup" — reuses TsaShift::leadsAssignedBetween() directly,
+     * the exact same method Leads Setup's own "X/Y" column already uses
+     * (round-robin-setup/_table.blade.php), so the two pages can never
+     * show a different number for the same TSA/range.
+     */
+    public function test_shows_a_tsas_leads_assigned_count_against_their_daily_cap(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['daily_lead_cap' => 5]);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        foreach (range(1, 3) as $i) {
+            Lead::create([
+                'pancake_order_id' => "assigned-count-{$i}", 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+                'status' => 'assigned', 'pancake_created_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $response->assertSee('3/5', false);
+        $leadCounts = collect($response->viewData('leadCounts'));
+        $this->assertSame(3, $leadCounts[$gemma->id]['leadsAssigned']);
+    }
+
+    /** A TSA with NO daily cap set shows the bare count, same "no cap
+     *  configured" fallback Leads Setup's own table already uses — no
+     *  progress bar/fraction to divide by a cap that doesn't exist. */
+    public function test_a_tsa_with_no_daily_cap_shows_the_bare_assigned_count(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['daily_lead_cap' => null]);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+
+        Lead::create([
+            'pancake_order_id' => 'no-cap-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $response->assertDontSee('1/', false);
+        $leadCounts = collect($response->viewData('leadCounts'));
+        $this->assertSame(1, $leadCounts[$gemma->id]['leadsAssigned']);
+    }
+
+    /** Zero leads assigned still shows the pill (unlike the Overdue/
+     *  Callback pills above, which hide entirely at zero) — "this TSA
+     *  got zero leads today" is itself something a supervisor watching
+     *  this page would want to see, not something to hide. */
+    public function test_a_tsa_with_zero_leads_assigned_still_shows_the_pill(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $gemma->update(['daily_lead_cap' => 10]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor'));
+
+        $response->assertOk();
+        $response->assertSee('0/10', false);
+    }
+
+    /** leadsAssigned respects the page's own picked date range, same as
+     *  leadCounts' own overdue/callbacks entries above — a past-day pick
+     *  shows that day's assignment volume, not always today's. */
+    public function test_leads_assigned_uses_the_pages_own_date_range_not_always_today(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $pastDate = now()->subDays(3);
+
+        Lead::create([
+            'pancake_order_id' => 'past-assigned-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => $pastDate,
+        ]);
+        Lead::create([
+            'pancake_order_id' => 'today-assigned-1', 'product_id' => $product->id, 'tsa_id' => $gemma->id,
+            'status' => 'assigned', 'pancake_created_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin())->get(route('calls.monitor', [
+            'date_from' => $pastDate->toDateString(), 'date_to' => $pastDate->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $leadCounts = collect($response->viewData('leadCounts'));
+        $this->assertSame(1, $leadCounts[$gemma->id]['leadsAssigned']);
+    }
 }

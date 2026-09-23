@@ -260,7 +260,13 @@
         </div>
 
         @php
-            $tsaLeadCounts = $leadCounts[$tsa->id] ?? ['overdue' => 0, 'callbacks' => 0, 'callbackCount' => 0, 'unansweredCount' => 0, 'callsCalled' => 0];
+            $tsaLeadCounts = $leadCounts[$tsa->id] ?? ['overdue' => 0, 'callbacks' => 0, 'callbackCount' => 0, 'unansweredCount' => 0, 'callsCalled' => 0, 'leadsAssigned' => 0];
+            // Same $cap/$atCap shape Leads Setup's own table already uses
+            // (round-robin-setup/_table.blade.php) — kept identical here so
+            // the two pages can never visually disagree about what "at cap"
+            // means for the same TSA.
+            $leadsCap = $tsa->daily_lead_cap;
+            $leadsAtCap = $leadsCap !== null && $tsaLeadCounts['leadsAssigned'] >= $leadsCap;
         @endphp
         @if($tsaLeadCounts['overdue'] > 0 || $tsaLeadCounts['callbacks'] > 0)
         {{-- Lead-queue health pills — only shown when there's actually
@@ -312,6 +318,30 @@
             @endif
         </div>
         @endif
+
+        {{-- Leads Assigned (explicit request, 2026-09-23: "is it possible
+             that can be see in the tsa monitor page how many leads they got
+             every tsa like in the leads setup") — same "assigned in this
+             range vs. daily cap" number Leads Setup's own table shows
+             (TsaShift::leadsAssignedBetween(), see MonitorController::
+             index()'s own comment), same X/Y-plus-progress-bar treatment,
+             same red-once-at-cap color. Unlike the pills above, shown even
+             at 0 — "this TSA got zero leads today" is itself something a
+             supervisor watching this page would want to see at a glance,
+             not something to hide as "nothing to flag." --}}
+        <div class="mb-4">
+            <p class="text-[10px] text-slate-400 font-mono uppercase tracking-wide mb-1">Leads Assigned</p>
+            @if($leadsCap !== null)
+            <div class="flex items-center gap-2.5">
+                <div class="flex-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden max-w-[10rem]">
+                    <div class="h-full rounded-full {{ $leadsAtCap ? 'bg-red-500' : 'bg-primary' }}" style="width: {{ min(100, round($tsaLeadCounts['leadsAssigned'] / max($leadsCap, 1) * 100)) }}%"></div>
+                </div>
+                <span class="text-sm font-mono font-bold tabular-nums {{ $leadsAtCap ? 'text-red-600 dark:text-red-400' : 'text-slate-800 dark:text-slate-100' }}">{{ $tsaLeadCounts['leadsAssigned'] }}/{{ $leadsCap }}</span>
+            </div>
+            @else
+            <span class="text-sm font-mono font-bold tabular-nums text-slate-800 dark:text-slate-100">{{ $tsaLeadCounts['leadsAssigned'] }}</span>
+            @endif
+        </div>
 
         @if($isSingleDay && $dateFrom->isToday())
         <div class="mb-4">

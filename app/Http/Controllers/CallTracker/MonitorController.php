@@ -145,6 +145,19 @@ class MonitorController extends Controller
                         ->whereIn('user_id', $userIds)
                         ->whereBetween('created_at', [$dateFrom, $dateTo])
                         ->count(),
+                    // Leads assigned in the picked range vs. daily cap
+                    // (explicit request, 2026-09-23: "is it possible that
+                    // can be see in the tsa monitor page how many leads
+                    // they got every tsa like in the leads setup") — reuses
+                    // TsaShift::leadsAssignedBetween() directly, the exact
+                    // same method/definition Leads Setup's own "22/35"
+                    // column already uses (pancake_created_at-scoped, see
+                    // that method's own doc comment), so this can never
+                    // drift from what that page shows for the same TSA/
+                    // range. daily_lead_cap itself lives on $t (the TsaShift
+                    // model already in scope here), not duplicated into
+                    // this array — the view reads it straight off $tsa.
+                    'leadsAssigned' => $t->leadsAssignedBetween($dateFrom, $dateTo),
                 ],
             ];
         });
