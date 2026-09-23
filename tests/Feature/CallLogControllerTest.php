@@ -260,4 +260,90 @@ class CallLogControllerTest extends TestCase
         $response->assertOk();
         $this->assertNull($response->viewData('selectedTsa'));
     }
+
+    /**
+     * Explicit request, 2026-09-23: "is it possible in the call log page
+     * add search bar like can search the number, name of the customer" —
+     * phone_number lives directly on CallEvent (matches regardless of a
+     * lead link); customer_name only exists via the linked Lead.
+     */
+    public function test_search_matches_by_phone_number(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09998887777', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today, 'date_to' => $today, 'q' => '1234567',
+        ]));
+
+        $response->assertOk();
+        $events = $response->viewData('events');
+        $this->assertCount(1, $events);
+        $this->assertSame('09171234567', $events->first()->phone_number);
+    }
+
+    public function test_search_matches_by_customer_name_via_the_linked_lead(): void
+    {
+        $admin   = User::factory()->create(['role' => 'admin']);
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $product = \App\Models\Product::where('display_name', 'SINUXYL')->first();
+        $today   = now('Asia/Manila')->format('Y-m-d');
+
+        $lead = \App\Models\Lead::create([
+            'pancake_order_id' => 'call-log-search-1', 'customer_name' => 'Juan Dela Cruz',
+            'phone_number' => '09171234567', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned',
+        ]);
+        CallEvent::create(['tsa_id' => $gemma->id, 'lead_id' => $lead->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        // A different, unmatched call — must not show up for an unrelated name search.
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09998887777', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today, 'date_to' => $today, 'q' => 'Juan',
+        ]));
+
+        $response->assertOk();
+        $events = $response->viewData('events');
+        $this->assertCount(1, $events);
+        $this->assertSame($lead->id, $events->first()->lead_id);
+    }
+
+    /** A search with no matches returns an empty list, not everything —
+     *  confirms the filter is actually narrowing, not silently ignored. */
+    public function test_search_with_no_matches_returns_no_events(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', [
+            'date_from' => $today, 'date_to' => $today, 'q' => 'no-such-match',
+        ]));
+
+        $response->assertOk();
+        $this->assertCount(0, $response->viewData('events'));
+    }
+
+    /** No `q` param at all must behave exactly as before this feature —
+     *  every event in range/filter, nothing narrowed. */
+    public function test_no_search_param_shows_every_event(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $today = now('Asia/Manila')->format('Y-m-d');
+
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09171234567', 'direction' => 'outgoing', 'duration_seconds' => 60, 'occurred_at' => now('Asia/Manila')]);
+        CallEvent::create(['tsa_id' => $gemma->id, 'phone_number' => '09998887777', 'direction' => 'outgoing', 'duration_seconds' => 30, 'occurred_at' => now('Asia/Manila')]);
+
+        $response = $this->actingAs($admin)->get(route('calls.call-log', ['date_from' => $today, 'date_to' => $today]));
+
+        $response->assertOk();
+        $this->assertCount(2, $response->viewData('events'));
+        $this->assertSame('', $response->viewData('q'));
+    }
 }

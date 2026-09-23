@@ -23,7 +23,7 @@
      only ever point away from that would just be misleading. --}}
 <div class="flex rounded-lg border border-slate-300 dark:border-slate-600 overflow-hidden">
     @foreach($teams as $key => $label)
-    <a href="{{ route('calls.call-log', ['team' => $key, 'tsa' => $selectedTsa, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+    <a href="{{ route('calls.call-log', ['team' => $key, 'tsa' => $selectedTsa, 'date_from' => $dateFrom, 'date_to' => $dateTo, 'q' => $q]) }}"
        class="px-3 py-1.5 text-xs font-semibold font-mono transition-colors duration-200
               {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
         {{ $label }}
@@ -43,9 +43,9 @@
      of which one is currently selected. --}}
 <select onchange="window.location.href=this.value"
         class="text-xs font-semibold font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-1.5 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-yellow-500">
-    <option value="{{ route('calls.call-log', ['team' => $selectedTeam, 'tsa' => '', 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @selected(!$selectedTsa)>All TSAs</option>
+    <option value="{{ route('calls.call-log', ['team' => $selectedTeam, 'tsa' => '', 'date_from' => $dateFrom, 'date_to' => $dateTo, 'q' => $q]) }}" @selected(!$selectedTsa)>All TSAs</option>
     @foreach($teamTsas as $tsa)
-    <option value="{{ route('calls.call-log', ['team' => $selectedTeam, 'tsa' => $tsa->id, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}" @selected($selectedTsa === $tsa->id)>{{ $tsa->display_name }}</option>
+    <option value="{{ route('calls.call-log', ['team' => $selectedTeam, 'tsa' => $tsa->id, 'date_from' => $dateFrom, 'date_to' => $dateTo, 'q' => $q]) }}" @selected($selectedTsa === $tsa->id)>{{ $tsa->display_name }}</option>
     @endforeach
 </select>
 @endif
@@ -55,12 +55,38 @@
      the dashboard") — replaces the two plain <input type="date"> fields +
      Apply button this page used before. submit='navigate': a real page
      reload, consistent with every other icon-only topbar picker in this
-     app (Dashboard, Leads Setup, Monitor TSA, Analytics). --}}
+     app (Dashboard, Leads Setup, Monitor TSA, Analytics). Doesn't carry
+     `q`/team/tsa back through navigateBase (same accepted "minor rough
+     edge" this comment already documented before the search box existed)
+     — switching the date always meant losing Team/TSA too, so search is
+     the same known limitation, not a new one. --}}
 @include('partials.date-picker', [
     'mode' => 'range', 'id' => 'callLogDrp',
     'dateFrom' => \Illuminate\Support\Carbon::parse($dateFrom), 'dateTo' => \Illuminate\Support\Carbon::parse($dateTo),
     'submit' => 'navigate', 'navigateBase' => route('calls.call-log'),
 ])
+
+{{-- Search by customer name/phone (explicit request, 2026-09-23: "is it
+     possible in the call log page add search bar like can search the
+     number, name of the customer") — a plain GET form, same "full page
+     reload, no live-search AJAX" convention every other filter on this
+     page already uses (this page has no partial-swap infrastructure at
+     all, unlike the Leads page's own live search). Hidden fields carry
+     every OTHER currently-active filter forward so searching never
+     resets Team/TSA/date, same "bake every other filter into this one's
+     own submission" convention the Team pills/TSA select above already
+     follow for each other. --}}
+<form method="GET" action="{{ route('calls.call-log') }}" class="relative">
+    <input type="hidden" name="team" value="{{ $selectedTeam }}">
+    <input type="hidden" name="tsa" value="{{ $selectedTsa }}">
+    <input type="hidden" name="date_from" value="{{ $dateFrom }}">
+    <input type="hidden" name="date_to" value="{{ $dateTo }}">
+    <svg class="w-4 h-4 text-slate-300 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M18 10.5a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z"/>
+    </svg>
+    <input type="text" name="q" value="{{ $q }}" placeholder="Search name or phone…"
+           class="text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500 w-52">
+</form>
 @endpush
 
 @php

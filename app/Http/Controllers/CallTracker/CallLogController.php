@@ -100,10 +100,29 @@ class CallLogController extends Controller
         // which happens to be exactly correct for a click row too —
         // occurred_at IS the dial/start moment for these, not a call's end
         // the way it is for every other row.
+        // Search by customer name/phone (explicit request, 2026-09-23: "is
+        // it possible in the call log page add search bar like can search
+        // the number, name of the customer") — plain, non-remembered
+        // request param, same convention LeadController::index()'s own 'q'
+        // search already uses (never persisted via rememberedFilter() the
+        // way Team/TSA/date are here, since a stale search term silently
+        // surviving a tab-away-and-back would hide rows with no visible
+        // reason why). phone_number lives directly on CallEvent (every row
+        // has one, matched or not); customer_name only exists via the
+        // linked Lead (whereHas — a call with no lead match, per this
+        // method's own $callCountsByLeadId comment, is excluded by a name
+        // search but still matchable by phone, which is why this is an OR
+        // across both, not a single combined condition).
+        $q = trim((string) $request->input('q', ''));
+
         $events = CallEvent::with(['tsa', 'lead'])
             ->whereBetween('occurred_at', [$from, $to])
-            ->when($orderTeam, fn ($q) => $q->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
-            ->when($selectedTsa, fn ($q) => $q->where('tsa_id', $selectedTsa))
+            ->when($orderTeam, fn ($qr) => $qr->whereHas('tsa', fn ($t) => $t->where('team', $orderTeam)))
+            ->when($selectedTsa, fn ($qr) => $qr->where('tsa_id', $selectedTsa))
+            ->when($q !== '', fn ($qr) => $qr->where(function ($sub) use ($q) {
+                $sub->where('phone_number', 'like', "%{$q}%")
+                    ->orWhereHas('lead', fn ($l) => $l->where('customer_name', 'like', "%{$q}%"));
+            }))
             ->orderByDesc('occurred_at')
             ->get();
 
@@ -199,6 +218,7 @@ class CallLogController extends Controller
             'dateTo'           => $dateTo,
             'teams'            => $teams,
             'selectedTeam'     => $selectedTeam,
+            'q'                => $q,
         ]);
     }
 }
