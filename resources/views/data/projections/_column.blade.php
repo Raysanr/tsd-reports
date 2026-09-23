@@ -4,21 +4,28 @@
     $t = $entry['target_card'];
     $p = $entry['pnl'];
 
-    // Only Opening Shift's P&L rows are real inputs in the source sheet —
-    // the other 3 cards are pure =F39/6-style FORMULAS copied from it, not
-    // independent cells (root-caused 2026-09-23 from the user's own sheet
-    // screenshot; explicit decision after that finding: those 3 cards'
-    // P&L rows display read-only, only Opening Shift's stay editable). The
-    // target card below (Net Income Target/AOV/TSA Count) is a SEPARATE
-    // concern and stays editable on every column regardless — see
+    // Only Opening Shift's AND Closing Shift's own P&L rows are real
+    // inputs in the source sheet — every Individual TSA Monthly/Daily
+    // card is a pure =F39/6-style FORMULA copied from its own shift, not
+    // an independent cell (root-caused 2026-09-23 from the user's own
+    // sheet screenshot; explicit decision after that finding: derived
+    // cards' P&L rows display read-only, only the 2 base shifts' stay
+    // editable). Telesales Department is ALSO derived now (= Opening +
+    // Closing, explicit decision 2026-09-23 once Closing became
+    // independently editable) so it's read-only too. The target card
+    // below (Net Income Target/AOV/TSA Count) is a SEPARATE concern and
+    // stays editable on every column regardless — see
     // ProjectionCalculator's own doc comment for the full chain.
-    $editable = $column->key === 'opening_shift';
+    $editable = in_array($column->key, ['opening_shift', 'closing_shift'], true);
 
     $headerColors = [
-        'telesales_department'   => ['bg' => '#f1f1f1', 'text' => '#111827'],
-        'opening_shift'          => ['bg' => '#c9daf8', 'text' => '#111827'],
-        'individual_tsa_monthly' => ['bg' => '#111827', 'text' => '#ffffff'],
-        'individual_tsa_daily'   => ['bg' => '#111827', 'text' => '#ffffff'],
+        'telesales_department'            => ['bg' => '#f1f1f1', 'text' => '#111827'],
+        'opening_shift'                   => ['bg' => '#c9daf8', 'text' => '#111827'],
+        'opening_individual_tsa_monthly'  => ['bg' => '#111827', 'text' => '#ffffff'],
+        'opening_individual_tsa_daily'    => ['bg' => '#111827', 'text' => '#ffffff'],
+        'closing_shift'                   => ['bg' => '#d9ead3', 'text' => '#111827'],
+        'closing_individual_tsa_monthly'  => ['bg' => '#274e13', 'text' => '#ffffff'],
+        'closing_individual_tsa_daily'    => ['bg' => '#274e13', 'text' => '#ffffff'],
     ];
     $hc = $headerColors[$column->key] ?? ['bg' => '#f1f1f1', 'text' => '#111827'];
 @endphp

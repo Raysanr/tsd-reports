@@ -9,7 +9,7 @@ use Tests\TestCase;
 
 /**
  * TSD Data Management — Projections (new module, 2026-09-23). Covers the
- * page renders for an admin, is blocked for a normal user, and that
+ * page renders for an admin, is blocked for a normal user/guest, and that
  * auto-save (updateColumn/updateRates) both persists and returns freshly
  * recomputed figures — see ProjectionCalculator's own doc comment for the
  * formula chain this exercises.
@@ -26,6 +26,7 @@ class ProjectionsTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Telesales Department');
+        $response->assertSee('Closing Shift');
         $response->assertSee('NET INCOME');
     }
 
@@ -44,7 +45,7 @@ class ProjectionsTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Telesales Department');
-        $this->assertSame(4, ProjectionColumn::count());
+        $this->assertSame(7, ProjectionColumn::count());
     }
 
     public function test_normal_user_is_blocked(): void
@@ -111,18 +112,18 @@ class ProjectionsTest extends TestCase
     /** Regression, 2026-09-23: "what about like user edit this down part?"
      *  (the target-card section — Net Income Target/AOV/TSA Count — on a
      *  card OTHER than Opening Shift). Those fields are independent per
-     *  column, not part of the ×2/÷6/÷24 chain, but the frontend still
+     *  column, not part of the cross-card chain, but the frontend still
      *  needs every column's fresh figures back (`all`) to update the page
      *  without a reload — the same `all` array a P&L-chain edit already
      *  depends on. Confirms it's present and correctly shaped even for an
-     *  edit whose OWN cascade effect is a no-op (editing Telesales
-     *  Department's own target never touches the other 3 cards' numbers,
-     *  but `all` must still carry all 4, unchanged, for the frontend to
-     *  apply uniformly). */
+     *  edit whose OWN cascade effect is a no-op (editing this column's own
+     *  target never touches Opening Shift's own numbers, but `all` must
+     *  still carry every column, unchanged, for the frontend to apply
+     *  uniformly). */
     public function test_editing_a_non_opening_shift_target_field_returns_every_column_via_all(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $monthly = ProjectionColumn::where('key', 'individual_tsa_monthly')->firstOrFail();
+        $monthly = ProjectionColumn::where('key', 'opening_individual_tsa_monthly')->firstOrFail();
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.projections.update-column', $monthly),
@@ -133,10 +134,10 @@ class ProjectionsTest extends TestCase
         $this->assertEquals(150000, $monthly->fresh()->net_income_target);
 
         $all = collect($response->json('all'));
-        $this->assertCount(4, $all);
+        $this->assertCount(7, $all);
         $this->assertEqualsWithDelta(
             150000 / (800 * 0.3125),
-            $all->firstWhere('column.key', 'individual_tsa_monthly')['target_card']['orders_needed'],
+            $all->firstWhere('column.key', 'opening_individual_tsa_monthly')['target_card']['orders_needed'],
             0.01
         );
         // Opening Shift's own P&L is untouched by this edit — a target
@@ -147,11 +148,14 @@ class ProjectionsTest extends TestCase
     /** Explicit request, 2026-09-23: "the Gross Sales is editable and the
      *  number of orders" — combined with the later cross-card formula
      *  finding (2026-09-23, from the user's own sheet screenshot showing
-     *  "=F39/6"): only OPENING SHIFT is independently computed from
-     *  Orders × AOV × rate, so orders_override only meaningfully applies
-     *  there. Overriding it cascades into the 3 DERIVED cards (×2/÷6/
-     *  ÷6÷24), same as the real sheet's own formulas would. */
-    public function test_orders_override_on_opening_shift_cascades_into_every_derived_column(): void
+     *  "=F39/6"): only OPENING SHIFT (and, separately, CLOSING SHIFT) is
+     *  independently computed from Orders × AOV × rate, so
+     *  orders_override only meaningfully applies to those two. Overriding
+     *  Opening Shift's own orders cascades into ITS OWN derived pair and
+     *  into Telesales Department's own sum, same as the real sheet's own
+     *  formulas would — but must NOT touch Closing Shift's own derived
+     *  pair, since the two shifts are now independent. */
+    public function test_orders_override_on_opening_shift_cascades_into_its_own_derived_columns_and_telesales(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
@@ -171,21 +175,66 @@ class ProjectionsTest extends TestCase
         // untouched by this edit) stays exactly what it always was.
         $response->assertJsonPath('computed.target_card.orders_needed', 2400);
 
-        $telesales = collect($response->json('all'))->firstWhere('column.key', 'telesales_department');
-        $monthly   = collect($response->json('all'))->firstWhere('column.key', 'individual_tsa_monthly');
-        $daily     = collect($response->json('all'))->firstWhere('column.key', 'individual_tsa_daily');
+        $all = collect($response->json('all'));
+        $telesales     = $all->firstWhere('column.key', 'telesales_department');
+        $closingShift  = $all->firstWhere('column.key', 'closing_shift');
+        $openingMonthly = $all->firstWhere('column.key', 'opening_individual_tsa_monthly');
+        $openingDaily   = $all->firstWhere('column.key', 'opening_individual_tsa_daily');
+        $closingMonthly = $all->firstWhere('column.key', 'closing_individual_tsa_monthly');
 
-        // Telesales Department = Opening Shift × 2.
-        $this->assertEquals(2000.0, $telesales['pnl']['orders']);
-        $this->assertEquals(1600000.0, $telesales['pnl']['gross_sales']);
-        // Individual TSA Monthly = Opening Shift ÷ 6.
-        $this->assertEqualsWithDelta(1000 / 6, $monthly['pnl']['orders'], 0.001);
-        $this->assertEqualsWithDelta(800000 / 6, $monthly['pnl']['gross_sales'], 0.01);
-        // Individual TSA Daily's own # of Orders uses ÷25, not ÷24 (the
-        // sheet's own inconsistency, replicated on purpose — explicit
-        // decision, 2026-09-23).
-        $this->assertEqualsWithDelta(1000 / 6 / 25, $daily['pnl']['orders'], 0.001);
-        $this->assertEqualsWithDelta(800000 / 6 / 24, $daily['pnl']['gross_sales'], 0.01);
+        // Telesales Department = Opening (now 800,000) + Closing
+        // (unchanged, still its own seeded 1,920,000).
+        $this->assertEquals(800000 + 1920000, $telesales['pnl']['gross_sales']);
+        // Closing Shift itself is completely untouched by editing Opening.
+        $this->assertEquals(1920000, $closingShift['pnl']['gross_sales']);
+
+        // Opening's own derived pair follows Opening's new numbers ÷ 6.
+        $this->assertEqualsWithDelta(1000 / 6, $openingMonthly['pnl']['orders'], 0.001);
+        $this->assertEqualsWithDelta(800000 / 6, $openingMonthly['pnl']['gross_sales'], 0.01);
+        // Opening Daily's own # of Orders uses ÷25, not ÷24 (the sheet's
+        // own inconsistency, replicated on purpose — explicit decision,
+        // 2026-09-23).
+        $this->assertEqualsWithDelta(1000 / 6 / 25, $openingDaily['pnl']['orders'], 0.001);
+        $this->assertEqualsWithDelta(800000 / 6 / 24, $openingDaily['pnl']['gross_sales'], 0.01);
+
+        // Closing's own derived pair is UNCHANGED — the two shifts' chains
+        // never cross.
+        $this->assertEqualsWithDelta(1920000 / 6, $closingMonthly['pnl']['gross_sales'], 0.01);
+    }
+
+    /** Explicit request, 2026-09-23: "okay now in the downpart is the
+     *  closing team" then "Telesales Department = Opening + Closing" —
+     *  Closing Shift is independently editable, and editing IT cascades
+     *  into Telesales Department's own sum and into Closing's own derived
+     *  pair, without touching Opening Shift or Opening's own pair. */
+    public function test_orders_override_on_closing_shift_cascades_into_its_own_derived_columns_and_telesales(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $closingShift = ProjectionColumn::where('key', 'closing_shift')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $closingShift),
+            ['orders_override' => 500]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('computed.pnl.gross_sales', 400000);
+
+        $all = collect($response->json('all'));
+        $telesales      = $all->firstWhere('column.key', 'telesales_department');
+        $openingShift   = $all->firstWhere('column.key', 'opening_shift');
+        $closingMonthly = $all->firstWhere('column.key', 'closing_individual_tsa_monthly');
+        $openingMonthly = $all->firstWhere('column.key', 'opening_individual_tsa_monthly');
+
+        // Telesales Department = Opening (unchanged, 1,920,000) + Closing
+        // (now 400,000).
+        $this->assertEquals(1920000 + 400000, $telesales['pnl']['gross_sales']);
+        // Opening Shift itself is untouched.
+        $this->assertEquals(1920000, $openingShift['pnl']['gross_sales']);
+        // Closing's own derived pair follows Closing's new numbers ÷ 6.
+        $this->assertEqualsWithDelta(400000 / 6, $closingMonthly['pnl']['gross_sales'], 0.01);
+        // Opening's own derived pair is unchanged.
+        $this->assertEqualsWithDelta(1920000 / 6, $openingMonthly['pnl']['gross_sales'], 0.01);
     }
 
     /** Clearing orders_override back to null restores the target-derived
@@ -207,10 +256,12 @@ class ProjectionsTest extends TestCase
         $response->assertJsonPath('computed.pnl.orders', 2400);
     }
 
-    /** Fulfillment Fee on the Daily column is a flat 3% of DAILY's own
-     *  Gross Sales, not Monthly's Fulfillment Fee ÷ 24 like every other
-     *  cost line — the sheet's own second inconsistency, also replicated
-     *  on purpose (same explicit decision as the ÷25 orders divisor). */
+    /** Fulfillment Fee on either shift's Daily column is a flat 3% of
+     *  DAILY's own Gross Sales, not Monthly's Fulfillment Fee ÷ 24 like
+     *  every other cost line — the sheet's own second inconsistency, also
+     *  replicated on purpose (same explicit decision as the ÷25 orders
+     *  divisor). Checked for BOTH shifts' own Daily column, not just
+     *  Opening's. */
     public function test_daily_fulfillment_fee_uses_a_flat_rate_not_the_monthly_divide(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -219,22 +270,24 @@ class ProjectionsTest extends TestCase
         $response->assertOk();
 
         $computed = $response->viewData('computed');
-        $daily = $computed->firstWhere('column.key', 'individual_tsa_daily');
 
-        $expectedFlat = $daily['pnl']['gross_sales'] * 0.03;
-        $this->assertEqualsWithDelta($expectedFlat, $daily['pnl']['selling_lines']['fulfillment_fee'], 0.01);
+        foreach (['opening_individual_tsa_daily', 'closing_individual_tsa_daily'] as $key) {
+            $daily = $computed->firstWhere('column.key', $key);
+            $expectedFlat = $daily['pnl']['gross_sales'] * 0.03;
+            $this->assertEqualsWithDelta($expectedFlat, $daily['pnl']['selling_lines']['fulfillment_fee'], 0.01, "for {$key}");
+        }
     }
 
     /** Regression, 2026-09-23: "if i edit this like the tsa is 8 why the
      *  other individual tsa is not changing" — a follow-up sheet audit
-     *  confirmed Individual TSA Monthly's own ÷6 genuinely tracks Opening
-     *  Shift's own "Current TSAs" (tsa_count), not a separate hardcoded 6
+     *  confirmed Individual TSA Monthly's own ÷6 genuinely tracks its own
+     *  shift's "Current TSAs" (tsa_count), not a separate hardcoded 6
      *  that coincidentally matched it (two independent shift blocks in
      *  the sheet, each with a DIFFERENT total, both divided by their own
      *  "Current TSAs" to the cent — see ProjectionCalculator's own doc
-     *  comment for the full evidence). Editing tsa_count from 6 to 8 must
-     *  change the divisor live. */
-    public function test_changing_opening_shift_tsa_count_changes_individual_monthly_divisor(): void
+     *  comment for the full evidence). Editing Opening's tsa_count from 6
+     *  to 8 must change ONLY Opening's own derived divisor, not Closing's. */
+    public function test_changing_opening_shift_tsa_count_changes_only_its_own_derived_divisor(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
@@ -249,16 +302,20 @@ class ProjectionsTest extends TestCase
 
         $all = collect($response->json('all'));
         $openingPnl = $all->firstWhere('column.key', 'opening_shift')['pnl'];
-        $monthlyPnl = $all->firstWhere('column.key', 'individual_tsa_monthly')['pnl'];
-        $dailyPnl   = $all->firstWhere('column.key', 'individual_tsa_daily')['pnl'];
+        $monthlyPnl = $all->firstWhere('column.key', 'opening_individual_tsa_monthly')['pnl'];
+        $dailyPnl   = $all->firstWhere('column.key', 'opening_individual_tsa_daily')['pnl'];
+        $closingMonthlyPnl = $all->firstWhere('column.key', 'closing_individual_tsa_monthly')['pnl'];
 
-        // Individual TSA Monthly = Opening Shift ÷ 8, not ÷ 6.
+        // Opening's own Individual TSA Monthly = Opening Shift ÷ 8, not ÷ 6.
         $this->assertEqualsWithDelta($openingPnl['gross_sales'] / 8, $monthlyPnl['gross_sales'], 0.01);
         $this->assertEqualsWithDelta($openingPnl['net_income'] / 8, $monthlyPnl['net_income'], 0.01);
-        // Individual TSA Daily follows the same live divisor (÷8÷24 for
-        // dollar lines, ÷8÷25 for its own # of Orders).
+        // Opening's own Individual TSA Daily follows the same live divisor
+        // (÷8÷24 for dollar lines, ÷8÷25 for its own # of Orders).
         $this->assertEqualsWithDelta($openingPnl['gross_sales'] / 8 / 24, $dailyPnl['gross_sales'], 0.01);
         $this->assertEqualsWithDelta($openingPnl['orders'] / 8 / 25, $dailyPnl['orders'], 0.001);
+        // Closing's own Individual TSA Monthly still divides by Closing's
+        // OWN unchanged tsa_count (6) — Opening's edit never crosses over.
+        $this->assertEqualsWithDelta(1920000 / 6, $closingMonthlyPnl['gross_sales'], 0.01);
     }
 
     public function test_updating_a_shared_rate_recomputes_every_column(): void
@@ -278,5 +335,30 @@ class ProjectionsTest extends TestCase
         $telesales = collect($response->json('computed'))
             ->firstWhere('column.key', 'telesales_department');
         $this->assertEquals(6000.0, $telesales['target_card']['orders_needed']);
+    }
+
+    /** A shared rate change affects BOTH shifts' own P&L (they share the
+     *  same rate set) and cascades into Telesales Department's own sum. */
+    public function test_updating_a_shared_rate_affects_both_shifts_and_telesales_sum(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-rates'),
+            ['key' => 'cancelled', 'value' => 0.10]
+        );
+
+        $response->assertOk();
+
+        $computed = collect($response->json('computed'));
+        $opening   = $computed->firstWhere('column.key', 'opening_shift');
+        $closing   = $computed->firstWhere('column.key', 'closing_shift');
+        $telesales = $computed->firstWhere('column.key', 'telesales_department');
+
+        // 10% of 1,920,000 Gross Sales for each shift.
+        $this->assertEqualsWithDelta(192000, $opening['pnl']['cancelled'], 0.01);
+        $this->assertEqualsWithDelta(192000, $closing['pnl']['cancelled'], 0.01);
+        // Telesales Department's own Cancelled is the SUM of both shifts'.
+        $this->assertEqualsWithDelta(384000, $telesales['pnl']['cancelled'], 0.01);
     }
 }

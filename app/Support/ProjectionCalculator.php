@@ -12,33 +12,39 @@ use App\Models\Setting;
  *
  * CROSS-CARD STRUCTURE (root-caused 2026-09-23 after the user showed a
  * screenshot of the sheet's own formula bar reading "=F39/6" on Individual
- * TSA Monthly's Manager's Allowance cell — the 4 cards are NOT 4
- * independently-computed columns, confirmed by a full numeric audit of
- * every row against the live sheet):
+ * TSA Monthly's Manager's Allowance cell — the cards are NOT independently-
+ * computed columns, confirmed by a full numeric audit of every row against
+ * the live sheet):
  *
- *  - OPENING SHIFT is the only column actually computed from Orders × AOV
- *    × rate — the same formula chain this class always used.
- *  - TELESALES DEPARTMENT = Opening Shift's own figures × 2, EVERY line,
- *    verified via NET INCOME specifically (Opening × 2 = 1,247,219.34,
- *    exactly Telesales' own NET INCOME; Opening + the sheet's separate
- *    "Closing Shift" card would give 1,246,177.67 instead — ×2 confirmed
- *    correct, NOT a sum of Opening + Closing).
- *  - INDIVIDUAL TSA MONTHLY = Opening Shift's own figures ÷ Opening
- *    Shift's own "Current TSAs" (tsa_count) — LIVE, not a hardcoded 6
- *    (root-caused 2026-09-23, second finding: the user asked "if i edit
+ *  - OPENING SHIFT and CLOSING SHIFT are the only two columns actually
+ *    computed from Orders × AOV × rate, each independently editable — the
+ *    real sheet has a full second shift block (explicit request,
+ *    2026-09-23: "okay now in the downpart is the closing team") with its
+ *    own genuinely different numbers (Opening's own NET INCOME 623,609.67
+ *    vs. Closing's own 622,568.00 — confirmed during the same sheet audit
+ *    that found the ×2/÷6 chain below).
+ *  - TELESALES DEPARTMENT = Opening Shift + Closing Shift, EVERY line —
+ *    a true sum, not a ×2 shortcut (explicit decision, 2026-09-23, asked
+ *    directly once Closing Shift became independently editable: "×2 of
+ *    Opening" only worked while the two shifts happened to be identical;
+ *    a real sum stays correct once they diverge).
+ *  - Each shift's own INDIVIDUAL TSA MONTHLY = that shift's own figures ÷
+ *    that shift's own "Current TSAs" (tsa_count) — LIVE, not a hardcoded
+ *    6 (root-caused 2026-09-23, second finding: the user asked "if i edit
  *    this like the tsa is 8 why the other individual tsa is not
  *    changing," and a follow-up sheet audit confirmed it — TWO
- *    independent shift blocks in the sheet, Opening AND Closing, each
- *    with their OWN different NET INCOME total, both divide by exactly
- *    their own "Current TSAs: 6" to the cent; that only happens if
- *    Individual TSA Monthly's formula genuinely references the TSA-count
- *    cell, not two coincidentally-equal hardcoded 6s). Editing Opening
- *    Shift's own tsa_count now changes this divisor live.
- *  - INDIVIDUAL TSA DAILY = Individual TSA Monthly's own figures ÷ 24 for
- *    every dollar line — EXCEPT the sheet's own Daily column disagrees
- *    with itself on two rows, and the explicit decision (2026-09-23,
- *    asked directly after finding this) was to replicate the
- *    inconsistency exactly rather than unify it:
+ *    independent shift blocks in the sheet, each with their OWN different
+ *    NET INCOME total, both divide by exactly their own "Current TSAs: 6"
+ *    to the cent; that only happens if Individual TSA Monthly's formula
+ *    genuinely references the TSA-count cell, not two coincidentally-
+ *    equal hardcoded 6s). Editing a shift's own tsa_count changes ONLY
+ *    that shift's own Individual TSA Monthly/Daily divisor — the two
+ *    shifts' derived pairs never cross into each other.
+ *  - Each shift's own INDIVIDUAL TSA DAILY = that shift's own Individual
+ *    TSA Monthly figures ÷ 24 for every dollar line — EXCEPT the sheet's
+ *    own Daily columns disagree with themselves on two rows, and the
+ *    explicit decision (2026-09-23, asked directly after finding this)
+ *    was to replicate the inconsistency exactly rather than unify it:
  *      · # of Orders uses ÷25, not ÷24 (400 ÷ 25 = 16, the sheet's own
  *        stated Daily order count — ÷24 would give 16.67).
  *      · Fulfillment Fee is a flat 3.00% of DAILY's own Gross Sales, not
@@ -51,15 +57,19 @@ use App\Models\Setting;
  * Returns 25%, Salaries 11.95%, etc.) was independently recomputed from
  * the sheet's own real dollar figures ÷ its own real Gross Sales and
  * confirmed to 2-4 decimal places before being hardcoded as this class's
- * own DEFAULT_RATES — all editable afterward via Settings. Editing a rate
- * changes Opening Shift's own P&L, which then cascades through the ×2/÷6/
- * ÷24 chain into the other 3 cards automatically, same as the real sheet.
+ * own DEFAULT_RATES — all editable afterward via Settings, and SHARED
+ * between Opening Shift and Closing Shift (one set of rates drives both
+ * base columns' own P&L, exactly like the source sheet's own two shift
+ * blocks share the same cost-rate assumptions). Editing a rate changes
+ * BOTH Opening's and Closing's own P&L, which then cascades through each
+ * shift's own ×÷ chain into its own 2 derived cards, and through the
+ * Opening+Closing sum into Telesales Department, automatically.
  *
  * The target card ABOVE each P&L table (Net Income Target, AOV, Total
  * Orders Needed, ...) is a SEPARATE calculation per column — the sheet's
  * own reverse "target → orders needed" formula, driven by the shared
  * Target Margin/Conversion/Pickup rates — and does NOT participate in the
- * ×2/÷6/÷24 chain; each column keeps its own independent target inputs,
+ * cross-card chain; every column keeps its own independent target inputs,
  * exactly as before.
  */
 class ProjectionCalculator
@@ -176,14 +186,16 @@ class ProjectionCalculator
             ->all();
     }
 
-    /** Telesales Department's own multiplier against Opening Shift's P&L
-     *  — the one derived-column ratio that's a true fixed constant (2, not
-     *  driven by any editable field: Telesales = 2 shifts' worth). See
-     *  this class's own doc comment for how it was verified. Individual
-     *  TSA Monthly/Daily's own divisors are NOT constants — see
-     *  forAllColumns() below, which reads Opening Shift's live tsa_count
-     *  instead. */
-    public const TELESALES_DEPARTMENT_MULTIPLIER = 2.0;
+    /** Which base (independently-editable) shift column each derived
+     *  Individual TSA Monthly/Daily pair belongs to — 'opening_shift' and
+     *  'closing_shift' are absent because they're the bases, never
+     *  derived from themselves. See this class's own doc comment. */
+    public const DERIVED_FROM_SHIFT = [
+        'opening_individual_tsa_monthly' => 'opening_shift',
+        'opening_individual_tsa_daily'   => 'opening_shift',
+        'closing_individual_tsa_monthly' => 'closing_shift',
+        'closing_individual_tsa_daily'   => 'closing_shift',
+    ];
 
     /** Individual TSA Daily = Individual TSA Monthly ÷ this many working
      *  days/month, for every dollar line — confirmed against the sheet
@@ -236,28 +248,67 @@ class ProjectionCalculator
         ];
     }
 
-    /** Opening Shift's own P&L — the ONE column actually computed from
-     *  Orders × AOV × rate (see this class's own doc comment); every
-     *  other column's P&L is derived FROM this one, never computed this
-     *  way itself. orders_override lives here too (explicit request,
-     *  2026-09-23: "the Gross Sales is editable and the number of
-     *  orders") — overriding Opening Shift's own # of Orders cascades
-     *  into the other 3 cards exactly like editing a rate does, matching
+    /** One base shift's own P&L (Opening OR Closing — both are
+     *  independently computed from Orders × AOV × rate, see this class's
+     *  own doc comment); every derived column's P&L comes FROM one of
+     *  these two, never computed this way itself. orders_override lives
+     *  here too (explicit request, 2026-09-23: "the Gross Sales is
+     *  editable and the number of orders") — overriding a shift's own #
+     *  of Orders cascades into its own 2 derived cards AND into Telesales
+     *  Department's own sum, exactly like editing a rate does, matching
      *  how the real sheet's own formulas would recalculate downstream
      *  cells from an upstream one. */
-    private static function basePnl(ProjectionColumn $openingShift, array $rates): array
+    private static function basePnl(ProjectionColumn $shift, array $rates): array
     {
-        $aov = (float) $openingShift->average_order_value;
-        $target = (float) $openingShift->net_income_target;
+        $aov = (float) $shift->average_order_value;
+        $target = (float) $shift->net_income_target;
 
         $ordersNeeded = ($aov > 0 && $rates['target_margin'] > 0)
             ? $target / ($aov * $rates['target_margin'])
             : 0.0;
 
-        $orders     = $openingShift->orders_override ?? $ordersNeeded;
+        $orders     = $shift->orders_override ?? $ordersNeeded;
         $grossSales = $orders * $aov;
 
         return self::pnlFromOrders($orders, $grossSales, $rates);
+    }
+
+    /** Telesales Department = Opening Shift's own P&L + Closing Shift's
+     *  own P&L, every line (see this class's own doc comment — a true
+     *  sum, not a ×2 shortcut, since the two shifts can independently
+     *  diverge now that Closing is editable). Percentages are recomputed
+     *  from the SUMMED dollar lines, not averaged — a weighted result,
+     *  same as how NET INCOME % is derived everywhere else in this class
+     *  (net_income ÷ gross_sales, never a naive average of two %s). */
+    private static function sumPnl(array $a, array $b): array
+    {
+        $grossSales = $a['gross_sales'] + $b['gross_sales'];
+        $totalSellingCosts = $a['total_selling_costs'] + $b['total_selling_costs'];
+        $totalOperatingCosts = $a['total_operating_costs'] + $b['total_operating_costs'];
+        $grossProfit = $a['gross_profit'] + $b['gross_profit'];
+        $netIncome = $a['net_income'] + $b['net_income'];
+
+        return [
+            'orders' => $a['orders'] + $b['orders'],
+            'gross_sales' => $grossSales,
+            'cancelled' => $a['cancelled'] + $b['cancelled'],
+            'returns' => $a['returns'] + $b['returns'],
+            'delivered' => $a['delivered'] + $b['delivered'],
+            'tax_allocation' => $a['tax_allocation'] + $b['tax_allocation'],
+            'product_cost' => $a['product_cost'] + $b['product_cost'],
+            'gross_profit' => $grossProfit,
+            'gross_profit_pct' => $grossSales > 0 ? $grossProfit / $grossSales : 0.0,
+            'selling_lines' => collect(self::SELLING_COST_ROWS)->keys()
+                ->mapWithKeys(fn ($key) => [$key => ($a['selling_lines'][$key] ?? 0) + ($b['selling_lines'][$key] ?? 0)]),
+            'total_selling_costs' => $totalSellingCosts,
+            'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
+            'operating_lines' => collect(self::OPERATING_COST_ROWS)->keys()
+                ->mapWithKeys(fn ($key) => [$key => ($a['operating_lines'][$key] ?? 0) + ($b['operating_lines'][$key] ?? 0)]),
+            'total_operating_costs' => $totalOperatingCosts,
+            'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
+            'net_income' => $netIncome,
+            'net_income_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
+        ];
     }
 
     /** The actual %-of-Gross-Sales P&L math, factored out so both
@@ -347,28 +398,34 @@ class ProjectionCalculator
     public static function forAllColumns(\Illuminate\Support\Collection $columns, array $rates): array
     {
         $byKey = $columns->keyBy('key');
-        $openingShift = $byKey->get('opening_shift');
 
-        $basePnl = $openingShift ? self::basePnl($openingShift, $rates) : self::pnlFromOrders(0, 0, $rates);
+        $shiftBasePnl = [];
+        foreach (['opening_shift', 'closing_shift'] as $shiftKey) {
+            $shiftColumn = $byKey->get($shiftKey);
+            $shiftBasePnl[$shiftKey] = $shiftColumn ? self::basePnl($shiftColumn, $rates) : self::pnlFromOrders(0, 0, $rates);
+        }
 
-        // Individual TSA Monthly's own divisor is Opening Shift's LIVE
-        // tsa_count (see this class's own doc comment for the evidence),
-        // not a hardcoded 6 — falls back to 1 (no-op divide) only in the
-        // pathological case of tsa_count being 0/missing, same guard
-        // style as every other divide-by-zero check in this class.
-        $tsaCount = ($openingShift?->tsa_count ?? 0) > 0 ? $openingShift->tsa_count : 1;
+        $telesalesPnl = self::sumPnl($shiftBasePnl['opening_shift'], $shiftBasePnl['closing_shift']);
 
-        $derivedFactors = [
-            'telesales_department'   => self::TELESALES_DEPARTMENT_MULTIPLIER,
-            'individual_tsa_monthly' => 1 / $tsaCount,
-            'individual_tsa_daily'   => 1 / $tsaCount / self::DAILY_WORKING_DAYS,
-        ];
+        return $byKey->mapWithKeys(function (ProjectionColumn $column, string $key) use ($byKey, $shiftBasePnl, $telesalesPnl, $rates) {
+            if ($key === 'telesales_department') {
+                $pnl = $telesalesPnl;
+            } elseif (in_array($key, ['opening_shift', 'closing_shift'], true)) {
+                $pnl = $shiftBasePnl[$key];
+            } elseif (isset(self::DERIVED_FROM_SHIFT[$key])) {
+                $shiftKey = self::DERIVED_FROM_SHIFT[$key];
+                $shiftColumn = $byKey->get($shiftKey);
+                $basePnl = $shiftBasePnl[$shiftKey];
 
-        return $byKey->mapWithKeys(function (ProjectionColumn $column, string $key) use ($basePnl, $rates, $derivedFactors, $tsaCount) {
-            if ($key === 'opening_shift') {
-                $pnl = $basePnl;
-            } else {
-                $factor = $derivedFactors[$key] ?? 1.0;
+                // Individual TSA Monthly's own divisor is ITS OWN shift's
+                // LIVE tsa_count (see this class's own doc comment for
+                // the evidence), not a hardcoded 6 — falls back to 1
+                // (no-op divide) only in the pathological case of
+                // tsa_count being 0/missing.
+                $tsaCount = ($shiftColumn?->tsa_count ?? 0) > 0 ? $shiftColumn->tsa_count : 1;
+                $isDaily = str_ends_with($key, '_daily');
+                $factor = $isDaily ? 1 / $tsaCount / self::DAILY_WORKING_DAYS : 1 / $tsaCount;
+
                 $pnl = self::scalePnl($basePnl, $factor);
 
                 // The Daily column's own two sheet-inconsistencies (see
@@ -376,7 +433,7 @@ class ProjectionCalculator
                 // uniform ÷tsaCount÷24 scale above, overwriting just these
                 // two lines rather than folding them into scalePnl()'s own
                 // flat multiplier, since they don't follow it.
-                if ($key === 'individual_tsa_daily') {
+                if ($isDaily) {
                     $pnl['orders'] = $basePnl['orders'] / $tsaCount / self::DAILY_ORDERS_DIVISOR;
 
                     $fulfillmentFee = $pnl['gross_sales'] * self::DAILY_FULFILLMENT_FEE_RATE;
@@ -387,6 +444,8 @@ class ProjectionCalculator
                     $pnl['net_income'] -= $delta;
                     $pnl['net_income_pct'] = $pnl['gross_sales'] > 0 ? $pnl['net_income'] / $pnl['gross_sales'] : 0.0;
                 }
+            } else {
+                $pnl = self::pnlFromOrders(0, 0, $rates);
             }
 
             return [$key => [

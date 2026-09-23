@@ -4,30 +4,53 @@
 
 @section('content')
 
-<div class="mb-6 flex items-start justify-between gap-4 flex-wrap">
-    <div>
-        <p class="text-sm text-ink-muted dark:text-slate-400 font-mono max-w-2xl">
-            Replica of the source planning sheet's own PROJECTIONS tab. Every
-            number below is live — edit a target, AOV, TSA count, or any %
-            and the whole column recalculates and saves automatically.
-        </p>
-    </div>
+{{-- Intro paragraph removed (explicit request, 2026-09-23: "i want you te
+     remove this") — the OPENING TEAM / CLOSING TEAM row labels below now
+     carry that context instead. --}}
+<div class="mb-6 flex items-start justify-end gap-4 flex-wrap">
     <span id="pjSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
 </div>
 
-{{-- 4 columns side by side, matching the source sheet's own layout
-     (explicit request, 2026-09-23: "why is it 2 card only in one view? i
-     said i want 4 card like in the sheets") — each card has a real
-     min-width (see .pj-card below) so dense rows (label + $ + %) stay
-     readable, and the row scrolls horizontally below that combined width
-     instead of Tailwind's grid silently cramming 4 columns into a space
-     that only fits 2 comfortably. On mobile it drops to one column full
-     width, same as the rest of this app's tables. --}}
-<div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-    <div id="pjColumns" class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5 lg:w-max lg:min-w-full">
-        @foreach($computed as $entry)
-            @include('data.projections._column', ['entry' => $entry])
-        @endforeach
+@php
+    // Two rows, matching the source sheet's own layout exactly (explicit
+    // request, 2026-09-23: "it is like this the opening 4 cards is in the
+    // top and in the down part there's closing") — Telesales Department
+    // + Opening Shift + Opening's own Individual Monthly/Daily on top,
+    // Closing Shift + Closing's own Individual Monthly/Daily below.
+    $openingRowKeys = ['telesales_department', 'opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily'];
+    $closingRowKeys = ['closing_shift', 'closing_individual_tsa_monthly', 'closing_individual_tsa_daily'];
+    $openingRow = $computed->whereIn('column.key', $openingRowKeys)->sortBy(fn ($e) => $e['column']->sort_order);
+    $closingRow = $computed->whereIn('column.key', $closingRowKeys)->sortBy(fn ($e) => $e['column']->sort_order);
+@endphp
+
+{{-- Each row's own cards side by side, matching the source sheet's own
+     layout (explicit request, 2026-09-23: "why is it 2 card only in one
+     view? i said i want 4 card like in the sheets") — every card has a
+     real min-width (see .pj-card below) so dense rows (label + $ + %)
+     stay readable, and each row scrolls horizontally on its own below
+     that combined width instead of Tailwind's grid silently cramming
+     columns into a space that only fits fewer comfortably. On mobile
+     both rows drop to one column full width, same as the rest of this
+     app's tables. #pjColumns wraps BOTH rows (not just one) — the JS
+     only ever looks up a specific card by its own data-key, so it
+     doesn't care which row a card visually sits in. --}}
+<div id="pjColumns">
+    <p class="mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Opening Team</p>
+    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+        <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5 lg:w-max lg:min-w-full">
+            @foreach($openingRow as $entry)
+                @include('data.projections._column', ['entry' => $entry])
+            @endforeach
+        </div>
+    </div>
+
+    <p class="mt-8 mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Closing Team</p>
+    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+        <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5 lg:w-max lg:min-w-full">
+            @foreach($closingRow as $entry)
+                @include('data.projections._column', ['entry' => $entry])
+            @endforeach
+        </div>
     </div>
 </div>
 
@@ -277,23 +300,23 @@
 
         let fraction;
         if (isDollar) {
-            // Every rate is shared, but only Opening Shift is actually
-            // computed from Orders × AOV × rate — Telesales Department /
-            // Individual TSA Monthly / Individual TSA Daily are DERIVED
-            // from Opening Shift's own P&L (×2 / ÷6 / ÷6÷24 — see
-            // ProjectionCalculator's own doc comment, root-caused
-            // 2026-09-23 from the user's own sheet screenshot showing
-            // "=F39/6"). So a dollar-mode edit on ANY card must back-solve
-            // its rate against OPENING SHIFT's own Gross Sales, never the
-            // card being edited — dividing by, say, the Daily card's own
-            // ~13k Gross Sales instead of Opening's ~1.9M silently saved a
-            // rate ~144x too large, which is what corrupted every rate
-            // this session kept finding (Salaries jumping to nonsense,
-            // etc.). This was still wrong even after the earlier
-            // data-gross-sales selector fix, because that fix only
-            // corrected WHICH Gross Sales it read, not whose.
-            const openingCard = columnsEl.querySelector('.pj-card[data-key="opening_shift"]');
-            const grossSalesEl = openingCard?.querySelector('[data-gross-sales="1"]');
+            // Every rate is shared, but only the 2 BASE shifts (Opening
+            // and, since 2026-09-23, Closing — "okay now in the downpart
+            // is the closing team") are actually computed from Orders ×
+            // AOV × rate — every other card is DERIVED from one of them
+            // (×2/sum / ÷tsaCount / ÷24 — see ProjectionCalculator's own
+            // doc comment, root-caused 2026-09-23 from the user's own
+            // sheet screenshot showing "=F39/6"). Dollar-mode rows are
+            // only ever rendered as <input>s on those 2 base cards (see
+            // _column.blade.php's own $editable), so back-solving against
+            // THIS input's own card's Gross Sales is always correct here
+            // — Opening's edit uses Opening's own Gross Sales, Closing's
+            // uses Closing's own, never the other shift's (an earlier bug
+            // this session hardcoded Opening's card unconditionally,
+            // which was fine before Closing existed but would have been
+            // wrong the moment Closing became independently editable).
+            const ownCard = input.closest('.pj-card');
+            const grossSalesEl = ownCard?.querySelector('[data-gross-sales="1"]');
             const grossSales = grossSalesEl ? parseMoney(grossSalesEl.value) : 0;
             if (!grossSales) return;
             fraction = typed / grossSales;
