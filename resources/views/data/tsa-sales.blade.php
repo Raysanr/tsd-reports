@@ -49,6 +49,7 @@
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
     ];
     $lastColIndex = count($dayColumns) - 1;
+    $emptyRaw = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -73,10 +74,11 @@
     </div>
 </div>
 
-{{-- Running summary — the sheet's own MTD block (rows 12-25 in the real
-     source): each group (Team Opening Shift, Team Closing Shift, Tiktok
-     Upsell) lists its own TSA rows plus a group TOTAL row, closed out by
-     one OVERALL TOTAL across every group. --}}
+{{-- Running summary — TSA rows are the app's own real TsaShift roster,
+     grouped by their real team (SH Naturals / Eyecare — explicit
+     decision, 2026-09-24: the sheet's own Opening/Closing Shift split
+     has no real backing data in this app yet, so team is what's used
+     instead). Add/remove a TSA via TSA Management, not here. --}}
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-8">
     <div class="bg-black text-white text-center font-mono font-bold text-sm tracking-wide py-2.5">
         TSA'S RUNNING SALES PERFORMANCE
@@ -105,8 +107,8 @@
             <tbody>
                 @foreach($gs['rows'] as $rs)
                 @php $d = $rs['derived']; @endphp
-                <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-id="{{ $rs['row']->id }}">
-                    <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['row']->name) }}</td>
+                <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
+                    <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
                     <td class="px-3 py-2 text-right" data-out="ads_spent">{{ $fmtMoney($d['ads_spent']) }}</td>
@@ -119,8 +121,8 @@
                 </tr>
                 @endforeach
                 @php $gt = $gs['groupTotal']; @endphp
-                <tr class="tsr-group-total-row bg-slate-800 text-white font-bold" data-group-id="{{ $gs['group']->id }}">
-                    <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($gs['group']->label) }} TOTAL:</td>
+                <tr class="tsr-group-total-row bg-slate-800 text-white font-bold" data-group-label="{{ $gs['label'] }}">
+                    <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($gs['label']) }} TOTAL:</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($gt['gross_sales']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $gt['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($gt['net_income']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="ads_spent">{{ $fmtMoney($gt['ads_spent']) }}</td>
@@ -151,28 +153,18 @@
     </div>
 </div>
 
-{{-- Daily entry — one table PER 7-day chunk PER group (same "only 7 days,
+{{-- Daily entry — one table PER 7-day chunk PER team (same "only 7 days,
      drag right, next chunk stacks below" convention as DSPPR - TSM
-     Report), each group given its own "+ Add TSA" control to grow its
-     row list. --}}
+     Report). Rows are read from the real TsaShift roster — add/remove a
+     TSA via TSA Management, not here. --}}
 @foreach($groupSummaries as $gs)
-@php $group = $gs['group']; @endphp
-<div class="mb-3 flex items-center justify-between gap-3">
-    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $group->label }}</h2>
-    <button type="button" class="tsr-add-row-btn inline-flex items-center gap-1.5 text-xs font-mono font-semibold text-primary-dark dark:text-yellow-400 border border-primary/40 dark:border-yellow-700 rounded-lg px-3 py-1.5 hover:bg-primary/10 dark:hover:bg-yellow-950/40 cursor-pointer"
-            data-group-id="{{ $group->id }}" data-store-url="{{ route('data.tsa-sales.rows.store', $group) }}">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-        Add TSA
-    </button>
-</div>
+<h2 class="mb-3 text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $gs['label'] }}</h2>
 
 @foreach($dateChunks as $chunkIndex => $dates)
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
-    <div class="overflow-x-auto tsr-scroller" id="tsrScroller-{{ $group->id }}-{{ $chunkIndex }}">
+    <div class="overflow-x-auto tsr-scroller" id="tsrScroller-{{ \Illuminate\Support\Str::slug($gs['label']) }}-{{ $chunkIndex }}">
         <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table"
-               data-update-url-template="{{ route('data.tsa-sales.update-entry', ['tsaSalesRow' => '__ROW__', 'date' => '__DATE__']) }}"
-               data-rename-url-template="{{ route('data.tsa-sales.rows.update', '__ROW__') }}"
-               data-destroy-url-template="{{ route('data.tsa-sales.rows.destroy', '__ROW__') }}">
+               data-update-url-template="{{ route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']) }}">
             <thead>
                 <tr>
                     <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
@@ -193,22 +185,14 @@
                 </tr>
             </thead>
             <tbody>
-                @forelse($group->rows as $row)
-                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-id="{{ $row->id }}">
-                    <td class="tsr-sticky tsr-sticky-body px-2 py-1.5 whitespace-nowrap">
-                        <div class="flex items-center gap-1.5">
-                            <input type="text" value="{{ $row->name }}" data-tsr-rename="1"
-                                   class="tsr-name-field flex-1 min-w-0 bg-transparent border-none focus:ring-2 focus:ring-primary/40 rounded-md px-1 py-0.5 -mx-1 font-semibold text-ink dark:text-slate-100 uppercase outline-none">
-                            <button type="button" class="tsr-remove-row-btn shrink-0 p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer" title="Remove this TSA">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </div>
-                    </td>
+                @forelse($gs['tsas'] as $tsa)
+                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $tsa->id }}">
+                    <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($tsa->display_name) }}</td>
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $entry = $dailyByKey->get($row->id . ':' . $dateStr);
-                            $raw = $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
+                            $entry = $dailyByKey->get($tsa->id . ':' . $dateStr);
+                            $raw = $entry ? $entry->toArray() : $emptyRaw;
                             $d = \App\Support\TsaSalesCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
@@ -232,9 +216,9 @@
                     @endforeach
                 </tr>
                 @empty
-                <tr class="tsr-empty-row">
+                <tr>
                     <td colspan="{{ 1 + count($dates) * count($dayColumns) }}" class="px-3 py-4 text-center text-ink-muted dark:text-slate-500">
-                        No TSAs in this group yet — click "Add TSA" above.
+                        No TSAs on this team yet — add one via TSA Management.
                     </td>
                 </tr>
                 @endforelse
@@ -245,9 +229,9 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $dayTotal = \App\Support\TsaSalesCalculator::sum($group->rows->map(function ($row) use ($dailyByKey, $dateStr) {
-                                $entry = $dailyByKey->get($row->id . ':' . $dateStr);
-                                return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
+                            $dayTotal = \App\Support\TsaSalesCalculator::sum($gs['tsas']->map(function ($tsa) use ($dailyByKey, $dateStr, $emptyRaw) {
+                                $entry = $dailyByKey->get($tsa->id . ':' . $dateStr);
+                                return $entry ? $entry->toArray() : $emptyRaw;
                             })->all());
                         @endphp
                         @foreach($dayColumns as $i => $col)
@@ -340,18 +324,17 @@
         if (totalRow) applyDerived(totalRow, date, derived);
     }
 
-    // Recomputes ONE row's summary (top MTD table), then the whole
-    // group's total, then the OVERALL TOTAL — summed across EVERY date
-    // in EVERY 7-day chunk for that row (same convention as DSPPR - TSM
-    // Report's own refreshSummaryRow()).
-    function refreshSummaryRow(rowId) {
+    // Recomputes ONE TSA's summary (top MTD table), then that TSA's own
+    // group total, then the OVERALL TOTAL — summed across EVERY date in
+    // EVERY 7-day chunk for that TSA.
+    function refreshSummaryRow(tsaId) {
         const summaryTable = document.getElementById('tsrSummaryTable');
         if (!summaryTable) return;
 
         let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, dayCount = 0;
 
-        document.querySelectorAll(`.tsr-days-table .tsr-row[data-row-id="${rowId}"]`).forEach((row) => {
+        document.querySelectorAll(`.tsr-days-table .tsr-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
                 const date = el.dataset.date;
                 totals.gross_sales += parseMoney(el.value);
@@ -374,7 +357,7 @@
             upselling_rate: dayCount > 0 ? upsellSum / dayCount : 0,
         };
 
-        const summaryRow = summaryTable.querySelector(`.tsr-summary-row[data-row-id="${rowId}"]`);
+        const summaryRow = summaryTable.querySelector(`.tsr-summary-row[data-tsa-id="${tsaId}"]`);
         if (summaryRow) {
             summaryRow.querySelectorAll('[data-out]').forEach((el) => {
                 const key = el.dataset.out;
@@ -480,7 +463,7 @@
 
         flashStatus('Saving…', false);
 
-        const url = urlTemplate.replace('__ROW__', row.dataset.rowId).replace('__DATE__', date);
+        const url = urlTemplate.replace('__TSA__', row.dataset.tsaId).replace('__DATE__', date);
         const body = new URLSearchParams();
         body.set(field, value);
         body.set('_method', 'PATCH');
@@ -499,7 +482,7 @@
                 }
                 if (data?.derived) applyDerived(row, date, data.derived);
                 refreshDayTotal(table, date);
-                refreshSummaryRow(row.dataset.rowId);
+                refreshSummaryRow(row.dataset.tsaId);
             })
             .catch(() => {
                 flashStatus('Could not save — try again.', true);
@@ -507,117 +490,31 @@
             });
     }
 
-    function renameRow(input) {
-        clearTimeout(saveTimers.get(input));
-        saveTimers.delete(input);
-        const table = input.closest('.tsr-days-table');
-        const row = input.closest('.tsr-row');
-        const url = table.dataset.renameUrlTemplate.replace('__ROW__', row.dataset.rowId);
-        const body = new URLSearchParams();
-        body.set('name', input.value);
-        body.set('_method', 'PATCH');
-
-        flashStatus('Saving…', false);
-        fetch(url, {
-            method: 'POST',
-            headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': csrfToken },
-            body: body.toString(),
-        })
-            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-            .then(() => {
-                flashStatus('Saved', false);
-                document.querySelectorAll(`[data-row-id="${row.dataset.rowId}"] .tsr-name-field`).forEach((el) => {
-                    if (el !== input) el.value = input.value;
-                });
-                document.querySelectorAll(`.tsr-summary-row[data-row-id="${row.dataset.rowId}"] .tsr-sticky-body`).forEach((el) => {
-                    el.textContent = input.value.toUpperCase();
-                });
-            })
-            .catch(() => {
-                flashStatus('Could not save — try again.', true);
-                window.showToast?.('Could not rename — try again.', 'error');
-            });
-    }
-
-    function removeRow(button) {
-        const row = button.closest('.tsr-row');
-        const table = button.closest('.tsr-days-table');
-        const rowId = row.dataset.rowId;
-        const name = row.querySelector('.tsr-name-field')?.value || 'this TSA';
-        if (!confirm(`Remove ${name}? This deletes every saved number for this row.`)) return;
-
-        const url = table.dataset.destroyUrlTemplate.replace('__ROW__', rowId);
-        fetch(url, {
-            method: 'POST',
-            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
-            body: new URLSearchParams({ _method: 'DELETE' }).toString(),
-        })
-            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-            .then(() => {
-                document.querySelectorAll(`[data-row-id="${rowId}"]`).forEach((el) => el.remove());
-                window.showToast?.(`${name} removed.`, 'success');
-            })
-            .catch(() => window.showToast?.('Could not remove — try again.', 'error'));
-    }
-
-    function addRow(button) {
-        const name = prompt('TSA name:');
-        if (!name || !name.trim()) return;
-
-        fetch(button.dataset.storeUrl, {
-            method: 'POST',
-            headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': csrfToken },
-            body: new URLSearchParams({ name: name.trim() }).toString(),
-        })
-            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-            .then(() => {
-                window.showToast?.('TSA added — reloading…', 'success');
-                window.location.reload();
-            })
-            .catch(() => window.showToast?.('Could not add TSA — try again.', 'error'));
-    }
-
     document.querySelectorAll('.tsr-days-table').forEach((table) => {
         table.addEventListener('input', (e) => {
             const field = e.target.closest('.tsr-field');
-            const nameField = e.target.closest('.tsr-name-field');
-            if (field) {
-                if (field.dataset.money === '1' || field.dataset.percent === '1') liveFormatMoney(field);
-                clearTimeout(saveTimers.get(field));
-                saveTimers.set(field, setTimeout(() => saveField(field), 600));
-            } else if (nameField) {
-                clearTimeout(saveTimers.get(nameField));
-                saveTimers.set(nameField, setTimeout(() => renameRow(nameField), 600));
-            }
+            if (!field) return;
+            if (field.dataset.money === '1' || field.dataset.percent === '1') liveFormatMoney(field);
+            clearTimeout(saveTimers.get(field));
+            saveTimers.set(field, setTimeout(() => saveField(field), 600));
         });
 
         table.addEventListener('blur', (e) => {
             const field = e.target.closest('.tsr-field');
-            const nameField = e.target.closest('.tsr-name-field');
             if (field) saveField(field);
-            else if (nameField) renameRow(nameField);
         }, true);
 
         table.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
-            const input = e.target.closest('.tsr-field, .tsr-name-field');
+            const input = e.target.closest('.tsr-field');
             if (input) { e.preventDefault(); input.blur(); }
         });
-
-        table.addEventListener('click', (e) => {
-            const btn = e.target.closest('.tsr-remove-row-btn');
-            if (btn) removeRow(btn);
-        });
-    });
-
-    document.querySelectorAll('.tsr-add-row-btn').forEach((btn) => {
-        btn.addEventListener('click', () => addRow(btn));
     });
 
     document.querySelectorAll('.tsr-scroller').forEach((scroller) => {
         let isDragging = false, dragStartX = 0, dragStartScroll = 0;
         scroller.addEventListener('mousedown', (e) => {
-            if (e.target.closest('input, button')) return;
+            if (e.target.closest('input')) return;
             isDragging = true;
             dragStartX = e.pageX;
             dragStartScroll = scroller.scrollLeft;

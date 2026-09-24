@@ -301,19 +301,11 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::patch('/dsppr/{product}/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'update'])->name('dsppr.update');
 
         // Summary Sales Report (explicit request, 2026-09-24: "add page
-        // summary sales report in data management like this in the
-        // sheets") — 3 admin-named groups (Team Opening Shift, Team
-        // Closing Shift, Tiktok Upsell), each holding free-form TSA rows.
+        // summary sales report in data management ... auto based on the
+        // current team and tsa") — rows are the app's own real TsaShift
+        // records, grouped by team; no admin row management routes
+        // anymore (that's TSA Management's job).
         Route::get('/tsa-sales', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'index'])->name('tsa-sales');
-        // /rows/... registered BEFORE the {tsaSalesRow}/{date} wildcard —
-        // PATCH routes match in registration order, and the wildcard
-        // would otherwise swallow "rows" as a (non-existent) row id,
-        // 404ing via silent route-model-binding failure instead of ever
-        // reaching updateRow()/destroyRow() (same fix as Projections'
-        // own /rates-before-{projectionColumn} ordering).
-        Route::post('/tsa-sales/groups/{tsaSalesGroup}/rows', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'storeRow'])->name('tsa-sales.rows.store');
-        Route::patch('/tsa-sales/rows/{tsaSalesRow}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateRow'])->name('tsa-sales.rows.update');
-        Route::delete('/tsa-sales/rows/{tsaSalesRow}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'destroyRow'])->name('tsa-sales.rows.destroy');
-        Route::patch('/tsa-sales/{tsaSalesRow}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateEntry'])->name('tsa-sales.update-entry');
+        Route::patch('/tsa-sales/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateEntry'])->name('tsa-sales.update-entry');
     });
 });
