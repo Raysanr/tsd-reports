@@ -12,66 +12,47 @@
 </div>
 
 @php
-    // Two rows, matching the source sheet's own layout exactly (explicit
-    // request, 2026-09-23: "it is like this the opening 4 cards is in the
-    // top and in the down part there's closing") — Opening Shift +
-    // Opening's own Individual Monthly/Daily, THEN Telesales Department
-    // last (explicit request, 2026-09-24: "place it to the right side...
-    // it is in the center" — moved from first to last in the row, sorted
-    // explicitly below rather than by sort_order since that column's own
-    // sort_order is still 0/first for other purposes).
-    $openingRowKeys = ['opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily', 'telesales_department'];
+    // 3x2 grid — Shift/Individual Monthly/Individual Daily columns,
+    // Opening/Closing rows (explicit request, 2026-09-24, per a hand-drawn
+    // layout diagram) — Telesales Department pulled OUT of this grid
+    // entirely and rendered separately, floated to the right and
+    // vertically centered against the whole 2-row block.
+    $openingRowKeys = ['opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily'];
     $closingRowKeys = ['closing_shift', 'closing_individual_tsa_monthly', 'closing_individual_tsa_daily'];
     $openingRow = $computed->whereIn('column.key', $openingRowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $openingRowKeys));
-    $closingRow = $computed->whereIn('column.key', $closingRowKeys)->sortBy(fn ($e) => $e['column']->sort_order);
+    $closingRow = $computed->whereIn('column.key', $closingRowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $closingRowKeys));
+    $telesalesEntry = $computed->firstWhere('column.key', 'telesales_department');
 @endphp
 
-{{-- Each row's own cards side by side, matching the source sheet's own
-     layout (explicit request, 2026-09-23: "why is it 2 card only in one
-     view? i said i want 4 card like in the sheets") — every card has a
-     real min-width (see .pj-card below) so dense rows (label + $ + %)
-     stay readable, and each row scrolls horizontally on its own below
-     that combined width instead of Tailwind's grid silently cramming
-     columns into a space that only fits fewer comfortably. On mobile
-     both rows drop to one column full width, same as the rest of this
-     app's tables. #pjColumns wraps BOTH rows (not just one) — the JS
-     only ever looks up a specific card by its own data-key, so it
-     doesn't care which row a card visually sits in. --}}
-<div id="pjColumns">
-    <p class="mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Opening Team</p>
-    {{-- Original card sizing restored (explicit request, 2026-09-24:
-         "get back the size of the card" — the flex/w-[300px] wrapper from
-         the previous centering attempt cramped every card's text into
-         extra line-wraps). Centering wraps the SAME grid-flow-col/
-         auto-cols layout in a flex justify-center container — the grid
-         still sizes each card to its own natural minmax(300px,1fr)
-         width. w-full/min-w-full (fix, 2026-09-24: centering silently
-         did nothing before this — an overflow-x-auto box with no
-         explicit width sizes itself exactly to its own content, so
-         justify-center had no extra space to center INTO) let the flex
-         box actually grow wider than its content on a roomy screen,
-         while still shrinking back to natural scroll the moment the
-         cards don't fit. --}}
-    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2 w-full">
-        <div class="flex justify-center min-w-full">
-            <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
-                @foreach($openingRow as $entry)
-                    @include('data.projections._column', ['entry' => $entry])
-                @endforeach
-            </div>
+{{-- Left: a real 3-column x 2-row CSS grid (not two separate scrolling
+     rows anymore) so Opening Shift sits directly above Closing Shift,
+     Individual Monthly above Individual Monthly, etc. Right: Telesales
+     Department alone, centered vertically against that whole grid via
+     the flex row's own items-center (explicit request, 2026-09-24: "the
+     Telesales Department should be the one in the right side," after a
+     hand-drawn diagram showing 6 cards in a 2x3 block plus one card
+     floated right and vertically centered). Each side keeps its own
+     independent horizontal scroll on narrow screens instead of
+     squeezing together. #pjColumns wraps everything — the JS only ever
+     looks up a specific card by its own data-key, so it doesn't care
+     where a card visually sits. --}}
+<div id="pjColumns" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-6">
+    <div class="flex-1 min-w-0 overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:w-max">
+            @foreach($openingRow as $entry)
+                @include('data.projections._column', ['entry' => $entry])
+            @endforeach
+            @foreach($closingRow as $entry)
+                @include('data.projections._column', ['entry' => $entry])
+            @endforeach
         </div>
     </div>
 
-    <p class="mt-8 mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Closing Team</p>
-    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2 w-full">
-        <div class="flex justify-center min-w-full">
-            <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
-                @foreach($closingRow as $entry)
-                    @include('data.projections._column', ['entry' => $entry])
-                @endforeach
-            </div>
-        </div>
+    @if($telesalesEntry)
+    <div class="shrink-0 lg:w-[300px]">
+        @include('data.projections._column', ['entry' => $telesalesEntry])
     </div>
+    @endif
 </div>
 
 @push('scripts')
