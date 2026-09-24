@@ -14,12 +14,15 @@
 @php
     // Two rows, matching the source sheet's own layout exactly (explicit
     // request, 2026-09-23: "it is like this the opening 4 cards is in the
-    // top and in the down part there's closing") — Telesales Department
-    // + Opening Shift + Opening's own Individual Monthly/Daily on top,
-    // Closing Shift + Closing's own Individual Monthly/Daily below.
-    $openingRowKeys = ['telesales_department', 'opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily'];
+    // top and in the down part there's closing") — Opening Shift +
+    // Opening's own Individual Monthly/Daily, THEN Telesales Department
+    // last (explicit request, 2026-09-24: "place it to the right side...
+    // it is in the center" — moved from first to last in the row, sorted
+    // explicitly below rather than by sort_order since that column's own
+    // sort_order is still 0/first for other purposes).
+    $openingRowKeys = ['opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily', 'telesales_department'];
     $closingRowKeys = ['closing_shift', 'closing_individual_tsa_monthly', 'closing_individual_tsa_daily'];
-    $openingRow = $computed->whereIn('column.key', $openingRowKeys)->sortBy(fn ($e) => $e['column']->sort_order);
+    $openingRow = $computed->whereIn('column.key', $openingRowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $openingRowKeys));
     $closingRow = $computed->whereIn('column.key', $closingRowKeys)->sortBy(fn ($e) => $e['column']->sort_order);
 @endphp
 
@@ -36,29 +39,34 @@
      doesn't care which row a card visually sits in. --}}
 <div id="pjColumns">
     <p class="mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Opening Team</p>
-    {{-- justify-center on the flex wrapper (explicit request, 2026-09-24:
-         "Telesales Department is in the center... all cards is aligned")
-         centers the row's cards on the page whenever they fit inside the
-         viewport with room to spare; overflow-x-auto still takes over and
-         the row scrolls/left-aligns normally the moment it doesn't. --}}
+    {{-- Original card sizing restored (explicit request, 2026-09-24:
+         "get back the size of the card" — the flex/w-[300px] wrapper from
+         the previous centering attempt cramped every card's text into
+         extra line-wraps). Centering now comes from wrapping the SAME
+         grid-flow-col/auto-cols layout in a flex justify-center
+         container instead of changing the grid itself — the grid still
+         sizes each card to its own natural minmax(300px,1fr) width, it's
+         just centered as a whole block on the page when there's room to
+         spare; overflow-x-auto still takes over and left-aligns/scrolls
+         the moment it doesn't fit. --}}
     <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="flex flex-col lg:flex-row justify-center gap-5 min-w-fit mx-auto">
-            @foreach($openingRow as $entry)
-                <div class="w-full lg:w-[300px] shrink-0">
+        <div class="flex justify-center">
+            <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
+                @foreach($openingRow as $entry)
                     @include('data.projections._column', ['entry' => $entry])
-                </div>
-            @endforeach
+                @endforeach
+            </div>
         </div>
     </div>
 
     <p class="mt-8 mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Closing Team</p>
     <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="flex flex-col lg:flex-row justify-center gap-5 min-w-fit mx-auto">
-            @foreach($closingRow as $entry)
-                <div class="w-full lg:w-[300px] shrink-0">
+        <div class="flex justify-center">
+            <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
+                @foreach($closingRow as $entry)
                     @include('data.projections._column', ['entry' => $entry])
-                </div>
-            @endforeach
+                @endforeach
+            </div>
         </div>
     </div>
 </div>
