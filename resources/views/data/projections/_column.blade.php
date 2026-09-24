@@ -96,8 +96,20 @@
                  Shift — confirmed via the real sheet's own formula-view
                  (2026-09-24) that both are computed formulas (Delivered ×
                  2.24%, Orders × ₱25 flat), not settable %-of-Gross-Sales
-                 rates like every other row in this loop. --}}
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['selling_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)])
+                 rates like every other row in this loop. Their own
+                 $ratePct is computed live (value ÷ this column's own
+                 Gross Sales) instead of read from $rates — that array no
+                 longer carries either key at all now that neither is a
+                 real settable rate (regression fixed 2026-09-24: every
+                 card was showing a flat 0.00% for both rows because
+                 $rates['cod_fee']/['fulfillment_fee'] no longer exist). --}}
+            @php
+                $rowValue = $p['selling_lines'][$key] ?? 0;
+                $rowRatePct = in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)
+                    ? ($p['gross_sales'] > 0 ? $rowValue / $p['gross_sales'] * 100 : 0)
+                    : ($rates[$key] ?? 0) * 100;
+            @endphp
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $rowValue, 'ratePct' => $rowRatePct, 'editable' => $editable && !in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)])
         @endforeach
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Selling Costs</span>

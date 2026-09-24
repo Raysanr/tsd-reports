@@ -42,15 +42,18 @@
     {{-- Original card sizing restored (explicit request, 2026-09-24:
          "get back the size of the card" — the flex/w-[300px] wrapper from
          the previous centering attempt cramped every card's text into
-         extra line-wraps). Centering now comes from wrapping the SAME
-         grid-flow-col/auto-cols layout in a flex justify-center
-         container instead of changing the grid itself — the grid still
-         sizes each card to its own natural minmax(300px,1fr) width, it's
-         just centered as a whole block on the page when there's room to
-         spare; overflow-x-auto still takes over and left-aligns/scrolls
-         the moment it doesn't fit. --}}
-    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="flex justify-center">
+         extra line-wraps). Centering wraps the SAME grid-flow-col/
+         auto-cols layout in a flex justify-center container — the grid
+         still sizes each card to its own natural minmax(300px,1fr)
+         width. w-full/min-w-full (fix, 2026-09-24: centering silently
+         did nothing before this — an overflow-x-auto box with no
+         explicit width sizes itself exactly to its own content, so
+         justify-center had no extra space to center INTO) let the flex
+         box actually grow wider than its content on a roomy screen,
+         while still shrinking back to natural scroll the moment the
+         cards don't fit. --}}
+    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2 w-full">
+        <div class="flex justify-center min-w-full">
             <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
                 @foreach($openingRow as $entry)
                     @include('data.projections._column', ['entry' => $entry])
@@ -60,8 +63,8 @@
     </div>
 
     <p class="mt-8 mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Closing Team</p>
-    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="flex justify-center">
+    <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2 w-full">
+        <div class="flex justify-center min-w-full">
             <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5">
                 @foreach($closingRow as $entry)
                     @include('data.projections._column', ['entry' => $entry])
