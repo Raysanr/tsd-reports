@@ -288,5 +288,16 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // updateRates().
         Route::patch('/projections/rates', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateRates'])->name('projections.update-rates');
         Route::patch('/projections/{projectionColumn}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateColumn'])->name('projections.update-column');
+
+        // DSPPR - TSM Report (explicit request, 2026-09-24: "create this
+        // page like DSPPR - TSM REPORT ... it is next to the projections
+        // page") — one row per product per day, auto-saved the same
+        // debounced-PATCH-per-field convention as Projections above.
+        Route::get('/dsppr', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'index'])->name('dsppr');
+        // PATCH by (product, date), not a {dsPprEntry} id — a cell with
+        // nothing typed into it yet has no row to bind to at all (unlike
+        // Projections' fixed, pre-seeded columns), so this upserts via
+        // DsPprEntry::updateOrCreate() instead of route-model binding.
+        Route::patch('/dsppr/{product}/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'update'])->name('dsppr.update');
     });
 });
