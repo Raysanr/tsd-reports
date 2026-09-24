@@ -109,7 +109,7 @@
     </div>
 
     <div class="overflow-x-auto">
-        <table class="w-full text-[13px] font-mono border-collapse dsppr-table">
+        <table class="w-full text-[13px] font-mono border-collapse dsppr-table" id="dsPprSummaryTable">
             <thead>
                 <tr class="text-ink dark:text-slate-950">
                     <th class="dsppr-sticky bg-yellow-200 dark:bg-yellow-700 text-left px-3 py-2 font-bold whitespace-nowrap">Product</th>
@@ -131,40 +131,40 @@
             <tbody>
                 @foreach($rows as $row)
                 @php $d = $row['derived']; @endphp
-                <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-product-id="{{ $row['product']->id }}">
                     <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($row['product']->display_name) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtMoney($d['gross_sales']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}">{{ $fmtMoney($d['net_income']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtMoney($d['ads_spent']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}">{{ $fmtPct($d['ni_pct']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ number_format($d['total_orders']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtMoney($d['aov']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtMoney($d['actual_cost_per_lead']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ number_format($d['total_leads']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ number_format($d['catered_leads']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ number_format($d['excess_leads']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtPct($d['pickup_rate']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtPct($d['conversion_rate']) }}</td>
-                    <td class="px-3 py-2 text-right">{{ $fmtPct($d['upselling_rate']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="ads_spent">{{ $fmtMoney($d['ads_spent']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="actual_cost_per_lead">{{ $fmtMoney($d['actual_cost_per_lead']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="total_leads">{{ number_format($d['total_leads']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="catered_leads">{{ number_format($d['catered_leads']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="excess_leads">{{ number_format($d['excess_leads']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="pickup_rate">{{ $fmtPct($d['pickup_rate']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="conversion_rate">{{ $fmtPct($d['conversion_rate']) }}</td>
+                    <td class="px-3 py-2 text-right" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
                 </tr>
                 @endforeach
             </tbody>
             <tfoot>
-                <tr class="bg-black text-white font-bold">
+                <tr class="bg-black text-white font-bold dsppr-overall-total-row">
                     <td class="dsppr-sticky dsppr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtMoney($overallTotal['gross_sales']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : '' }}">{{ $fmtMoney($overallTotal['net_income']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtMoney($overallTotal['ads_spent']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $overallTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}">{{ $fmtPct($overallTotal['ni_pct']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ number_format($overallTotal['total_orders']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtMoney($overallTotal['aov']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtMoney($overallTotal['actual_cost_per_lead']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ number_format($overallTotal['total_leads']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ number_format($overallTotal['catered_leads']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ number_format($overallTotal['excess_leads']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtPct($overallTotal['pickup_rate']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtPct($overallTotal['conversion_rate']) }}</td>
-                    <td class="px-3 py-2.5 text-right">{{ $fmtPct($overallTotal['upselling_rate']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($overallTotal['gross_sales']) }}</td>
+                    <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="ads_spent">{{ $fmtMoney($overallTotal['ads_spent']) }}</td>
+                    <td class="px-3 py-2.5 text-right {{ $overallTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($overallTotal['ni_pct']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($overallTotal['total_orders']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($overallTotal['aov']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="actual_cost_per_lead">{{ $fmtMoney($overallTotal['actual_cost_per_lead']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="total_leads">{{ number_format($overallTotal['total_leads']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="catered_leads">{{ number_format($overallTotal['catered_leads']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="excess_leads">{{ number_format($overallTotal['excess_leads']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="pickup_rate">{{ $fmtPct($overallTotal['pickup_rate']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="conversion_rate">{{ $fmtPct($overallTotal['conversion_rate']) }}</td>
+                    <td class="px-3 py-2.5 text-right" data-out="upselling_rate">{{ $fmtPct($overallTotal['upselling_rate']) }}</td>
                 </tr>
             </tfoot>
         </table>
@@ -370,6 +370,118 @@
         if (totalRow) applyDerived(totalRow, date, derived);
     }
 
+    // Recomputes and repaints ONE product's row in the top "TELESALES
+    // RUNNING PERFORMANCE" summary table — sums that product's own inputs
+    // across EVERY date in EVERY 7-day chunk table (the summary is a
+    // whole-range total, not a single day's), so an edit anywhere in the
+    // daily tables below is reflected up top without a page reload
+    // (explicit request, 2026-09-24: "auto save like user typing ...
+    // auto update the tables").
+    function refreshSummaryRow(productId) {
+        const summaryTable = document.getElementById('dsPprSummaryTable');
+        if (!summaryTable) return;
+
+        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
+        let pickupSum = 0, convSum = 0, upsellSum = 0, dayCount = 0;
+
+        document.querySelectorAll(`.dsppr-days-table .dsppr-row[data-product-id="${productId}"]`).forEach((row) => {
+            row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
+                const date = el.dataset.date;
+                const grossSales = parseMoney(el.value);
+                const netIncome = parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
+                const adsSpent = parseMoney(row.querySelector(`[data-field="ads_spent"][data-date="${date}"]`).value);
+                const totalOrders = Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
+                const totalLeads = Number(row.querySelector(`[data-field="total_leads"][data-date="${date}"]`).value) || 0;
+                const cateredLeads = Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
+
+                totals.gross_sales += grossSales;
+                totals.net_income += netIncome;
+                totals.ads_spent += adsSpent;
+                totals.total_orders += totalOrders;
+                totals.total_leads += totalLeads;
+                totals.catered_leads += cateredLeads;
+
+                pickupSum += totalLeads > 0 ? cateredLeads / totalLeads : 0;
+                convSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
+                upsellSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
+                dayCount += 1;
+            });
+        });
+
+        const excessLeads = Math.max(0, totals.total_leads - totals.catered_leads);
+        const derived = {
+            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
+            excess_leads: excessLeads,
+            ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
+            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
+            actual_cost_per_lead: totals.total_leads > 0 ? totals.ads_spent / totals.total_leads : 0,
+            pickup_rate: dayCount > 0 ? pickupSum / dayCount : 0,
+            conversion_rate: dayCount > 0 ? convSum / dayCount : 0,
+            upselling_rate: dayCount > 0 ? upsellSum / dayCount : 0,
+        };
+
+        const summaryRow = summaryTable.querySelector(`.dsppr-summary-row[data-product-id="${productId}"]`);
+        if (summaryRow) {
+            summaryRow.querySelectorAll('[data-out]').forEach((el) => {
+                const key = el.dataset.out;
+                if (!(key in derived)) return;
+                const isPct = ['ni_pct', 'pickup_rate', 'conversion_rate', 'upselling_rate'].includes(key);
+                const isInt = ['excess_leads', 'total_orders', 'total_leads', 'catered_leads'].includes(key);
+                el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
+                el.classList.toggle('text-red-600', key === 'ni_pct' && derived[key] < 0);
+                el.classList.toggle('dark:text-red-400', key === 'ni_pct' && derived[key] < 0);
+            });
+        }
+
+        refreshOverallTotal(summaryTable);
+    }
+
+    // Recomputes and repaints the OVERALL TOTAL row from every product's
+    // own already-updated summary row — same "sum dollars, average
+    // rates" split as everywhere else on this page.
+    function refreshOverallTotal(summaryTable) {
+        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, total_leads: 0, catered_leads: 0, excess_leads: 0 };
+        let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0;
+
+        summaryTable.querySelectorAll('tbody .dsppr-summary-row').forEach((row) => {
+            totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
+            totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
+            totals.ads_spent += parseMoney(row.querySelector('[data-out="ads_spent"]').textContent);
+            totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
+            totals.total_leads += parseMoney(row.querySelector('[data-out="total_leads"]').textContent);
+            totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
+            totals.excess_leads += parseMoney(row.querySelector('[data-out="excess_leads"]').textContent);
+            pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
+            convSum += parseFloat(row.querySelector('[data-out="conversion_rate"]').textContent) / 100;
+            upsellSum += parseFloat(row.querySelector('[data-out="upselling_rate"]').textContent) / 100;
+            rowCount += 1;
+        });
+
+        const derived = {
+            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
+            excess_leads: totals.excess_leads,
+            ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
+            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
+            actual_cost_per_lead: totals.total_leads > 0 ? totals.ads_spent / totals.total_leads : 0,
+            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
+            conversion_rate: rowCount > 0 ? convSum / rowCount : 0,
+            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+        };
+
+        const totalRow = summaryTable.querySelector('.dsppr-overall-total-row');
+        if (!totalRow) return;
+        totalRow.querySelectorAll('[data-out]').forEach((el) => {
+            const key = el.dataset.out;
+            if (!(key in derived)) return;
+            const isPct = ['ni_pct', 'pickup_rate', 'conversion_rate', 'upselling_rate'].includes(key);
+            const isInt = ['excess_leads', 'total_orders', 'total_leads', 'catered_leads'].includes(key);
+            el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
+            el.classList.toggle('text-red-400', key === 'ni_pct' && derived[key] < 0);
+        });
+    }
+
     function saveField(input) {
         clearTimeout(saveTimers.get(input));
         saveTimers.delete(input);
@@ -405,6 +517,7 @@
                 }
                 if (data?.derived) applyDerived(row, date, data.derived);
                 refreshDayTotal(table, date);
+                refreshSummaryRow(row.dataset.productId);
             })
             .catch(() => {
                 flashStatus('Could not save — try again.', true);
