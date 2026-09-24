@@ -78,9 +78,9 @@
             <span class="text-right text-ink-muted dark:text-slate-500 text-xs">100.00%</span>
         </div>
 
-        @include('data.projections._pnl-row', ['label' => 'Cancelled & Waiting', 'pnlKey' => 'cancelled', 'rateKey' => 'cancelled', 'value' => $p['cancelled'], 'ratePct' => $rates['cancelled'] * 100, 'editable' => $editable])
-        @include('data.projections._pnl-row', ['label' => 'Returns', 'pnlKey' => 'returns', 'rateKey' => 'returns', 'value' => $p['returns'], 'ratePct' => $rates['returns'] * 100, 'editable' => $editable])
-        @include('data.projections._pnl-row', ['label' => 'Delivered', 'pnlKey' => 'delivered', 'rateKey' => 'delivered', 'value' => $p['delivered'], 'ratePct' => $rates['delivered'] * 100, 'editable' => $editable])
+        @include('data.projections._pnl-row', ['label' => 'Cancelled & Waiting', 'pnlKey' => 'cancelled', 'rateKey' => 'cancelled', 'value' => $p['cancelled'], 'ratePct' => $rates['cancelled'] * 100, 'editable' => false])
+        @include('data.projections._pnl-row', ['label' => 'Returns', 'pnlKey' => 'returns', 'rateKey' => 'returns', 'value' => $p['returns'], 'ratePct' => $rates['returns'] * 100, 'editable' => false])
+        @include('data.projections._pnl-row', ['label' => 'Delivered', 'pnlKey' => 'delivered', 'rateKey' => 'delivered', 'value' => $p['delivered'], 'ratePct' => $rates['delivered'] * 100, 'editable' => false])
         @include('data.projections._pnl-row', ['label' => 'Tax Allocation', 'pnlKey' => 'tax_allocation', 'rateKey' => 'tax_allocation', 'value' => $p['tax_allocation'], 'ratePct' => $rates['tax_allocation'] * 100, 'editable' => $editable])
         @include('data.projections._pnl-row', ['label' => 'Product Cost', 'pnlKey' => 'product_cost', 'rateKey' => 'product_cost', 'value' => $p['product_cost'], 'ratePct' => $rates['product_cost'] * 100, 'editable' => $editable])
 
@@ -92,7 +92,12 @@
 
         <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Selling And Marketing</div>
         @foreach(\App\Support\ProjectionCalculator::SELLING_COST_ROWS as $key => $rowLabel)
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['selling_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable])
+            {{-- COD Fee/Fulfillment Fee are never editable, even on Opening
+                 Shift — confirmed via the real sheet's own formula-view
+                 (2026-09-24) that both are computed formulas (Delivered ×
+                 2.24%, Orders × ₱25 flat), not settable %-of-Gross-Sales
+                 rates like every other row in this loop. --}}
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['selling_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)])
         @endforeach
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Selling Costs</span>

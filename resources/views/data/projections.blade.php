@@ -36,19 +36,28 @@
      doesn't care which row a card visually sits in. --}}
 <div id="pjColumns">
     <p class="mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Opening Team</p>
+    {{-- justify-center on the flex wrapper (explicit request, 2026-09-24:
+         "Telesales Department is in the center... all cards is aligned")
+         centers the row's cards on the page whenever they fit inside the
+         viewport with room to spare; overflow-x-auto still takes over and
+         the row scrolls/left-aligns normally the moment it doesn't. --}}
     <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5 lg:w-max lg:min-w-full">
+        <div class="flex flex-col lg:flex-row justify-center gap-5 min-w-fit mx-auto">
             @foreach($openingRow as $entry)
-                @include('data.projections._column', ['entry' => $entry])
+                <div class="w-full lg:w-[300px] shrink-0">
+                    @include('data.projections._column', ['entry' => $entry])
+                </div>
             @endforeach
         </div>
     </div>
 
     <p class="mt-8 mb-3 text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase">Closing Team</p>
     <div class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="grid grid-cols-1 lg:grid-flow-col lg:auto-cols-[minmax(300px,1fr)] gap-5 lg:w-max lg:min-w-full">
+        <div class="flex flex-col lg:flex-row justify-center gap-5 min-w-fit mx-auto">
             @foreach($closingRow as $entry)
-                @include('data.projections._column', ['entry' => $entry])
+                <div class="w-full lg:w-[300px] shrink-0">
+                    @include('data.projections._column', ['entry' => $entry])
+                </div>
             @endforeach
         </div>
     </div>

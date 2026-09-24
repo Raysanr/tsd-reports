@@ -262,6 +262,40 @@ class ProjectionsTest extends TestCase
      *  replicated on purpose (same explicit decision as the ÷25 orders
      *  divisor). Checked for BOTH shifts' own Daily column, not just
      *  Opening's. */
+    /**
+     * Root-caused 2026-09-24 against the real sheet's own formula-view
+     * screenshot: COD Fee = Delivered Sales × 2.24% (not Gross Sales ×
+     * 1.568%) and Fulfillment Fee = Total Orders × ₱25 flat (not Gross
+     * Sales × 3.125%). COD Fee's old shortcut is mathematically
+     * identical to the real formula in every case (Delivered is always
+     * exactly 70% of Gross here, and 70% × 2.24% = 1.568%) — only
+     * Fulfillment Fee's old shortcut diverges, and only when a column's
+     * AOV isn't exactly ₱800 (the one value where orders×25 and
+     * gross×3.125% happen to agree). This test proves the real formula
+     * by changing Opening Shift's own AOV away from 800.
+     */
+    public function test_cod_fee_and_fulfillment_fee_use_their_own_real_formulas(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $opening = ProjectionColumn::where('key', 'opening_shift')->first();
+        $opening->update(['average_order_value' => 1000, 'orders_override' => 100]);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+        $computed = $response->viewData('computed');
+        $pnl = $computed->firstWhere('column.key', 'opening_shift')['pnl'];
+
+        $expectedCod = $pnl['delivered'] * 0.0224;
+        $expectedFulfillment = $pnl['orders'] * 25;
+        // The old (wrong) Fulfillment Fee shortcut, to prove it would
+        // give a DIFFERENT number at this AOV — confirming this test
+        // actually exercises the fix.
+        $oldFulfillment = $pnl['gross_sales'] * 0.03125;
+
+        $this->assertEqualsWithDelta($expectedCod, $pnl['selling_lines']['cod_fee'], 0.01);
+        $this->assertEqualsWithDelta($expectedFulfillment, $pnl['selling_lines']['fulfillment_fee'], 0.01);
+        $this->assertTrue(abs($oldFulfillment - $pnl['selling_lines']['fulfillment_fee']) > 1, 'Fulfillment Fee should differ from the old gross-sales shortcut at this AOV');
+    }
+
     public function test_daily_fulfillment_fee_uses_a_flat_rate_not_the_monthly_divide(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

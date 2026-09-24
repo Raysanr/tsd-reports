@@ -101,8 +101,10 @@ class ProjectionCalculator
         'ai_expense'                  => 0.0,
         'ad_account_rental_fee'       => 0.0,
         'shipping_fee'                => 0.0,
-        'cod_fee'                     => 0.01568,
-        'fulfillment_fee'             => 0.03125,
+        // cod_fee/fulfillment_fee removed (2026-09-24) — both are now
+        // computed formulas (Delivered × 2.24%, Orders × ₱25 flat), not
+        // settable %-of-Gross-Sales rates — see COD_FEE_RATE_OF_DELIVERED/
+        // FULFILLMENT_FEE_PER_ORDER and pnlFromOrders()'s own doc comment.
         'product_research'            => 0.001302,
 
         'salaries'                    => 0.119526,
@@ -150,6 +152,31 @@ class ProjectionCalculator
         'fulfillment_fee'        => 'Fulfillment Fee',
         'product_research'       => 'Product Research',
     ];
+
+    /** COD Fee and Fulfillment Fee are computed formulas, not settable
+     *  %-of-Gross-Sales rates like every other SELLING_COST_ROWS entry —
+     *  confirmed via the real sheet's own formula-view (2026-09-24). Kept
+     *  in SELLING_COST_ROWS above (still real line items, still summed
+     *  into Total Selling Costs) but excluded from Opening Shift's own
+     *  editable-$ treatment in _column.blade.php. */
+    public const NON_EDITABLE_SELLING_ROWS = ['cod_fee', 'fulfillment_fee'];
+
+    /** COD Fee = Delivered Sales × this rate (confirmed via the real
+     *  sheet's own formula-view, 2026-09-24) — NOT a %-of-Gross-Sales
+     *  rate like every other selling-cost line. Produces the same dollar
+     *  figure as the old gross-sales-based shortcut only because
+     *  Delivered is always exactly 70% of Gross here (2.24% × 70% =
+     *  1.568%, the old rate) — kept as its own named constant, not
+     *  folded into DEFAULT_RATES, since it's applied against a different
+     *  base than every rate in that array. */
+    public const COD_FEE_RATE_OF_DELIVERED = 0.0224;
+
+    /** Fulfillment Fee = Total Orders × this flat peso amount (confirmed
+     *  via the real sheet's own formula-view, 2026-09-24) — NOT a
+     *  %-of-Gross-Sales rate. Diverges from the old gross-sales-based
+     *  shortcut whenever a column's own AOV isn't exactly ₱800 (the one
+     *  value where orders×25 and gross×3.125% happen to agree). */
+    public const FULFILLMENT_FEE_PER_ORDER = 25.0;
 
     /** Same idea, for "Operating Costs". */
     public const OPERATING_COST_ROWS = [
@@ -337,7 +364,19 @@ class ProjectionCalculator
         $grossProfit = $grossSales - $cancelled - $returns - $tax - $productCost;
 
         $sellingLines = collect(self::SELLING_COST_ROWS)->keys()
-            ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)]);
+            ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)])
+            // COD Fee = Delivered Sales × 2.24% (confirmed via the real
+            // sheet's own formula-view, 2026-09-24), not Gross Sales ×
+            // a rate — same number in every scenario seen so far since
+            // Delivered is always exactly 70% of Gross here, but this is
+            // the actual formula, not a coincidentally-equal shortcut.
+            ->put('cod_fee', $delivered * self::COD_FEE_RATE_OF_DELIVERED)
+            // Fulfillment Fee = Total Orders × ₱25 flat (confirmed via
+            // the same sheet formula-view) — NOT a %-of-Gross-Sales rate.
+            // Diverges from the old gross-sales-percentage shortcut
+            // whenever AOV isn't exactly ₱800 (the one value where
+            // orders×25 and gross×3.125% happen to agree).
+            ->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER);
         $totalSellingCosts = $sellingLines->sum();
 
         $operatingLines = collect(self::OPERATING_COST_ROWS)->keys()
