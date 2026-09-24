@@ -37,7 +37,7 @@
      looks up a specific card by its own data-key, so it doesn't care
      where a card visually sits. --}}
 <div id="pjColumns" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-6">
-    <div class="flex-1 min-w-0 overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+    <div class="flex-1 min-w-0 isolate overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:w-max">
             @foreach($openingRow as $entry)
                 @include('data.projections._column', ['entry' => $entry])
@@ -48,8 +48,14 @@
         </div>
     </div>
 
+    {{-- Same natural card width as the other 6 (no more hardcoded 300px,
+         explicit request 2026-09-24: "the card of Telesales Department is
+         same as other cards") — shrink-0 keeps it from being squeezed by
+         the left grid's own flex-1, so it never overlaps that grid's
+         independent horizontal scroll (its own explicit follow-up:
+         "Telesales Department is fixed like other cards" while scrolling). --}}
     @if($telesalesEntry)
-    <div class="shrink-0 lg:w-[300px]">
+    <div class="shrink-0 w-full lg:w-[22rem]">
         @include('data.projections._column', ['entry' => $telesalesEntry])
     </div>
     @endif
