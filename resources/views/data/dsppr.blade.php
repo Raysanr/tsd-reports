@@ -23,14 +23,19 @@
     .dsppr-scroller { cursor: grab; }
     .dsppr-scroller.cursor-grabbing { cursor: grabbing; }
 
-    /* Real cell borders on every side, like the sheet's own grid lines
-       (explicit request, 2026-09-24: "make it like has border like in the
-       sheets", then "make the grid or border is darker" — #cbd5e1 read as
-       too faint against the pale yellow/rose header colors) —
-       border-collapse means adjacent cells share one line instead of
-       doubling up. */
-    .dsppr-table th, .dsppr-table td { border: 1px solid #64748b; }
-    .dark .dsppr-table th, .dark .dsppr-table td { border-color: #94a3b8; }
+    /* Borders simplified to "one separator per day" (explicit request,
+       2026-09-24: "make it the line or border is make it thicker like
+       that it is only 1 border that is separation of per date") —
+       replaces the earlier all-sides grid-on-every-cell look (which read
+       as too busy against the pale header colors) with just a thin
+       bottom rule per row (keeps rows scannable) and ONE thick vertical
+       rule at each day's own right edge (.dsppr-day-end, applied to the
+       last of every 13-column group) — no internal vertical lines
+       between a day's own columns at all. */
+    .dsppr-table th, .dsppr-table td { border: none; border-bottom: 1px solid #cbd5e1; }
+    .dark .dsppr-table th, .dark .dsppr-table td { border-bottom-color: #475569; }
+    .dsppr-table .dsppr-day-end { border-right: 3px solid #334155; }
+    .dark .dsppr-table .dsppr-day-end { border-right-color: #cbd5e1; }
 </style>
 
 @php
@@ -190,7 +195,7 @@
                 <tr>
                     <th rowspan="2" class="dsppr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">Product</th>
                     @foreach($dates as $date)
-                    <th colspan="{{ count($dayColumns) }}" class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap border-l-2 border-yellow-500 dark:border-yellow-800">
+                    <th colspan="{{ count($dayColumns) }}" class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap dsppr-day-end">
                         {{ $date->format('D, M j') }}
                     </th>
                     @endforeach
@@ -198,7 +203,7 @@
                 <tr>
                     @foreach($dates as $date)
                         @foreach($dayColumns as $i => $col)
-                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-950 {{ $col['headerBg'] }} {{ $i === 0 ? 'border-l-2 border-yellow-500 dark:border-yellow-900' : '' }}">
+                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-950 {{ $col['headerBg'] }} {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }}">
                             {{ $col['label'] }}
                         </th>
                         @endforeach
@@ -218,7 +223,7 @@
                             $d = \App\Support\DsPprCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
-                            @php $borderClass = $i === 0 ? 'border-l-2 border-yellow-200 dark:border-yellow-900' : ''; @endphp
+                            @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
                             @if($col['editable'])
                             <td class="px-2 py-1.5 {{ $borderClass }}">
                                 <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
@@ -249,7 +254,7 @@
                             })->all());
                         @endphp
                         @foreach($dayColumns as $i => $col)
-                        <td class="px-3 py-2.5 text-right {{ $i === 0 ? 'border-l-2 border-yellow-900' : '' }} {{ $col['key'] === 'net_income' && $dayTotal['net_income'] < 0 ? 'text-red-400' : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
+                        <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' && $dayTotal['net_income'] < 0 ? 'text-red-400' : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
                             data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}" data-total-row="1">
                             {{ ($col['pct'] ?? false) ? $fmtPct($dayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($dayTotal[$col['key']]) : $fmtMoney($dayTotal[$col['key']])) }}
                         </td>
