@@ -88,6 +88,17 @@
             </svg>
             DSPPR - TSM Report
         </a>
+
+        {{-- Summary Sales Report, right next to DSPPR (explicit request,
+             2026-09-24: "add page summary sales report in data
+             management"). --}}
+        <a href="{{ route('data.tsa-sales') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.tsa-sales*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+            </svg>
+            Summary Sales Report
+        </a>
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
