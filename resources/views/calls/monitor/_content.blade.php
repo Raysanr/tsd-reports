@@ -17,7 +17,8 @@
 --}}
 @php
     $statusDotClass = fn (string $s) => match ($s) {
-        \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+        \App\Models\TsaShift::STATUS_LOGIN,
+        \App\Models\TsaShift::STATUS_READY_TO_CALL => 'bg-emerald-500',
         \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
         \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
         \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',
@@ -32,7 +33,8 @@
         default => 'bg-slate-400',
     };
     $statusBadgeClass = fn (string $s) => match ($s) {
-        \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
+        \App\Models\TsaShift::STATUS_LOGIN,
+        \App\Models\TsaShift::STATUS_READY_TO_CALL => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
         \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
         \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400',
         \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-400',
@@ -47,7 +49,8 @@
         default => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
     };
     $statusBorderClass = fn (string $s) => match ($s) {
-        \App\Models\TsaShift::STATUS_LOGIN      => 'border-t-emerald-500',
+        \App\Models\TsaShift::STATUS_LOGIN,
+        \App\Models\TsaShift::STATUS_READY_TO_CALL => 'border-t-emerald-500',
         \App\Models\TsaShift::STATUS_CALLING    => 'border-t-red-500',
         \App\Models\TsaShift::STATUS_WRAP_UP    => 'border-t-orange-500',
         \App\Models\TsaShift::STATUS_CALL_BACKS => 'border-t-teal-500',

@@ -80,9 +80,10 @@ class TsaStatusController extends Controller
         // is the one path every manual status change funnels through
         // (topbar dropdown + Call Rotation + Monitor TSA's button grid all
         // POST here), so rejecting it here closes the gap even though no UI
-        // exposes a Wrap Up button today. It no longer auto-expires back to
-        // Login on its own (removed 2026-09-01, explicit request) — a TSA
-        // leaves Wrap Up the normal way, by picking a real next status,
+        // exposes a Wrap Up button today. Its auto-expiry back to Login was
+        // removed 2026-09-01, then reinstated 2026-09-24 pointed at Ready to
+        // Call instead (1 minute, see ExpireWrapUpStatuses) — a TSA can
+        // still leave Wrap Up early by picking a real next status by hand,
         // which this same endpoint (with a different $data['status']) already
         // allows freely.
         if ($data['status'] === TsaShift::STATUS_WRAP_UP) {
@@ -136,6 +137,7 @@ class TsaStatusController extends Controller
 
         $dotClass = match (true) {
             $tsa->status === TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+            $tsa->status === TsaShift::STATUS_READY_TO_CALL => 'bg-emerald-500',
             $tsa->status === TsaShift::STATUS_CALLING    => 'bg-red-500',
             $tsa->status === TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
             $tsa->status === TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',

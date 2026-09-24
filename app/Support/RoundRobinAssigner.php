@@ -32,8 +32,11 @@ class RoundRobinAssigner
      *  request, 2026-09-22: "the leads is still continuous" — a TSA
      *  working the Callbacks/Unanswered Calls queue must keep receiving
      *  new round-robin leads too, same as Calling/Wrap Up already do; see
-     *  TsaShift::STATUSES' own doc comment on that status). */
-    public const ELIGIBLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP, TsaShift::STATUS_CALL_BACKS];
+     *  TsaShift::STATUSES' own doc comment on that status). Ready to Call
+     *  joins them (explicit request, 2026-09-24) — the status a TSA
+     *  returns to after Login, functionally identical to Login for
+     *  eligibility purposes (see TsaShift::STATUSES' own doc comment). */
+    public const ELIGIBLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_READY_TO_CALL, TsaShift::STATUS_CALLING, TsaShift::STATUS_WRAP_UP, TsaShift::STATUS_CALL_BACKS];
 
     /** How long a product's eligible roster must stay continuously
      *  non-empty before catchUpUnassignedLeads() will hand out that

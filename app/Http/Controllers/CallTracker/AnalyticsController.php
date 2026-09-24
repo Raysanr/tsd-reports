@@ -243,7 +243,12 @@ class AnalyticsController extends Controller
             'huddle'    => $formatHm($statusSeconds[TsaShift::STATUS_HUDDLE] ?? 0),
             'others'    => $formatHm($othersSeconds),
         ];
-        $loginTimeDisplay = $formatHm($statusSeconds[TsaShift::STATUS_LOGIN] ?? 0);
+        // Ready to Call folds into "Login Time" too (explicit request,
+        // 2026-09-24) — it's the status a TSA returns to after Login (see
+        // TsaShift::STATUSES' own doc comment), so "Total time logged in"
+        // still means the same thing it always has: time spent available,
+        // not literally time spent in the Login status specifically.
+        $loginTimeDisplay = $formatHm(($statusSeconds[TsaShift::STATUS_LOGIN] ?? 0) + ($statusSeconds[TsaShift::STATUS_READY_TO_CALL] ?? 0));
 
         // Aggregate KPI cards (explicit request, 2026-08-19) — Total Leads/
         // Catered sum the same $rows every table row already shows (never a

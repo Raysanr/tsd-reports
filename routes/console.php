@@ -11,6 +11,7 @@ use App\Console\Commands\SyncPancakeLeads;
 use App\Console\Commands\LinkSeparateParcelOrders;
 use App\Console\Commands\BackfillLostUpsellTags;
 use App\Console\Commands\LogoutAllTsasAtMidnight;
+use App\Console\Commands\ExpireWrapUpStatuses;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -207,9 +208,19 @@ Schedule::command(SyncPancakeLeads::class)->everyMinute()->withoutOverlapping(10
 // reliably real-time (phone-side automation getting killed by Android's
 // battery management is the common failure mode), so silently bouncing
 // someone out of Wrap Up on a timer was masking that unreliability rather
-// than reflecting their real state. They now stay in Wrap Up until a
-// manual status change (topbar dropdown / Call Rotation / Monitor TSA),
-// same as Break/Lunch/Coaching/etc.
+// than reflecting their real state.
+//
+// Reinstated 2026-09-24 (explicit request) at a fixed 1-minute timer,
+// pointed at Ready to Call instead of Login — accepted tradeoff this time
+// around despite the same webhook-reliability caveat above. See
+// ExpireWrapUpStatuses' own doc comment for the full reasoning.
+//
+// everyMinute() + withoutOverlapping(10): same reasoning as every other
+// every-minute job in this file — a 1-minute expiry window needs at least
+// a 1-minute poll to ever fire on time, and the shared mutex-window
+// convention (2026-08-21 fix) keeps a redeploy mid-run from wedging this
+// one for 24h same as it would any other every-minute job here.
+Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlapping(10);
 
 // Force-logs-out every still-logged-in TSA at Manila midnight — explicit
 // request, 2026-09-21, directly tied to a real same-day incident: Hannah

@@ -61,6 +61,7 @@
     ];
     $dotColor = match(true) {
         $current === \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+        $current === \App\Models\TsaShift::STATUS_READY_TO_CALL => 'bg-emerald-500',
         $current === \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
         $current === \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
         $current === \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',

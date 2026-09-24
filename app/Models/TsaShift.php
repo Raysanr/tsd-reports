@@ -37,7 +37,8 @@ class TsaShift extends Model
      *  LOCKED mirrors Pancake's own conversation-receive-mode "Lock" option
      *  — admin-only to set, and while set, the TSA's own topbar dropdown
      *  can't change it away (see TsaStatusController::update()'s guard). */
-    public const STATUS_LOGIN       = 'login';
+    public const STATUS_LOGIN         = 'login';
+    public const STATUS_READY_TO_CALL = 'ready_to_call';
     public const STATUS_CALLING     = 'calling';
     public const STATUS_WRAP_UP     = 'wrap_up';
     public const STATUS_CALL_BACKS  = 'call_backs';
@@ -86,9 +87,22 @@ class TsaShift extends Model
      *  too) — a TSA working Callbacks/Unanswered is still actively
      *  working, just on a different queue, same as Calling/Wrap Up
      *  already don't pause round-robin either. Also deliberately excluded
-     *  from UNPRODUCTIVE_STATUSES below, same reasoning. */
+     *  from UNPRODUCTIVE_STATUSES below, same reasoning.
+     *
+     *  Ready to Call added (explicit request, 2026-09-24) as the status a
+     *  TSA returns to after Login — Login itself is now a one-time,
+     *  start-of-shift event only: selfServiceOptionsFor() strips it from
+     *  the topbar dropdown the moment a TSA has used it at least once
+     *  today, leaving Ready to Call as the only "available again" option
+     *  from then on (returning from Break/Lunch/etc., or Wrap Up's own
+     *  1-minute auto-expiry below). Functionally identical to Login
+     *  otherwise — same round-robin eligibility (ELIGIBLE_STATUSES),
+     *  same "actively working" treatment (excluded from
+     *  UNPRODUCTIVE_STATUSES) — this is a UI/semantics split, not a new
+     *  behavior tier. */
     public const STATUSES = [
-        self::STATUS_LOGIN      => ['label' => 'Login',      'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
+        self::STATUS_LOGIN        => ['label' => 'Login',         'description' => 'Start of shift — ready to receive round-robin leads', 'icon' => 'available'],
+        self::STATUS_READY_TO_CALL => ['label' => 'Ready to Call', 'description' => 'Ready to receive round-robin leads',            'icon' => 'available'],
         self::STATUS_CALLING    => ['label' => 'Calling',    'description' => 'On a call right now — set automatically when a lead\'s number is clicked, not clickable', 'icon' => 'available'],
         self::STATUS_WRAP_UP    => ['label' => 'Wrap Up',    'description' => 'After-call wrap-up — set automatically, not clickable', 'icon' => 'wrap_up'],
         self::STATUS_CALL_BACKS => ['label' => 'Call Backs', 'description' => 'Working the Callbacks/Unanswered Calls queue — still receives round-robin leads', 'icon' => 'call_backs'],
@@ -118,9 +132,17 @@ class TsaShift extends Model
      *  last, same position it's always had. Call Backs added (explicit
      *  request, 2026-09-22 — see STATUSES' own doc comment above), placed
      *  right after Login since it's the other "actively working" status a
-     *  TSA picks for themselves. */
+     *  TSA picks for themselves.
+     *
+     *  Ready to Call added (explicit request, 2026-09-24) right after
+     *  Login. This full list (Login included) is still what an ADMIN sees
+     *  via the Leads tab's per-TSA status control — an admin may
+     *  legitimately need to correct a TSA back to Login by hand. A TSA's
+     *  own topbar dropdown does NOT use this constant directly anymore;
+     *  it goes through selfServiceOptionsFor() below, which strips Login
+     *  out once that TSA has used it today. */
     public const SELF_SERVICE_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_COACHING,
+        self::STATUS_LOGIN, self::STATUS_READY_TO_CALL, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH, self::STATUS_COACHING,
         self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS, self::STATUS_LOGOUT,
     ];
 
@@ -129,9 +151,10 @@ class TsaShift extends Model
      *  for — including Calling and Wrap Up, which a TSA can end up in even
      *  though neither is ever set by hand (see STATUSES' own doc comment
      *  above). Call Backs added (explicit request, 2026-09-22) alongside
-     *  them. */
+     *  them. Ready to Call added (explicit request, 2026-09-24), same
+     *  treatment as Login. */
     public const MONITOR_LEGEND_STATUSES = [
-        self::STATUS_LOGIN, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH,
+        self::STATUS_LOGIN, self::STATUS_READY_TO_CALL, self::STATUS_CALLING, self::STATUS_WRAP_UP, self::STATUS_CALL_BACKS, self::STATUS_BREAK, self::STATUS_LUNCH,
         self::STATUS_COACHING, self::STATUS_DNA_HUDDLE, self::STATUS_HUDDLE, self::STATUS_OTHERS,
     ];
 
@@ -155,6 +178,25 @@ class TsaShift extends Model
         self::STATUS_HUDDLE, self::STATUS_COACHING, self::STATUS_OTHERS,
     ];
 
+    /** SELF_SERVICE_STATUSES, minus Login once a TSA has already used it
+     *  today (explicit request, 2026-09-24: "the login will only one time
+     *  ... whe tsa click like break they can only click the ready to call
+     *  not login"). Login is only offered from Logout (a fresh shift that
+     *  hasn't started yet) — from any other status, Ready to Call is the
+     *  one "I'm available again" option, whether returning from Break/
+     *  Lunch/etc. or via Wrap Up's own 1-minute auto-expiry (see
+     *  ExpireWrapUpStatuses). This is what the topbar dropdown ($target
+     *  ='self') renders; the Leads tab's admin-facing status control
+     *  still passes the full SELF_SERVICE_STATUSES directly so an admin
+     *  can always set Login by hand if a TSA's state needs correcting. */
+    public static function selfServiceOptionsFor(string $currentStatus): array
+    {
+        if ($currentStatus === self::STATUS_LOGOUT) {
+            return self::SELF_SERVICE_STATUSES;
+        }
+
+        return array_values(array_diff(self::SELF_SERVICE_STATUSES, [self::STATUS_LOGIN]));
+    }
 
     public function restDays()
     {

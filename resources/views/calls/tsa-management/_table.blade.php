@@ -9,13 +9,13 @@
     // table (explicit request, 2026-08-24: replace the old manual "Active"
     // toggle/column with the TSA's real live status instead).
     $statusDot = fn ($status) => match (true) {
-        $status === \App\Models\TsaShift::STATUS_LOGIN  => 'bg-emerald-500',
+        in_array($status, [\App\Models\TsaShift::STATUS_LOGIN, \App\Models\TsaShift::STATUS_READY_TO_CALL], true) => 'bg-emerald-500',
         $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-300 dark:bg-slate-600',
         $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-500',
         default => 'bg-amber-500',
     };
     $statusBadge = fn ($status) => match (true) {
-        $status === \App\Models\TsaShift::STATUS_LOGIN  => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
+        in_array($status, [\App\Models\TsaShift::STATUS_LOGIN, \App\Models\TsaShift::STATUS_READY_TO_CALL], true) => 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400',
         $status === \App\Models\TsaShift::STATUS_LOGOUT => 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300',
         $status === \App\Models\TsaShift::STATUS_LOCKED => 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400',
         default => 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400',

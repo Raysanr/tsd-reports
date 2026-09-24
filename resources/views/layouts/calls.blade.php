@@ -477,7 +477,7 @@
             @php $ownStatus = auth()->user()->tsa->status ?? \App\Models\TsaShift::STATUS_LOGOUT; @endphp
             @include('calls.partials.tsa-status-panel', [
                 'id'       => 'topbar',
-                'options'  => \App\Models\TsaShift::SELF_SERVICE_STATUSES,
+                'options'  => \App\Models\TsaShift::selfServiceOptionsFor($ownStatus),
                 'current'  => $ownStatus,
                 'target'   => 'self',
                 'readonly' => $ownStatus === \App\Models\TsaShift::STATUS_LOCKED,

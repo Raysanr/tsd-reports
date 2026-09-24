@@ -56,7 +56,8 @@
          scope, not this file's). --}}
     @php
         $monitorStatusDotClass = fn (string $s) => match ($s) {
-            \App\Models\TsaShift::STATUS_LOGIN      => 'bg-emerald-500',
+            \App\Models\TsaShift::STATUS_LOGIN,
+            \App\Models\TsaShift::STATUS_READY_TO_CALL => 'bg-emerald-500',
             \App\Models\TsaShift::STATUS_CALLING    => 'bg-red-500',
             \App\Models\TsaShift::STATUS_WRAP_UP    => 'bg-orange-500',
             \App\Models\TsaShift::STATUS_CALL_BACKS => 'bg-teal-500',
