@@ -155,32 +155,31 @@
             <input type="text" inputmode="decimal" value="{{ number_format($t['average_order_value'], 2) }}" data-field="average_order_value" data-money="1"
                    class="pj-field w-32 text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md px-2 py-1 text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         </div>
-        <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center pt-1 border-t border-line/60 dark:border-slate-700">
+        {{-- Total Orders Needed / Total Leads Needed are plain read-only
+             numbers now (explicit request, 2026-09-24: "not editable and
+             no percentage too") — their own underlying target_margin/
+             conversion_rate rates no longer have a UI control on this
+             page at all; both still exist as real Settings values
+             (DEFAULT_RATES' own 31.25%/30%), just not editable from here
+             anymore. --}}
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center pt-1 border-t border-line/60 dark:border-slate-700">
             <span class="text-ink-muted dark:text-slate-400">Total Orders Needed</span>
             <span data-out="orders_needed" class="text-right font-bold text-primary">{{ number_format($t['orders_needed'], $t['orders_needed'] < 100 ? 2 : 0) }}</span>
-            <span class="relative">
-                <input type="number" step="0.0001" value="{{ round($rates['target_margin'] * 100, 4) }}" data-rate="target_margin"
-                       class="pj-rate-field w-full text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md pl-1 pr-4 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                <span class="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-ink-muted dark:text-slate-500">%</span>
-            </span>
         </div>
-        <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center">
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Total Leads Needed</span>
             <span data-out="leads_needed" class="text-right font-semibold text-ink dark:text-slate-100">{{ number_format($t['leads_needed']) }}</span>
-            <span class="relative">
-                <input type="number" step="0.0001" value="{{ round($rates['conversion_rate'] * 100, 4) }}" data-rate="conversion_rate"
-                       class="pj-rate-field w-full text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md pl-1 pr-4 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                <span class="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-ink-muted dark:text-slate-500">%</span>
-            </span>
         </div>
+        {{-- Target Pick-up Rate stays editable, but as a plain number box
+             with no visible "%" (explicit request, 2026-09-24: "only
+             editable is number... remove too the percentage") — typing
+             behavior is unchanged (still type 50 to mean 50%, see pj.js's
+             own saveRate()), only the % suffix decoration is gone. --}}
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center">
             <span class="text-ink-muted dark:text-slate-400">Target Pick-up Rate</span>
             <span data-out="pickup_rate" class="text-right font-semibold text-ink dark:text-slate-100">{{ number_format($t['pickup_rate']) }}</span>
-            <span class="relative">
-                <input type="number" step="0.0001" value="{{ round($rates['pickup_rate'] * 100, 4) }}" data-rate="pickup_rate"
-                       class="pj-rate-field w-full text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md pl-1 pr-4 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                <span class="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-ink-muted dark:text-slate-500">%</span>
-            </span>
+            <input type="number" step="0.0001" value="{{ round($rates['pickup_rate'] * 100, 4) }}" data-rate="pickup_rate"
+                   class="pj-rate-field w-full text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Target Upselling Rate</span>
