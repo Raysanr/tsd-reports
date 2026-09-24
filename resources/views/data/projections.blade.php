@@ -175,6 +175,14 @@
         setValue('[data-pnl="net_income"]', p.net_income);
         setValue('[data-pnl="net_income_pct"]', p.net_income_pct, true);
 
+        // Target Upselling Rate / Pick-up Rate live in the target card, not
+        // the P&L table, so they're not plain $ values — reuse setValue's
+        // input-vs-span handling but format as a plain number, not money.
+        const upsellEl = card.querySelector('[data-field="upselling_rate_override"]');
+        if (upsellEl && document.activeElement !== upsellEl) upsellEl.value = fmtNumber(t.upselling_rate, 2);
+        const pickupEl = card.querySelector('[data-rate="pickup_rate"][data-mode="leads"]');
+        if (pickupEl && document.activeElement !== pickupEl) pickupEl.value = fmtNumber(t.pickup_rate, 0);
+
         Object.entries(p.selling_lines || {}).forEach(([key, val]) => {
             setValue(`[data-line-input="${key}"], [data-line="${key}"]`, val);
             setPct(key, val);
@@ -202,6 +210,14 @@
                 const card = el.closest('.pj-card');
                 const grossSales = computedByKey?.[card?.dataset.key]?.pnl?.gross_sales;
                 if (grossSales) el.value = fmtMoney(fraction * grossSales);
+            } else if (el.dataset.mode === 'leads') {
+                // Target Pick-up Rate's displayed value is Leads Needed ×
+                // this fraction — resync against THIS column's own Leads
+                // Needed, same per-column back-solve convention as
+                // data-mode="dollar" above uses Gross Sales.
+                const card = el.closest('.pj-card');
+                const leadsNeeded = computedByKey?.[card?.dataset.key]?.target_card?.leads_needed;
+                if (leadsNeeded != null) el.value = fmtNumber(fraction * leadsNeeded, 0);
             } else {
                 el.value = Math.round(fraction * 100 * 10000) / 10000;
             }
@@ -296,11 +312,22 @@
         saveTimers.delete(input);
         const key = input.dataset.rate;
         const isDollar = input.dataset.mode === 'dollar';
+        const isLeads = input.dataset.mode === 'leads';
         const typed = isDollar ? parseMoney(input.value) : Number(input.value);
         if (Number.isNaN(typed)) return;
 
         let fraction;
-        if (isDollar) {
+        if (isLeads) {
+            // Target Pick-up Rate's displayed value is Leads Needed × this
+            // fraction — back-solve against THIS column's own Leads Needed
+            // (already on-screen, read-only), same convention as the
+            // dollar-mode branch below uses Gross Sales.
+            const ownCard = input.closest('.pj-card');
+            const leadsNeededEl = ownCard?.querySelector('[data-out="leads_needed"]');
+            const leadsNeeded = leadsNeededEl ? Number(leadsNeededEl.textContent.replace(/,/g, '')) : 0;
+            if (!leadsNeeded) return;
+            fraction = typed / leadsNeeded;
+        } else if (isDollar) {
             // Every rate is shared, but only the 2 BASE shifts (Opening
             // and, since 2026-09-23, Closing — "okay now in the downpart
             // is the closing team") are actually computed from Orders ×

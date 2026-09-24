@@ -256,6 +256,46 @@ class ProjectionsTest extends TestCase
         $response->assertJsonPath('computed.pnl.orders', 2400);
     }
 
+    /** Target Upselling Rate defaults to mirroring Total Orders Needed, but
+     *  is directly editable per column (explicit request, 2026-09-24) via
+     *  upselling_rate_override — same nullable-override convention as
+     *  orders_override above. */
+    public function test_upselling_rate_override_replaces_the_mirrored_orders_needed_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['upselling_rate_override' => 555]
+        );
+
+        $response->assertOk();
+        $this->assertEquals(555, $openingShift->fresh()->upselling_rate_override);
+        $response->assertJsonPath('computed.target_card.upselling_rate', 555);
+    }
+
+    /** Clearing the override back to null restores the mirrored value,
+     *  same as orders_override's own clear-to-restore behavior above. */
+    public function test_clearing_upselling_rate_override_restores_the_mirrored_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $openingShift->update(['upselling_rate_override' => 555]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['upselling_rate_override' => null]
+        );
+
+        $response->assertOk();
+        $this->assertNull($openingShift->fresh()->upselling_rate_override);
+        $response->assertJsonPath(
+            'computed.target_card.upselling_rate',
+            $response->json('computed.target_card.orders_needed')
+        );
+    }
+
     /** Fulfillment Fee on either shift's Daily column is a flat 3% of
      *  DAILY's own Gross Sales, not Monthly's Fulfillment Fee ÷ 24 like
      *  every other cost line — the sheet's own second inconsistency, also

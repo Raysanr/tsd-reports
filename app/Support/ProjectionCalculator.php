@@ -281,8 +281,9 @@ class ProjectionCalculator
             'orders_needed' => $ordersNeeded,
             'leads_needed' => $leadsNeeded,
             'pickup_rate' => $pickupRate,
-            // 1:1 with Orders Needed — verified against the real sheet.
-            'upselling_rate' => $ordersNeeded,
+            // 1:1 with Orders Needed by default, but directly editable per
+            // column (explicit request, 2026-09-24) via upselling_rate_override.
+            'upselling_rate' => $column->upselling_rate_override ?? $ordersNeeded,
         ];
     }
 

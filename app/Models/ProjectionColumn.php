@@ -12,14 +12,15 @@ use Illuminate\Database\Eloquent\Model;
  *  ProjectionCalculator from these inputs plus the shared rate Settings. */
 class ProjectionColumn extends Model
 {
-    protected $fillable = ['key', 'label', 'net_income_target', 'average_order_value', 'orders_override', 'tsa_count', 'sort_order'];
+    protected $fillable = ['key', 'label', 'net_income_target', 'average_order_value', 'orders_override', 'upselling_rate_override', 'tsa_count', 'sort_order'];
 
     protected $casts = [
-        'net_income_target'   => 'float',
-        'average_order_value' => 'float',
-        'orders_override'      => 'float',
-        'tsa_count'            => 'integer',
-        'sort_order'           => 'integer',
+        'net_income_target'        => 'float',
+        'average_order_value'      => 'float',
+        'orders_override'           => 'float',
+        'upselling_rate_override'   => 'float',
+        'tsa_count'                 => 'integer',
+        'sort_order'                => 'integer',
     ];
 
     /** The 7 real columns and their seed inputs — the same values the

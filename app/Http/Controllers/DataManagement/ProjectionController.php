@@ -68,6 +68,10 @@ class ProjectionController extends Controller
             // target-derived # of Orders instead of pinning it at 0 — see
             // the add_orders_override migration's own doc comment.
             'orders_override'      => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            // Same nullable-override convention, for Target Upselling Rate
+            // — see the add_upselling_rate_override migration's own doc
+            // comment.
+            'upselling_rate_override' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'tsa_count'            => ['sometimes', 'integer', 'min:1'],
             'label'                => ['sometimes', 'string', 'max:255'],
         ]);

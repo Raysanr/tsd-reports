@@ -170,20 +170,23 @@
             <span class="text-ink-muted dark:text-slate-400">Total Leads Needed</span>
             <span data-out="leads_needed" class="text-right font-semibold text-ink dark:text-slate-100">{{ number_format($t['leads_needed']) }}</span>
         </div>
-        {{-- Target Pick-up Rate stays editable, but as a plain number box
-             with no visible "%" (explicit request, 2026-09-24: "only
-             editable is number... remove too the percentage") — typing
-             behavior is unchanged (still type 50 to mean 50%, see pj.js's
-             own saveRate()), only the % suffix decoration is gone. --}}
-        <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center">
+        {{-- Target Pick-up Rate: the % input box is gone (explicit request,
+             2026-09-24) — the displayed value itself (Leads Needed × Pick-up
+             Rate %) is now the one editable field. Typing a number here
+             back-solves it into the shared pickup_rate fraction against
+             THIS column's own Leads Needed (value ÷ leads_needed), the same
+             back-solve convention the P&L rows' data-mode="dollar" fields
+             already use against Gross Sales — see pj.js's own saveRate()
+             data-mode="leads" branch. --}}
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Target Pick-up Rate</span>
-            <span data-out="pickup_rate" class="text-right font-semibold text-ink dark:text-slate-100">{{ number_format($t['pickup_rate']) }}</span>
-            <input type="number" step="0.0001" value="{{ round($rates['pickup_rate'] * 100, 4) }}" data-rate="pickup_rate"
-                   class="pj-rate-field w-full text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            <input type="text" inputmode="decimal" value="{{ number_format($t['pickup_rate']) }}" data-rate="pickup_rate" data-mode="leads"
+                   class="pj-rate-field w-32 text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Target Upselling Rate</span>
-            <span data-out="upselling_rate" class="font-bold text-primary">{{ number_format($t['upselling_rate'], 2) }}</span>
+            <input type="text" inputmode="decimal" value="{{ number_format($t['upselling_rate'], 2) }}" data-field="upselling_rate_override" data-money="1"
+                   class="pj-field w-32 text-right bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-bold text-primary focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         </div>
     </div>
 </div>
