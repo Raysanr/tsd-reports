@@ -1,5 +1,5 @@
 @extends('layouts.data')
-@section('title', 'Expected Income 2026')
+@section('title', 'Expected Income')
 @section('subtitle', 'Daily P&L per product — every figure auto-saves as you type')
 
 @section('content')
