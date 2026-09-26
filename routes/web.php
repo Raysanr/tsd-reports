@@ -287,6 +287,11 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // via silent route-model-binding failure instead of ever reaching
         // updateRates().
         Route::patch('/projections/rates', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateRates'])->name('projections.update-rates');
+        // Custom rows (explicit request, 2026-09-26: "add like + icon on
+        // Selling And Marketing and Operating Costs") — registered before
+        // the {projectionColumn} wildcard for the same reason /rates is.
+        Route::post('/projections/custom-rows', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'storeCustomRow'])->name('projections.custom-rows.store');
+        Route::delete('/projections/custom-rows/{projectionCustomRow}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'destroyCustomRow'])->name('projections.custom-rows.destroy');
         Route::patch('/projections/{projectionColumn}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateColumn'])->name('projections.update-column');
 
         // DSPPR - TSM Report (explicit request, 2026-09-24: "create this

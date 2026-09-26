@@ -90,26 +90,52 @@
             <span data-pnl="gross_profit_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ number_format($p['gross_profit_pct'] * 100, 2) }}%</span>
         </div>
 
-        <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Selling And Marketing</div>
-        @foreach(\App\Support\ProjectionCalculator::SELLING_COST_ROWS as $key => $rowLabel)
-            {{-- COD Fee/Fulfillment Fee are never editable, even on Opening
-                 Shift — confirmed via the real sheet's own formula-view
-                 (2026-09-24) that both are computed formulas (Delivered ×
-                 2.24%, Orders × ₱25 flat), not settable %-of-Gross-Sales
-                 rates like every other row in this loop. Their own
-                 $ratePct is computed live (value ÷ this column's own
-                 Gross Sales) instead of read from $rates — that array no
-                 longer carries either key at all now that neither is a
-                 real settable rate (regression fixed 2026-09-24: every
-                 card was showing a flat 0.00% for both rows because
+        @php
+            // customRowsByKey: every user-added row keyed by its own `key`
+            // column, so a row loop below can tell whether a given key is
+            // custom (renders the small × control) vs. built-in — same
+            // "the shared list is the source of truth" convention as
+            // ProjectionCalculator::sellingCostRows()/operatingCostRows()
+            // itself, which is where $p['selling_lines']/$rates already
+            // got these keys folded in.
+            $customRowsByKey = \App\Models\ProjectionCustomRow::all()->keyBy('key');
+            // + icon lives ONLY on Opening/Closing Shift (explicit
+            // decision, 2026-09-26: "Opening Shift + Closing Shift only")
+            // — every other card just displays whatever rows exist,
+            // same read-only rule the built-in rows already follow there.
+            $canAddCustomRow = $editable;
+        @endphp
+
+        <div class="pt-3 pb-1 flex items-center justify-between">
+            <span class="font-bold text-ink dark:text-slate-100">Selling And Marketing</span>
+            @if($canAddCustomRow)
+                <button type="button" data-add-custom-row="selling" title="Add a row"
+                        class="pj-add-row shrink-0 w-4 h-4 inline-flex items-center justify-center rounded-full text-xs leading-none font-bold text-ink-muted/70 border border-ink-muted/40 hover:text-primary hover:border-primary dark:text-slate-400 dark:border-slate-600">
+                    +
+                </button>
+            @endif
+        </div>
+        @foreach(\App\Support\ProjectionCalculator::sellingCostRows() as $key => $rowLabel)
+            {{-- COD Fee/Fulfillment Fee (and any custom row marked "fixed")
+                 are never editable, even on Opening Shift — confirmed via
+                 the real sheet's own formula-view (2026-09-24) that both
+                 are computed formulas (Delivered × 2.24%, Orders × ₱25
+                 flat), not settable %-of-Gross-Sales rates like every
+                 other row in this loop. Their own $ratePct is computed
+                 live (value ÷ this column's own Gross Sales) instead of
+                 read from $rates — that array no longer carries either key
+                 at all now that neither is a real settable rate
+                 (regression fixed 2026-09-24: every card was showing a
+                 flat 0.00% for both rows because
                  $rates['cod_fee']/['fulfillment_fee'] no longer exist). --}}
             @php
                 $rowValue = $p['selling_lines'][$key] ?? 0;
-                $rowRatePct = in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)
+                $isNonEditable = in_array($key, \App\Support\ProjectionCalculator::nonEditableRows(), true);
+                $rowRatePct = $isNonEditable
                     ? ($p['gross_sales'] > 0 ? $rowValue / $p['gross_sales'] * 100 : 0)
                     : ($rates[$key] ?? 0) * 100;
             @endphp
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $rowValue, 'ratePct' => $rowRatePct, 'editable' => $editable && !in_array($key, \App\Support\ProjectionCalculator::NON_EDITABLE_SELLING_ROWS, true)])
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $rowValue, 'ratePct' => $rowRatePct, 'editable' => $editable && !$isNonEditable, 'customRowId' => $customRowsByKey->get($key)?->id])
         @endforeach
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Selling Costs</span>
@@ -117,9 +143,18 @@
             <span data-pnl="total_selling_costs_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ number_format($p['total_selling_costs_pct'] * 100, 2) }}%</span>
         </div>
 
-        <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Operating Costs</div>
-        @foreach(\App\Support\ProjectionCalculator::OPERATING_COST_ROWS as $key => $rowLabel)
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable])
+        <div class="pt-3 pb-1 flex items-center justify-between">
+            <span class="font-bold text-ink dark:text-slate-100">Operating Costs</span>
+            @if($canAddCustomRow)
+                <button type="button" data-add-custom-row="operating" title="Add a row"
+                        class="pj-add-row shrink-0 w-4 h-4 inline-flex items-center justify-center rounded-full text-xs leading-none font-bold text-ink-muted/70 border border-ink-muted/40 hover:text-primary hover:border-primary dark:text-slate-400 dark:border-slate-600">
+                    +
+                </button>
+            @endif
+        </div>
+        @foreach(\App\Support\ProjectionCalculator::operatingCostRows() as $key => $rowLabel)
+            @php $isCustomFixed = $customRowsByKey->get($key)?->is_fixed ?? false; @endphp
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !$isCustomFixed, 'customRowId' => $customRowsByKey->get($key)?->id])
         @endforeach
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Operating Costs</span>

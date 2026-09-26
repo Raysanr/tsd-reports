@@ -22,9 +22,24 @@
     $label, $rateKey, $value, $ratePct, $editable required. $pnlKey
     (top-level pnl.* rows) XOR $lineKey (selling_lines.*/operating_lines.*
     rows) selects which data-attribute applyComputed() refreshes.
+
+    $customRowId (optional): set only for a user-added row (explicit
+    request, 2026-09-26: "add like + icon ... has modal") — renders a
+    small × next to the label to remove it everywhere via
+    data.projections.custom-rows.destroy, on every card the row appears on
+    (not just the one showing the ×), same "shared definition" reasoning
+    as the row itself.
 --}}
 <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-    <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
+    <span class="text-ink-muted dark:text-slate-400 inline-flex items-center gap-1">
+        {{ $label }}
+        @isset($customRowId)
+            <button type="button" data-remove-custom-row="{{ $customRowId }}" title="Remove this row"
+                    class="pj-remove-row shrink-0 w-3.5 h-3.5 inline-flex items-center justify-center rounded-full text-[10px] leading-none text-ink-muted/60 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                &times;
+            </button>
+        @endisset
+    </span>
     @if($editable)
         {{-- type="text" not "number" (explicit request, 2026-09-23: "i
              want has comma... like for example 1,000") — a native number

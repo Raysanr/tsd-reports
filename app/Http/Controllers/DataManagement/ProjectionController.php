@@ -4,9 +4,11 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\ProjectionColumn;
+use App\Models\ProjectionCustomRow;
 use App\Models\Setting;
 use App\Support\ProjectionCalculator;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * TSD Data Management — Projections (explicit request, 2026-09-23: "create
@@ -103,12 +105,89 @@ class ProjectionController extends Controller
      *  changing affects all of them at once. */
     public function updateRates(Request $request)
     {
+        // Whitelist includes every custom row's own key too (not just
+        // DEFAULT_RATES) — a custom row's rate lives in Settings exactly
+        // like a built-in one, see ProjectionCalculator::allRates()'s own
+        // doc comment, so its PATCH has to pass this same validation.
         $data = $request->validate([
-            'key'   => ['required', 'string', 'in:' . implode(',', array_keys(ProjectionCalculator::DEFAULT_RATES))],
+            'key'   => ['required', 'string', 'in:' . implode(',', array_keys(ProjectionCalculator::allRates()))],
             'value' => ['required', 'numeric'],
         ]);
 
         Setting::set("projection_rate.{$data['key']}", (float) $data['value']);
+
+        $rates   = ProjectionCalculator::allRates();
+        $columns = ProjectionColumn::orderBy('sort_order')->get();
+
+        return response()->json([
+            'success'  => true,
+            'rates'    => $rates,
+            'computed' => array_values(ProjectionCalculator::forAllColumns($columns, $rates)),
+        ]);
+    }
+
+    /** Adds one custom row (explicit request, 2026-09-26: "add like + icon
+     *  on Selling And Marketing and Operating Costs ... has modal ... if
+     *  it is editable or fixed") — the + icon lives ONLY on Opening/Closing
+     *  Shift's own view, but the row it creates is shared: every column's
+     *  own P&L picks it up immediately via ProjectionCalculator::
+     *  sellingCostRows()/operatingCostRows(), same as a built-in row.
+     *  $initialValue is a dollar amount scoped to the column that added
+     *  it, back-solved into the shared rate the same way every other
+     *  dollar-mode row input already works (see pj.js's own saveRate()) —
+     *  sent from THIS same request rather than a separate PATCH so the row
+     *  never renders with a misleading 0.00 for even one page load. */
+    public function storeCustomRow(Request $request)
+    {
+        $data = $request->validate([
+            'section'        => ['required', 'string', 'in:selling,operating'],
+            'label'          => ['required', 'string', 'max:255'],
+            'is_fixed'       => ['sometimes', 'boolean'],
+            'initial_value'  => ['sometimes', 'numeric', 'min:0'],
+            'gross_sales'    => ['required_with:initial_value', 'numeric', 'min:0'],
+        ]);
+
+        $slug = Str::slug($data['label'], '_');
+        $key  = 'custom_' . $slug;
+        // Uniqueness guard — two rows named the same thing (or names that
+        // collide once slugified, e.g. "Ad-Hoc" and "Ad Hoc") would
+        // otherwise silently share one Settings rate under the hood.
+        $suffix = 1;
+        while (ProjectionCustomRow::where('key', $key)->exists()) {
+            $key = 'custom_' . $slug . '_' . (++$suffix);
+        }
+
+        $row = ProjectionCustomRow::create([
+            'key'        => $key,
+            'section'    => $data['section'],
+            'label'      => $data['label'],
+            'is_fixed'   => $data['is_fixed'] ?? false,
+            'sort_order' => ProjectionCustomRow::where('section', $data['section'])->max('sort_order') + 1,
+        ]);
+
+        if (($data['initial_value'] ?? 0) > 0 && ($data['gross_sales'] ?? 0) > 0) {
+            Setting::set("projection_rate.{$key}", $data['initial_value'] / $data['gross_sales']);
+        }
+
+        $rates   = ProjectionCalculator::allRates();
+        $columns = ProjectionColumn::orderBy('sort_order')->get();
+
+        return response()->json([
+            'success'  => true,
+            'row'      => $row,
+            'rates'    => $rates,
+            'computed' => array_values(ProjectionCalculator::forAllColumns($columns, $rates)),
+        ]);
+    }
+
+    /** Removes one custom row everywhere at once (every column stops
+     *  showing it immediately, same as it appeared everywhere the moment
+     *  it was added) — also clears its Settings rate so a later row that
+     *  happens to slugify to the same key never inherits a stale value. */
+    public function destroyCustomRow(ProjectionCustomRow $projectionCustomRow)
+    {
+        Setting::where('key', "projection_rate.{$projectionCustomRow->key}")->delete();
+        $projectionCustomRow->delete();
 
         $rates   = ProjectionCalculator::allRates();
         $columns = ProjectionColumn::orderBy('sort_order')->get();

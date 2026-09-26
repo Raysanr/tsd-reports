@@ -61,6 +61,50 @@
     @endif
 </div>
 
+{{-- Add-custom-row modal (explicit request, 2026-09-26: "add like + icon
+     on Selling And Marketing and Operating Costs ... has modal ... if it
+     is editable or fixed") — ONE shared modal for every card's own + icon,
+     not one per card, since only Opening/Closing Shift ever show the icon
+     in the first place. #pjAddRowModal starts hidden; pj.js's own
+     openAddRowModal()/closeAddRowModal() toggle the [hidden] attribute. --}}
+<div id="pjAddRowModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" data-close-add-row-modal></div>
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add Row</h3>
+        <form id="pjAddRowForm" class="space-y-4">
+            <div>
+                <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Row Name</label>
+                <input type="text" name="label" required maxlength="255"
+                       class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+            </div>
+            <div>
+                <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Starting Amount (optional)</label>
+                <input type="text" inputmode="decimal" name="initial_value" placeholder="0.00"
+                       class="w-full text-sm text-right border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+            </div>
+            <div>
+                <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-2">Type</label>
+                <div class="flex gap-4 text-sm text-ink dark:text-slate-100">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="is_fixed" value="0" checked class="text-primary focus:ring-primary/40">
+                        Editable
+                    </label>
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" name="is_fixed" value="1" class="text-primary focus:ring-primary/40">
+                        Fixed
+                    </label>
+                </div>
+                <p class="text-xs text-ink-muted dark:text-slate-400 mt-1.5">Editable rows can be changed later on Opening/Closing Shift. Fixed rows only change here.</p>
+            </div>
+            <p id="pjAddRowError" class="text-xs text-red-600 dark:text-red-400 hidden"></p>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" data-close-add-row-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+                <button type="submit" class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">Add Row</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @push('scripts')
 <script>
 (function () {
@@ -429,6 +473,97 @@
         if (e.key !== 'Enter') return;
         const input = e.target.closest('.pj-field, .pj-rate-field');
         if (input) { e.preventDefault(); input.blur(); }
+    });
+
+    // --- Add/remove custom rows (explicit request, 2026-09-26: "add like
+    // + icon on Selling And Marketing and Operating Costs ... has modal
+    // ... if it is editable or fixed"). A new/removed row changes every
+    // card's own row LIST, not just a value — applyComputed() above only
+    // ever updates existing elements' text, so both actions reload the
+    // page on success rather than trying to inject new row markup into
+    // every card's own DOM by hand. ---
+    const addRowModal = document.getElementById('pjAddRowModal');
+    const addRowForm = document.getElementById('pjAddRowForm');
+    const addRowError = document.getElementById('pjAddRowError');
+    let addRowContext = null; // { section, card } — set when + is clicked.
+
+    function openAddRowModal(section, card) {
+        addRowContext = { section, card };
+        addRowError.classList.add('hidden');
+        addRowForm.reset();
+        addRowModal.hidden = false;
+        addRowForm.querySelector('[name="label"]').focus();
+    }
+    function closeAddRowModal() {
+        addRowModal.hidden = true;
+        addRowContext = null;
+    }
+
+    columnsEl.addEventListener('click', (e) => {
+        const addBtn = e.target.closest('[data-add-custom-row]');
+        if (addBtn) {
+            openAddRowModal(addBtn.dataset.addCustomRow, addBtn.closest('.pj-card'));
+            return;
+        }
+
+        const removeBtn = e.target.closest('[data-remove-custom-row]');
+        if (removeBtn) {
+            if (!window.confirm('Remove this row from every card?')) return;
+            const rowId = removeBtn.dataset.removeCustomRow;
+            fetch(`{{ url('/data/projections/custom-rows') }}/${rowId}`, {
+                method: 'DELETE',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then(() => window.location.reload())
+                .catch(() => window.showToast?.('Could not remove this row — try again.', 'error'));
+        }
+    });
+
+    addRowModal.querySelectorAll('[data-close-add-row-modal]').forEach((el) => {
+        el.addEventListener('click', closeAddRowModal);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !addRowModal.hidden) closeAddRowModal();
+    });
+
+    addRowForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!addRowContext) return;
+
+        const label = addRowForm.querySelector('[name="label"]').value.trim();
+        if (!label) return;
+        const isFixed = addRowForm.querySelector('[name="is_fixed"]:checked').value;
+        const initialValue = parseMoney(addRowForm.querySelector('[name="initial_value"]').value);
+        const grossSalesEl = addRowContext.card?.querySelector('[data-gross-sales="1"]');
+        const grossSales = grossSalesEl ? parseMoney(grossSalesEl.value ?? grossSalesEl.textContent) : 0;
+
+        const submitBtn = addRowForm.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+
+        const body = new URLSearchParams();
+        body.set('section', addRowContext.section);
+        body.set('label', label);
+        body.set('is_fixed', isFixed);
+        body.set('initial_value', initialValue);
+        body.set('gross_sales', grossSales);
+
+        fetch('{{ route('data.projections.custom-rows.store') }}', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: body.toString(),
+        })
+            .then((res) => (res.ok ? res.json() : res.json().then((data) => Promise.reject(data))))
+            .then(() => window.location.reload())
+            .catch((data) => {
+                submitBtn.disabled = false;
+                addRowError.textContent = data?.message || 'Could not add this row — try again.';
+                addRowError.classList.remove('hidden');
+            });
     });
 })();
 </script>

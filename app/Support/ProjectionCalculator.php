@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\ProjectionColumn;
+use App\Models\ProjectionCustomRow;
 use App\Models\Setting;
 
 /**
@@ -206,22 +207,90 @@ class ProjectionCalculator
     /** Reads one rate from Settings, seeding it from DEFAULT_RATES the
      *  first time it's ever asked for — so a fresh row in DEFAULT_RATES
      *  (a rate added later) still works immediately without a separate
-     *  migration/seeder to backfill Settings for it. */
+     *  migration/seeder to backfill Settings for it. A custom row (see
+     *  customSellingRows()'s own doc comment) has no DEFAULT_RATES entry
+     *  at all — Settings is the only place its rate ever lives, defaulting
+     *  to 0.0 (no cost) until the add/edit modal sets it. */
     public static function rate(string $key): float
     {
         $stored = Setting::get("projection_rate.{$key}");
         return $stored !== null ? (float) $stored : (self::DEFAULT_RATES[$key] ?? 0.0);
     }
 
-    /** Every rate at once, keyed the same as DEFAULT_RATES — what the
-     *  Rates settings form reads to pre-fill its own inputs, and what
-     *  forColumn() below uses so a single page render only touches
-     *  Settings once per rate, not once per rate PER column. */
+    /** Every rate at once, keyed the same as DEFAULT_RATES plus every
+     *  custom row's own key — what the Rates settings form reads to
+     *  pre-fill its own inputs, and what forColumn() below uses so a
+     *  single page render only touches Settings once per rate, not once
+     *  per rate PER column. */
     public static function allRates(): array
     {
-        return collect(array_keys(self::DEFAULT_RATES))
+        $keys = array_merge(array_keys(self::DEFAULT_RATES), array_keys(self::customRowKeys()));
+
+        return collect($keys)
             ->mapWithKeys(fn ($key) => [$key => self::rate($key)])
             ->all();
+    }
+
+    /** Every user-added row (explicit request, 2026-09-26: "add like +
+     *  icon on Selling And Marketing and Operating Costs ... if user wants
+     *  to add"), keyed by its own stable `key` column — see
+     *  create_projection_custom_rows_table's own doc comment for why this
+     *  is a row DEFINITION only (label/section/is_fixed), never a value:
+     *  each column's own figure for it is a %-of-Gross-Sales Settings rate,
+     *  exactly like a built-in row. Deliberately NOT cached on a static
+     *  property — this table is tiny (a handful of admin-added rows) and a
+     *  static cache would go stale within the SAME request/process the
+     *  instant a row is added or removed (root-caused 2026-09-26 in
+     *  ProjectionsTest: a freshly-created row's own key was missing from
+     *  selling_lines because an earlier call in the same test run had
+     *  already cached the row list without it). */
+    private static function customRows(): \Illuminate\Support\Collection
+    {
+        return ProjectionCustomRow::orderBy('sort_order')->get();
+    }
+
+    /** key => label for every custom row in $section ('selling' or
+     *  'operating') — merged onto SELLING_COST_ROWS/OPERATING_COST_ROWS by
+     *  sellingCostRows()/operatingCostRows() below. Split out as its own
+     *  method (rather than inlined there) so allRates()'s own
+     *  customRowKeys() can pull BOTH sections' keys without caring about
+     *  section at all. */
+    private static function customRowsFor(string $section): array
+    {
+        return self::customRows()->where('section', $section)
+            ->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])
+            ->all();
+    }
+
+    private static function customRowKeys(): array
+    {
+        return self::customRows()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all();
+    }
+
+    /** SELLING_COST_ROWS plus every user-added Selling And Marketing row,
+     *  in the same key => label shape — the view and every sum/cascade
+     *  below use this instead of the bare constant so a custom row
+     *  automatically participates in Total Selling Costs / Net Income on
+     *  every column, with zero other code changes (same "one definition,
+     *  every consumer reads it fresh" reasoning as the constant itself). */
+    public static function sellingCostRows(): array
+    {
+        return array_merge(self::SELLING_COST_ROWS, self::customRowsFor('selling'));
+    }
+
+    public static function operatingCostRows(): array
+    {
+        return array_merge(self::OPERATING_COST_ROWS, self::customRowsFor('operating'));
+    }
+
+    /** NON_EDITABLE_SELLING_ROWS plus every custom row marked is_fixed —
+     *  same meaning as the constant (never a $ input on Opening/Closing
+     *  Shift, even though it's still summed and still shown everywhere). */
+    public static function nonEditableRows(): array
+    {
+        $fixedCustom = self::customRows()->where('is_fixed', true)->pluck('key')->all();
+
+        return array_merge(self::NON_EDITABLE_SELLING_ROWS, $fixedCustom);
     }
 
     /** Which base (independently-editable) shift column each derived
@@ -337,11 +406,11 @@ class ProjectionCalculator
             'product_cost' => $a['product_cost'] + $b['product_cost'],
             'gross_profit' => $grossProfit,
             'gross_profit_pct' => $grossSales > 0 ? $grossProfit / $grossSales : 0.0,
-            'selling_lines' => collect(self::SELLING_COST_ROWS)->keys()
+            'selling_lines' => collect(array_keys(self::sellingCostRows()))
                 ->mapWithKeys(fn ($key) => [$key => ($a['selling_lines'][$key] ?? 0) + ($b['selling_lines'][$key] ?? 0)]),
             'total_selling_costs' => $totalSellingCosts,
             'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
-            'operating_lines' => collect(self::OPERATING_COST_ROWS)->keys()
+            'operating_lines' => collect(array_keys(self::operatingCostRows()))
                 ->mapWithKeys(fn ($key) => [$key => ($a['operating_lines'][$key] ?? 0) + ($b['operating_lines'][$key] ?? 0)]),
             'total_operating_costs' => $totalOperatingCosts,
             'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
@@ -364,7 +433,7 @@ class ProjectionCalculator
         $productCost = $grossSales * $rates['product_cost'];
         $grossProfit = $grossSales - $cancelled - $returns - $tax - $productCost;
 
-        $sellingLines = collect(self::SELLING_COST_ROWS)->keys()
+        $sellingLines = collect(array_keys(self::sellingCostRows()))
             ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)])
             // COD Fee = Delivered Sales × 2.24% (confirmed via the real
             // sheet's own formula-view, 2026-09-24), not Gross Sales ×
@@ -380,7 +449,7 @@ class ProjectionCalculator
             ->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER);
         $totalSellingCosts = $sellingLines->sum();
 
-        $operatingLines = collect(self::OPERATING_COST_ROWS)->keys()
+        $operatingLines = collect(array_keys(self::operatingCostRows()))
             ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)]);
         $totalOperatingCosts = $operatingLines->sum();
 

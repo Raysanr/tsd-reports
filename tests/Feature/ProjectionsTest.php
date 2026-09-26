@@ -435,4 +435,84 @@ class ProjectionsTest extends TestCase
         // Telesales Department's own Cancelled is the SUM of both shifts'.
         $this->assertEqualsWithDelta(384000, $telesales['pnl']['cancelled'], 0.01);
     }
+
+    /** Explicit request, 2026-09-26: "add like + icon on Selling And
+     *  Marketing and Operating Costs ... has modal ... if it is editable
+     *  or fixed" — a custom row is a SHARED definition (like a built-in
+     *  row): adding it once makes it appear on every column, each with its
+     *  own %-of-Gross-Sales-derived figure. */
+    public function test_adding_a_custom_row_makes_it_appear_on_every_column(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $opening = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+
+        $response = $this->actingAs($admin)->postJson(route('data.projections.custom-rows.store'), [
+            'section' => 'selling',
+            'label' => 'Warehouse Fee',
+            'is_fixed' => false,
+            // Opening Shift's own real Gross Sales is 1,920,000 — typing
+            // 96,000 here should back-solve to exactly the same 5% rate
+            // as the built-in Cancelled row.
+            'initial_value' => 96000,
+            'gross_sales' => 1920000,
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('projection_custom_rows', ['label' => 'Warehouse Fee', 'section' => 'selling', 'is_fixed' => false]);
+
+        $key = \App\Models\ProjectionCustomRow::where('label', 'Warehouse Fee')->firstOrFail()->key;
+        $computed = collect($response->json('computed'));
+        $openingComputed = $computed->firstWhere('column.key', 'opening_shift');
+        $closingComputed = $computed->firstWhere('column.key', 'closing_shift');
+        $telesalesComputed = $computed->firstWhere('column.key', 'telesales_department');
+
+        // Same 5% rate applied to EVERY column's own Gross Sales, not just
+        // Opening Shift's — confirms the row is shared, not per-column.
+        $this->assertEqualsWithDelta(96000, $openingComputed['pnl']['selling_lines'][$key], 0.01);
+        $this->assertEqualsWithDelta(96000, $closingComputed['pnl']['selling_lines'][$key], 0.01);
+        $this->assertEqualsWithDelta(192000, $telesalesComputed['pnl']['selling_lines'][$key], 0.01);
+
+        // Total Selling Costs / Net Income both reflect the new row.
+        $this->assertGreaterThan(0, $openingComputed['pnl']['total_selling_costs']);
+    }
+
+    public function test_removing_a_custom_row_removes_it_from_every_column(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $row = \App\Models\ProjectionCustomRow::create([
+            'key' => 'custom_test_row', 'section' => 'operating', 'label' => 'Test Row', 'is_fixed' => false, 'sort_order' => 0,
+        ]);
+        \App\Models\Setting::set('projection_rate.custom_test_row', 0.02);
+
+        $response = $this->actingAs($admin)->deleteJson(route('data.projections.custom-rows.destroy', $row));
+
+        $response->assertOk();
+        $this->assertDatabaseMissing('projection_custom_rows', ['id' => $row->id]);
+        $this->assertNull(\App\Models\Setting::get('projection_rate.custom_test_row'));
+
+        $computed = collect($response->json('computed'));
+        $opening = $computed->firstWhere('column.key', 'opening_shift');
+        $this->assertArrayNotHasKey('custom_test_row', $opening['pnl']['operating_lines']);
+    }
+
+    public function test_a_fixed_custom_row_is_marked_non_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->postJson(route('data.projections.custom-rows.store'), [
+            'section' => 'operating', 'label' => 'One-Off Cost', 'is_fixed' => true,
+        ])->assertOk();
+
+        $key = \App\Models\ProjectionCustomRow::where('label', 'One-Off Cost')->firstOrFail()->key;
+        $this->assertContains($key, \App\Support\ProjectionCalculator::nonEditableRows());
+    }
+
+    public function test_a_non_admin_cannot_add_or_remove_custom_rows(): void
+    {
+        $tsaUser = User::factory()->create(['role' => 'normal']);
+
+        $this->actingAs($tsaUser)->postJson(route('data.projections.custom-rows.store'), [
+            'section' => 'selling', 'label' => 'Nope',
+        ])->assertForbidden();
+    }
 }
