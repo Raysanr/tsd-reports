@@ -89,4 +89,33 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertSame(1, DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->count());
         $this->assertSame(2000.0, DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->gross_sales);
     }
+
+    /**
+     * Root-caused 2026-09-26 while building Expected Income's own identical
+     * query: entry_date is stored as a full 'Y-m-d H:i:s' datetime string,
+     * and a plain whereBetween($dateFrom, $dateTo) compares SQLite's stored
+     * value against the bare date bound LEXICOGRAPHICALLY — so
+     * '2026-09-26 00:00:00' (the LAST day of a range) sorts AFTER the bound
+     * '2026-09-26' and gets silently dropped from both the summary row and
+     * every TOTAL row. Fixed via whereDate() >=/<= instead, which extracts
+     * just the date part before comparing.
+     */
+    public function test_the_last_day_of_a_selected_range_is_not_dropped_from_the_summary(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+
+        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today()->subDay(), 'gross_sales' => 1000, 'total_orders' => 1]);
+        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->subDay()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        // 1,000 + 500 = 1,500 summed Gross Sales across both days — would
+        // read 1,000.00 (today's entry silently dropped) if the bug regressed.
+        $response->assertSee('1,500.00');
+    }
 }

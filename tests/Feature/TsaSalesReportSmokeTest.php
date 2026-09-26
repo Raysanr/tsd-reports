@@ -91,4 +91,24 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('SH Naturals');
         $response->assertSee('Eyecare');
     }
+
+    /** Same whereBetween()-on-a-datetime-column bug fixed 2026-09-26 in
+     *  DsPprReportController/ExpectedIncomeController — see
+     *  DsPprReportSmokeTest's own regression test for the full root cause. */
+    public function test_the_last_day_of_a_selected_range_is_not_dropped_from_the_summary(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today()->subDay(), 'gross_sales' => 1000]);
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+            'date_from' => today()->subDay()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('1,500.00');
+    }
 }

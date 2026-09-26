@@ -36,8 +36,16 @@ class TsaSalesReportController extends Controller
         $teams = collect(Teams::config());
         $tsas  = TsaShift::orderBy('sort_order')->get();
 
+        // whereDate() >=/<=, not a raw whereBetween() on the date-cast
+        // column — same SQLite lexicographic-comparison bug found and
+        // fixed 2026-09-26 in DsPprReportController/ExpectedIncomeController
+        // (a plain whereBetween() bound silently drops the LAST day of any
+        // selected range, since '2026-09-26 00:00:00' sorts after the bare
+        // '2026-09-26' bound). whereDate() correctly extracts just the
+        // date part on every driver (SQLite included).
         $entries = TsaSalesEntry::whereIn('tsa_shift_id', $tsas->pluck('id'))
-            ->whereBetween('entry_date', [$dateFrom, $dateTo])
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->groupBy('tsa_shift_id');
 
@@ -69,7 +77,8 @@ class TsaSalesReportController extends Controller
         // Per-day entries, keyed "tsaId:date" — same convention as
         // DsPprReportController's own $dailyByKey.
         $dailyByKey = TsaSalesEntry::whereIn('tsa_shift_id', $tsas->pluck('id'))
-            ->whereBetween('entry_date', [$dateFrom, $dateTo])
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->keyBy(fn (TsaSalesEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
 

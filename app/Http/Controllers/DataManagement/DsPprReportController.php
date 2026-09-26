@@ -38,8 +38,20 @@ class DsPprReportController extends Controller
             ->orderBy('sort_order')
             ->get();
 
+        // whereDate() >=/<=, not a raw whereBetween() on the date-cast
+        // column — root-caused 2026-09-26 (found while building Expected
+        // Income's own identical query): entry_date is stored as a full
+        // 'Y-m-d H:i:s' datetime string, and SQLite compares whereBetween's
+        // plain date-only bounds LEXICOGRAPHICALLY, so '2026-09-26
+        // 00:00:00' (the LAST day of a range) sorts AFTER the bound
+        // '2026-09-26' and gets silently dropped from both the summary row
+        // above and every TOTAL row below — this page had been quietly
+        // undercounting by one day for any selected range this whole time.
+        // whereDate() correctly extracts just the date part on every
+        // driver (SQLite included), so this can't drop the last day.
         $entries = DsPprEntry::whereIn('product_id', $products->pluck('id'))
-            ->whereBetween('entry_date', [$dateFrom, $dateTo])
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->groupBy('product_id');
 
@@ -66,7 +78,8 @@ class DsPprReportController extends Controller
         // 2026-09-24: replicate the sheet's own per-day granularity),
         // even though the table above only ever shows range TOTALS.
         $dailyByKey = DsPprEntry::whereIn('product_id', $products->pluck('id'))
-            ->whereBetween('entry_date', [$dateFrom, $dateTo])
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->keyBy(fn (DsPprEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
 
