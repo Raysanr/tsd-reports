@@ -36,6 +36,13 @@
     .dark .dsppr-table th, .dark .dsppr-table td { border-bottom-color: #475569; }
     .dsppr-table .dsppr-day-end { border-right: 3px solid #334155; }
     .dark .dsppr-table .dsppr-day-end { border-right-color: #cbd5e1; }
+
+    /* Combine-products drag target feedback (explicit request, 2026-09-26:
+       "drag the TO-01 to TO-02") — a visible highlight while dragging one
+       product's own name cell over another's, so it's obvious a drop will
+       do something before the modal appears. */
+    .dsppr-draggable { user-select: none; }
+    .dsppr-drop-hover { outline: 2px dashed #d97706; outline-offset: -2px; background-color: rgba(217,119,6,0.08); }
 </style>
 
 @php
@@ -222,9 +229,10 @@
                 @endphp
                 <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                     data-row-key="{{ $rowKey }}"
-                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" draggable="true" @endif>
+                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" @endif>
                     <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ !$isGroup ? 'dsppr-draggable cursor-grab' : '' }}"
-                        data-drop-target="{{ $rowKey }}">
+                        data-drop-target="{{ $rowKey }}"
+                        @if(!$isGroup) draggable="true" @endif>
                         {{ strtoupper($row['label']) }}
                         @if($isGroup)
                             <button type="button" data-ungroup="{{ $row['group']->id }}" title="Ungroup"
@@ -660,19 +668,29 @@
         combineProductIds = null;
     }
 
-    document.querySelectorAll('[data-drop-target]').forEach((cell) => {
+    document.querySelectorAll('[data-drop-target][draggable="true"]').forEach((cell) => {
         const row = cell.closest('[data-product-id]');
         if (!row) return; // Only an UNGROUPED row's own cell is a valid drag source/target.
 
         cell.addEventListener('dragstart', (e) => {
             dragProductId = row.dataset.productId;
             e.dataTransfer.effectAllowed = 'move';
+            // Firefox refuses to start a drag at all unless setData() is
+            // called during dragstart — Chrome/Safari don't need this but
+            // tolerate it fine, so it's set unconditionally rather than
+            // branching per browser.
+            e.dataTransfer.setData('text/plain', dragProductId);
         });
         cell.addEventListener('dragover', (e) => {
-            if (dragProductId && dragProductId !== row.dataset.productId) e.preventDefault();
+            if (dragProductId && dragProductId !== row.dataset.productId) {
+                e.preventDefault();
+                cell.classList.add('dsppr-drop-hover');
+            }
         });
+        cell.addEventListener('dragleave', () => cell.classList.remove('dsppr-drop-hover'));
         cell.addEventListener('drop', (e) => {
             e.preventDefault();
+            cell.classList.remove('dsppr-drop-hover');
             const targetProductId = row.dataset.productId;
             if (!dragProductId || dragProductId === targetProductId) return;
 
