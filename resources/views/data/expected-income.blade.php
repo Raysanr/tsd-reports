@@ -4,21 +4,6 @@
 
 @section('content')
 
-{{-- Sticky-left product column, same convention as dsppr.blade.php (this
-     page extends layouts.data too, so no shared .sticky-col rule to reuse). --}}
-<style>
-    .ei-sticky { position: sticky; left: 0; z-index: 5; }
-    thead .ei-sticky { z-index: 25; }
-    .ei-sticky-body { background-color: #fff; }
-    .dark .ei-sticky-body { background-color: #0f172a; }
-    tr:hover > .ei-sticky-body { background-color: #f8fafc; }
-    .dark tr:hover > .ei-sticky-body { background-color: #1e293b; }
-    .ei-sticky-footer { background-color: #000; }
-    .ei-table { font-variant-numeric: tabular-nums; }
-    .ei-table th, .ei-table td { border: none; border-bottom: 1px solid #cbd5e1; }
-    .dark .ei-table th, .dark .ei-table td { border-bottom-color: #475569; }
-</style>
-
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
@@ -37,166 +22,49 @@
     <span id="eiSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
 </div>
 
-@foreach($teamBlocks as $block)
-@php
-    $teamSlug = \Illuminate\Support\Str::slug($block['team'] ?: 'team');
-    $t = $block['total'];
-@endphp
-<div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-8">
-    <div class="bg-black text-white text-center font-mono font-bold text-sm tracking-wide py-2.5">
-        {{ strtoupper($block['team'] ?: 'UNASSIGNED') }}
-    </div>
-    <div class="bg-yellow-300 dark:bg-yellow-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
-        {{ $month->format('F Y') }}
-    </div>
+{{-- One card per product, side by side (explicit request, 2026-09-26: "i
+     want exactly like this like in the sheets like every product is has
+     card") — same visual pattern as Projections' own _column.blade.php
+     cards, just this page's own fields. A single overall "TELESALES"
+     rollup card comes first, summing EVERY product (not split per team —
+     explicit follow-up: "i want exactly like in the sheets but i want to
+     make it like no per team"), same idea as Projections' Telesales
+     Department card. #eiCards wraps everything so the JS only ever looks
+     up a specific card by its own data-key, same convention as pj.js's own
+     #pjColumns. --}}
+<div id="eiCards" class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+    <div class="flex items-start gap-5 w-max">
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0" data-key="__overall__">
+            <div class="px-5 py-4 bg-yellow-300 dark:bg-yellow-600">
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">
+                    TELESALES — {{ $month->format('F j, Y') }}
+                </span>
+            </div>
+            @include('data.expected-income._card-body', ['d' => $overallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+        </div>
 
-    <div class="overflow-x-auto">
-        <table class="w-full text-[13px] font-mono border-collapse ei-table" id="eiTeamTable-{{ $teamSlug }}"
-               data-update-url-template="{{ route('data.expected-income.update', ['product' => '__PRODUCT__', 'month' => '__MONTH__']) }}"
-               data-month="{{ $month->format('Y-m') }}">
-            <thead>
-                <tr class="text-ink dark:text-slate-950">
-                    <th class="ei-sticky bg-yellow-200 dark:bg-yellow-700 text-left px-3 py-2 font-bold whitespace-nowrap">Product</th>
-                    <th class="bg-slate-400 dark:bg-slate-500 text-right px-3 py-2 font-bold whitespace-nowrap">ROAS</th>
-                    <th class="bg-slate-400 dark:bg-slate-500 text-right px-3 py-2 font-bold whitespace-nowrap">Actual Cost Per Lead</th>
-                    <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Number of Leads</th>
-                    <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Conversion Rate</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Number of Orders</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Average Order Value</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Cancelled</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Projected Returns</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Projected Delivered</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Tax Allocation</th>
-                    <th class="bg-yellow-100 dark:bg-yellow-800 text-right px-3 py-2 font-bold whitespace-nowrap">Product Cost</th>
-                    <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Profit</th>
-                    @foreach($sellingRows as $key => $label)
-                    <th class="bg-emerald-100 dark:bg-emerald-800 text-right px-3 py-2 font-bold whitespace-nowrap">{{ $label }}</th>
-                    @endforeach
-                    <th class="bg-emerald-200 dark:bg-emerald-700 text-right px-3 py-2 font-bold whitespace-nowrap">COD Fee</th>
-                    <th class="bg-emerald-200 dark:bg-emerald-700 text-right px-3 py-2 font-bold whitespace-nowrap">Fulfillment Fee</th>
-                    <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">Total Selling Costs</th>
-                    @foreach($operatingRows as $key => $label)
-                    <th class="bg-sky-100 dark:bg-sky-900 text-right px-3 py-2 font-bold whitespace-nowrap">{{ $label }}</th>
-                    @endforeach
-                    <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">Total Operating Costs</th>
-                    <th class="bg-slate-300 dark:bg-slate-500 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($block['rows'] as $row)
-                @php $product = $row['product']; $entry = $row['entry']; $d = $row['derived']; @endphp
-                <tr class="ei-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-product-id="{{ $product->id }}">
-                    <td class="ei-sticky ei-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($product->display_name) }}</td>
-
-                    @foreach([
-                        ['key' => 'roas', 'money' => true],
-                        ['key' => 'actual_cost_per_lead', 'money' => true],
-                        ['key' => 'number_of_leads', 'int' => true],
-                    ] as $col)
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
-                               value="{{ ($col['money'] ?? false) ? $fmtMoney($entry?->{$col['key']} ?? 0) : ($entry?->{$col['key']} ?? 0) }}"
-                               data-field="{{ $col['key'] }}" @if($col['money'] ?? false) data-money="1" @endif
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-                    @endforeach
-
-                    <td class="px-3 py-2 text-right" data-out="conversion_rate">{{ $fmtPct($d['conversion_rate']) }}</td>
-
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="numeric" value="{{ $entry?->number_of_orders ?? 0 }}"
-                               data-field="number_of_orders"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry?->average_order_value ?? 0) }}"
-                               data-field="average_order_value" data-money="1"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-
-                    <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="cancelled">{{ $fmtMoney($d['cancelled']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="returns">{{ $fmtMoney($d['returns']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="delivered">{{ $fmtMoney($d['delivered']) }}</td>
-
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry?->tax_allocation ?? 0) }}"
-                               data-field="tax_allocation" data-money="1"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry?->product_cost ?? 0) }}"
-                               data-field="product_cost" data-money="1"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-
-                    <td class="px-3 py-2 text-right font-bold {{ $d['gross_profit'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="gross_profit">{{ $fmtMoney($d['gross_profit']) }}</td>
-
-                    @foreach($sellingRows as $key => $label)
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry?->{$key} ?? 0) }}"
-                               data-field="{{ $key }}" data-money="1"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-                    @endforeach
-                    <td class="px-3 py-2 text-right" data-out="cod_fee">{{ $fmtMoney($d['selling_lines']['cod_fee']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="fulfillment_fee">{{ $fmtMoney($d['selling_lines']['fulfillment_fee']) }}</td>
-                    <td class="px-3 py-2 text-right font-bold" data-out="total_selling_costs">{{ $fmtMoney($d['total_selling_costs']) }}</td>
-
-                    @foreach($operatingRows as $key => $label)
-                    <td class="px-2 py-1.5">
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry?->{$key} ?? 0) }}"
-                               data-field="{{ $key }}" data-money="1"
-                               class="ei-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                    </td>
-                    @endforeach
-                    <td class="px-3 py-2 text-right font-bold" data-out="total_operating_costs">{{ $fmtMoney($d['total_operating_costs']) }}</td>
-
-                    <td class="px-3 py-2 text-right font-bold text-base {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-primary' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
-                </tr>
-                @endforeach
-            </tbody>
-            <tfoot>
-                <tr class="bg-black text-white font-bold ei-team-total-row">
-                    <td class="ei-sticky ei-sticky-footer px-3 py-2.5 whitespace-nowrap">TOTAL — {{ strtoupper($block['team'] ?: 'UNASSIGNED') }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="roas">{{ $fmtMoney($t['roas']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="actual_cost_per_lead">{{ $fmtMoney($t['actual_cost_per_lead']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="number_of_leads">{{ number_format($t['number_of_leads']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="conversion_rate">{{ $fmtPct($t['conversion_rate']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="number_of_orders">{{ number_format($t['number_of_orders']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="average_order_value">{{ $fmtMoney($t['average_order_value']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($t['gross_sales']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="cancelled">{{ $fmtMoney($t['cancelled']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="returns">{{ $fmtMoney($t['returns']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="delivered">{{ $fmtMoney($t['delivered']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="tax_allocation">{{ $fmtMoney($t['tax_allocation']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="product_cost">{{ $fmtMoney($t['product_cost']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $t['gross_profit'] < 0 ? 'text-red-400' : '' }}" data-out="gross_profit">{{ $fmtMoney($t['gross_profit']) }}</td>
-                    @foreach($sellingRows as $key => $label)
-                    <td class="px-3 py-2.5 text-right" data-out="{{ $key }}">{{ $fmtMoney($t['selling_lines'][$key] ?? 0) }}</td>
-                    @endforeach
-                    <td class="px-3 py-2.5 text-right" data-out="cod_fee">{{ $fmtMoney($t['selling_lines']['cod_fee']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="fulfillment_fee">{{ $fmtMoney($t['selling_lines']['fulfillment_fee']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="total_selling_costs">{{ $fmtMoney($t['total_selling_costs']) }}</td>
-                    @foreach($operatingRows as $key => $label)
-                    <td class="px-3 py-2.5 text-right" data-out="{{ $key }}">{{ $fmtMoney($t['operating_lines'][$key] ?? 0) }}</td>
-                    @endforeach
-                    <td class="px-3 py-2.5 text-right" data-out="total_operating_costs">{{ $fmtMoney($t['total_operating_costs']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $t['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($t['net_income']) }}</td>
-                </tr>
-            </tfoot>
-        </table>
+        @foreach($productCards as $card)
+        @php $product = $card['product']; $entry = $card['entry']; $d = $card['derived']; @endphp
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0"
+             data-key="{{ $product->id }}"
+             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'month' => $month->format('Y-m')]) }}">
+            <div class="px-5 py-4" style="background:#d9ead3;">
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">
+                    {{ $product->display_name }}
+                </span>
+            </div>
+            @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+        </div>
+        @endforeach
     </div>
 </div>
-@endforeach
 
 @push('scripts')
 <script>
 (function () {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const tables = document.querySelectorAll('[id^="eiTeamTable-"]');
-    if (!tables.length) return;
+    const cardsEl = document.getElementById('eiCards');
+    if (!cardsEl) return;
     const globalStatus = document.getElementById('eiSaveStatus');
     const saveTimers = new WeakMap();
 
@@ -235,9 +103,8 @@
     }
 
     // Same formula chain as ExpectedIncomeCalculator::derive() — mirrors it
-    // client-side so a live edit's row/team-total repaint matches what a
-    // fresh page load would show, same convention as dsppr.blade.php's own
-    // refreshDayTotal()/refreshSummaryRow().
+    // client-side so a live edit's card repaint matches what a fresh page
+    // load would show, same convention as pj.js's own applyComputed().
     function derive(row) {
         const leads = Number(row.number_of_leads) || 0;
         const orders = Number(row.number_of_orders) || 0;
@@ -268,47 +135,68 @@
         return {
             roas: Number(row.roas) || 0, actual_cost_per_lead: Number(row.actual_cost_per_lead) || 0,
             number_of_leads: leads, conversion_rate: conversionRate, number_of_orders: orders, average_order_value: aov,
-            gross_sales: grossSales, cancelled, returns, delivered, tax_allocation: taxAllocation, product_cost: productCost,
-            gross_profit: grossProfit, selling_lines: sellingLines, total_selling_costs: totalSellingCosts,
-            operating_lines: operatingLines, total_operating_costs: totalOperatingCosts, net_income: netIncome,
+            gross_sales: grossSales, cancelled, returns, delivered,
+            tax_allocation: taxAllocation, tax_allocation_pct: grossSales > 0 ? taxAllocation / grossSales : 0,
+            product_cost: productCost, product_cost_pct: grossSales > 0 ? productCost / grossSales : 0,
+            gross_profit: grossProfit, gross_profit_pct: grossSales > 0 ? grossProfit / grossSales : 0,
+            selling_lines: sellingLines, total_selling_costs: totalSellingCosts,
+            total_selling_costs_pct: grossSales > 0 ? totalSellingCosts / grossSales : 0,
+            operating_lines: operatingLines, total_operating_costs: totalOperatingCosts,
+            total_operating_costs_pct: grossSales > 0 ? totalOperatingCosts / grossSales : 0,
+            net_income: netIncome, net_income_pct: grossSales > 0 ? netIncome / grossSales : 0,
         };
     }
 
-    function applyDerived(row, derived) {
-        row.querySelectorAll('[data-out]').forEach((el) => {
+    function applyDerived(card, derived) {
+        card.querySelectorAll('[data-out]').forEach((el) => {
             const key = el.dataset.out;
             let value;
             if (key in derived) value = derived[key];
-            else if (key in derived.selling_lines) value = derived.selling_lines[key];
-            else if (key in derived.operating_lines) value = derived.operating_lines[key];
+            else if (derived.selling_lines && key in derived.selling_lines) value = derived.selling_lines[key];
+            else if (derived.operating_lines && key in derived.operating_lines) value = derived.operating_lines[key];
             else return;
-            const isPct = key === 'conversion_rate';
+            const isPct = key === 'conversion_rate' || key.endsWith('_pct');
             const isInt = key === 'number_of_leads' || key === 'number_of_orders';
             el.textContent = isPct ? fmtPct(value) : (isInt ? fmtInt(value) : fmtMoney(value));
             const isLoss = (key === 'gross_profit' || key === 'net_income') && value < 0;
             el.classList.toggle('text-red-600', isLoss);
             el.classList.toggle('dark:text-red-400', isLoss);
         });
+
+        // Selling/Operating row percentages (% of Gross Sales) — these use
+        // data-out-pct, not data-out, since the SAME row key already names
+        // a different element (the $ figure) via data-out. Same
+        // live-refresh convention as pj.js's own setPct(), so a live edit
+        // never leaves a stale % next to an already-updated $ figure.
+        card.querySelectorAll('[data-out-pct]').forEach((el) => {
+            const key = el.dataset.outPct;
+            const value = (derived.selling_lines || {})[key] ?? (derived.operating_lines || {})[key];
+            if (value === undefined) return;
+            el.textContent = derived.gross_sales > 0 ? fmtPct(value / derived.gross_sales) : '0.00%';
+        });
     }
 
-    // Recomputes and repaints the TEAM total row from every product row's
-    // OWN currently-saved inputs — sum dollars/counts, average
-    // roas/actual_cost_per_lead/conversion_rate, same split as
+    // Recomputes and repaints the overall "TELESALES" rollup card from
+    // every product card's own currently-saved inputs — sum dollars/
+    // counts, average roas/actual_cost_per_lead, same split as
     // ExpectedIncomeCalculator::sum().
-    function refreshTeamTotal(table) {
-        const rows = table.querySelectorAll('tbody .ei-row');
+    function refreshOverallCard() {
+        const overallCard = cardsEl.querySelector('.ei-card[data-key="__overall__"]');
+        if (!overallCard) return;
+
+        const productCards = cardsEl.querySelectorAll('.ei-card:not([data-key="__overall__"])');
         const rawRows = [];
         let roasSum = 0, costPerLeadSum = 0;
 
-        rows.forEach((row) => {
+        productCards.forEach((card) => {
             const raw = {};
             ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'tax_allocation', 'product_cost']
                 .forEach((key) => {
-                    const el = row.querySelector(`[data-field="${key}"]`);
+                    const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
                 });
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => {
-                const el = row.querySelector(`[data-field="${key}"]`);
+                const el = card.querySelector(`[data-field="${key}"]`);
                 raw[key] = el ? parseMoney(el.value) : 0;
             });
             rawRows.push(raw);
@@ -337,29 +225,28 @@
             summed.actual_cost_per_lead = costPerLeadSum / rowCount;
         }
 
-        const totalRow = table.querySelector('.ei-team-total-row');
-        if (totalRow) applyDerived(totalRow, summed);
+        applyDerived(overallCard, summed);
     }
 
     function saveField(input) {
         clearTimeout(saveTimers.get(input));
         saveTimers.delete(input);
 
-        const table = input.closest('[id^="eiTeamTable-"]');
-        const urlTemplate = table.dataset.updateUrlTemplate;
-        const month = table.dataset.month;
-        const row = input.closest('.ei-row');
+        const card = input.closest('.ei-card');
+        const status = card?.querySelector('.ei-card-status');
+        if (!card) return;
+
         const field = input.dataset.field;
         const value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
 
+        if (status) status.textContent = 'Saving…';
         flashStatus('Saving…', false);
 
-        const url = urlTemplate.replace('__PRODUCT__', row.dataset.productId).replace('__MONTH__', month);
         const body = new URLSearchParams();
         body.set(field, value);
         body.set('_method', 'PATCH');
 
-        fetch(url, {
+        fetch(card.dataset.action, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -370,38 +257,38 @@
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
             .then((data) => {
+                if (status) { status.textContent = 'Saved'; setTimeout(() => { if (status.textContent === 'Saved') status.textContent = ''; }, 1500); }
                 flashStatus('Saved', false);
                 if (input.dataset.money === '1' && document.activeElement !== input) {
                     input.value = fmtMoney(value);
                 }
-                if (data?.derived) applyDerived(row, data.derived);
-                refreshTeamTotal(table);
+                if (data?.derived) applyDerived(card, data.derived);
+                refreshOverallCard();
             })
             .catch(() => {
+                if (status) status.textContent = 'Failed';
                 flashStatus('Could not save — try again.', true);
                 window.showToast?.('Could not save — try again.', 'error');
             });
     }
 
-    tables.forEach((table) => {
-        table.addEventListener('input', (e) => {
-            const input = e.target.closest('.ei-field');
-            if (!input) return;
-            if (input.dataset.money === '1') liveFormatMoney(input);
-            clearTimeout(saveTimers.get(input));
-            saveTimers.set(input, setTimeout(() => saveField(input), 600));
-        });
+    cardsEl.addEventListener('input', (e) => {
+        const input = e.target.closest('.ei-field');
+        if (!input) return;
+        if (input.dataset.money === '1') liveFormatMoney(input);
+        clearTimeout(saveTimers.get(input));
+        saveTimers.set(input, setTimeout(() => saveField(input), 600));
+    });
 
-        table.addEventListener('blur', (e) => {
-            const input = e.target.closest('.ei-field');
-            if (input) saveField(input);
-        }, true);
+    cardsEl.addEventListener('blur', (e) => {
+        const input = e.target.closest('.ei-field');
+        if (input) saveField(input);
+    }, true);
 
-        table.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            const input = e.target.closest('.ei-field');
-            if (input) { e.preventDefault(); input.blur(); }
-        });
+    cardsEl.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const input = e.target.closest('.ei-field');
+        if (input) { e.preventDefault(); input.blur(); }
     });
 })();
 </script>

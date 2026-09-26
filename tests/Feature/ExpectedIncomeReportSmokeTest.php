@@ -10,11 +10,12 @@ use Tests\TestCase;
 
 /**
  * Explicit request, 2026-09-26: "analyze this expected income and add it
- * to the data management module." Smoke-level only — confirms the page
- * renders (grouped by team, with a TEAM total row) and the auto-save
- * endpoint recomputes correctly; the derived formulas themselves are
- * independently verified against the real "EXPECTED INCOME 2026" tab in
- * ExpectedIncomeCalculatorTest.
+ * to the data management module ... i want exactly like this like in the
+ * sheets like every product is has card." Smoke-level only — confirms the
+ * page renders (one card per product, plus an overall "TELESALES" rollup
+ * card) and the auto-save endpoint recomputes correctly; the derived
+ * formulas themselves are independently verified against the real
+ * "EXPECTED INCOME 2026" tab in ExpectedIncomeCalculatorTest.
  */
 class ExpectedIncomeReportSmokeTest extends TestCase
 {
@@ -35,8 +36,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.expected-income'));
 
         $response->assertOk();
-        $response->assertSee(strtoupper($product->display_name));
-        $response->assertSee('TOTAL — ' . strtoupper($product->team));
+        $response->assertSee($product->display_name);
+        $response->assertSee('TELESALES —', false);
     }
 
     public function test_a_non_admin_cannot_view_the_report_page(): void
@@ -87,7 +88,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertSame(200, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('month', today()->startOfMonth())->first()->number_of_orders);
     }
 
-    public function test_updating_one_product_returns_its_teams_total(): void
+    public function test_updating_one_product_returns_the_overall_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
@@ -99,6 +100,6 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
 
         $response->assertOk();
-        $response->assertJsonStructure(['success', 'derived', 'team_total' => ['gross_sales', 'net_income']]);
+        $response->assertJsonStructure(['success', 'derived', 'overall_total' => ['gross_sales', 'net_income']]);
     }
 }

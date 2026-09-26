@@ -11,18 +11,20 @@ use Illuminate\Support\Carbon;
 
 /**
  * TSD Data Management — Expected Income 2026 (explicit request, 2026-09-26:
- * "analyze this expected income and add it to the data management module").
- * Replicates the source sheet's own "EXPECTED INCOME 2026" tab: one
- * month-to-date P&L summary row per product, plus a derived TEAM row per
- * team (sum of that team's own products — verified exact against the real
- * sheet, e.g. Team Eyecare = Clearsight + Pterygium + every other Eyecare
- * product, same convention as ProjectionColumn's Telesales Department).
+ * "analyze this expected income and add it to the data management module
+ * ... i want exactly like this like in the sheets like every product is
+ * has card"). Replicates the source sheet's own "EXPECTED INCOME 2026"
+ * tab's real layout: one card per product, side by side (same visual
+ * pattern as Projections' own _column.blade.php cards), preceded by one
+ * overall "TELESALES" rollup card summing EVERY product — NOT split into
+ * separate per-team blocks (explicit decision, 2026-09-26: "i want exactly
+ * like in the sheets but i want to make it like no per team").
  *
- * Uses the app's real Product table grouped by its real `team` column, not
- * a fixed list matching the sheet's own product names — explicit decision,
- * 2026-09-26, same reasoning as Summary Sales Report's own rework earlier
- * that day (the sheet's product list doesn't exactly match this app's real
- * roster, and a page that reflects the real roster needs no manual sync).
+ * Uses the app's real Product table, not a fixed list matching the sheet's
+ * own product names — explicit decision, 2026-09-26, same reasoning as
+ * Summary Sales Report's own rework earlier that day (the sheet's product
+ * list doesn't exactly match this app's real roster, and a page that
+ * reflects the real roster needs no manual sync).
  */
 class ExpectedIncomeController extends Controller
 {
@@ -39,7 +41,7 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->keyBy('product_id');
 
-        $productRows = $products->map(function (Product $product) use ($entriesByProduct) {
+        $productCards = $products->map(function (Product $product) use ($entriesByProduct) {
             $entry = $entriesByProduct->get($product->id);
 
             return [
@@ -49,22 +51,12 @@ class ExpectedIncomeController extends Controller
             ];
         });
 
-        // One team block per real team, each product's row plus a derived
-        // TEAM total row summing that team's own products — mirrors the
-        // sheet's own "TEAM EYECARE" / "TEAM SH NATURALS" rollups.
-        $teamBlocks = $productRows->groupBy(fn ($row) => $row['product']->team)
-            ->map(function ($rows, $team) {
-                return [
-                    'team'  => $team,
-                    'rows'  => $rows->values(),
-                    'total' => ExpectedIncomeCalculator::sum($rows->pluck('derived')->all()),
-                ];
-            })
-            ->values();
+        $overallTotal = ExpectedIncomeCalculator::sum($productCards->pluck('derived')->all());
 
         return view('data.expected-income', [
-            'teamBlocks' => $teamBlocks,
-            'month'      => $month,
+            'productCards' => $productCards,
+            'overallTotal' => $overallTotal,
+            'month'        => $month,
         ]);
     }
 
@@ -120,24 +112,26 @@ class ExpectedIncomeController extends Controller
         $entry->fill($data);
         $entry->save();
 
-        // Every OTHER product in this product's own team, so the frontend
-        // can refresh that team's TEAM total row without a full page
-        // reload — same "return every affected figure, not just this
-        // row's own" convention as Projections' updateColumn().
-        $teamProducts = Product::where('team', $product->team)->get();
-        $teamEntries = ExpectedIncomeEntry::whereIn('product_id', $teamProducts->pluck('id'))
+        // Every OTHER product (not just this one's team — the rollup card
+        // is a single "TELESALES" total across ALL products, explicit
+        // decision 2026-09-26), so the frontend can refresh that one
+        // overall card without a full page reload — same "return every
+        // affected figure, not just this row's own" convention as
+        // Projections' updateColumn().
+        $allProducts = Product::all();
+        $allEntries = ExpectedIncomeEntry::whereIn('product_id', $allProducts->pluck('id'))
             ->whereDate('month', $monthDate)
             ->get()
             ->keyBy('product_id');
 
-        $teamDerived = $teamProducts->map(
-            fn (Product $p) => ExpectedIncomeCalculator::derive($teamEntries->get($p->id)?->toArray() ?? [])
+        $allDerived = $allProducts->map(
+            fn (Product $p) => ExpectedIncomeCalculator::derive($allEntries->get($p->id)?->toArray() ?? [])
         );
 
         return response()->json([
-            'success'      => true,
-            'derived'      => ExpectedIncomeCalculator::derive($entry->toArray()),
-            'team_total'   => ExpectedIncomeCalculator::sum($teamDerived->all()),
+            'success'       => true,
+            'derived'       => ExpectedIncomeCalculator::derive($entry->toArray()),
+            'overall_total' => ExpectedIncomeCalculator::sum($allDerived->all()),
         ]);
     }
 }
