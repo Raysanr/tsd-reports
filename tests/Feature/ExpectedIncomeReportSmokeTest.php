@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
+use App\Models\ProductGroup;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -105,6 +106,35 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         // 15 orders × 100 AOV = 1,500 summed Gross Sales across both days.
+        $response->assertSee('1,500.00');
+    }
+
+    /** Explicit request, 2026-09-26: a product group created on DSPPR
+     *  "will reflect it to the expected income" — grouped products show as
+     *  ONE combined card here too, not two separate ones, on both the
+     *  range-summary row and every day's own row. */
+    public function test_a_product_group_shows_one_combined_card_instead_of_two(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+
+        ExpectedIncomeEntry::create(['product_id' => $productA->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $productB->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100]);
+
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee($productA->display_name);
+        $response->assertDontSee($productB->display_name);
+        $response->assertSee('TO');
+        // 10 + 5 = 15 orders × 100 AOV = 1,500 Gross Sales, summed once.
         $response->assertSee('1,500.00');
     }
 }

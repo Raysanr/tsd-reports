@@ -5,7 +5,9 @@ namespace App\Http\Controllers\DataManagement;
 use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
 use App\Models\Product;
+use App\Models\ProductGroup;
 use App\Support\DsPprCalculator;
+use App\Support\ProductGrouping;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -55,18 +57,17 @@ class DsPprReportController extends Controller
             ->get()
             ->groupBy('product_id');
 
-        // One row per product, summed across the whole selected range —
-        // "Monthly Running Sales per Product" on the source sheet is the
-        // same idea (a range total, not a single day), just always MTD
-        // there where this page lets any range be picked.
-        $rows = $products->map(function (Product $product) use ($entries) {
-            $productEntries = $entries->get($product->id, collect());
-            $summed = DsPprCalculator::sum($productEntries->map(fn (DsPprEntry $e) => $e->toArray())->all());
-
-            return [
-                'product' => $product,
-                'derived' => $summed,
-            ];
+        // One row per product (or per product GROUP — explicit request,
+        // 2026-09-26: "drag the TO-01 to TO-02 ... it is only combine"),
+        // summed across the whole selected range — "Monthly Running Sales
+        // per Product" on the source sheet is the same idea (a range
+        // total, not a single day), just always MTD there where this page
+        // lets any range be picked. See ProductGrouping::rows()'s own doc
+        // comment for why a grouped row's $sumFn gets every member
+        // product's own entries pooled together, not summed twice.
+        $rows = ProductGrouping::rows($products, function ($groupProducts) use ($entries) {
+            $pooledEntries = $groupProducts->flatMap(fn (Product $p) => $entries->get($p->id, collect()));
+            return DsPprCalculator::sum($pooledEntries->map(fn (DsPprEntry $e) => $e->toArray())->all());
         });
 
         $overallTotal = DsPprCalculator::sum($rows->pluck('derived')->all());
@@ -140,5 +141,49 @@ class DsPprReportController extends Controller
             'success' => true,
             'derived' => DsPprCalculator::derive($entry->toArray()),
         ]);
+    }
+
+    /** Combines 2+ products into one display row (explicit request,
+     *  2026-09-26: "drag the TO-01 to TO-02 ... pop up like new name") —
+     *  DSPPR's own drag gesture is the only place a group is CREATED; both
+     *  this page and Expected Income just reflect whatever groups exist
+     *  once created here. A product already in another group can't join a
+     *  second one (product_group_members' own DB-level unique constraint
+     *  on product_id enforces this too — validated here first for a clean
+     *  error message instead of a raw constraint-violation 500). */
+    public function storeGroup(Request $request)
+    {
+        $data = $request->validate([
+            'label'        => ['required', 'string', 'max:255'],
+            'product_ids'  => ['required', 'array', 'min:2'],
+            'product_ids.*' => ['required', 'integer', 'distinct', 'exists:products,id'],
+        ]);
+
+        $alreadyGrouped = \Illuminate\Support\Facades\DB::table('product_group_members')
+            ->whereIn('product_id', $data['product_ids'])
+            ->exists();
+        if ($alreadyGrouped) {
+            return response()->json(['success' => false, 'message' => 'One of these products is already in a group.'], 422);
+        }
+
+        $group = ProductGroup::create([
+            'label' => $data['label'],
+            'sort_order' => ProductGroup::max('sort_order') + 1,
+        ]);
+        $group->products()->attach($data['product_ids']);
+
+        return response()->json(['success' => true, 'group' => $group->load('products')]);
+    }
+
+    /** Splits a combined row back into its own separate products
+     *  (explicit request, 2026-09-26: a small ungroup control on the
+     *  combined row) — deletes the group and its membership rows only;
+     *  every real DsPprEntry/ExpectedIncomeEntry the member products ever
+     *  had stays exactly as it was, since grouping never touched them. */
+    public function destroyGroup(ProductGroup $productGroup)
+    {
+        $productGroup->delete();
+
+        return response()->json(['success' => true]);
     }
 }

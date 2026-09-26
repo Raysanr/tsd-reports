@@ -133,8 +133,14 @@
             <tbody>
                 @foreach($rows as $row)
                 @php $d = $row['derived']; @endphp
-                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-product-id="{{ $row['product']->id }}">
-                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($row['product']->display_name) }}</td>
+                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="{{ $row['group'] ? 'g'.$row['group']->id : 'p'.$row['products']->first()->id }}">
+                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">
+                        {{ strtoupper($row['label']) }}
+                        @if($row['group'])
+                            <button type="button" data-ungroup="{{ $row['group']->id }}" title="Ungroup"
+                                    class="dsppr-ungroup ml-1 text-[10px] text-ink-muted/60 hover:text-red-600 dark:hover:text-red-400">&times;</button>
+                        @endif
+                    </td>
                     <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
@@ -205,19 +211,43 @@
             </thead>
             <tbody>
                 @foreach($rows as $row)
-                @php $product = $row['product']; @endphp
-                <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-product-id="{{ $product->id }}">
-                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($product->display_name) }}</td>
+                @php
+                    $isGroup = (bool) $row['group'];
+                    // A grouped row's own product-name cell is the ONLY
+                    // drop target that matters, but the drag SOURCE has to
+                    // be an ungrouped row (dragging a group onto anything
+                    // doesn't make sense — see pj.js's own drag handlers
+                    // for why draggable is only ever true when !$isGroup).
+                    $rowKey = $isGroup ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
+                @endphp
+                <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                    data-row-key="{{ $rowKey }}"
+                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" draggable="true" @endif>
+                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ !$isGroup ? 'dsppr-draggable cursor-grab' : '' }}"
+                        data-drop-target="{{ $rowKey }}">
+                        {{ strtoupper($row['label']) }}
+                        @if($isGroup)
+                            <button type="button" data-ungroup="{{ $row['group']->id }}" title="Ungroup"
+                                    class="dsppr-ungroup ml-1 text-[10px] text-ink-muted/60 hover:text-red-600 dark:hover:text-red-400">&times;</button>
+                        @endif
+                    </td>
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-                            $raw = $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
-                            $d = \App\Support\DsPprCalculator::derive($raw);
+                            $emptyRow = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
+                            // A group's own cell pools EVERY member
+                            // product's own entry for this date before
+                            // summing — same reasoning as the controller's
+                            // own $dailyRows (a group's daily figure is
+                            // never just one member's, even if only one
+                            // member happens to have data for this day).
+                            $pooled = $row['products']->map(fn ($p) => $dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow);
+                            $raw = $isGroup ? $emptyRow : ($pooled->first() ?: $emptyRow);
+                            $d = $isGroup ? \App\Support\DsPprCalculator::sum($pooled->all()) : \App\Support\DsPprCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
-                            @if($col['editable'])
+                            @if($col['editable'] && !$isGroup)
                             <td class="px-2 py-1.5 {{ $borderClass }}">
                                 <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
                                        value="{{ ($col['money'] ?? false) ? number_format($raw[$col['key']], 2) : $raw[$col['key']] }}"
@@ -241,8 +271,13 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $dayTotal = \App\Support\DsPprCalculator::sum($rows->map(function ($row) use ($dailyByKey, $dateStr) {
-                                $entry = $dailyByKey->get($row['product']->id . ':' . $dateStr);
+                            // Every REAL product across every display row
+                            // (a group row's own $row['products'] lists
+                            // more than one) — flatten first so the total
+                            // sums each real product exactly once, whether
+                            // it's shown standalone or inside a group.
+                            $dayTotal = \App\Support\DsPprCalculator::sum($rows->flatMap(fn ($row) => $row['products'])->map(function ($product) use ($dailyByKey, $dateStr) {
+                                $entry = $dailyByKey->get($product->id . ':' . $dateStr);
                                 return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
                             })->all());
                         @endphp
@@ -259,6 +294,31 @@
     </div>
 </div>
 @endforeach
+
+{{-- Combine-products modal (explicit request, 2026-09-26: "drag the TO-01
+     to TO-02 ... pop up like new name") — ONE shared modal, triggered by
+     dropping one product row onto another anywhere on the page. Starts
+     hidden; pj's own drag handlers below fill in the two product ids and
+     toggle [hidden]. --}}
+<div id="dsPprCombineModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" data-close-combine-modal></div>
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-1">Combine Products</h3>
+        <p id="dsPprCombineSubtitle" class="text-xs text-ink-muted dark:text-slate-400 mb-4"></p>
+        <form id="dsPprCombineForm" class="space-y-4">
+            <div>
+                <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Combined Name</label>
+                <input type="text" name="label" required maxlength="255"
+                       class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+            </div>
+            <p id="dsPprCombineError" class="text-xs text-red-600 dark:text-red-400 hidden"></p>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" data-close-combine-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+                <button type="submit" class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">Combine</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 @push('scripts')
 <script>
@@ -372,14 +432,14 @@
     // daily tables below is reflected up top without a page reload
     // (explicit request, 2026-09-24: "auto save like user typing ...
     // auto update the tables").
-    function refreshSummaryRow(productId) {
+    function refreshSummaryRow(rowKey) {
         const summaryTable = document.getElementById('dsPprSummaryTable');
         if (!summaryTable) return;
 
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
         let pickupSum = 0, convSum = 0, upsellSum = 0, dayCount = 0;
 
-        document.querySelectorAll(`.dsppr-days-table .dsppr-row[data-product-id="${productId}"]`).forEach((row) => {
+        document.querySelectorAll(`.dsppr-days-table .dsppr-row[data-row-key="${rowKey}"]`).forEach((row) => {
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
                 const date = el.dataset.date;
                 const grossSales = parseMoney(el.value);
@@ -413,7 +473,7 @@
             upselling_rate: dayCount > 0 ? upsellSum / dayCount : 0,
         };
 
-        const summaryRow = summaryTable.querySelector(`.dsppr-summary-row[data-product-id="${productId}"]`);
+        const summaryRow = summaryTable.querySelector(`.dsppr-summary-row[data-row-key="${rowKey}"]`);
         if (summaryRow) {
             summaryRow.querySelectorAll('[data-out]').forEach((el) => {
                 const key = el.dataset.out;
@@ -507,7 +567,7 @@
                 }
                 if (data?.derived) applyDerived(row, date, data.derived);
                 refreshDayTotal(table, date);
-                refreshSummaryRow(row.dataset.productId);
+                refreshSummaryRow(row.dataset.rowKey);
             })
             .catch(() => {
                 flashStatus('Could not save — try again.', true);
@@ -566,6 +626,113 @@
         window.addEventListener('mouseup', () => {
             isDragging = false;
             scroller.classList.remove('cursor-grabbing');
+        });
+    });
+
+    // --- Combine products (explicit request, 2026-09-26: "drag the TO-01
+    // to TO-02 ... pop up like new name ... it will reflect it to the
+    // expected income"). Native HTML5 drag-and-drop (dragstart/dragover/
+    // drop on the [data-drop-target] product-name cell), not the mouse-
+    // based scroll-drag above — they don't conflict: a drag that starts on
+    // a draggable="true" element is handled by the browser's own DnD
+    // machinery before the scroller's plain mousedown listener ever sees
+    // it. A page reload after success/ungroup, same reasoning as
+    // Projections' own custom-row add/remove — grouping changes every
+    // table's own ROW LIST, not just a value, and applyDerived() above
+    // only ever updates existing elements' text. ---
+    const combineModal = document.getElementById('dsPprCombineModal');
+    const combineForm = document.getElementById('dsPprCombineForm');
+    const combineError = document.getElementById('dsPprCombineError');
+    const combineSubtitle = document.getElementById('dsPprCombineSubtitle');
+    let dragProductId = null;
+    let combineProductIds = null;
+
+    function openCombineModal(productIdA, productIdB, labelA, labelB) {
+        combineProductIds = [productIdA, productIdB];
+        combineError.classList.add('hidden');
+        combineForm.reset();
+        combineSubtitle.textContent = `${labelA} + ${labelB}`;
+        combineModal.hidden = false;
+        combineForm.querySelector('[name="label"]').focus();
+    }
+    function closeCombineModal() {
+        combineModal.hidden = true;
+        combineProductIds = null;
+    }
+
+    document.querySelectorAll('[data-drop-target]').forEach((cell) => {
+        const row = cell.closest('[data-product-id]');
+        if (!row) return; // Only an UNGROUPED row's own cell is a valid drag source/target.
+
+        cell.addEventListener('dragstart', (e) => {
+            dragProductId = row.dataset.productId;
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        cell.addEventListener('dragover', (e) => {
+            if (dragProductId && dragProductId !== row.dataset.productId) e.preventDefault();
+        });
+        cell.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const targetProductId = row.dataset.productId;
+            if (!dragProductId || dragProductId === targetProductId) return;
+
+            const sourceCell = document.querySelector(`[data-product-id="${dragProductId}"] [data-drop-target]`);
+            const sourceLabel = sourceCell ? sourceCell.textContent.trim().replace(/×$/, '').trim() : '';
+            const targetLabel = cell.textContent.trim().replace(/×$/, '').trim();
+            openCombineModal(dragProductId, targetProductId, sourceLabel, targetLabel);
+            dragProductId = null;
+        });
+    });
+
+    combineModal.querySelectorAll('[data-close-combine-modal]').forEach((el) => {
+        el.addEventListener('click', closeCombineModal);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !combineModal.hidden) closeCombineModal();
+    });
+
+    combineForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!combineProductIds) return;
+
+        const label = combineForm.querySelector('[name="label"]').value.trim();
+        if (!label) return;
+        const submitBtn = combineForm.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+
+        const body = new URLSearchParams();
+        body.set('label', label);
+        combineProductIds.forEach((id) => body.append('product_ids[]', id));
+
+        fetch('{{ route('data.product-groups.store') }}', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: body.toString(),
+        })
+            .then((res) => (res.ok ? res.json() : res.json().then((data) => Promise.reject(data))))
+            .then(() => window.location.reload())
+            .catch((data) => {
+                submitBtn.disabled = false;
+                combineError.textContent = data?.message || 'Could not combine these products — try again.';
+                combineError.classList.remove('hidden');
+            });
+    });
+
+    document.querySelectorAll('[data-ungroup]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (!window.confirm('Split this combined row back into its own separate products?')) return;
+            const groupId = btn.dataset.ungroup;
+            fetch(`{{ url('/data/product-groups') }}/${groupId}`, {
+                method: 'DELETE',
+                headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then(() => window.location.reload())
+                .catch(() => window.showToast?.('Could not ungroup — try again.', 'error'));
         });
     });
 })();

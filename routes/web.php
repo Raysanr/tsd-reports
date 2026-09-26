@@ -304,6 +304,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // Projections' fixed, pre-seeded columns), so this upserts via
         // DsPprEntry::updateOrCreate() instead of route-model binding.
         Route::patch('/dsppr/{product}/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'update'])->name('dsppr.update');
+        // Product combining (explicit request, 2026-09-26: "drag the TO-01
+        // to TO-02 ... it will reflect it to the expected income") — DSPPR
+        // is the only place a group is CREATED; Expected Income just
+        // reflects whatever groups already exist.
+        Route::post('/product-groups', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'storeGroup'])->name('product-groups.store');
+        Route::delete('/product-groups/{productGroup}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'destroyGroup'])->name('product-groups.destroy');
 
         // Summary Sales Report (explicit request, 2026-09-24: "add page
         // summary sales report in data management ... auto based on the

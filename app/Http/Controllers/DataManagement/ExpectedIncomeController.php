@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
 use App\Support\ExpectedIncomeCalculator;
+use App\Support\ProductGrouping;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -58,17 +59,17 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->groupBy('product_id');
 
-        // One row per product, summed across the whole selected range — the
-        // sheet's own "TELESALES EXPECTED PERFORMANCE" is the same idea (a
-        // range total), just always MTD there where this page lets any
-        // range be picked, same convention as DsPprReportController::index().
-        $summaryCards = $products->map(function (Product $product) use ($entries) {
-            $productEntries = $entries->get($product->id, collect());
-
-            return [
-                'product' => $product,
-                'derived' => ExpectedIncomeCalculator::sum($productEntries->map(fn (ExpectedIncomeEntry $e) => $e->toArray())->all()),
-            ];
+        // One row (or product GROUP row — explicit request, 2026-09-26:
+        // "it will reflect it to the expected income") per product, summed
+        // across the whole selected range — the sheet's own "TELESALES
+        // EXPECTED PERFORMANCE" is the same idea (a range total), just
+        // always MTD there where this page lets any range be picked, same
+        // convention as DsPprReportController::index(). A grouped row
+        // pools every member product's own entries together before
+        // summing, same as DSPPR's own identical grouping call.
+        $summaryCards = ProductGrouping::rows($products, function ($groupProducts) use ($entries) {
+            $pooledEntries = $groupProducts->flatMap(fn (Product $p) => $entries->get($p->id, collect()));
+            return ExpectedIncomeCalculator::sum($pooledEntries->map(fn (ExpectedIncomeEntry $e) => $e->toArray())->all());
         });
         $summaryOverallTotal = ExpectedIncomeCalculator::sum($summaryCards->pluck('derived')->all());
 
@@ -80,10 +81,25 @@ class ExpectedIncomeController extends Controller
 
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo)->addDay())));
 
+        // Per-day display rows (product OR group), same shape as
+        // $summaryCards above — built once here rather than inside the
+        // view's own @foreach so the view never has to know about
+        // ProductGrouping at all, same "controller owns the row plan"
+        // convention as DSPPR's own $rows.
+        $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $dailyByKey) {
+            $dateStr = $date->toDateString();
+            $rows = ProductGrouping::rows($products, function ($groupProducts) use ($dailyByKey, $dateStr) {
+                $pooled = $groupProducts->map(fn (Product $p) => $dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? []);
+                return ExpectedIncomeCalculator::sum($pooled->all());
+            });
+            return [$dateStr => $rows];
+        });
+
         return view('data.expected-income', [
             'products'            => $products,
             'summaryCards'        => $summaryCards,
             'summaryOverallTotal' => $summaryOverallTotal,
+            'dailyRows'           => $dailyRows,
             'dailyByKey'          => $dailyByKey,
             'dates'               => $dates,
             'dateFrom'            => $dateFrom,

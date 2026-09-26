@@ -51,7 +51,7 @@
     <div class="flex items-start gap-5 w-max">
         @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
         @foreach($summaryCards as $card)
-        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['product']->display_name, 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
         @endforeach
     </div>
 </div>
@@ -64,13 +64,7 @@
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
-    $dayEntries = $products->map(function ($product) use ($dailyByKey, $dateStr) {
-        $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-        return $entry ? $entry->toArray() : [];
-    });
-    $dayOverallTotal = \App\Support\ExpectedIncomeCalculator::sum(
-        $products->map(fn ($product) => \App\Support\ExpectedIncomeCalculator::derive($dailyByKey->get($product->id . ':' . $dateStr)?->toArray() ?? []))->all()
-    );
+    $dayOverallTotal = \App\Support\ExpectedIncomeCalculator::sum($dailyRows[$dateStr]->pluck('derived')->all());
 @endphp
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
@@ -82,11 +76,24 @@
             @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
         </div>
 
-        @foreach($products as $product)
-        @php
-            $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-            $d = \App\Support\ExpectedIncomeCalculator::derive($entry?->toArray() ?? []);
-        @endphp
+        {{-- Grouped products (explicit request, 2026-09-26: a combo
+             created on DSPPR "will reflect it to the expected income")
+             render exactly like the read-only overall card above — one
+             summed card, no inputs — since a combined figure is never
+             directly editable; edit the real numbers by ungrouping on
+             DSPPR first. An ungrouped product keeps its normal editable
+             card, unchanged. --}}
+        @foreach($dailyRows[$dateStr] as $row)
+        @php $d = $row['derived']; @endphp
+        @if($row['group'])
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0">
+            <div class="px-5 py-4" style="background:#d9ead3;">
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
+            </div>
+            @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+        </div>
+        @else
+        @php $product = $row['products']->first(); $entry = $dailyByKey->get($product->id . ':' . $dateStr); @endphp
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0"
              data-product-id="{{ $product->id }}"
              data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}">
@@ -95,6 +102,7 @@
             </div>
             @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
         </div>
+        @endif
         @endforeach
     </div>
 </div>

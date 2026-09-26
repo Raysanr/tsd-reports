@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\DsPprEntry;
 use App\Models\Product;
+use App\Models\ProductGroup;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -117,5 +118,74 @@ class DsPprReportSmokeTest extends TestCase
         // 1,000 + 500 = 1,500 summed Gross Sales across both days — would
         // read 1,000.00 (today's entry silently dropped) if the bug regressed.
         $response->assertSee('1,500.00');
+    }
+
+    /** Explicit request, 2026-09-26: "drag the TO-01 to TO-02 ... it can
+     *  have pop up like new name ... it is only combine." Combining two
+     *  products replaces their own two rows with ONE row summing both. */
+    public function test_combining_two_products_shows_one_summed_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+
+        DsPprEntry::create(['product_id' => $productA->id, 'entry_date' => today(), 'gross_sales' => 1000, 'total_orders' => 1]);
+        DsPprEntry::create(['product_id' => $productB->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
+
+        $storeResponse = $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'TO',
+            'product_ids' => [$productA->id, $productB->id],
+        ]);
+        $storeResponse->assertOk();
+        $this->assertDatabaseHas('product_groups', ['label' => 'TO']);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee(strtoupper($productA->display_name));
+        $response->assertDontSee(strtoupper($productB->display_name));
+        $response->assertSee('TO');
+        $response->assertSee('1,500.00'); // 1,000 + 500 summed into the one combined row.
+    }
+
+    public function test_a_product_cannot_join_two_groups(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $products = Product::orderBy('id')->limit(3)->get();
+
+        $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'Group A',
+            'product_ids' => [$products[0]->id, $products[1]->id],
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'Group B',
+            'product_ids' => [$products[1]->id, $products[2]->id],
+        ]);
+
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('product_groups', ['label' => 'Group B']);
+    }
+
+    public function test_ungrouping_splits_products_back_into_their_own_rows(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+
+        $response = $this->actingAs($admin)->deleteJson(route('data.product-groups.destroy', $group));
+
+        $response->assertOk();
+        $this->assertDatabaseMissing('product_groups', ['id' => $group->id]);
+
+        $indexResponse = $this->actingAs($admin)->get(route('data.dsppr'));
+        $indexResponse->assertSee(strtoupper($productA->display_name));
+        $indexResponse->assertSee(strtoupper($productB->display_name));
     }
 }
