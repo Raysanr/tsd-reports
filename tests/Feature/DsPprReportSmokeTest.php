@@ -188,4 +188,56 @@ class DsPprReportSmokeTest extends TestCase
         $indexResponse->assertSee(strtoupper($productA->display_name));
         $indexResponse->assertSee(strtoupper($productB->display_name));
     }
+
+    /** Explicit follow-up, 2026-09-26: "what about more than 2 combine" —
+     *  dragging a 3rd product onto an ALREADY-combined row joins that same
+     *  group (no new name needed) rather than being a dead end. */
+    public function test_a_third_product_can_join_an_existing_group(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $products = Product::orderBy('id')->limit(3)->get();
+
+        DsPprEntry::create(['product_id' => $products[0]->id, 'entry_date' => today(), 'gross_sales' => 1000, 'total_orders' => 1]);
+        DsPprEntry::create(['product_id' => $products[1]->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
+        DsPprEntry::create(['product_id' => $products[2]->id, 'entry_date' => today(), 'gross_sales' => 250, 'total_orders' => 1]);
+
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$products[0]->id, $products[1]->id]);
+
+        $response = $this->actingAs($admin)->postJson(
+            route('data.product-groups.add-member', $group),
+            ['product_id' => $products[2]->id]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('product_group_members', ['product_group_id' => $group->id, 'product_id' => $products[2]->id]);
+
+        $indexResponse = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
+        $indexResponse->assertOk();
+        $indexResponse->assertDontSee(strtoupper($products[2]->display_name));
+        // 1,000 + 500 + 250 = 1,750, now all three summed into the one row.
+        $indexResponse->assertSee('1,750.00');
+    }
+
+    public function test_a_product_already_in_a_group_cannot_join_another(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $products = Product::orderBy('id')->limit(3)->get();
+
+        $groupA = ProductGroup::create(['label' => 'A', 'sort_order' => 0]);
+        $groupA->products()->attach([$products[0]->id, $products[1]->id]);
+        $groupB = ProductGroup::create(['label' => 'B', 'sort_order' => 1]);
+        $groupB->products()->attach($products[2]->id);
+
+        $response = $this->actingAs($admin)->postJson(
+            route('data.product-groups.add-member', $groupB),
+            ['product_id' => $products[0]->id]
+        );
+
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('product_group_members', ['product_group_id' => $groupB->id, 'product_id' => $products[0]->id]);
+    }
 }

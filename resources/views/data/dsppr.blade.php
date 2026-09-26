@@ -229,7 +229,16 @@
                 @endphp
                 <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                     data-row-key="{{ $rowKey }}"
-                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" @endif>
+                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" @endif
+                    @if($isGroup) data-group-id="{{ $row['group']->id }}" @endif>
+                    {{-- A group row's own cell is a valid DROP TARGET too
+                         (explicit follow-up, 2026-09-26: "what about more
+                         than 2 combine") — dragging a 3rd ungrouped product
+                         onto an already-combined row joins that SAME group
+                         instead of opening the name-picker again. It's
+                         never a drag SOURCE itself (no draggable/dsppr-
+                         draggable) — dragging a whole group onto something
+                         else isn't a supported gesture. --}}
                     <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ !$isGroup ? 'dsppr-draggable cursor-grab' : '' }}"
                         data-drop-target="{{ $rowKey }}"
                         @if(!$isGroup) draggable="true" @endif>
@@ -668,11 +677,11 @@
         combineProductIds = null;
     }
 
+    // Drag SOURCES: only an ungrouped row's own cell (dragging a whole
+    // group onto something else isn't a supported gesture).
     document.querySelectorAll('[data-drop-target][draggable="true"]').forEach((cell) => {
-        const row = cell.closest('[data-product-id]');
-        if (!row) return; // Only an UNGROUPED row's own cell is a valid drag source/target.
-
         cell.addEventListener('dragstart', (e) => {
+            const row = cell.closest('[data-product-id]');
             dragProductId = row.dataset.productId;
             e.dataTransfer.effectAllowed = 'move';
             // Firefox refuses to start a drag at all unless setData() is
@@ -681,8 +690,21 @@
             // branching per browser.
             e.dataTransfer.setData('text/plain', dragProductId);
         });
+    });
+
+    // Drop TARGETS: every row's own cell, ungrouped OR already-grouped
+    // (explicit follow-up, 2026-09-26: "what about more than 2 combine") —
+    // dropping onto a plain product opens the name-picker (creates a NEW
+    // group); dropping onto an already-combined row joins that SAME group
+    // instead, no naming needed since the group already has one.
+    document.querySelectorAll('[data-drop-target]').forEach((cell) => {
+        const productRow = cell.closest('[data-product-id]');
+        const groupRow = cell.closest('[data-group-id]');
+        if (!productRow && !groupRow) return;
+
         cell.addEventListener('dragover', (e) => {
-            if (dragProductId && dragProductId !== row.dataset.productId) {
+            const targetProductId = productRow?.dataset.productId;
+            if (dragProductId && dragProductId !== targetProductId) {
                 e.preventDefault();
                 cell.classList.add('dsppr-drop-hover');
             }
@@ -691,16 +713,39 @@
         cell.addEventListener('drop', (e) => {
             e.preventDefault();
             cell.classList.remove('dsppr-drop-hover');
-            const targetProductId = row.dataset.productId;
-            if (!dragProductId || dragProductId === targetProductId) return;
+            if (!dragProductId) return;
 
-            const sourceCell = document.querySelector(`[data-product-id="${dragProductId}"] [data-drop-target]`);
-            const sourceLabel = sourceCell ? sourceCell.textContent.trim().replace(/×$/, '').trim() : '';
-            const targetLabel = cell.textContent.trim().replace(/×$/, '').trim();
-            openCombineModal(dragProductId, targetProductId, sourceLabel, targetLabel);
+            if (groupRow) {
+                addProductToGroup(dragProductId, groupRow.dataset.groupId);
+            } else {
+                const targetProductId = productRow.dataset.productId;
+                if (dragProductId === targetProductId) { dragProductId = null; return; }
+                const sourceCell = document.querySelector(`[data-product-id="${dragProductId}"] [data-drop-target]`);
+                const sourceLabel = sourceCell ? sourceCell.textContent.trim().replace(/×$/, '').trim() : '';
+                const targetLabel = cell.textContent.trim().replace(/×$/, '').trim();
+                openCombineModal(dragProductId, targetProductId, sourceLabel, targetLabel);
+            }
             dragProductId = null;
         });
     });
+
+    function addProductToGroup(productId, groupId) {
+        if (!window.confirm('Add this product to the combined row?')) return;
+        const body = new URLSearchParams();
+        body.set('product_id', productId);
+        fetch(`{{ url('/data/product-groups') }}/${groupId}/members`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: body.toString(),
+        })
+            .then((res) => (res.ok ? res.json() : res.json().then((data) => Promise.reject(data))))
+            .then(() => window.location.reload())
+            .catch((data) => window.showToast?.(data?.message || 'Could not add this product — try again.', 'error'));
+    }
 
     combineModal.querySelectorAll('[data-close-combine-modal]').forEach((el) => {
         el.addEventListener('click', closeCombineModal);

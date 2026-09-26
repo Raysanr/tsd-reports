@@ -310,6 +310,9 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // reflects whatever groups already exist.
         Route::post('/product-groups', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'storeGroup'])->name('product-groups.store');
         Route::delete('/product-groups/{productGroup}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'destroyGroup'])->name('product-groups.destroy');
+        // Adding a 3rd+ product to an already-combined row (explicit
+        // follow-up, 2026-09-26: "what about more than 2 combine").
+        Route::post('/product-groups/{productGroup}/members', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'addToGroup'])->name('product-groups.add-member');
 
         // Summary Sales Report (explicit request, 2026-09-24: "add page
         // summary sales report in data management ... auto based on the

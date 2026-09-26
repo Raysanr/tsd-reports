@@ -186,4 +186,29 @@ class DsPprReportController extends Controller
 
         return response()->json(['success' => true]);
     }
+
+    /** Adds ONE more product to an ALREADY-combined row (explicit
+     *  follow-up, 2026-09-26: "what about more than 2 combine" — dragging
+     *  a 3rd product onto an existing combined row joins the same group
+     *  instead of opening the name-picker modal again, since the group
+     *  already has a name). Same already-grouped guard as storeGroup()'s
+     *  own — the DB-level unique constraint on product_id backs this up
+     *  too either way. */
+    public function addToGroup(Request $request, ProductGroup $productGroup)
+    {
+        $data = $request->validate([
+            'product_id' => ['required', 'integer', 'exists:products,id'],
+        ]);
+
+        $alreadyGrouped = \Illuminate\Support\Facades\DB::table('product_group_members')
+            ->where('product_id', $data['product_id'])
+            ->exists();
+        if ($alreadyGrouped) {
+            return response()->json(['success' => false, 'message' => 'This product is already in a group.'], 422);
+        }
+
+        $productGroup->products()->attach($data['product_id']);
+
+        return response()->json(['success' => true, 'group' => $productGroup->load('products')]);
+    }
 }
