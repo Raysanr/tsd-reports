@@ -315,6 +315,6 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // id — same reasoning as DSPPR's own route above (a cell with
         // nothing typed into it yet has no row to bind to).
         Route::get('/expected-income', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'index'])->name('expected-income');
-        Route::patch('/expected-income/{product}/{month}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
+        Route::patch('/expected-income/{product}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
     });
 });

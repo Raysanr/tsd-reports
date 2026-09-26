@@ -5,13 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** One product's raw month-to-date numbers on the Expected Income 2026 page
- *  — see the create_expected_income_entries_table migration's own doc
- *  comment for why every field here is manual entry, not a computed rate. */
+/** One product's raw numbers for one DAY on the Expected Income 2026 page —
+ *  see the create_expected_income_entries_table migration's own doc
+ *  comment for why every field here is manual entry, not a computed rate,
+ *  and why storage is per-day (range-summed on read, not a stored MTD row). */
 class ExpectedIncomeEntry extends Model
 {
     protected $fillable = [
-        'product_id', 'month',
+        'product_id', 'entry_date',
         'roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
         'tax_allocation', 'product_cost',
         'advertising_cost', 'ads_vat', 'ai_expense', 'ad_account_rental_fee', 'shipping_fee', 'product_research',
@@ -22,7 +23,7 @@ class ExpectedIncomeEntry extends Model
     ];
 
     protected $casts = [
-        'month'                => 'date',
+        'entry_date'           => 'date',
         'roas'                 => 'float',
         'actual_cost_per_lead' => 'float',
         'number_of_leads'      => 'integer',

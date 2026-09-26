@@ -13,12 +13,19 @@ use Illuminate\Support\Carbon;
  * TSD Data Management — Expected Income 2026 (explicit request, 2026-09-26:
  * "analyze this expected income and add it to the data management module
  * ... i want exactly like this like in the sheets like every product is
- * has card"). Replicates the source sheet's own "EXPECTED INCOME 2026"
- * tab's real layout: one card per product, side by side (same visual
- * pattern as Projections' own _column.blade.php cards), preceded by one
- * overall "TELESALES" rollup card summing EVERY product — NOT split into
- * separate per-team blocks (explicit decision, 2026-09-26: "i want exactly
- * like in the sheets but i want to make it like no per team").
+ * has card ... in the top there's expected sales and after that it is
+ * dates going down"). Replicates the source sheet's own "EXPECTED INCOME
+ * 2026" tab's real layout: one card per product, side by side (same visual
+ * pattern as Projections' own _column.blade.php cards) — a top row summing
+ * the whole selected range (the sheet's own "TELESALES EXPECTED
+ * PERFORMANCE"), then one full row of cards per calendar DAY stacking
+ * downward, same range-summary + daily-blocks structure as DSPPR.
+ *
+ * Each row's overall figure is a single rollup card across EVERY product,
+ * NOT split into separate per-team cards — explicit decision, 2026-09-26,
+ * even though the real sheet also shows Team Eyecare/Team SH Naturals
+ * cards ("i want exactly like in the sheets but i want to make it like no
+ * per team", reconfirmed after being shown that screenshot).
  *
  * Uses the app's real Product table, not a fixed list matching the sheet's
  * own product names — explicit decision, 2026-09-26, same reasoning as
@@ -30,41 +37,65 @@ class ExpectedIncomeController extends Controller
 {
     public function index(Request $request)
     {
-        $month = $request->input('month')
-            ? Carbon::parse($request->input('month') . '-01')->startOfMonth()
-            : today()->startOfMonth();
+        $dateFrom = $request->input('date_from') ?: today()->startOfMonth()->toDateString();
+        $dateTo   = $request->input('date_to') ?: today()->toDateString();
 
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
 
-        $entriesByProduct = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
-            ->whereDate('month', $month->toDateString())
+        // whereDate() >=/<=, not a raw whereBetween() on the date-cast
+        // column — root-caused 2026-09-26: entry_date is stored as a full
+        // 'Y-m-d H:i:s' datetime string, and SQLite compares whereBetween's
+        // plain date-only bounds LEXICOGRAPHICALLY, so '2026-09-26 00:00:00'
+        // (the LAST day of a range) sorts AFTER the bound '2026-09-26' and
+        // gets silently dropped — the exact same date-cast pitfall already
+        // documented on this controller's own update()'s whereDate() call,
+        // just hit here too since whereBetween() doesn't get that same
+        // treatment. whereDate() correctly extracts just the date part on
+        // every driver (SQLite included), so this can't drop the last day.
+        $entries = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
             ->get()
-            ->keyBy('product_id');
+            ->groupBy('product_id');
 
-        $productCards = $products->map(function (Product $product) use ($entriesByProduct) {
-            $entry = $entriesByProduct->get($product->id);
+        // One row per product, summed across the whole selected range — the
+        // sheet's own "TELESALES EXPECTED PERFORMANCE" is the same idea (a
+        // range total), just always MTD there where this page lets any
+        // range be picked, same convention as DsPprReportController::index().
+        $summaryCards = $products->map(function (Product $product) use ($entries) {
+            $productEntries = $entries->get($product->id, collect());
 
             return [
                 'product' => $product,
-                'entry'   => $entry,
-                'derived' => ExpectedIncomeCalculator::derive($entry?->toArray() ?? []),
+                'derived' => ExpectedIncomeCalculator::sum($productEntries->map(fn (ExpectedIncomeEntry $e) => $e->toArray())->all()),
             ];
         });
+        $summaryOverallTotal = ExpectedIncomeCalculator::sum($summaryCards->pluck('derived')->all());
 
-        $overallTotal = ExpectedIncomeCalculator::sum($productCards->pluck('derived')->all());
+        // Per-day entries for the currently selected products, keyed
+        // "productId:date" — the view's own inline-editable cards need to
+        // seed each field from whatever's already saved for that exact
+        // product+day, same convention as DsPprReportController::index().
+        $dailyByKey = $entries->flatten()->keyBy(fn (ExpectedIncomeEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
+
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo)->addDay())));
 
         return view('data.expected-income', [
-            'productCards' => $productCards,
-            'overallTotal' => $overallTotal,
-            'month'        => $month,
+            'products'            => $products,
+            'summaryCards'        => $summaryCards,
+            'summaryOverallTotal' => $summaryOverallTotal,
+            'dailyByKey'          => $dailyByKey,
+            'dates'               => $dates,
+            'dateFrom'            => $dateFrom,
+            'dateTo'              => $dateTo,
         ]);
     }
 
     /** Auto-save (same debounced-PATCH-per-field convention as Projections'
-     *  own updateColumn() / DSPPR's own update()) — one (product, month,
+     *  own updateColumn() / DSPPR's own update()) — one (product, date,
      *  field) at a time. Upserts via updateOrCreate() since a cell with
      *  nothing typed into it yet has no row to PATCH onto. */
-    public function update(Request $request, Product $product, string $month)
+    public function update(Request $request, Product $product, string $date)
     {
         $data = $request->validate([
             'roas'                 => ['sometimes', 'numeric', 'min:0'],
@@ -103,35 +134,19 @@ class ExpectedIncomeController extends Controller
             'hmo_expense'                 => ['sometimes', 'numeric', 'min:0'],
         ]);
 
-        $monthDate = Carbon::parse($month . '-01')->startOfMonth()->toDateString();
+        $entryDate = Carbon::parse($date)->toDateString();
 
-        // whereDate(), not a plain ['month' => $monthDate] attribute match
-        // on firstOrNew() — same SQLite date-cast pitfall as DsPprReportController::update().
-        $entry = ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('month', $monthDate)->first()
-            ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'month' => $monthDate]);
+        // whereDate(), not a plain ['entry_date' => $entryDate] attribute
+        // match on firstOrNew() — same SQLite date-cast pitfall as
+        // DsPprReportController::update().
+        $entry = ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $entryDate)->first()
+            ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'entry_date' => $entryDate]);
         $entry->fill($data);
         $entry->save();
 
-        // Every OTHER product (not just this one's team — the rollup card
-        // is a single "TELESALES" total across ALL products, explicit
-        // decision 2026-09-26), so the frontend can refresh that one
-        // overall card without a full page reload — same "return every
-        // affected figure, not just this row's own" convention as
-        // Projections' updateColumn().
-        $allProducts = Product::all();
-        $allEntries = ExpectedIncomeEntry::whereIn('product_id', $allProducts->pluck('id'))
-            ->whereDate('month', $monthDate)
-            ->get()
-            ->keyBy('product_id');
-
-        $allDerived = $allProducts->map(
-            fn (Product $p) => ExpectedIncomeCalculator::derive($allEntries->get($p->id)?->toArray() ?? [])
-        );
-
         return response()->json([
-            'success'       => true,
-            'derived'       => ExpectedIncomeCalculator::derive($entry->toArray()),
-            'overall_total' => ExpectedIncomeCalculator::sum($allDerived->all()),
+            'success' => true,
+            'derived' => ExpectedIncomeCalculator::derive($entry->toArray()),
         ]);
     }
 }

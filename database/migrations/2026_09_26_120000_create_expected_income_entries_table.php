@@ -6,12 +6,14 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * TSD Data Management — Expected Income 2026 (explicit request, 2026-09-26:
- * "analyze this expected income and add it to the data management module").
- * One row per (product, month) — the source sheet's own "EXPECTED INCOME
- * 2026" tab, a month-to-date P&L summary per product (Clearsight, Pterygium,
- * Sinuxyl, ...), with Team Eyecare/Team SH Naturals rows derived as the sum
- * of their own products (same convention as ProjectionColumn's Telesales
- * Department = Opening + Closing).
+ * "analyze this expected income and add it to the data management module
+ * ... in the top there's expected sales and after that it is dates going
+ * down"). One row per (product, DAY) — the source sheet's own "EXPECTED
+ * INCOME 2026" tab repeats a full card row per calendar day, stacking
+ * downward, below one month-to-date summary row at the top (a SUM across
+ * that month's days, not its own stored row — see ExpectedIncomeCalculator::
+ * sum()). Same per-day storage / range-summed-on-read convention as
+ * dsppr_entries (see that migration's own doc comment).
  *
  * Every field below is manual entry, not a computed rate, per explicit
  * decision this session after verifying several formulas against the real
@@ -42,7 +44,7 @@ return new class extends Migration
         Schema::create('expected_income_entries', function (Blueprint $table) {
             $table->id();
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
-            $table->date('month');
+            $table->date('entry_date');
 
             $table->decimal('roas', 10, 2)->default(0);
             $table->decimal('actual_cost_per_lead', 10, 2)->default(0);
@@ -86,7 +88,7 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->unique(['product_id', 'month']);
+            $table->unique(['product_id', 'entry_date']);
         });
     }
 

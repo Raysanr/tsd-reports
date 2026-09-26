@@ -11,11 +11,13 @@ use Tests\TestCase;
 /**
  * Explicit request, 2026-09-26: "analyze this expected income and add it
  * to the data management module ... i want exactly like this like in the
- * sheets like every product is has card." Smoke-level only — confirms the
- * page renders (one card per product, plus an overall "TELESALES" rollup
- * card) and the auto-save endpoint recomputes correctly; the derived
- * formulas themselves are independently verified against the real
- * "EXPECTED INCOME 2026" tab in ExpectedIncomeCalculatorTest.
+ * sheets like every product is has card ... in the top there's expected
+ * sales and after that it is dates going down." Smoke-level only —
+ * confirms the page renders (a range-summary card row, then one card row
+ * per calendar day) and the per-day auto-save endpoint upserts and
+ * recomputes correctly; the derived formulas themselves are independently
+ * verified against the real "EXPECTED INCOME 2026" tab in
+ * ExpectedIncomeCalculatorTest.
  */
 class ExpectedIncomeReportSmokeTest extends TestCase
 {
@@ -27,7 +29,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $product = Product::first();
         ExpectedIncomeEntry::create([
             'product_id' => $product->id,
-            'month' => today()->startOfMonth(),
+            'entry_date' => today(),
             'number_of_leads' => 647,
             'number_of_orders' => 112,
             'average_order_value' => 804.46,
@@ -37,7 +39,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($product->display_name);
-        $response->assertSee('TELESALES —', false);
+        $response->assertSee('Telesales Expected Performance');
     }
 
     public function test_a_non_admin_cannot_view_the_report_page(): void
@@ -53,10 +55,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
-        $month = today()->format('Y-m');
+        $date = today()->toDateString();
 
         $response = $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update', ['product' => $product->id, 'month' => $month]),
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
             ['number_of_leads' => 647, 'number_of_orders' => 112, 'average_order_value' => 804.46]
         );
 
@@ -73,33 +75,36 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
-        $month = today()->format('Y-m');
+        $date = today()->toDateString();
 
         $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update', ['product' => $product->id, 'month' => $month]),
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
             ['number_of_orders' => 100]
         );
         $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update', ['product' => $product->id, 'month' => $month]),
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
             ['number_of_orders' => 200]
         );
 
-        $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('month', today()->startOfMonth())->count());
-        $this->assertSame(200, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('month', today()->startOfMonth())->first()->number_of_orders);
+        $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->count());
+        $this->assertSame(200, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->number_of_orders);
     }
 
-    public function test_updating_one_product_returns_the_overall_total(): void
+    public function test_summary_row_sums_every_day_in_the_selected_range(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
-        $month = today()->format('Y-m');
 
-        $response = $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update', ['product' => $product->id, 'month' => $month]),
-            ['number_of_orders' => 10, 'average_order_value' => 100]
-        );
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today()->subDay(), 'number_of_orders' => 10, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->subDay()->toDateString(),
+            'date_to' => today()->toDateString(),
+        ]));
 
         $response->assertOk();
-        $response->assertJsonStructure(['success', 'derived', 'overall_total' => ['gross_sales', 'net_income']]);
+        // 15 orders × 100 AOV = 1,500 summed Gross Sales across both days.
+        $response->assertSee('1,500.00');
     }
 }

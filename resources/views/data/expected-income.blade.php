@@ -1,8 +1,13 @@
 @extends('layouts.data')
 @section('title', 'Expected Income 2026')
-@section('subtitle', 'Month-to-date P&L per product — every figure auto-saves as you type')
+@section('subtitle', 'Daily P&L per product — every figure auto-saves as you type')
 
 @section('content')
+
+<style>
+    .ei-scroller { cursor: grab; }
+    .ei-scroller.cursor-grabbing { cursor: grabbing; }
+</style>
 
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
@@ -14,57 +19,91 @@
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         <div>
-            <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Month</label>
-            <input type="month" name="month" value="{{ $month->format('Y-m') }}" onchange="this.form.submit()"
+            <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">From</label>
+            <input type="date" name="date_from" value="{{ $dateFrom }}" onchange="this.form.submit()"
+                   class="text-sm font-mono border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+        </div>
+        <div>
+            <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">To</label>
+            <input type="date" name="date_to" value="{{ $dateTo }}" onchange="this.form.submit()"
                    class="text-sm font-mono border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
         </div>
     </form>
-    <span id="eiSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+    <div class="flex items-center gap-3">
+        <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
+            Drag/scroll right to see more products
+        </span>
+        <span id="eiSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+    </div>
 </div>
 
-{{-- One card per product, side by side (explicit request, 2026-09-26: "i
-     want exactly like this like in the sheets like every product is has
-     card") — same visual pattern as Projections' own _column.blade.php
-     cards, just this page's own fields. A single overall "TELESALES"
-     rollup card comes first, summing EVERY product (not split per team —
-     explicit follow-up: "i want exactly like in the sheets but i want to
-     make it like no per team"), same idea as Projections' Telesales
-     Department card. #eiCards wraps everything so the JS only ever looks
-     up a specific card by its own data-key, same convention as pj.js's own
-     #pjColumns. --}}
-<div id="eiCards" class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+{{-- Range summary row — the sheet's own "TELESALES EXPECTED PERFORMANCE"
+     (a range total, not a single day; here the range is whatever's picked
+     above rather than always MTD) — one overall rollup card, then every
+     product's own card, same visual pattern as Projections' cards. No
+     per-team cards (explicit decision, 2026-09-26, reconfirmed after being
+     shown the real sheet's own Team Eyecare/Team SH Naturals cards: "i
+     want exactly like in the sheets but i want to make it like no per
+     team"). --}}
+<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
+<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
     <div class="flex items-start gap-5 w-max">
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0" data-key="__overall__">
-            <div class="px-5 py-4 bg-yellow-300 dark:bg-yellow-600">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">
-                    TELESALES — {{ $month->format('F j, Y') }}
-                </span>
+        @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @foreach($summaryCards as $card)
+        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['product']->display_name, 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @endforeach
+    </div>
+</div>
+
+{{-- Daily rows — one row of cards PER calendar day, stacking downward
+     (explicit request, 2026-09-26: "in the top there's expected sales and
+     after that it is dates going down"), each independently editable and
+     independently drag-scrollable. Same overall-card + product-cards
+     pattern as the summary row above, just for that one day's own figures. --}}
+@foreach($dates as $date)
+@php
+    $dateStr = $date->toDateString();
+    $dayEntries = $products->map(function ($product) use ($dailyByKey, $dateStr) {
+        $entry = $dailyByKey->get($product->id . ':' . $dateStr);
+        return $entry ? $entry->toArray() : [];
+    });
+    $dayOverallTotal = \App\Support\ExpectedIncomeCalculator::sum(
+        $products->map(fn ($product) => \App\Support\ExpectedIncomeCalculator::derive($dailyByKey->get($product->id . ':' . $dateStr)?->toArray() ?? []))->all()
+    );
+@endphp
+<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
+<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
+    <div class="flex items-start gap-5 w-max">
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0" data-out-scope="1">
+            <div class="px-5 py-4" style="background:#fde047;">
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES — {{ $date->format('F j, Y') }}</span>
             </div>
-            @include('data.expected-income._card-body', ['d' => $overallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
         </div>
 
-        @foreach($productCards as $card)
-        @php $product = $card['product']; $entry = $card['entry']; $d = $card['derived']; @endphp
+        @foreach($products as $product)
+        @php
+            $entry = $dailyByKey->get($product->id . ':' . $dateStr);
+            $d = \App\Support\ExpectedIncomeCalculator::derive($entry?->toArray() ?? []);
+        @endphp
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0"
-             data-key="{{ $product->id }}"
-             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'month' => $month->format('Y-m')]) }}">
+             data-product-id="{{ $product->id }}"
+             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}">
             <div class="px-5 py-4" style="background:#d9ead3;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">
-                    {{ $product->display_name }}
-                </span>
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $product->display_name }}</span>
             </div>
             @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
         </div>
         @endforeach
     </div>
 </div>
+@endforeach
 
 @push('scripts')
 <script>
 (function () {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const cardsEl = document.getElementById('eiCards');
-    if (!cardsEl) return;
     const globalStatus = document.getElementById('eiSaveStatus');
     const saveTimers = new WeakMap();
 
@@ -163,11 +202,6 @@
             el.classList.toggle('dark:text-red-400', isLoss);
         });
 
-        // Selling/Operating row percentages (% of Gross Sales) — these use
-        // data-out-pct, not data-out, since the SAME row key already names
-        // a different element (the $ figure) via data-out. Same
-        // live-refresh convention as pj.js's own setPct(), so a live edit
-        // never leaves a stale % next to an already-updated $ figure.
         card.querySelectorAll('[data-out-pct]').forEach((el) => {
             const key = el.dataset.outPct;
             const value = (derived.selling_lines || {})[key] ?? (derived.operating_lines || {})[key];
@@ -176,15 +210,15 @@
         });
     }
 
-    // Recomputes and repaints the overall "TELESALES" rollup card from
-    // every product card's own currently-saved inputs — sum dollars/
-    // counts, average roas/actual_cost_per_lead, same split as
-    // ExpectedIncomeCalculator::sum().
-    function refreshOverallCard() {
-        const overallCard = cardsEl.querySelector('.ei-card[data-key="__overall__"]');
+    // Recomputes and repaints ONE day's own overall rollup card from every
+    // product card's own currently-saved inputs IN THAT SAME DAY'S ROW —
+    // scoped to $scroller so editing one day never touches another day's
+    // rollup card, same convention as dsppr.blade.php's own refreshDayTotal().
+    function refreshDayOverall(scroller) {
+        const overallCard = scroller.querySelector('.ei-card[data-out-scope="1"]');
         if (!overallCard) return;
 
-        const productCards = cardsEl.querySelectorAll('.ei-card:not([data-key="__overall__"])');
+        const productCards = scroller.querySelectorAll('.ei-card[data-product-id]');
         const rawRows = [];
         let roasSum = 0, costPerLeadSum = 0;
 
@@ -235,6 +269,7 @@
         const card = input.closest('.ei-card');
         const status = card?.querySelector('.ei-card-status');
         if (!card) return;
+        const scroller = card.closest('.ei-day-scroller');
 
         const field = input.dataset.field;
         const value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
@@ -263,7 +298,7 @@
                     input.value = fmtMoney(value);
                 }
                 if (data?.derived) applyDerived(card, data.derived);
-                refreshOverallCard();
+                if (scroller) refreshDayOverall(scroller);
             })
             .catch(() => {
                 if (status) status.textContent = 'Failed';
@@ -272,23 +307,48 @@
             });
     }
 
-    cardsEl.addEventListener('input', (e) => {
-        const input = e.target.closest('.ei-field');
-        if (!input) return;
-        if (input.dataset.money === '1') liveFormatMoney(input);
-        clearTimeout(saveTimers.get(input));
-        saveTimers.set(input, setTimeout(() => saveField(input), 600));
+    document.querySelectorAll('.ei-day-scroller').forEach((scroller) => {
+        scroller.addEventListener('input', (e) => {
+            const input = e.target.closest('.ei-field');
+            if (!input) return;
+            if (input.dataset.money === '1') liveFormatMoney(input);
+            clearTimeout(saveTimers.get(input));
+            saveTimers.set(input, setTimeout(() => saveField(input), 600));
+        });
+
+        scroller.addEventListener('blur', (e) => {
+            const input = e.target.closest('.ei-field');
+            if (input) saveField(input);
+        }, true);
+
+        scroller.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            const input = e.target.closest('.ei-field');
+            if (input) { e.preventDefault(); input.blur(); }
+        });
     });
 
-    cardsEl.addEventListener('blur', (e) => {
-        const input = e.target.closest('.ei-field');
-        if (input) saveField(input);
-    }, true);
+    // Click-and-drag horizontal scroll (same convention as dsppr.blade.php's
+    // own scroller), wired to every row's scroller independently.
+    document.querySelectorAll('.ei-scroller').forEach((scroller) => {
+        let isDragging = false, dragStartX = 0, dragStartScroll = 0;
 
-    cardsEl.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter') return;
-        const input = e.target.closest('.ei-field');
-        if (input) { e.preventDefault(); input.blur(); }
+        scroller.addEventListener('mousedown', (e) => {
+            if (e.target.closest('input')) return;
+            isDragging = true;
+            dragStartX = e.pageX;
+            dragStartScroll = scroller.scrollLeft;
+            scroller.classList.add('cursor-grabbing');
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            scroller.scrollLeft = dragStartScroll - (e.pageX - dragStartX);
+        });
+        window.addEventListener('mouseup', () => {
+            isDragging = false;
+            scroller.classList.remove('cursor-grabbing');
+        });
     });
 })();
 </script>
