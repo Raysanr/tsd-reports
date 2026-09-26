@@ -307,5 +307,14 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // anymore (that's TSA Management's job).
         Route::get('/tsa-sales', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'index'])->name('tsa-sales');
         Route::patch('/tsa-sales/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateEntry'])->name('tsa-sales.update-entry');
+
+        // Expected Income 2026 (explicit request, 2026-09-26: "analyze this
+        // expected income and add it to the data management module") — one
+        // month-to-date P&L summary row per product, grouped by the app's
+        // real teams. PATCH by (product, month), not a {expectedIncomeEntry}
+        // id — same reasoning as DSPPR's own route above (a cell with
+        // nothing typed into it yet has no row to bind to).
+        Route::get('/expected-income', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'index'])->name('expected-income');
+        Route::patch('/expected-income/{product}/{month}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
     });
 });

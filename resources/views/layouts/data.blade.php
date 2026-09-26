@@ -99,6 +99,17 @@
             </svg>
             Summary Sales Report
         </a>
+
+        {{-- Expected Income 2026, right next to Summary Sales Report
+             (explicit request, 2026-09-26: "add that EXPECTED INCOME to the
+             data management module"). --}}
+        <a href="{{ route('data.expected-income') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.expected-income*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941"/>
+            </svg>
+            Expected Income 2026
+        </a>
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
