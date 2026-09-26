@@ -30,17 +30,17 @@
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
 
-    // One repeating 9-column set per day (confirmed exact against the
-    // real sheet's own Summary - Sales Report tab, 2026-09-24) — a
-    // smaller set than DSPPR - TSM Report's own 13 (no Total Leads,
-    // Excess Leads, or Conversion Rate on THIS sheet). Pick-up Rate and
-    // Upselling Rate are editable here (raw manual entry, unlike DSPPR's
-    // read-only versions) — see TsaSalesCalculator's own doc comment for
-    // why neither can be derived on either sheet.
+    // One repeating 8-column set per day (confirmed exact against the
+    // real sheet's own Summary - Sales Report tab, 2026-09-24, Ads Spent
+    // removed 2026-09-26 per explicit request) — a smaller set than DSPPR
+    // - TSM Report's own 13 (no Total Leads, Excess Leads, or Conversion
+    // Rate on THIS sheet). Pick-up Rate and Upselling Rate are editable
+    // here (raw manual entry, unlike DSPPR's read-only versions) — see
+    // TsaSalesCalculator's own doc comment for why neither can be derived
+    // on either sheet.
     $dayColumns = [
         ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'ads_spent', 'label' => 'Ads Spent', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
         ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
@@ -94,7 +94,6 @@
                     <th class="tsr-sticky bg-yellow-200 dark:bg-yellow-700 text-left px-3 py-2 font-bold whitespace-nowrap">TSA</th>
                     <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
                     <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Ads Spent</th>
                     <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">NI %</th>
                     <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Total Orders</th>
                     <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">AOV</th>
@@ -111,7 +110,6 @@
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="ads_spent">{{ $fmtMoney($d['ads_spent']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
                     <td class="px-3 py-2 text-right" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
                     <td class="px-3 py-2 text-right" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
@@ -125,7 +123,6 @@
                     <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($gs['label']) }} TOTAL:</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($gt['gross_sales']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $gt['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($gt['net_income']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="ads_spent">{{ $fmtMoney($gt['ads_spent']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $gt['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($gt['ni_pct']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($gt['total_orders']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($gt['aov']) }}</td>
@@ -140,7 +137,6 @@
                     <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($overallTotal['gross_sales']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
-                    <td class="px-3 py-2.5 text-right" data-out="ads_spent">{{ $fmtMoney($overallTotal['ads_spent']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $overallTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($overallTotal['ni_pct']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($overallTotal['total_orders']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($overallTotal['aov']) }}</td>
@@ -300,12 +296,11 @@
 
     function refreshDayTotal(table, date) {
         const rows = table.querySelectorAll('tbody .tsr-row');
-        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, catered_leads: 0 };
+        let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
         rows.forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
             totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            totals.ads_spent += parseMoney(row.querySelector(`[data-field="ads_spent"][data-date="${date}"]`).value);
             totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
             totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
             pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
@@ -313,7 +308,7 @@
             rowCount += 1;
         });
         const derived = {
-            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
@@ -331,7 +326,7 @@
         const summaryTable = document.getElementById('tsrSummaryTable');
         if (!summaryTable) return;
 
-        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, catered_leads: 0 };
+        let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, dayCount = 0;
 
         document.querySelectorAll(`.tsr-days-table .tsr-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
@@ -339,7 +334,6 @@
                 const date = el.dataset.date;
                 totals.gross_sales += parseMoney(el.value);
                 totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-                totals.ads_spent += parseMoney(row.querySelector(`[data-field="ads_spent"][data-date="${date}"]`).value);
                 totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
                 totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
                 pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
@@ -349,7 +343,7 @@
         });
 
         const derived = {
-            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
@@ -379,13 +373,12 @@
     function refreshGroupTotal(groupTotalRow) {
         if (!groupTotalRow) return;
         const tbody = groupTotalRow.closest('tbody');
-        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, catered_leads: 0 };
+        let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
 
         tbody.querySelectorAll('.tsr-summary-row').forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
             totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
-            totals.ads_spent += parseMoney(row.querySelector('[data-out="ads_spent"]').textContent);
             totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
             totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
             pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
@@ -394,7 +387,7 @@
         });
 
         const derived = {
-            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
@@ -413,13 +406,12 @@
     }
 
     function refreshOverallTotal(summaryTable) {
-        let totals = { gross_sales: 0, net_income: 0, ads_spent: 0, total_orders: 0, catered_leads: 0 };
+        let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
 
         summaryTable.querySelectorAll('tbody .tsr-summary-row').forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
             totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
-            totals.ads_spent += parseMoney(row.querySelector('[data-out="ads_spent"]').textContent);
             totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
             totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
             pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
@@ -428,7 +420,7 @@
         });
 
         const derived = {
-            gross_sales: totals.gross_sales, net_income: totals.net_income, ads_spent: totals.ads_spent,
+            gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
