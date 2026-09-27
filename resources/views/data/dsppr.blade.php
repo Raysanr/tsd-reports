@@ -721,8 +721,8 @@
         });
     });
 
-    function addProductToGroup(productId, groupId) {
-        if (!window.confirm('Add this product to the combined row?')) return;
+    async function addProductToGroup(productId, groupId) {
+        if (!(await window.confirmModal('Add this product to the combined row?'))) return;
         const body = new URLSearchParams();
         body.set('product_id', productId);
         fetch(`{{ url('/data/product-groups') }}/${groupId}/members`, {
@@ -778,8 +778,8 @@
     });
 
     document.querySelectorAll('[data-ungroup]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            if (!window.confirm('Split this combined row back into its own separate products?')) return;
+        btn.addEventListener('click', async () => {
+            if (!(await window.confirmModal('Split this combined row back into its own separate products?'))) return;
             const groupId = btn.dataset.ungroup;
             fetch(`{{ url('/data/product-groups') }}/${groupId}`, {
                 method: 'DELETE',

@@ -210,6 +210,54 @@
 })();
 </script>
 
+{{-- Shared styled confirm dialog for every Data Management page (explicit
+     request, 2026-09-27: "why all of the x icon has no modal it is like
+     this" — the plain browser window.confirm() popup looked completely
+     out of place next to everything else's own custom modals). One
+     instance, reused by every caller via window.confirmModal(message) —
+     same "one shared dialog, not one per page" convention as Projections'
+     own add-row modal / DSPPR's own combine modal. Returns a Promise
+     (true if confirmed, false if cancelled/dismissed) so a caller can
+     `if (!(await window.confirmModal('...'))) return;` in place of the
+     old `if (!window.confirm('...')) return;` line, no other call-site
+     logic needs to change. --}}
+<div id="confirmModal" hidden class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" data-confirm-cancel></div>
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+        <p id="confirmModalMessage" class="text-sm text-ink dark:text-slate-100 mb-5"></p>
+        <div class="flex justify-end gap-2">
+            <button type="button" data-confirm-cancel class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+            <button type="button" data-confirm-ok class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">OK</button>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const modal = document.getElementById('confirmModal');
+    const messageEl = document.getElementById('confirmModalMessage');
+    let resolveFn = null;
+
+    function settle(result) {
+        modal.hidden = true;
+        const resolve = resolveFn;
+        resolveFn = null;
+        resolve?.(result);
+    }
+
+    modal.querySelectorAll('[data-confirm-cancel]').forEach((el) => el.addEventListener('click', () => settle(false)));
+    modal.querySelector('[data-confirm-ok]').addEventListener('click', () => settle(true));
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !modal.hidden) settle(false);
+    });
+
+    window.confirmModal = function (message) {
+        messageEl.textContent = message;
+        modal.hidden = false;
+        return new Promise((resolve) => { resolveFn = resolve; });
+    };
+})();
+</script>
+
 @stack('scripts')
 </body>
 </html>

@@ -499,7 +499,7 @@
         addRowContext = null;
     }
 
-    columnsEl.addEventListener('click', (e) => {
+    columnsEl.addEventListener('click', async (e) => {
         const addBtn = e.target.closest('[data-add-custom-row]');
         if (addBtn) {
             openAddRowModal(addBtn.dataset.addCustomRow, addBtn.closest('.pj-card'));
@@ -508,7 +508,7 @@
 
         const removeBtn = e.target.closest('[data-remove-custom-row]');
         if (removeBtn) {
-            if (!window.confirm('Remove this row from every card?')) return;
+            if (!(await window.confirmModal('Remove this row from every card?'))) return;
             const rowId = removeBtn.dataset.removeCustomRow;
             fetch(`{{ url('/data/projections/custom-rows') }}/${rowId}`, {
                 method: 'DELETE',
