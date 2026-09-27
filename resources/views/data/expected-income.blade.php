@@ -18,16 +18,8 @@
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
     <form method="GET" class="flex items-end gap-3 flex-wrap">
-        <div>
-            <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">From</label>
-            <input type="date" name="date_from" value="{{ $dateFrom }}" onchange="this.form.submit()"
-                   class="text-sm font-mono border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
-        </div>
-        <div>
-            <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">To</label>
-            <input type="date" name="date_to" value="{{ $dateTo }}" onchange="this.form.submit()"
-                   class="text-sm font-mono border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
-        </div>
+        @include('data._date-range-filter', ['name' => 'date_from', 'value' => $dateFrom, 'label' => 'From'])
+        @include('data._date-range-filter', ['name' => 'date_to', 'value' => $dateTo, 'label' => 'To'])
     </form>
     <div class="flex items-center gap-3">
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
