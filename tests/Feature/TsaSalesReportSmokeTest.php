@@ -111,4 +111,23 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('1,500.00');
     }
+
+    /** Same off-by-one root-caused 2026-09-27 in DsPprReportController's
+     *  own identical daysUntil()->addDay() call — see that test's own doc
+     *  comment for the full root cause (daysUntil() is already inclusive
+     *  of its own end date). */
+    public function test_the_daily_table_never_shows_a_day_past_the_selected_range(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+            'date_from' => '2026-09-21',
+            'date_to' => '2026-09-30',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Mon, Sep 21');
+        $response->assertSee('Wed, Sep 30');
+        $response->assertDontSee('Thu, Oct 1');
+    }
 }

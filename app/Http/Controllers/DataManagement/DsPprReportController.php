@@ -84,7 +84,13 @@ class DsPprReportController extends Controller
             ->get()
             ->keyBy(fn (DsPprEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
 
-        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo)->addDay())));
+        // daysUntil() is already INCLUSIVE of its own end date (confirmed
+        // directly, 2026-09-27: 21→25 yields 5 days including the 25th) —
+        // the ->addDay() here was based on the opposite (wrong) assumption
+        // that it excludes the end date, so picking "To: Sep 30" was
+        // silently rendering an extra Oct 1 column that was never part of
+        // the selected range at all.
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
         // Chunked into groups of 7 (explicit request, 2026-09-24: "make it
         // too only 7 days that is like can be drag to right and after

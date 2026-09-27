@@ -120,6 +120,31 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertSee('1,500.00');
     }
 
+    /**
+     * Root-caused 2026-09-27 (user report: "why is it the last date is
+     * sept 30 but the last display is oct 1?"): daysUntil() is already
+     * INCLUSIVE of its own end date — the controller's own
+     * ->addDay() before calling it was based on the wrong assumption that
+     * daysUntil() excludes the end date, so every selected range rendered
+     * one extra day PAST the real "To" date (e.g. picking Sep 21-30 showed
+     * a stray Oct 1 column no entry could ever be saved against from the
+     * date picker itself).
+     */
+    public function test_the_daily_table_never_shows_a_day_past_the_selected_range(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => '2026-09-21',
+            'date_to' => '2026-09-30',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Mon, Sep 21');
+        $response->assertSee('Wed, Sep 30');
+        $response->assertDontSee('Thu, Oct 1');
+    }
+
     /** Explicit request, 2026-09-26: "drag the TO-01 to TO-02 ... it can
      *  have pop up like new name ... it is only combine." Combining two
      *  products replaces their own two rows with ONE row summing both. */

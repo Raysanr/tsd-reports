@@ -109,6 +109,24 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('1,500.00');
     }
 
+    /** Same off-by-one root-caused 2026-09-27 in DsPprReportController's
+     *  own identical daysUntil()->addDay() call — see that test's own doc
+     *  comment for the full root cause (daysUntil() is already inclusive
+     *  of its own end date). */
+    public function test_the_daily_rows_never_show_a_day_past_the_selected_range(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-09-21',
+            'date_to' => '2026-09-30',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('September 30, 2026');
+        $response->assertDontSee('October 1, 2026');
+    }
+
     /** Explicit request, 2026-09-26: a product group created on DSPPR
      *  "will reflect it to the expected income" — grouped products show as
      *  ONE combined card here too, not two separate ones, on both the

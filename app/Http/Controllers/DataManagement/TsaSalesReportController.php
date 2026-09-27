@@ -82,7 +82,11 @@ class TsaSalesReportController extends Controller
             ->get()
             ->keyBy(fn (TsaSalesEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
 
-        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo)->addDay())));
+        // daysUntil() is already INCLUSIVE of its own end date — see the
+        // identical fix in DsPprReportController's own doc comment for the
+        // full root cause (confirmed 2026-09-27: picking "To: Sep 30" was
+        // silently rendering an extra Oct 1 column).
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
         $dateChunks = $dates->chunk(7)->values();
 
         return view('data.tsa-sales', [

@@ -79,7 +79,11 @@ class ExpectedIncomeController extends Controller
         // product+day, same convention as DsPprReportController::index().
         $dailyByKey = $entries->flatten()->keyBy(fn (ExpectedIncomeEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
 
-        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo)->addDay())));
+        // daysUntil() is already INCLUSIVE of its own end date — see the
+        // identical fix in DsPprReportController's own doc comment for the
+        // full root cause (confirmed 2026-09-27: picking "To: Sep 30" was
+        // silently rendering an extra Oct 1 card row).
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
         // Per-day display rows (product OR group), same shape as
         // $summaryCards above — built once here rather than inside the
