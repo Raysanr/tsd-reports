@@ -213,18 +213,40 @@
 {{-- Shared styled confirm dialog for every Data Management page (explicit
      request, 2026-09-27: "why all of the x icon has no modal it is like
      this" — the plain browser window.confirm() popup looked completely
-     out of place next to everything else's own custom modals). One
-     instance, reused by every caller via window.confirmModal(message) —
-     same "one shared dialog, not one per page" convention as Projections'
-     own add-row modal / DSPPR's own combine modal. Returns a Promise
-     (true if confirmed, false if cancelled/dismissed) so a caller can
-     `if (!(await window.confirmModal('...'))) return;` in place of the
-     old `if (!window.confirm('...')) return;` line, no other call-site
-     logic needs to change. --}}
-<div id="confirmModal" hidden class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+     out of place next to everything else's own custom modals).
+
+     Deliberately its OWN element id (#dataConfirmModal) and function name
+     (window.confirmDataModal), NOT the app.js pair (#confirmModal /
+     window.showConfirm) despite doing the same job — layouts.data pulls in
+     calls.js, never app.js (same as every Call Tracker page), and calls.js
+     has its own documented incident about exactly this mismatch (see its
+     own comment on the upsell line-item delete button): a page that loads
+     calls.js calling an app.js-only global silently resolves false with
+     zero visible dialog, which is what originally motivated that fallback
+     back to plain confirm() there. Colliding on the SAME id/name here
+     would only be safe as long as no Data Management page ever also loads
+     app.js — reusing distinct names removes that landmine entirely rather
+     than relying on that never happening.
+
+     One instance, reused by every caller via
+     window.confirmDataModal(message) — same "one shared dialog, not one
+     per page" convention as Projections' own add-row modal / DSPPR's own
+     combine modal. Returns a Promise<boolean> (true if confirmed) so a
+     caller does `if (!(await window.confirmDataModal('...'))) return;` in
+     place of the old `if (!window.confirm('...')) return;` line.
+
+     Listeners are bound FRESH per call and removed on settle (same
+     convention as app.js's own showConfirm()) rather than kept as one
+     permanently-attached set with a shared resolveFn — a second call
+     landing before the first settles would otherwise silently overwrite
+     that shared resolveFn, permanently hanging the first caller's own
+     `await` and misrouting its OK/Cancel click to the second call's
+     promise instead (root-caused 2026-09-27 in code review, before it
+     ever reached a real double-click). --}}
+<div id="dataConfirmModal" hidden class="fixed inset-0 z-[60] flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/50" data-confirm-cancel></div>
     <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
-        <p id="confirmModalMessage" class="text-sm text-ink dark:text-slate-100 mb-5"></p>
+        <p id="dataConfirmModalMessage" class="text-sm text-ink dark:text-slate-100 mb-5"></p>
         <div class="flex justify-end gap-2">
             <button type="button" data-confirm-cancel class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
             <button type="button" data-confirm-ok class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">OK</button>
@@ -233,27 +255,39 @@
 </div>
 <script>
 (function () {
-    const modal = document.getElementById('confirmModal');
-    const messageEl = document.getElementById('confirmModalMessage');
-    let resolveFn = null;
+    const modal = document.getElementById('dataConfirmModal');
+    const messageEl = document.getElementById('dataConfirmModalMessage');
+    const cancelBtn = modal.querySelector('[data-confirm-cancel][type="button"]');
+    const backdropEl = modal.querySelector('.absolute.inset-0');
+    const okBtn = modal.querySelector('[data-confirm-ok]');
 
-    function settle(result) {
-        modal.hidden = true;
-        const resolve = resolveFn;
-        resolveFn = null;
-        resolve?.(result);
-    }
-
-    modal.querySelectorAll('[data-confirm-cancel]').forEach((el) => el.addEventListener('click', () => settle(false)));
-    modal.querySelector('[data-confirm-ok]').addEventListener('click', () => settle(true));
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !modal.hidden) settle(false);
-    });
-
-    window.confirmModal = function (message) {
+    window.confirmDataModal = function (message) {
         messageEl.textContent = message;
         modal.hidden = false;
-        return new Promise((resolve) => { resolveFn = resolve; });
+
+        return new Promise((resolve) => {
+            // One-shot listeners, rebound fresh on every call (same
+            // convention as app.js's own showConfirm()) — a stale listener
+            // left attached from a previous call would double-fire or
+            // resolve the WRONG call's promise on the next one, exactly
+            // the reentrancy bug a single shared resolveFn had before.
+            function settle(result) {
+                modal.hidden = true;
+                cancelBtn.removeEventListener('click', onCancel);
+                okBtn.removeEventListener('click', onOk);
+                backdropEl.removeEventListener('click', onCancel);
+                document.removeEventListener('keydown', onKeydown);
+                resolve(result);
+            }
+            function onCancel() { settle(false); }
+            function onOk() { settle(true); }
+            function onKeydown(e) { if (e.key === 'Escape') settle(false); }
+
+            cancelBtn.addEventListener('click', onCancel);
+            okBtn.addEventListener('click', onOk);
+            backdropEl.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKeydown);
+        });
     };
 })();
 </script>

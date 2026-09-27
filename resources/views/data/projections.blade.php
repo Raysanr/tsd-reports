@@ -508,7 +508,7 @@
 
         const removeBtn = e.target.closest('[data-remove-custom-row]');
         if (removeBtn) {
-            if (!(await window.confirmModal('Remove this row from every card?'))) return;
+            if (!(await window.confirmDataModal('Remove this row from every card?'))) return;
             const rowId = removeBtn.dataset.removeCustomRow;
             fetch(`{{ url('/data/projections/custom-rows') }}/${rowId}`, {
                 method: 'DELETE',
