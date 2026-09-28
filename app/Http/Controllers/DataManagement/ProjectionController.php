@@ -73,6 +73,13 @@ class ProjectionController extends Controller
             // target-derived # of Orders instead of pinning it at 0 — see
             // the add_orders_override migration's own doc comment.
             'orders_override'      => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            // Same nullable-override convention, for Number of Leads/
+            // Conversion Rate — see the add_leads_and_conversion_overrides
+            // migration's own doc comment. conversion_rate_override is a
+            // fraction (0.30 = 30%), not a percentage, same convention as
+            // every shared rate elsewhere on this page.
+            'leads_override'            => ['sometimes', 'nullable', 'numeric', 'min:0'],
+            'conversion_rate_override'  => ['sometimes', 'nullable', 'numeric', 'min:0'],
             // Same nullable-override convention, for Target Upselling Rate
             // — see the add_upselling_rate_override migration's own doc
             // comment.

@@ -340,7 +340,14 @@ class ProjectionCalculator
             ? $target / ($aov * $rates['target_margin'])
             : 0.0;
 
-        $leadsNeeded = $rates['conversion_rate'] > 0 ? $ordersNeeded / $rates['conversion_rate'] : 0.0;
+        // Number of Leads / Conversion Rate overrides (explicit request,
+        // 2026-09-28: "make editable this Number of Leads, Conversion
+        // Rate") — displayed here so the top-of-card stats block and this
+        // target card never disagree; the SAME overrides also drive
+        // Number of Orders in basePnl() above, for the 2 base shifts.
+        $leadsNeeded = $column->leads_override
+            ?? ($rates['conversion_rate'] > 0 ? $ordersNeeded / $rates['conversion_rate'] : 0.0);
+        $conversionRate = $column->conversion_rate_override ?? $rates['conversion_rate'];
         $pickupRate  = $leadsNeeded * $rates['pickup_rate'];
 
         return [
@@ -350,12 +357,7 @@ class ProjectionCalculator
             'orders_needed' => $ordersNeeded,
             'leads_needed' => $leadsNeeded,
             'pickup_rate' => $pickupRate,
-            // Plain pass-through of the shared conversion_rate setting, for
-            // the new top-of-card stats block (explicit request, 2026-09-28:
-            // "in the projection page i want to have this too" — same block
-            // Expected Income already has). Not a new independent figure —
-            // it's the exact rate leads_needed above was already divided by.
-            'conversion_rate' => $rates['conversion_rate'],
+            'conversion_rate' => $conversionRate,
             // 1:1 with Orders Needed by default, but directly editable per
             // column (explicit request, 2026-09-24) via upselling_rate_override.
             'upselling_rate' => $column->upselling_rate_override ?? $ordersNeeded,
@@ -381,7 +383,18 @@ class ProjectionCalculator
             ? $target / ($aov * $rates['target_margin'])
             : 0.0;
 
-        $orders     = $shift->orders_override ?? $ordersNeeded;
+        // Leads × Conversion Rate override takes precedence over
+        // orders_override (explicit request, 2026-09-28: "make editable
+        // this Number of Leads, Conversion Rate" — confirmed typing BOTH
+        // recalculates Number of Orders as Leads × Conversion Rate). Only
+        // applies when BOTH are set — a lone leads_override with no
+        // matching conversion rate has no way to produce an Orders number,
+        // so it falls through to orders_override/target-derived instead,
+        // same "partial override does nothing" convention as everywhere
+        // else in this chain.
+        $orders = ($shift->leads_override !== null && $shift->conversion_rate_override !== null)
+            ? $shift->leads_override * $shift->conversion_rate_override
+            : ($shift->orders_override ?? $ordersNeeded);
         $grossSales = $orders * $aov;
 
         return self::pnlFromOrders($orders, $grossSales, $rates);

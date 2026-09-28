@@ -302,6 +302,78 @@ class ProjectionsTest extends TestCase
         $response->assertJsonPath('computed.pnl.orders', 2400);
     }
 
+    /** Explicit follow-up, 2026-09-28: "make editable this Number of Leads,
+     *  Conversion Rate, Average Order Value" then confirmed typing BOTH
+     *  Leads and Conversion Rate recalculates Number of Orders as their
+     *  product — taking precedence over BOTH the Net Income Target
+     *  back-solve AND orders_override, same "most specific override wins"
+     *  precedence chain the rest of this page already follows. */
+    public function test_leads_and_conversion_rate_override_recalculates_orders_and_beats_orders_override(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $openingShift->update(['orders_override' => 1000]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['leads_override' => 5000, 'conversion_rate_override' => 0.30]
+        );
+
+        $response->assertOk();
+        $this->assertEquals(5000.0, $openingShift->fresh()->leads_override);
+        $this->assertEquals(0.30, $openingShift->fresh()->conversion_rate_override);
+
+        // 5,000 leads × 30% conversion = 1,500 orders — NOT the 1,000 from
+        // orders_override still sitting on this same column.
+        $response->assertJsonPath('computed.pnl.orders', 1500);
+        // AOV 800 × 1,500 orders = 1,200,000 Gross Sales.
+        $response->assertJsonPath('computed.pnl.gross_sales', 1200000);
+        // The top-of-card stats block's own display figures match exactly
+        // what was typed, not the target-derived defaults.
+        $response->assertJsonPath('computed.target_card.leads_needed', 5000);
+        $response->assertJsonPath('computed.target_card.conversion_rate', 0.30);
+    }
+
+    /** A lone leads_override with no matching conversion_rate_override (or
+     *  vice versa) has no way to produce an Orders number on its own — same
+     *  "partial override does nothing" convention as everywhere else in
+     *  this chain, so it falls through to orders_override/target-derived
+     *  instead of silently multiplying against a stale or zero rate. */
+    public function test_a_lone_leads_override_without_a_conversion_rate_override_does_not_change_orders(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['leads_override' => 5000]
+        );
+
+        $response->assertOk();
+        // Untouched — still the target-derived 2,400 from the seeded
+        // 600,000 Net Income Target.
+        $response->assertJsonPath('computed.pnl.orders', 2400);
+    }
+
+    /** Clearing both overrides back to null restores the target-derived
+     *  chain exactly, same convention as clearing orders_override above. */
+    public function test_clearing_leads_and_conversion_rate_overrides_restores_the_target_derived_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $openingShift->update(['leads_override' => 5000, 'conversion_rate_override' => 0.30]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['leads_override' => null, 'conversion_rate_override' => null]
+        );
+
+        $response->assertOk();
+        $this->assertNull($openingShift->fresh()->leads_override);
+        $this->assertNull($openingShift->fresh()->conversion_rate_override);
+        $response->assertJsonPath('computed.pnl.orders', 2400);
+    }
+
     /** Target Upselling Rate defaults to mirroring Total Orders Needed, but
      *  is directly editable per column (explicit request, 2026-09-24) via
      *  upselling_rate_override — same nullable-override convention as

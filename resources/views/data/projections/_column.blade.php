@@ -45,16 +45,25 @@
          Leads/Conversion Rate/Number of Orders/Average Order Value — same
          top block Expected Income already has (explicit request,
          2026-09-28: "in the projection page i want to have this too").
-         Confirmed this does NOT change how Projections calculates anything
-         — it stays target-driven (Net Income Target back-solved into
-         Orders/Leads Needed). ROAS/Standard Cost Per Message/Actual Cost
-         Per Message are genuinely new, plain manual inputs (editable only
-         where the rest of this card is, same as every other input here).
-         Number of Leads/Conversion Rate/Number of Orders/Average Order
-         Value are read-only here — they just DISPLAY the SAME
-         leads_needed/conversion_rate/orders/average_order_value figures
-         the rest of the card already computes, so this block can never
-         show a number inconsistent with the target card below it. --}}
+         ROAS/Standard Cost Per Message/Actual Cost Per Message are plain
+         manual inputs with no formula participation.
+
+         Number of Leads/Conversion Rate/Average Order Value are editable
+         here too (explicit follow-up, 2026-09-28: "make editable this
+         Number of Leads, Conversion Rate, Average Order Value" — the
+         standalone "# of Orders" row below this block was removed the same
+         request, since Number of Orders here already shows the identical
+         figure). Number of Leads/Conversion Rate save via leads_override/
+         conversion_rate_override — nullable, same "blank restores the
+         target-derived value" convention as orders_override/
+         upselling_rate_override — and typing BOTH recalculates Number of
+         Orders as Leads × Conversion Rate, taking precedence over the Net
+         Income Target back-solve (see ProjectionCalculator::basePnl()'s
+         own doc comment). Average Order Value here is the SAME pj-field as
+         the target card's own AOV input further down this card — not a
+         second, independent value — so both always show identically.
+         Number of Orders stays read-only, mirroring whatever the chain
+         above actually produces. --}}
     <div class="px-5 py-3 font-mono text-[13px] space-y-1.5 border-b border-line dark:border-slate-700">
         @foreach([
             ['key' => 'roas', 'label' => 'ROAS'],
@@ -73,11 +82,21 @@
         @endforeach
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Number of Leads</span>
-            <span data-out="leads_needed" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['leads_needed']) }}</span>
+            @if($editable)
+                <input type="text" inputmode="decimal" value="{{ number_format($t['leads_needed'], 2) }}" data-field="leads_override" data-out="leads_stat"
+                       class="pj-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            @else
+                <span data-out="leads_stat" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['leads_needed'], 2) }}</span>
+            @endif
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Conversion Rate</span>
-            <span data-out="conversion_rate" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['conversion_rate'] * 100, 2) }}%</span>
+            @if($editable)
+                <input type="text" inputmode="decimal" value="{{ number_format($t['conversion_rate'] * 100, 2) }}" data-field="conversion_rate_override" data-mode="percent" data-out="conversion_rate"
+                       class="pj-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            @else
+                <span data-out="conversion_rate" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['conversion_rate'] * 100, 2) }}%</span>
+            @endif
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
@@ -85,36 +104,16 @@
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Average Order Value</span>
-            <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['average_order_value'], 2) }}</span>
-        </div>
-    </div>
-
-    {{-- # of Orders / Gross Sales — editable ONLY on Opening Shift
-         (explicit request, 2026-09-23: "the Gross Sales is editable and
-         the number of orders", scoped down after the cross-card formula
-         finding to just the one truly-independent column). They're two
-         views of the SAME underlying number (Gross Sales = Orders × AOV):
-         # of Orders saves orders_override directly via updateColumn (a
-         pj-field, like Net Income Target/AOV below); Gross Sales is
-         back-solved to Orders (÷ AOV) client-side first, then saved
-         through the SAME endpoint — NOT the shared-rate endpoint, since
-         orders_override is per-column, not a cross-column rate. On the 3
-         derived cards these are plain read-only spans that
-         applyComputed() keeps in sync, same as every other total on the
-         page. See pj.js's own saveColumnField(). --}}
-    <div class="px-5 py-3 font-mono text-[13px]">
-        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center py-1.5 border-b border-line dark:border-slate-700">
-            <span class="text-ink-muted dark:text-slate-400"># of Orders</span>
             @if($editable)
-                <input type="text" inputmode="decimal" value="{{ number_format($p['orders'], 2) }}" data-field="orders_override" data-money="1" data-orders="1"
+                <input type="text" inputmode="decimal" value="{{ number_format($t['average_order_value'], 2) }}" data-field="average_order_value" data-money="1"
                        class="pj-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
             @else
-                <span data-orders="1" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($p['orders'], 2) }}</span>
+                <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['average_order_value'], 2) }}</span>
             @endif
         </div>
     </div>
 
-    <div class="px-5 pb-3 font-mono text-[13px] space-y-0.5">
+    <div class="px-5 pt-3 pb-3 font-mono text-[13px] space-y-0.5">
         <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
             <span class="text-ink-muted dark:text-slate-400">Gross Sales</span>
             @if($editable)

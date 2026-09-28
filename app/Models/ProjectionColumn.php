@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  *  ProjectionCalculator from these inputs plus the shared rate Settings. */
 class ProjectionColumn extends Model
 {
-    protected $fillable = ['key', 'label', 'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'net_income_target', 'average_order_value', 'orders_override', 'upselling_rate_override', 'tsa_count', 'sort_order'];
+    protected $fillable = ['key', 'label', 'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'net_income_target', 'average_order_value', 'orders_override', 'leads_override', 'conversion_rate_override', 'upselling_rate_override', 'tsa_count', 'sort_order'];
 
     protected $casts = [
         'roas'                      => 'float',
@@ -21,6 +21,8 @@ class ProjectionColumn extends Model
         'net_income_target'        => 'float',
         'average_order_value'      => 'float',
         'orders_override'           => 'float',
+        'leads_override'            => 'float',
+        'conversion_rate_override'  => 'float',
         'upselling_rate_override'   => 'float',
         'tsa_count'                 => 'integer',
         'sort_order'                => 'integer',

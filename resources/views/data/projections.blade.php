@@ -177,16 +177,48 @@
 
         card.querySelectorAll('[data-out]').forEach((el) => {
             const key = el.dataset.out;
+            // leads_stat is this new top-of-card block's own key (NOT
+            // "leads_needed" — that one stays 0-decimal further down this
+            // same card as "Total Leads Needed"; this one is money-style
+            // 2-decimal, matching the real template screenshot), reading
+            // from the exact same t.leads_needed figure.
+            if (key === 'leads_stat') {
+                if (el.tagName !== 'INPUT') el.textContent = fmtMoney(t.leads_needed);
+                return;
+            }
             if (!(key in t)) return;
-            // average_order_value/conversion_rate (new top-of-card stats
-            // block, 2026-09-28) format differently from every other
-            // [data-out] key here — money with 2 decimals, and ×100 with a
-            // % sign, respectively — so they're handled as their own cases
-            // rather than falling into the generic fmtNumber() path below.
+            // average_order_value/conversion_rate (top-of-card stats block,
+            // 2026-09-28) can be real <input>s now (editable per column,
+            // same as every other pj-field) as well as read-only spans —
+            // skip inputs here, setValue()/dedicated handling below covers
+            // them so a focused field is never clobbered mid-type, same
+            // convention as every other editable figure on this page.
+            if (el.tagName === 'INPUT') return;
+            // average_order_value/conversion_rate format differently from
+            // every other [data-out] key here — money with 2 decimals, and
+            // ×100 with a % sign, respectively — so they're handled as
+            // their own cases rather than falling into the generic
+            // fmtNumber() path below.
             if (key === 'average_order_value') { el.textContent = fmtMoney(t[key]); return; }
             if (key === 'conversion_rate') { el.textContent = fmtPct(t[key]); return; }
             const decimals = (key === 'orders_needed' && t[key] < 100) || key === 'upselling_rate' ? 2 : 0;
             el.textContent = fmtNumber(t[key], decimals);
+        });
+
+        // average_order_value/leads_needed/conversion_rate <input>s (this
+        // new top block, plus AOV's pre-existing target-card input) —
+        // resynced across every matching element on this card, same
+        // "querySelectorAll, not querySelector" reasoning as setValue()
+        // below, so both AOV fields (or both Leads fields, if a future
+        // change adds a second) never drift apart after a save.
+        card.querySelectorAll('input[data-field="average_order_value"]').forEach((el) => {
+            if (document.activeElement !== el) el.value = fmtMoney(t.average_order_value);
+        });
+        card.querySelectorAll('input[data-field="leads_override"]').forEach((el) => {
+            if (document.activeElement !== el) el.value = fmtNumber(t.leads_needed, 2);
+        });
+        card.querySelectorAll('input[data-field="conversion_rate_override"]').forEach((el) => {
+            if (document.activeElement !== el) el.value = fmtNumber(t.conversion_rate * 100, 2);
         });
 
         // Only Opening Shift's P&L rows are real <input>s (explicit
@@ -333,6 +365,12 @@
             const aov = aovInput ? parseMoney(aovInput.value) : 0;
             if (!aov) { if (status) status.textContent = 'Failed'; return; }
             sendValue = typed / aov;
+        }
+        // conversion_rate_override is typed as a whole percent (20.00 =
+        // 20%, matching every other rate input on this page) but stored as
+        // a fraction (0.20) — same convention as every pj-rate-field.
+        if (input.dataset.mode === 'percent') {
+            sendValue = Number(typed) / 100;
         }
 
         const body = new URLSearchParams();
