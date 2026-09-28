@@ -2242,6 +2242,17 @@ class LeadController extends Controller
      * tsa_key alone isn't always the right one to push. Falls through to
      * creating tsa_key itself as a brand-new tag only when NONE of her
      * aliases match anything real yet.
+     *
+     * An empty $api->listTags() here is trusted at face value (a genuinely
+     * empty, successful fetch has to fall through to creating a new tag —
+     * a brand-new shop's very first tag must be creatable) rather than
+     * treated as suspect — see PancakeOrderTagApi::listTags()'s own doc
+     * comment for where a real incident of this shape ("sometimes the auto
+     * tag of name is not working," root-caused 2026-09-28) was actually
+     * fixed: a FAILED fetch there is now never cached as if it were a
+     * genuinely empty catalog, so this method only ever sees a real
+     * successful answer, empty or not, and never has to guess which case
+     * it's looking at.
      */
     private static function resolveTsaTagName(TsaShift $tsa, PancakeOrderTagApi $api): string
     {

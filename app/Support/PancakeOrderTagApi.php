@@ -42,6 +42,35 @@ class PancakeOrderTagApi
      * The shop's real order-tag catalog — [{id, name, color, is_system_tag,
      * groups}]. Cached for 5 minutes: rarely changes, but this gets hit on
      * every keystroke of the Outcome search box.
+     *
+     * Deliberately NOT Cache::remember() — that caches whatever the
+     * callback returns unconditionally, with no way to tell "the request
+     * genuinely failed" apart from "the request succeeded and the shop
+     * really does have zero tags right now" once both collapse to the same
+     * bare []. Root-caused live, 2026-09-28, real feedback: "sometimes the
+     * auto tag of name is not working" — a transient Pancake failure
+     * (timeout, brief outage, non-2xx) used to get cached as an empty
+     * catalog for the full 5 minutes, and LeadController::
+     * resolveTsaTagName() reads an empty catalog as "none of her aliases
+     * exist yet," falling through to creating a BRAND NEW duplicate tag
+     * via createTagIfMissing() instead of finding her real, already-
+     * existing one — createTagIfMissing() re-checks the SAME poisoned
+     * empty cache and never finds it either, so it genuinely creates a
+     * second tag and pushes that wrong name. A single network hiccup then
+     * looked like "the auto tag is broken" for the whole cache window,
+     * matching the intermittent, hard-to-reproduce shape of the report.
+     *
+     * Fixed by keeping the fetch's success/failure OUTCOME distinct from
+     * its data, not collapsing both failure and "genuinely zero tags" into
+     * one bare [] the way the old callback did — fetchTagsFromPancake()
+     * below returns ['ok' => bool, 'tags' => array]. Only an ok=true fetch
+     * (regardless of whether its own data happens to be empty — a brand
+     * new shop's very first tag has to be creatable, so a truly-empty-but-
+     * successful catalog is NOT the same failure case) is written to
+     * cache; ok=false is never cached, so the next call retries live
+     * instead of being stuck wrong for 5 minutes, and prefers a recent
+     * last-known-good catalog over a bare [] if one exists, so a transient
+     * blip never misreads as "no tags exist" either.
      */
     public function listTags(): array
     {
@@ -51,18 +80,47 @@ class PancakeOrderTagApi
             return [];
         }
 
-        return Cache::remember("pancake_order_tags_{$shopId}", 300, function () use ($apiKey, $shopId) {
-            try {
-                $response = Http::timeout(10)->get(self::BASE_URL . "/shops/{$shopId}/orders/tags", [
-                    'api_key' => $apiKey,
-                ]);
+        $cacheKey = "pancake_order_tags_{$shopId}";
+        $lastGoodKey = "{$cacheKey}_last_good";
 
-                return $response->successful() ? ($response->json('data') ?? []) : [];
-            } catch (\Throwable $e) {
-                Log::warning('PancakeOrderTagApi: listTags threw', ['message' => $e->getMessage()]);
-                return [];
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $result = $this->fetchTagsFromPancake($apiKey, $shopId);
+
+        if ($result['ok']) {
+            Cache::put($cacheKey, $result['tags'], 300);
+            if (!empty($result['tags'])) {
+                Cache::put($lastGoodKey, $result['tags'], 86400);
             }
-        });
+            return $result['tags'];
+        }
+
+        // The fetch itself failed (timeout, connection error, non-2xx) —
+        // NEVER cache this, so the next call retries live, and prefer a
+        // recent last-known-good catalog over a bare [] if one exists, so
+        // a transient outage never misreads as "no tags exist at all."
+        return Cache::get($lastGoodKey, []);
+    }
+
+    private function fetchTagsFromPancake(string $apiKey, string $shopId): array
+    {
+        try {
+            $response = Http::timeout(10)->get(self::BASE_URL . "/shops/{$shopId}/orders/tags", [
+                'api_key' => $apiKey,
+            ]);
+
+            if (!$response->successful()) {
+                return ['ok' => false, 'tags' => []];
+            }
+
+            return ['ok' => true, 'tags' => $response->json('data') ?? []];
+        } catch (\Throwable $e) {
+            Log::warning('PancakeOrderTagApi: listTags threw', ['message' => $e->getMessage()]);
+            return ['ok' => false, 'tags' => []];
+        }
     }
 
     /**

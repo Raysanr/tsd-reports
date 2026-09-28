@@ -49,6 +49,103 @@ class PancakeOrderTagApiTest extends TestCase
     }
 
     /**
+     * Root-caused live, 2026-09-28, real feedback: "sometimes the auto tag
+     * of name is not working." A transient Pancake failure used to CACHE
+     * an empty [] result for 5 minutes (Cache::remember() caches whatever
+     * its callback returns, unconditionally) — every caller then read that
+     * empty catalog as "the shop genuinely has zero tags," which is never
+     * actually true in production, and LeadController::resolveTsaTagName()
+     * would fall through to creating a brand-new duplicate tag instead of
+     * finding the TSA's real, already-existing one. Fixed by never caching
+     * an empty/failed fetch — the very next call should retry live instead
+     * of being stuck wrong for a full 5 minutes.
+     */
+    public function test_list_tags_does_not_cache_an_empty_result_from_a_failed_fetch(): void
+    {
+        // A single fake sequence: first hit fails, second (Pancake having
+        // recovered) succeeds — Http::fake() called a SECOND time within
+        // one test does not cleanly reset previously-registered stubs for
+        // the same URL pattern, so both responses are registered up front
+        // via one sequence() instead.
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::sequence()
+                ->push('boom', 500)
+                ->push(['success' => true, 'data' => [
+                    ['id' => 1, 'name' => 'KATHLEEN', 'color' => '#000'],
+                ]], 200),
+        ]);
+
+        $first = $this->api->listTags();
+        $this->assertSame([], $first);
+
+        // Pancake recovers — a call moments later must retry live, not
+        // silently keep serving the empty result for another ~5 minutes.
+        $second = $this->api->listTags();
+        $this->assertCount(1, $second);
+        $this->assertSame('KATHLEEN', $second[0]['name']);
+    }
+
+    /**
+     * Same incident — once a genuinely successful, non-empty catalog HAS
+     * been cached, a later transient failure should serve that last-known-
+     * good catalog instead of falling back to [] and risking the exact
+     * same "empty catalog looks like she has no tag" misread all over
+     * again during a brief Pancake outage.
+     */
+    public function test_list_tags_serves_the_last_known_good_catalog_during_a_later_outage(): void
+    {
+        // Same "one sequence, not a second Http::fake() call" convention
+        // as the test above — both responses registered up front.
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::sequence()
+                ->push(['success' => true, 'data' => [
+                    ['id' => 1, 'name' => 'KATHLEEN', 'color' => '#000'],
+                ]], 200)
+                ->push('boom', 500),
+        ]);
+        $this->assertCount(1, $this->api->listTags());
+
+        // Force the primary 5-minute cache to expire without waiting —
+        // Pancake now fails, but the last-known-good catalog should still
+        // win over an empty result.
+        \Illuminate\Support\Facades\Cache::forget('pancake_order_tags_4');
+
+        $duringOutage = $this->api->listTags();
+
+        $this->assertCount(1, $duringOutage);
+        $this->assertSame('KATHLEEN', $duringOutage[0]['name']);
+    }
+
+    /**
+     * A genuinely successful HTTP 200 whose own data really is an empty
+     * array (a brand-new shop's very first tag hasn't been created yet)
+     * must still return [] normally, same as before this fix — this is
+     * NOT the same case as a failed fetch, and must not be treated as one.
+     * Getting this distinction wrong (conflating "successful and reports
+     * zero tags" with "the request itself failed") would make it
+     * impossible to ever create a shop's first-ever tag, since
+     * resolveTsaTagName()/createTagIfMissing() both rely on trusting a
+     * real empty answer at face value. See
+     * SyncPancakeLeadsTest::test_a_tsa_with_no_matching_tag_under_any_alias_gets_a_new_tag_created()
+     * for the full real-world scenario this protects.
+     */
+    public function test_list_tags_returns_a_genuinely_empty_successful_response_as_is(): void
+    {
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => []], 200),
+        ]);
+
+        $this->assertSame([], $this->api->listTags());
+
+        // And that empty answer IS cached (it's a real, trusted result,
+        // not a failure) — a second call within the cache window must not
+        // hit Pancake again.
+        Http::fake();
+        $this->assertSame([], $this->api->listTags());
+        Http::assertNothingSent();
+    }
+
+    /**
      * addTagsToOrder() now verifies a tag actually landed via a follow-up
      * GET after the PUT (explicit report, 2026-09-18: "look at this at
      * angel, she tag it as upsell tsd" — a real PUT reported success while
