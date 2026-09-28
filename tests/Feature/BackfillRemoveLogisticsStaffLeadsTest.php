@@ -134,4 +134,72 @@ class BackfillRemoveLogisticsStaffLeadsTest extends TestCase
         $this->assertDatabaseHas('leads', ['pancake_order_id' => '1373287']);
         $this->assertDatabaseMissing('leads', ['pancake_order_id' => '1373289']);
     }
+
+    /** Explicit request, 2026-09-28: a --dry-run pass reports exactly what
+     *  WOULD be removed without actually deleting anything, so it's safe to
+     *  preview against real production data before running for real. */
+    public function test_dry_run_reports_what_would_be_removed_without_deleting_anything(): void
+    {
+        $product = Product::first();
+        Lead::create([
+            'pancake_order_id'   => '1373292',
+            'product_id'         => $product->id,
+            'status'             => 'assigned',
+            'pancake_created_at' => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1373292*' => Http::response(['data' => [
+                'id' => 1373292, 'creator' => ['id' => 'staff-1', 'name' => 'AJ Dela Cruz'],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:backfill-remove-logistics-leads', ['--dry-run' => true]);
+
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '1373292']);
+        $this->assertStringContainsString('Would remove', Artisan::output());
+    }
+
+    /** Explicit follow-up, 2026-09-28: checking specific order ids directly
+     *  (bypassing the date window) so the exact 4 real production orders
+     *  reported can be previewed/removed regardless of what date they
+     *  actually landed on locally. */
+    public function test_order_option_checks_only_the_given_order_ids_regardless_of_date(): void
+    {
+        $product = Product::first();
+        Lead::create(['pancake_order_id' => '1373293', 'product_id' => $product->id, 'status' => 'assigned', 'pancake_created_at' => now()->subDays(5)]);
+        Lead::create(['pancake_order_id' => '9999', 'product_id' => $product->id, 'status' => 'assigned', 'pancake_created_at' => now()]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/1373293*' => Http::response(['data' => [
+                'id' => 1373293, 'creator' => ['id' => 'staff-1', 'name' => 'AJ Dela Cruz'],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:backfill-remove-logistics-leads', ['--order' => '1373293']);
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '1373293']);
+        // The other lead was never a candidate at all — --order scopes
+        // the check to only the ids given, the unrelated lead is untouched
+        // and no request for it was ever made.
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9999']);
+    }
+
+    /** The --order option must still respect the "leave already-worked
+     *  leads alone" rule — same as the date-window path. */
+    public function test_order_option_still_skips_an_already_called_lead(): void
+    {
+        $product = Product::first();
+        Lead::create([
+            'pancake_order_id' => '1373293', 'product_id' => $product->id,
+            'status' => 'called', 'called_at' => now(), 'disposition' => 'callback',
+        ]);
+
+        Http::fake();
+
+        Artisan::call('pancake:backfill-remove-logistics-leads', ['--order' => '1373293']);
+
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '1373293']);
+        Http::assertNothingSent();
+    }
 }
