@@ -330,5 +330,13 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // nothing typed into it yet has no row to bind to).
         Route::get('/expected-income', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'index'])->name('expected-income');
         Route::patch('/expected-income/{product}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
+        // Separate endpoint for a custom row's own value (explicit request,
+        // 2026-09-28: a row added via Projections' + icon "automatically
+        // added to the expected income rows") — its key is dynamic (any
+        // row an admin has added on Projections), unlike update()'s fixed
+        // whitelisted field names above, so it's validated generically by
+        // key/value instead — same "key/value PATCH, not a named field per
+        // row" convention as ProjectionController::updateRates().
+        Route::patch('/expected-income/{product}/{date}/custom-row', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateCustomRow'])->name('expected-income.update-custom-row');
     });
 });

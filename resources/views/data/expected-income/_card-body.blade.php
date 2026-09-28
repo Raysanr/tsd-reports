@@ -8,6 +8,20 @@
     over. Same visual grammar as Projections' own _column.blade.php +
     _pnl-row.blade.php: a $ input where editable, a plain span where not,
     an optional %/count column to the right.
+
+    $customRowKeys (array of every key from ProjectionCustomRow, both
+    sections combined) tells the Selling/Operating loops below which of
+    $sellingRows/$operatingRows entries are a CUSTOM row rather than a
+    real column on ExpectedIncomeEntry — explicit request, 2026-09-28: a
+    row added via the + icon on Projections "should be automatically
+    added to the expected income rows." $entry?->{$key} would silently
+    read null (Eloquent doesn't throw on an unknown property) for a
+    custom key since its value lives in ExpectedIncomeCustomValue, a
+    separate table, not a column here — $d['selling_lines'][$key]/
+    $d['operating_lines'][$key] (already merged in by the controller,
+    see its own withCustomRowValues()) is the correct source for BOTH
+    built-in and custom rows' current value, used for every editable
+    input's seed value now instead of $entry->{$key} directly.
 --}}
 <div class="px-5 py-4 font-mono text-[13px] space-y-2 border-b border-line dark:border-slate-700">
     @if($editable ?? false)
@@ -108,11 +122,12 @@
 
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Selling And Marketing</div>
     @foreach($sellingRows as $key => $label)
+    @php($isCustom = in_array($key, $customRowKeys ?? [], true))
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
         @if($editable ?? false)
-            <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$key} ?? 0, 2) }}"
-                   data-field="{{ $key }}" data-money="1"
+            <input type="text" inputmode="decimal" value="{{ number_format($d['selling_lines'][$key] ?? 0, 2) }}"
+                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         @else
             <span data-out="{{ $key }}" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['selling_lines'][$key] ?? 0) }}</span>
@@ -141,11 +156,12 @@
 
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Operating Costs</div>
     @foreach($operatingRows as $key => $label)
+    @php($isCustom = in_array($key, $customRowKeys ?? [], true))
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
         @if($editable ?? false)
-            <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$key} ?? 0, 2) }}"
-                   data-field="{{ $key }}" data-money="1"
+            <input type="text" inputmode="decimal" value="{{ number_format($d['operating_lines'][$key] ?? 0, 2) }}"
+                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         @else
             <span data-out="{{ $key }}" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['operating_lines'][$key] ?? 0) }}</span>

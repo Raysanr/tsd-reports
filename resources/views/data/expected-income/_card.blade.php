@@ -9,5 +9,5 @@
     <div class="px-5 py-4" style="background:{{ $headerBg }};">
         <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $label }}</span>
     </div>
-    @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+    @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys ?? [], 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
 </div>

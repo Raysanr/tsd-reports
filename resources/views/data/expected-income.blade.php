@@ -12,8 +12,15 @@
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
-    $sellingRows = \App\Support\ExpectedIncomeCalculator::SELLING_COST_ROWS;
-    $operatingRows = \App\Support\ExpectedIncomeCalculator::OPERATING_COST_ROWS;
+    // sellingCostRows()/operatingCostRows(), not the bare constants —
+    // explicit request, 2026-09-28: a row added via the + icon on
+    // Projections "should be automatically added to the expected income
+    // rows," and these two methods already merge in every row from that
+    // same shared projection_custom_rows table (see
+    // ExpectedIncomeCalculator's own doc comment on them).
+    $sellingRows = \App\Support\ExpectedIncomeCalculator::sellingCostRows();
+    $operatingRows = \App\Support\ExpectedIncomeCalculator::operatingCostRows();
+    $customRowKeys = \App\Support\ExpectedIncomeCalculator::customRowKeys();
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -40,9 +47,9 @@
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
     <div class="flex items-start gap-5 w-max">
-        @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
         @foreach($summaryCards as $card)
-        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
         @endforeach
     </div>
 </div>
@@ -55,7 +62,12 @@
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
-    $dayOverallTotal = \App\Support\ExpectedIncomeCalculator::sum($dailyRows[$dateStr]->pluck('derived')->all());
+    // Computed in the controller from every product's own RAW row for
+    // this day, not from $dailyRows' already-derived output — see
+    // ExpectedIncomeController::index()'s own doc comment on
+    // $dailyOverallTotals for the bug this fixed (a re-summed already-
+    // derived row silently drops every Selling/Operating line's value).
+    $dayOverallTotal = $dailyOverallTotals[$dateStr];
 @endphp
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
@@ -64,7 +76,7 @@
             <div class="px-5 py-4" style="background:#fde047;">
                 <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES — {{ $date->format('F j, Y') }}</span>
             </div>
-            @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
         </div>
 
         {{-- Grouped products (explicit request, 2026-09-26: a combo
@@ -81,17 +93,18 @@
             <div class="px-5 py-4" style="background:#d9ead3;">
                 <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
             </div>
-            @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
         </div>
         @else
         @php $product = $row['products']->first(); $entry = $dailyByKey->get($product->id . ':' . $dateStr); @endphp
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0"
              data-product-id="{{ $product->id }}"
-             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}">
+             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}"
+             data-custom-action="{{ route('data.expected-income.update-custom-row', ['product' => $product->id, 'date' => $dateStr]) }}">
             <div class="px-5 py-4" style="background:#d9ead3;">
                 <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $product->display_name }}</span>
             </div>
-            @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+            @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
         </div>
         @endif
         @endforeach
@@ -277,10 +290,24 @@
         flashStatus('Saving…', false);
 
         const body = new URLSearchParams();
-        body.set(field, value);
         body.set('_method', 'PATCH');
 
-        fetch(card.dataset.action, {
+        // A row added via the + icon on Projections (data-custom="1" — see
+        // _card-body.blade.php's own doc comment) has no fixed column on
+        // ExpectedIncomeEntry, so it PATCHes a separate key/value endpoint
+        // instead of update()'s named-field one, same "generic key/value,
+        // not a hardcoded field name" convention as Projections' own
+        // updateRates() endpoint.
+        const isCustom = input.dataset.custom === '1';
+        const action = isCustom ? card.dataset.customAction : card.dataset.action;
+        if (isCustom) {
+            body.set('key', field);
+            body.set('value', value);
+        } else {
+            body.set(field, value);
+        }
+
+        fetch(action, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
