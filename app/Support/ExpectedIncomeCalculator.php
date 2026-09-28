@@ -6,19 +6,22 @@ use App\Models\ProjectionCustomRow;
 
 /**
  * TSD Data Management — Expected Income 2026's own derived-figure math
- * (explicit request, 2026-09-26). Every formula below was confirmed against
- * the real "EXPECTED INCOME 2026" tab's own Clearsight row (Leads 647,
- * Orders 112, AOV 804.46 → Gross Sales 90,100, Cancelled 4,505/5%, Returns
- * 22,525/25%, Delivered 63,070/70%) before being hardcoded here — same
- * Cancelled/Returns/Delivered rates as ProjectionCalculator, and the same
- * Gross Profit/COD Fee/Fulfillment Fee formulas, reused as-is since those
- * are shared, already-verified P&L mechanics, not sheet-specific numbers.
+ * (explicit request, 2026-09-26). Gross Profit/COD Fee/Fulfillment Fee
+ * below are the same confirmed-real formulas as ProjectionCalculator,
+ * reused as-is since those are shared, already-verified P&L mechanics, not
+ * sheet-specific numbers.
  *
- * Tax Allocation, Product Cost, ROAS, Actual Cost Per Lead, and every
- * Selling & Marketing/Operating Costs row are plain manual inputs, NOT
- * derived — see create_expected_income_entries_table's own doc comment for
- * why (both diverged from Projections' shared rates when checked against
- * real sheet numbers, and the rest were never verified at all).
+ * Gross Sales, Cancelled, Projected Returns, and Projected Delivered used
+ * to be derived — Gross Sales = Orders × AOV, then Cancelled/Returns/
+ * Delivered as fixed 5%/25%/70% rates of that, confirmed exact against the
+ * real "EXPECTED INCOME 2026" tab's own Clearsight row (Leads 647, Orders
+ * 112, AOV 804.46 → Gross Sales 90,100, Cancelled 4,505, Returns 22,525,
+ * Delivered 63,070) at the time. Changed to plain manual inputs (explicit
+ * request, 2026-09-28: "in the expected i want you to make all is manually
+ * input") — same convention as Tax Allocation/Product Cost/ROAS/Actual
+ * Cost Per Lead/every Selling & Marketing & Operating Costs row below,
+ * none of which were ever derived either. Average Order Value is now a
+ * plain display-only stat with nothing downstream reading it.
  *
  * Takes a plain array of raw fields (not an ExpectedIncomeEntry model
  * directly) so the same math works for a single product row AND a summed
@@ -64,14 +67,6 @@ class ExpectedIncomeCalculator
         'business_development_fund'   => 'Business Development Fund',
         'hmo_expense'                 => 'HMO Expense',
     ];
-
-    /** Cancelled/Returns/Delivered rates confirmed exact against the real
-     *  Clearsight row — same values as ProjectionCalculator::DEFAULT_RATES,
-     *  duplicated (not shared) since this page's rates are never meant to
-     *  be independently editable here the way Projections' are. */
-    public const CANCELLED_RATE = 0.05;
-    public const RETURNS_RATE = 0.25;
-    public const DELIVERED_RATE = 0.70;
 
     /** Same two confirmed real formulas as ProjectionCalculator — see that
      *  class's own COD_FEE_RATE_OF_DELIVERED/FULFILLMENT_FEE_PER_ORDER doc
@@ -167,11 +162,16 @@ class ExpectedIncomeCalculator
         $taxAllocation      = (float) ($row['tax_allocation'] ?? 0);
         $productCost        = (float) ($row['product_cost'] ?? 0);
 
+        // Gross Sales, Cancelled, Projected Returns, and Projected Delivered
+        // are all plain manual inputs (explicit request, 2026-09-28: "in the
+        // expected i want you to make all is manually input") — no longer
+        // Orders × AOV / fixed 5%/25%/70% rates. See this class's own doc
+        // comment for the confirmed-exact rates this replaced.
         $conversionRate = $leads > 0 ? $orders / $leads : 0.0;
-        $grossSales     = $orders * $aov;
-        $cancelled      = $grossSales * self::CANCELLED_RATE;
-        $returns        = $grossSales * self::RETURNS_RATE;
-        $delivered      = $grossSales * self::DELIVERED_RATE;
+        $grossSales     = (float) ($row['gross_sales'] ?? 0);
+        $cancelled      = (float) ($row['cancelled'] ?? 0);
+        $returns        = (float) ($row['returns'] ?? 0);
+        $delivered      = (float) ($row['delivered'] ?? 0);
         $grossProfit    = $grossSales - $cancelled - $returns - $taxAllocation - $productCost;
 
         $sellingLines = collect($sellingKeys)
@@ -202,12 +202,13 @@ class ExpectedIncomeCalculator
             'average_order_value' => $aov,
 
             'gross_sales' => $grossSales,
+            'gross_sales_pct' => $grossSales > 0 ? 1.0 : 0.0,
             'cancelled' => $cancelled,
-            'cancelled_pct' => self::CANCELLED_RATE,
+            'cancelled_pct' => $grossSales > 0 ? $cancelled / $grossSales : 0.0,
             'returns' => $returns,
-            'returns_pct' => self::RETURNS_RATE,
+            'returns_pct' => $grossSales > 0 ? $returns / $grossSales : 0.0,
             'delivered' => $delivered,
-            'delivered_pct' => self::DELIVERED_RATE,
+            'delivered_pct' => $grossSales > 0 ? $delivered / $grossSales : 0.0,
             'tax_allocation' => $taxAllocation,
             'tax_allocation_pct' => $grossSales > 0 ? $taxAllocation / $grossSales : 0.0,
             'product_cost' => $productCost,
@@ -253,7 +254,7 @@ class ExpectedIncomeCalculator
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $sumKeys = array_merge(
-            ['number_of_leads', 'number_of_orders', 'tax_allocation', 'product_cost'],
+            ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'returns', 'delivered', 'tax_allocation', 'product_cost'],
             $sellingKeys,
             $operatingKeys
         );
@@ -265,18 +266,11 @@ class ExpectedIncomeCalculator
             }
         }
 
-        // Average Order Value for the summed row: total Gross Sales ÷ total
-        // Orders, so downstream Gross Sales = Orders × AOV still reproduces
-        // the real summed Gross Sales exactly (a plain average of each
-        // row's own AOV would not, since orders differ per product).
-        $totalGrossSales = 0.0;
-        foreach ($rows as $row) {
-            $totalGrossSales += (float) ($row['number_of_orders'] ?? 0) * (float) ($row['average_order_value'] ?? 0);
-        }
-        $totals['average_order_value'] = $totals['number_of_orders'] > 0
-            ? $totalGrossSales / $totals['number_of_orders']
-            : 0.0;
-
+        // Average Order Value is now a plain display-only stat (Gross Sales
+        // is a manual field of its own as of 2026-09-28, no longer Orders ×
+        // AOV) — a summed row averages it across its own member rows, same
+        // "not meaningfully summed" reasoning as ROAS/Actual Cost Per Lead
+        // below, rather than back-solving it from Gross Sales ÷ Orders.
         $summed = self::derive($totals, $sellingKeys, $operatingKeys);
 
         $rowCount = count($rows);
@@ -285,6 +279,7 @@ class ExpectedIncomeCalculator
             $summed['roas'] = array_sum(array_column($perRow, 'roas')) / $rowCount;
             $summed['standard_cost_per_message'] = array_sum(array_column($perRow, 'standard_cost_per_message')) / $rowCount;
             $summed['actual_cost_per_lead'] = array_sum(array_column($perRow, 'actual_cost_per_lead')) / $rowCount;
+            $summed['average_order_value'] = array_sum(array_column($perRow, 'average_order_value')) / $rowCount;
         }
 
         return $summed;

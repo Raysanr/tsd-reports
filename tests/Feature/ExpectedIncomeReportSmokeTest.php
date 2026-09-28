@@ -34,6 +34,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'number_of_leads' => 647,
             'number_of_orders' => 112,
             'average_order_value' => 804.46,
+            'gross_sales' => 90100.00,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income'));
@@ -60,7 +61,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['number_of_leads' => 647, 'number_of_orders' => 112, 'average_order_value' => 804.46]
+            ['number_of_leads' => 647, 'number_of_orders' => 112, 'average_order_value' => 804.46, 'gross_sales' => 90099.52]
         );
 
         $response->assertOk();
@@ -96,8 +97,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
 
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today()->subDay(), 'number_of_orders' => 10, 'average_order_value' => 100]);
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today()->subDay(), 'number_of_orders' => 10, 'average_order_value' => 100, 'gross_sales' => 1000]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100, 'gross_sales' => 500]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->subDay()->toDateString(),
@@ -105,7 +106,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        // 15 orders × 100 AOV = 1,500 summed Gross Sales across both days.
+        // 1,000 + 500 = 1,500 summed Gross Sales across both days.
         $response->assertSee('1,500.00');
     }
 
@@ -137,8 +138,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $productA = Product::orderBy('id')->first();
         $productB = Product::orderBy('id')->skip(1)->first();
 
-        ExpectedIncomeEntry::create(['product_id' => $productA->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100]);
-        ExpectedIncomeEntry::create(['product_id' => $productB->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $productA->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100, 'gross_sales' => 1000]);
+        ExpectedIncomeEntry::create(['product_id' => $productB->id, 'entry_date' => today(), 'number_of_orders' => 5, 'average_order_value' => 100, 'gross_sales' => 500]);
 
         $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
         $group->products()->attach([$productA->id, $productB->id]);
@@ -152,7 +153,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertDontSee($productA->display_name);
         $response->assertDontSee($productB->display_name);
         $response->assertSee('TO');
-        // 10 + 5 = 15 orders × 100 AOV = 1,500 Gross Sales, summed once.
+        // 1,000 + 500 = 1,500 Gross Sales, summed once.
         $response->assertSee('1,500.00');
     }
 
@@ -209,7 +210,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'label' => 'Warehouse Fee', 'is_fixed' => false, 'sort_order' => 0,
         ]);
 
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'number_of_orders' => 10, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'number_of_orders' => 10, 'average_order_value' => 100, 'gross_sales' => 1000, 'cancelled' => 50, 'returns' => 250, 'delivered' => 700]);
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-custom-row', ['product' => $product->id, 'date' => $date]),
@@ -220,7 +221,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertJsonPath('derived.selling_lines.custom_warehouse_fee', fn ($v) => abs($v - 250.0) < 0.01);
         // Gross Sales 1,000 minus the 250 custom row (no other costs) —
         // confirms it actually reduces Net Income, not just displaying.
-        $response->assertJsonPath('derived.net_income', fn ($v) => abs($v - (1000 - 1000 * 0.05 - 1000 * 0.25 - 250 - (1000 * 0.70 * 0.0224) - (10 * 25))) < 0.01);
+        $response->assertJsonPath('derived.net_income', fn ($v) => abs($v - (1000 - 50 - 250 - 250 - (700 * 0.0224) - (10 * 25))) < 0.01);
 
         $this->assertDatabaseHas('expected_income_custom_values', [
             'product_id' => $product->id, 'custom_row_key' => 'custom_warehouse_fee', 'value' => 250.00,
@@ -323,6 +324,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'entry_date' => today(),
             'number_of_orders' => 10, 'average_order_value' => 100, 'advertising_cost' => 500,
+            'gross_sales' => 1000, 'cancelled' => 50, 'returns' => 250, 'delivered' => 700,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -349,6 +351,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'entry_date' => $date,
             'number_of_orders' => 10, 'average_order_value' => 100, 'advertising_cost' => 500,
+            'gross_sales' => 1000, 'cancelled' => 50, 'returns' => 250, 'delivered' => 700,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -368,7 +371,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100, 'gross_sales' => 1000]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
@@ -384,7 +387,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $product = Product::first();
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'entry_date' => today(),
-            'number_of_orders' => 10, 'average_order_value' => 100, 'advertising_cost' => 5000,
+            'number_of_orders' => 10, 'average_order_value' => 100, 'gross_sales' => 1000, 'advertising_cost' => 5000,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [

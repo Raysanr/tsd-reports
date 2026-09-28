@@ -6,19 +6,21 @@ use App\Support\ExpectedIncomeCalculator;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Conversion Rate, Gross Sales, Cancelled, Returns, and Delivered are
- * confirmed EXACT against the real "EXPECTED INCOME 2026" tab's own
- * Clearsight row (Number of Leads 647, Conversion Rate 17.31%, Number of
- * Orders 112, Average Order Value 804.46, Gross Sales 90,100.00, Cancelled
- * 4,505.00/5%, Projected Returns 22,525.00/25%, Projected Delivered
- * 63,070.00/70% — all matched to the real sheet exactly). Tax Allocation
- * and Product Cost are manual entry, NOT derived — verified during
+ * Gross Sales, Cancelled, Projected Returns, and Projected Delivered used
+ * to be derived (Orders × AOV, then fixed 5%/25%/70% rates of that) but are
+ * now plain manual inputs (explicit request, 2026-09-28: "in the expected i
+ * want you to make all is manually input") — same convention as Tax
+ * Allocation/Product Cost, which were never derived either (verified during
  * development that Tax Allocation repeats the identical peso figure
- * (7,465.28) across unrelated products (a fixed pool, not a %-of-Gross-
- * Sales rate) and Product Cost varies uniquely per product with no common
- * rate at all, so neither could be trusted as a formula. Team Eyecare's own
- * sum (Gross Sales 518,795.00 = Clearsight 90,100 + Pterygium 377,497 +
- * Taguro Oil 51,198, confirmed exact) verifies sum()'s own dollar-summing.
+ * (7,465.28) across unrelated products — a fixed pool, not a rate — and
+ * Product Cost varies uniquely per product with no common rate at all).
+ * Clearsight's own real "EXPECTED INCOME 2026" sheet numbers (Number of
+ * Leads 647, Conversion Rate 17.31%, Number of Orders 112, Gross Sales
+ * 90,100.00, Cancelled 4,505.00, Projected Returns 22,525.00, Projected
+ * Delivered 63,070.00) are kept as fixtures here, just passed in directly
+ * now instead of re-derived from AOV/fixed rates. Team Eyecare's own sum
+ * (Gross Sales 518,795.00 = Clearsight 90,100 + Pterygium 377,497 + Taguro
+ * Oil 51,198, confirmed exact) verifies sum()'s own dollar-summing.
  */
 class ExpectedIncomeCalculatorTest extends TestCase
 {
@@ -26,6 +28,10 @@ class ExpectedIncomeCalculatorTest extends TestCase
         'number_of_leads' => 647,
         'number_of_orders' => 112,
         'average_order_value' => 804.46,
+        'gross_sales' => 90100.00,
+        'cancelled' => 4505.00,
+        'returns' => 22525.00,
+        'delivered' => 63070.00,
         'tax_allocation' => 7465.28,
         'product_cost' => 7454.00,
     ];
@@ -37,20 +43,26 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.1731, $d['conversion_rate'], 0.001);
     }
 
-    public function test_gross_sales_matches_the_real_sheet_exactly(): void
+    public function test_gross_sales_cancelled_returns_delivered_are_passed_through_as_manual_inputs(): void
     {
         $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
 
         $this->assertEqualsWithDelta(90100.00, $d['gross_sales'], 1.0);
-    }
-
-    public function test_cancelled_returns_delivered_match_the_real_sheet_exactly(): void
-    {
-        $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
-
         $this->assertEqualsWithDelta(4505.00, $d['cancelled'], 1.0);
         $this->assertEqualsWithDelta(22525.00, $d['returns'], 1.0);
         $this->assertEqualsWithDelta(63070.00, $d['delivered'], 1.0);
+    }
+
+    /** A row with nothing typed into Gross Sales/Cancelled/Returns/Delivered
+     *  yet shows plain zeroes — no fallback formula kicks in. */
+    public function test_a_row_with_no_manual_sales_breakdown_yet_shows_zeroes(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(['number_of_orders' => 112, 'average_order_value' => 804.46]);
+
+        $this->assertSame(0.0, $d['gross_sales']);
+        $this->assertSame(0.0, $d['cancelled']);
+        $this->assertSame(0.0, $d['returns']);
+        $this->assertSame(0.0, $d['delivered']);
     }
 
     public function test_gross_profit_subtracts_cancelled_returns_tax_and_product_cost_only(): void
@@ -85,11 +97,11 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $clearsight = self::CLEARSIGHT;
         $pterygium = [
             'number_of_leads' => 1767, 'number_of_orders' => 433, 'average_order_value' => 871.82,
-            'tax_allocation' => 7465.28, 'product_cost' => 30746.00,
+            'gross_sales' => 377497.00, 'tax_allocation' => 7465.28, 'product_cost' => 30746.00,
         ];
         $taguroOil = [
             'number_of_leads' => 332, 'number_of_orders' => 75, 'average_order_value' => 682.64,
-            'tax_allocation' => 7465.28, 'product_cost' => 6198.00,
+            'gross_sales' => 51198.00, 'tax_allocation' => 7465.28, 'product_cost' => 6198.00,
         ];
 
         $summed = ExpectedIncomeCalculator::sum([

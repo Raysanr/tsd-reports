@@ -121,7 +121,6 @@
 
     const SELLING_KEYS = @json(array_keys($sellingRows));
     const OPERATING_KEYS = @json(array_keys($operatingRows));
-    const CANCELLED_RATE = 0.05, RETURNS_RATE = 0.25, DELIVERED_RATE = 0.70;
     const COD_FEE_RATE_OF_DELIVERED = 0.0224, FULFILLMENT_FEE_PER_ORDER = 25.0;
 
     function fmtMoney(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -164,10 +163,14 @@
         const productCost = Number(row.product_cost) || 0;
 
         const conversionRate = leads > 0 ? orders / leads : 0;
-        const grossSales = orders * aov;
-        const cancelled = grossSales * CANCELLED_RATE;
-        const returns = grossSales * RETURNS_RATE;
-        const delivered = grossSales * DELIVERED_RATE;
+        // Gross Sales/Cancelled/Projected Returns/Projected Delivered are
+        // plain manual inputs (explicit request, 2026-09-28), no longer
+        // Orders × AOV / fixed rates — mirrors ExpectedIncomeCalculator::
+        // derive()'s own PHP side of this same change.
+        const grossSales = Number(row.gross_sales) || 0;
+        const cancelled = Number(row.cancelled) || 0;
+        const returns = Number(row.returns) || 0;
+        const delivered = Number(row.delivered) || 0;
         const grossProfit = grossSales - cancelled - returns - taxAllocation - productCost;
 
         const sellingLines = {};
@@ -187,7 +190,10 @@
         return {
             roas: Number(row.roas) || 0, standard_cost_per_message: Number(row.standard_cost_per_message) || 0, actual_cost_per_lead: Number(row.actual_cost_per_lead) || 0,
             number_of_leads: leads, conversion_rate: conversionRate, number_of_orders: orders, average_order_value: aov,
-            gross_sales: grossSales, cancelled, returns, delivered,
+            gross_sales: grossSales, gross_sales_pct: grossSales > 0 ? 1 : 0,
+            cancelled, cancelled_pct: grossSales > 0 ? cancelled / grossSales : 0,
+            returns, returns_pct: grossSales > 0 ? returns / grossSales : 0,
+            delivered, delivered_pct: grossSales > 0 ? delivered / grossSales : 0,
             tax_allocation: taxAllocation, tax_allocation_pct: grossSales > 0 ? taxAllocation / grossSales : 0,
             product_cost: productCost, product_cost_pct: grossSales > 0 ? productCost / grossSales : 0,
             gross_profit: grossProfit, gross_profit_pct: grossSales > 0 ? grossProfit / grossSales : 0,
@@ -249,7 +255,7 @@
 
         productCards.forEach((card) => {
             const raw = {};
-            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'tax_allocation', 'product_cost']
+            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'returns', 'delivered', 'tax_allocation', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
@@ -264,24 +270,28 @@
             costPerLeadSum += d.actual_cost_per_lead;
         });
 
-        const totals = { number_of_leads: 0, number_of_orders: 0, tax_allocation: 0, product_cost: 0 };
+        const totals = { number_of_leads: 0, number_of_orders: 0, gross_sales: 0, cancelled: 0, returns: 0, delivered: 0, tax_allocation: 0, product_cost: 0 };
         SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] = 0; });
-        let totalGrossSales = 0;
+        let aovSum = 0;
         rawRows.forEach((raw) => {
             totals.number_of_leads += raw.number_of_leads;
             totals.number_of_orders += raw.number_of_orders;
+            totals.gross_sales += raw.gross_sales;
+            totals.cancelled += raw.cancelled;
+            totals.returns += raw.returns;
+            totals.delivered += raw.delivered;
             totals.tax_allocation += raw.tax_allocation;
             totals.product_cost += raw.product_cost;
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] += raw[key]; });
-            totalGrossSales += raw.number_of_orders * raw.average_order_value;
+            aovSum += raw.average_order_value;
         });
-        totals.average_order_value = totals.number_of_orders > 0 ? totalGrossSales / totals.number_of_orders : 0;
 
         const summed = derive(totals);
         const rowCount = rawRows.length;
         if (rowCount > 0) {
             summed.roas = roasSum / rowCount;
             summed.actual_cost_per_lead = costPerLeadSum / rowCount;
+            summed.average_order_value = aovSum / rowCount;
         }
 
         applyDerived(overallCard, summed);

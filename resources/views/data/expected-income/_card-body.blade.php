@@ -77,26 +77,29 @@
 </div>
 
 <div class="px-5 py-4 font-mono text-[13px] space-y-0.5">
+    {{-- Gross Sales/Cancelled/Projected Returns/Projected Delivered: plain
+         manual inputs (explicit request, 2026-09-28: "in the expected i
+         want you to make all is manually input") — used to be Orders × AOV
+         and fixed 5%/25%/70% rates of that, see ExpectedIncomeCalculator's
+         own doc comment for the confirmed-exact numbers this replaced. --}}
+    @foreach([
+        ['key' => 'gross_sales', 'label' => 'Gross Sales'],
+        ['key' => 'cancelled', 'label' => 'Cancelled', 'red' => true],
+        ['key' => 'returns', 'label' => 'Projected Returns', 'red' => true],
+        ['key' => 'delivered', 'label' => 'Projected Delivered', 'red' => true],
+    ] as $col)
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">Gross Sales</span>
-        <span data-out="gross_sales" class="text-right font-semibold text-ink dark:text-slate-100">{{ $fmtMoney($d['gross_sales']) }}</span>
-        <span class="text-right text-ink-muted dark:text-slate-500 text-xs">100.00%</span>
+        <span class="{{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
+        @if($editable ?? false)
+            <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
+                   data-field="{{ $col['key'] }}" data-money="1"
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+        @else
+            <span data-out="{{ $col['key'] }}" class="text-right font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
+        @endif
+        <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
     </div>
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-red-600 dark:text-red-400">Cancelled</span>
-        <span data-out="cancelled" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['cancelled']) }}</span>
-        <span class="text-right text-ink-muted dark:text-slate-500 text-xs">5.00%</span>
-    </div>
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-red-600 dark:text-red-400">Projected Returns</span>
-        <span data-out="returns" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['returns']) }}</span>
-        <span class="text-right text-ink-muted dark:text-slate-500 text-xs">25.00%</span>
-    </div>
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-red-600 dark:text-red-400">Projected Delivered</span>
-        <span data-out="delivered" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['delivered']) }}</span>
-        <span class="text-right text-ink-muted dark:text-slate-500 text-xs">70.00%</span>
-    </div>
+    @endforeach
 
     @foreach([
         ['key' => 'tax_allocation', 'label' => 'Tax Allocation', 'blue' => true],
