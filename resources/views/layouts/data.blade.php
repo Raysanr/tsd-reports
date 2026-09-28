@@ -10,7 +10,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>TSD Data Management — @yield('title', 'Projections')</title>
-    <link rel="icon" type="image/svg+xml" href="{{ asset('images/call-tracker-favicon.svg') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ asset('images/data-management-favicon.svg') }}">
     {{--
         Reuses Call Tracker's own calls.css/calls.js bundle rather than a new
         third Vite entry (explicit request, 2026-09-23: "create new module
@@ -42,7 +42,8 @@
             <div class="flex items-center gap-3 min-w-0">
                 <div class="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
                     <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.125C3 6.504 3.504 6 4.125 6h4.243c.3 0 .587.12.8.331l1.383 1.383c.211.211.498.331.8.331h8.524c.621 0 1.125.504 1.125 1.125v9.705c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 013 18.875V7.125z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 17.25v-3M12 17.25v-5.25M15.75 17.25v-7.5"/>
                     </svg>
                 </div>
                 <div class="min-w-0">
