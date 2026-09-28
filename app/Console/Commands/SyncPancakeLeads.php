@@ -256,6 +256,25 @@ class SyncPancakeLeads extends Command
                     continue;
                 }
 
+                // Same logistics-duplicate exclusion as above, keyed off
+                // WHO created the order instead of its note text — explicit
+                // report, 2026-09-28, real orders #1373293/#1373292/
+                // #1373288/#1373287, all created by AJ Dela Cruz, none of
+                // which contained the literal "DUPLICATED BY LOGISTIC"
+                // phrase the check above requires (see
+                // Order::isCreatedByLogisticsStaff()'s own doc comment for
+                // the full root cause). Checked separately, not merged into
+                // isDuplicatedByLogistics() itself, since SyncTodayOrders'
+                // own is_duplicated_by_logistics reporting flag is a
+                // different concept (an already-counted real order some
+                // TSA still worked) from "never a real lead to distribute
+                // at all" — conflating them would risk changing that
+                // report's own numbers for orders this new check catches.
+                if (Order::isCreatedByLogisticsStaff($raw)) {
+                    $skipped++;
+                    continue;
+                }
+
                 $itemName = $raw['items'][0]['variation_info']['name'] ?? $raw['items'][0]['product_name'] ?? null;
                 $product  = $products->first(fn (Product $p) => $p->matchesText($itemName) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
 

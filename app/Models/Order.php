@@ -275,6 +275,35 @@ class Order extends Model
         return str_contains($text, 'DUPLICATED BY LOGISTIC');
     }
 
+    /** Logistics staff whose own orders are re-created duplicates/cancels of
+     *  a customer's real order, never a real new lead to call — explicit
+     *  report, 2026-09-28, real production orders #1373293/#1373292/
+     *  #1373288/#1373287, all created by AJ Dela Cruz. Confirmed live via
+     *  #1373292's own Pancake detail: "creator" is AJ Dela Cruz, its Note
+     *  reads "9-28- Nacancel ni encoder kya na duplicate" (Tagalog: "the
+     *  encoder cancelled it because it's already a duplicate"), and its
+     *  Customers panel already shows Pancake's own "Duplicate" flag — a
+     *  genuine duplicate, just never caught by isDuplicatedByLogistics()
+     *  above because that only matches the literal note phrase "DUPLICATED
+     *  BY LOGISTIC", which this order's own informal note never contains.
+     *  Matching the order's *creator* instead of note text is more direct
+     *  for this specific case (these two logistics staff's own orders are
+     *  never real leads regardless of exactly how they happened to phrase
+     *  the note that day) and doesn't depend on a free-text phrase being
+     *  typed consistently. Ralph Cruz included per the same 2026-09-19
+     *  report that first named both of them (see isDuplicatedByLogistics()
+     *  above's own history) — same two logistics staff, same reasoning.
+     *  Matched case-insensitively against creator.name, not creator_id —
+     *  no staff id was available to key off at the time this was written;
+     *  revisit with an id-based match if a name ever collides or changes. */
+    private const LOGISTICS_STAFF_NAMES = ['AJ DELA CRUZ', 'RALPH CRUZ'];
+
+    public static function isCreatedByLogisticsStaff(array $raw): bool
+    {
+        $creatorName = strtoupper(trim($raw['creator']['name'] ?? ''));
+        return $creatorName !== '' && in_array($creatorName, self::LOGISTICS_STAFF_NAMES, true);
+    }
+
     /**
      * Root-caused 2026-09-11, real production order #1366186: a TSA typed
      * "cancelled upsell" directly into Pancake's Note field for an order

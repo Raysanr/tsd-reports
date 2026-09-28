@@ -221,6 +221,65 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9099']);
     }
 
+    /**
+     * Explicit report, 2026-09-28: real production orders #1373293,
+     * #1373292, #1373288, #1373287, all created by AJ Dela Cruz, still got
+     * pulled in and distributed as Leads. Confirmed live via #1373292's own
+     * Pancake detail: "creator" is AJ Dela Cruz, and its Note reads "9-28-
+     * Nacancel ni encoder kya na duplicate" — a genuine duplicate, just
+     * never caught by the DUPLICATED BY LOGISTICS note check above because
+     * this order's own informal note never contains that literal phrase.
+     * Order::isCreatedByLogisticsStaff() catches this by WHO created the
+     * order instead, covering both logistics staff named in the original
+     * 2026-09-19 report (AJ Dela Cruz and Ralph Cruz).
+     */
+    public function test_an_order_created_by_logistics_staff_is_not_pulled_in_as_a_lead(): void
+    {
+        $this->fakePancake([
+            [
+                'id'             => 1373292,
+                'bill_full_name' => 'Janet Ignacio Bonifacio',
+                'tags'           => [],
+                'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'    => now()->toIso8601String(),
+                'note'           => '9-28- Nacancel ni encoder kya na duplicate',
+                'creator'        => ['id' => 'staff-1', 'name' => 'AJ Dela Cruz'],
+            ],
+            [
+                'id'             => 9100,
+                'bill_full_name' => 'Some Other Customer',
+                'tags'           => [],
+                'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'    => now()->toIso8601String(),
+                'creator'        => ['id' => 'staff-2', 'name' => 'Ralph Cruz'],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '1373292']);
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9100']);
+    }
+
+    /** A normal TSA/marketer creating a real order (not logistics staff)
+     *  must still be pulled in as a lead as usual — the exclusion above is
+     *  scoped to the two named logistics staff, not creators in general. */
+    public function test_an_order_created_by_someone_other_than_logistics_staff_still_becomes_a_lead(): void
+    {
+        $this->fakePancake([[
+            'id'             => 9101,
+            'bill_full_name' => 'Real Customer',
+            'tags'           => [],
+            'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at'    => now()->toIso8601String(),
+            'creator'        => ['id' => 'staff-3', 'name' => 'Some Marketer'],
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9101']);
+    }
+
     public function test_an_order_matching_no_known_product_is_pulled_in_as_unassigned(): void
     {
         $this->fakePancake([[
