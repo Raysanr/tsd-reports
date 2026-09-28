@@ -64,6 +64,9 @@ class ProjectionController extends Controller
         // of at the actual point of failure.
         $column = $projectionColumn;
         $data = $request->validate([
+            'roas'                       => ['sometimes', 'numeric', 'min:0'],
+            'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
+            'actual_cost_per_lead'       => ['sometimes', 'numeric', 'min:0'],
             'net_income_target'   => ['sometimes', 'numeric', 'min:0'],
             'average_order_value' => ['sometimes', 'numeric', 'min:0'],
             // Nullable so clearing the field back to blank restores the

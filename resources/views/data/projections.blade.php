@@ -178,6 +178,13 @@
         card.querySelectorAll('[data-out]').forEach((el) => {
             const key = el.dataset.out;
             if (!(key in t)) return;
+            // average_order_value/conversion_rate (new top-of-card stats
+            // block, 2026-09-28) format differently from every other
+            // [data-out] key here — money with 2 decimals, and ×100 with a
+            // % sign, respectively — so they're handled as their own cases
+            // rather than falling into the generic fmtNumber() path below.
+            if (key === 'average_order_value') { el.textContent = fmtMoney(t[key]); return; }
+            if (key === 'conversion_rate') { el.textContent = fmtPct(t[key]); return; }
             const decimals = (key === 'orders_needed' && t[key] < 100) || key === 'upselling_rate' ? 2 : 0;
             el.textContent = fmtNumber(t[key], decimals);
         });
@@ -189,15 +196,23 @@
         // independent cells) — this one helper handles both shapes by
         // checking the element's tag, so applyComputed() doesn't need to
         // know which card it's refreshing.
+        // querySelectorAll, not querySelector — the new top-of-card stats
+        // block (explicit request, 2026-09-28) duplicates # of Orders/
+        // Average Order Value as read-only displays alongside their
+        // original spots on this same card, so every matching element
+        // needs to stay in sync on a live edit, not just the first one
+        // found.
         const setValue = (selector, val, isPct = false) => {
-            const el = card.querySelector(selector);
-            if (!el) return;
+            const els = card.querySelectorAll(selector);
+            if (!els.length) return;
             const text = isPct ? fmtPct(val) : fmtMoney(val);
-            if (el.tagName === 'INPUT') {
-                if (document.activeElement !== el) el.value = text;
-            } else {
-                el.textContent = text;
-            }
+            els.forEach((el) => {
+                if (el.tagName === 'INPUT') {
+                    if (document.activeElement !== el) el.value = text;
+                } else {
+                    el.textContent = text;
+                }
+            });
         };
         const setPct = (rateKey, val) => {
             const el = card.querySelector(`[data-rate-pct="${rateKey}"]`);

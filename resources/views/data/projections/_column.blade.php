@@ -41,6 +41,54 @@
         <span class="pj-card-status text-[11px] font-mono shrink-0 min-w-[3.5rem] text-right" style="color:{{ $hc['text'] }};opacity:.7;"></span>
     </div>
 
+    {{-- ROAS/Standard Cost Per Message/Actual Cost Per Message/Number of
+         Leads/Conversion Rate/Number of Orders/Average Order Value — same
+         top block Expected Income already has (explicit request,
+         2026-09-28: "in the projection page i want to have this too").
+         Confirmed this does NOT change how Projections calculates anything
+         — it stays target-driven (Net Income Target back-solved into
+         Orders/Leads Needed). ROAS/Standard Cost Per Message/Actual Cost
+         Per Message are genuinely new, plain manual inputs (editable only
+         where the rest of this card is, same as every other input here).
+         Number of Leads/Conversion Rate/Number of Orders/Average Order
+         Value are read-only here — they just DISPLAY the SAME
+         leads_needed/conversion_rate/orders/average_order_value figures
+         the rest of the card already computes, so this block can never
+         show a number inconsistent with the target card below it. --}}
+    <div class="px-5 py-3 font-mono text-[13px] space-y-1.5 border-b border-line dark:border-slate-700">
+        @foreach([
+            ['key' => 'roas', 'label' => 'ROAS'],
+            ['key' => 'standard_cost_per_message', 'label' => 'Standard Cost Per Message'],
+            ['key' => 'actual_cost_per_lead', 'label' => 'Actual Cost Per Message'],
+        ] as $col)
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+            <span class="text-ink-muted dark:text-slate-400">{{ $col['label'] }}</span>
+            @if($editable)
+                <input type="text" inputmode="decimal" value="{{ number_format($column->{$col['key']}, 2) }}" data-field="{{ $col['key'] }}" data-money="1"
+                       class="pj-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            @else
+                <span class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($column->{$col['key']}, 2) }}</span>
+            @endif
+        </div>
+        @endforeach
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+            <span class="text-ink-muted dark:text-slate-400">Number of Leads</span>
+            <span data-out="leads_needed" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['leads_needed']) }}</span>
+        </div>
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+            <span class="text-ink-muted dark:text-slate-400">Conversion Rate</span>
+            <span data-out="conversion_rate" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['conversion_rate'] * 100, 2) }}%</span>
+        </div>
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+            <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
+            <span data-orders="1" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($p['orders'], 2) }}</span>
+        </div>
+        <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+            <span class="text-ink-muted dark:text-slate-400">Average Order Value</span>
+            <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($t['average_order_value'], 2) }}</span>
+        </div>
+    </div>
+
     {{-- # of Orders / Gross Sales — editable ONLY on Opening Shift
          (explicit request, 2026-09-23: "the Gross Sales is editable and
          the number of orders", scoped down after the cross-card formula

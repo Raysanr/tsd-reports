@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ProjectionColumn;
 use App\Models\User;
+use App\Support\ProjectionCalculator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -107,6 +108,51 @@ class ProjectionsTest extends TestCase
 
         // Orders Needed = Net Income Target / (AOV * target_margin) = 2,400,000 / (800 * 0.3125) = 9600
         $response->assertJsonPath('computed.target_card.orders_needed', 9600);
+    }
+
+    /** Explicit request, 2026-09-28: "in the projection page i want to have
+     *  this too" — the same ROAS/Standard Cost Per Message/Actual Cost Per
+     *  Message top block Expected Income already has. Plain manual inputs,
+     *  no formula participation — confirms they persist and round-trip via
+     *  updateColumn(), same as every other manual field on this page. */
+    public function test_roas_and_cost_stat_fields_persist_and_do_not_affect_the_pnl(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $before = ProjectionCalculator::forColumn($column, ProjectionCalculator::allRates())['pnl']['net_income'];
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $column),
+            ['roas' => 3.5, 'standard_cost_per_message' => 42.50, 'actual_cost_per_lead' => 12.75]
+        );
+
+        $response->assertOk();
+        $this->assertEquals(3.5, $column->fresh()->roas);
+        $this->assertEquals(42.50, $column->fresh()->standard_cost_per_message);
+        $this->assertEquals(12.75, $column->fresh()->actual_cost_per_lead);
+
+        // Net Income is completely unaffected — these 3 fields are display
+        // stats only, never inputs to the P&L chain.
+        $after = ProjectionCalculator::forColumn($column->fresh(), ProjectionCalculator::allRates())['pnl']['net_income'];
+        $this->assertEqualsWithDelta($before, $after, 0.01);
+    }
+
+    /** Number of Leads/Conversion Rate in the new top block are read-only
+     *  displays of the SAME leads_needed/conversion_rate figures the target
+     *  card below already computes — never a second, independent number. */
+    public function test_number_of_leads_and_conversion_rate_mirror_the_target_cards_own_figures(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $column = ProjectionColumn::where('key', 'telesales_department')->firstOrFail();
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $rates = ProjectionCalculator::allRates();
+        $computed = ProjectionCalculator::forColumn($column, $rates);
+
+        $this->assertEquals($rates['conversion_rate'], $computed['target_card']['conversion_rate']);
+        $this->assertGreaterThan(0, $computed['target_card']['leads_needed']);
     }
 
     /** Regression, 2026-09-23: "what about like user edit this down part?"
