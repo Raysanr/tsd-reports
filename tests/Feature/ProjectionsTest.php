@@ -515,4 +515,32 @@ class ProjectionsTest extends TestCase
             'section' => 'selling', 'label' => 'Nope',
         ])->assertForbidden();
     }
+
+    /** Explicit request, 2026-09-28: "the net income it should be green if
+     *  positive ... and if negative it should be red." The page's own
+     *  seeded default data already produces a positive Net Income out of
+     *  the box (confirmed live), so no extra setup is needed for the
+     *  positive case. */
+    public function test_a_positive_net_income_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $response->assertSee('text-green-600');
+    }
+
+    public function test_a_negative_net_income_is_rendered_red(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        // A deliberately huge rate forces every column's own Net Income
+        // negative regardless of its real inputs.
+        \App\Models\Setting::set('projection_rate.advertising_cost', 50);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $response->assertSee('text-red-600');
+    }
 }

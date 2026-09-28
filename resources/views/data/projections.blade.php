@@ -224,6 +224,17 @@
         setValue('[data-pnl="total_operating_costs_pct"]', p.total_operating_costs_pct, true);
         setValue('[data-pnl="net_income"]', p.net_income);
         setValue('[data-pnl="net_income_pct"]', p.net_income_pct, true);
+        // Explicit request, 2026-09-28: "the net income it should be green
+        // if positive ... and if negative it should be red," applied here
+        // too so a live edit recolors it the same way a fresh page load
+        // already does (see _column.blade.php's own static render).
+        const netIncomeEl = card.querySelector('[data-pnl="net_income"]');
+        if (netIncomeEl) {
+            netIncomeEl.classList.toggle('text-red-600', p.net_income < 0);
+            netIncomeEl.classList.toggle('dark:text-red-400', p.net_income < 0);
+            netIncomeEl.classList.toggle('text-green-600', p.net_income >= 0);
+            netIncomeEl.classList.toggle('dark:text-green-400', p.net_income >= 0);
+        }
 
         // Target Upselling Rate / Pick-up Rate live in the target card, not
         // the P&L table, so they're not plain $ values — reuse setValue's

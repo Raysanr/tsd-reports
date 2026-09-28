@@ -361,4 +361,37 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // range summary's overall card show the identical total.
         $response->assertSeeInOrder(['TELESALES — ' . today()->format('F j, Y'), '765.68']);
     }
+
+    /** Explicit request, 2026-09-28: "the net income it should be green if
+     *  positive ... and if negative it should be red." */
+    public function test_a_positive_net_income_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'number_of_orders' => 10, 'average_order_value' => 100]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('text-green-600');
+    }
+
+    public function test_a_negative_net_income_is_rendered_red(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'entry_date' => today(),
+            'number_of_orders' => 10, 'average_order_value' => 100, 'advertising_cost' => 5000,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('text-red-600');
+    }
 }

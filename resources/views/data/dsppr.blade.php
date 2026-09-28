@@ -140,7 +140,7 @@
                         @endif
                     </td>
                     <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
                     <td class="px-3 py-2 text-right" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
                     <td class="px-3 py-2 text-right" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
@@ -157,7 +157,7 @@
                 <tr class="bg-black text-white font-bold dsppr-overall-total-row">
                     <td class="dsppr-sticky dsppr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($overallTotal['gross_sales']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : '' }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
+                    <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400' }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $overallTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($overallTotal['ni_pct']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($overallTotal['total_orders']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($overallTotal['aov']) }}</td>
@@ -290,7 +290,7 @@
                             })->all());
                         @endphp
                         @foreach($dayColumns as $i => $col)
-                        <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' && $dayTotal['net_income'] < 0 ? 'text-red-400' : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
+                        <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' ? ($dayTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400') : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
                             data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}" data-total-row="1">
                             {{ ($col['pct'] ?? false) ? $fmtPct($dayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($dayTotal[$col['key']]) : $fmtMoney($dayTotal[$col['key']])) }}
                         </td>
@@ -378,8 +378,17 @@
             const isPct = ['ni_pct', 'pickup_rate', 'conversion_rate', 'upselling_rate'].includes(key);
             const isInt = ['excess_leads', 'total_orders', 'total_leads', 'catered_leads'].includes(key);
             el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
-            el.classList.toggle('text-red-600', key === 'ni_pct' && derived[key] < 0);
-            el.classList.toggle('dark:text-red-400', key === 'ni_pct' && derived[key] < 0);
+            const isLoss = (key === 'ni_pct' || key === 'net_income') && derived[key] < 0;
+            el.classList.toggle('text-red-600', isLoss);
+            el.classList.toggle('dark:text-red-400', isLoss);
+            // Net Income (only — NI % stays red-only, no green side, same
+            // as its own static server-render) also turns green when
+            // positive — explicit request, 2026-09-28: "the net income it
+            // should be green if positive ... and if negative ... red."
+            if (key === 'net_income') {
+                el.classList.toggle('text-green-600', derived[key] >= 0);
+                el.classList.toggle('dark:text-green-400', derived[key] >= 0);
+            }
         });
     }
 
@@ -489,8 +498,13 @@
                 const isPct = ['ni_pct', 'pickup_rate', 'conversion_rate', 'upselling_rate'].includes(key);
                 const isInt = ['excess_leads', 'total_orders', 'total_leads', 'catered_leads'].includes(key);
                 el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
-                el.classList.toggle('text-red-600', key === 'ni_pct' && derived[key] < 0);
-                el.classList.toggle('dark:text-red-400', key === 'ni_pct' && derived[key] < 0);
+                const isLoss = (key === 'ni_pct' || key === 'net_income') && derived[key] < 0;
+                el.classList.toggle('text-red-600', isLoss);
+                el.classList.toggle('dark:text-red-400', isLoss);
+                if (key === 'net_income') {
+                    el.classList.toggle('text-green-600', derived[key] >= 0);
+                    el.classList.toggle('dark:text-green-400', derived[key] >= 0);
+                }
             });
         }
 
@@ -537,6 +551,10 @@
             const isInt = ['excess_leads', 'total_orders', 'total_leads', 'catered_leads'].includes(key);
             el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
             el.classList.toggle('text-red-400', key === 'ni_pct' && derived[key] < 0);
+            if (key === 'net_income') {
+                el.classList.toggle('text-red-400', derived[key] < 0);
+                el.classList.toggle('text-green-400', derived[key] >= 0);
+            }
         });
     }
 

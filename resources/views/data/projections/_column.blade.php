@@ -164,7 +164,7 @@
 
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-2 mt-2 border-t-2 border-ink/20 dark:border-slate-600">
             <span class="font-bold text-ink dark:text-slate-100">NET INCOME</span>
-            <span data-pnl="net_income" class="text-right font-bold text-base text-primary">{{ number_format($p['net_income'], 2) }}</span>
+            <span data-pnl="net_income" class="text-right font-bold text-base {{ $p['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}">{{ number_format($p['net_income'], 2) }}</span>
             <span data-pnl="net_income_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs">{{ number_format($p['net_income_pct'] * 100, 2) }}%</span>
         </div>
     </div>

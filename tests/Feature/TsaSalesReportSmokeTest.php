@@ -130,4 +130,30 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('Wed, Sep 30');
         $response->assertDontSee('Thu, Oct 1');
     }
+
+    /** Explicit request, 2026-09-28: "the net income it should be green if
+     *  positive ... and if negative it should be red." */
+    public function test_a_positive_net_income_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => 500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $response->assertSee('text-green-600');
+    }
+
+    public function test_a_negative_net_income_is_rendered_red(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => -500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $response->assertSee('text-red-600');
+    }
 }

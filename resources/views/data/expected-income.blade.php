@@ -212,6 +212,17 @@
             const isLoss = (key === 'gross_profit' || key === 'net_income') && value < 0;
             el.classList.toggle('text-red-600', isLoss);
             el.classList.toggle('dark:text-red-400', isLoss);
+            // Net Income (only — Gross Profit stays plain ink when positive,
+            // same as its own static server-render) also turns green when
+            // positive, not just red when negative — explicit request,
+            // 2026-09-28: "the net income it should be green if positive
+            // ... and if negative ... red." Toggled independently of isLoss
+            // above since they're mutually exclusive states of the SAME
+            // value, not two different flags.
+            if (key === 'net_income') {
+                el.classList.toggle('text-green-600', value >= 0);
+                el.classList.toggle('dark:text-green-400', value >= 0);
+            }
         });
 
         card.querySelectorAll('[data-out-pct]').forEach((el) => {

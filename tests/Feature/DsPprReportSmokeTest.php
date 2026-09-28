@@ -265,4 +265,39 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertStatus(422);
         $this->assertDatabaseMissing('product_group_members', ['product_group_id' => $groupB->id, 'product_id' => $products[0]->id]);
     }
+
+    /** Explicit request, 2026-09-28: "the net income it should be green if
+     *  positive ... and if negative it should be red." Applied to every
+     *  Net Income figure on the page (per-product row and OVERALL TOTAL). */
+    public function test_a_positive_net_income_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        DsPprEntry::create([
+            'product_id' => $product->id, 'entry_date' => today(),
+            'gross_sales' => 3800, 'net_income' => 500,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr'));
+
+        $response->assertOk();
+        $response->assertSee('text-green-600');
+    }
+
+    /** Same feature, the negative case — already-existing red-on-negative
+     *  behavior, confirmed still correct alongside the new green case. */
+    public function test_a_negative_net_income_is_rendered_red(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        DsPprEntry::create([
+            'product_id' => $product->id, 'entry_date' => today(),
+            'gross_sales' => 3800, 'net_income' => -500,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr'));
+
+        $response->assertOk();
+        $response->assertSee('text-red-600');
+    }
 }
