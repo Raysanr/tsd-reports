@@ -39,7 +39,6 @@ class ExpectedIncomeCalculator
         'advertising_cost'      => 'Advertising Cost',
         'ads_vat'                => 'Ads VAT',
         'ai_expense'             => 'Projected Botcake AI Expense',
-        'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
     ];
 

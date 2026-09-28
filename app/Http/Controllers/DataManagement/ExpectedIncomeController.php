@@ -227,7 +227,6 @@ class ExpectedIncomeController extends Controller
             'advertising_cost'     => ['sometimes', 'numeric', 'min:0'],
             'ads_vat'              => ['sometimes', 'numeric', 'min:0'],
             'ai_expense'           => ['sometimes', 'numeric', 'min:0'],
-            'ad_account_rental_fee' => ['sometimes', 'numeric', 'min:0'],
             'shipping_fee'          => ['sometimes', 'numeric', 'min:0'],
             'product_research'      => ['sometimes', 'numeric', 'min:0'],
             'salaries'                    => ['sometimes', 'numeric', 'min:0'],
