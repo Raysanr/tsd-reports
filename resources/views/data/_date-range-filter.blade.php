@@ -96,6 +96,12 @@
         // and idle, or the ISO string of the "from" day the user just
         // clicked while waiting for them to click the "to" day.
         let pendingFrom = null;
+        // While pendingFrom is set, tracks whichever day the mouse is
+        // currently over, so the in-between days can preview-highlight as
+        // if that day were the end date, live, before the second click
+        // (explicit request, 2026-09-28: "even when i still did not click
+        // the end number the numbers is highlighted based on the pointer").
+        let hoverIso = null;
 
         function render() {
             const year = viewDate.getFullYear();
@@ -105,15 +111,17 @@
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const today = toIso(new Date());
             const rangeStart = pendingFrom || fromHidden.value;
-            const rangeEnd = pendingFrom ? null : toHidden.value;
+            const rangeEnd = pendingFrom ? (hoverIso || null) : toHidden.value;
 
             const monthLabel = viewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
             function dayClasses(iso) {
                 const classes = ['date-range-day'];
                 if (iso === today) classes.push('date-range-day-today');
+                const lo = rangeStart && rangeEnd ? (rangeStart < rangeEnd ? rangeStart : rangeEnd) : rangeStart;
+                const hi = rangeStart && rangeEnd ? (rangeStart < rangeEnd ? rangeEnd : rangeStart) : rangeEnd;
                 if (iso === rangeStart || iso === rangeEnd) classes.push('date-range-day-selected');
-                else if (rangeStart && rangeEnd && iso > rangeStart && iso < rangeEnd) classes.push('date-range-day-in-range');
+                else if (lo && hi && iso > lo && iso < hi) classes.push('date-range-day-in-range');
                 return classes.join(' ');
             }
 
@@ -156,6 +164,7 @@
             panel.className = 'date-range-calendar';
             field.appendChild(panel);
             pendingFrom = null;
+            hoverIso = null;
             render();
             document.addEventListener('mousedown', onOutsideClick, true);
         }
@@ -164,6 +173,7 @@
             panel.remove();
             panel = null;
             pendingFrom = null;
+            hoverIso = null;
             document.removeEventListener('mousedown', onOutsideClick, true);
         }
         function onOutsideClick(e) {
@@ -190,6 +200,21 @@
             const end = pendingFrom < iso ? iso : pendingFrom;
             apply(start, end);
         }
+
+        field.addEventListener('mouseover', (e) => {
+            if (!pendingFrom) return;
+            const dayBtn = e.target.closest('.date-range-day:not(.date-range-day-muted)');
+            const iso = dayBtn ? dayBtn.dataset.date : null;
+            if (iso === hoverIso) return;
+            hoverIso = iso;
+            render();
+        });
+
+        field.addEventListener('mouseleave', () => {
+            if (!pendingFrom || !hoverIso) return;
+            hoverIso = null;
+            render();
+        });
 
         field.addEventListener('click', (e) => {
             const navBtn = e.target.closest('[data-nav]');
