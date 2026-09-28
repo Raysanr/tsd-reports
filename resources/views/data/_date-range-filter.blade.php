@@ -7,44 +7,35 @@
     it still like this") confirming a full custom widget was wanted, not
     just the closed input's own border/icon; then 2026-09-28: "make it the
     calendar pop up is only one and it can only drag first date to last
-    date" — one shared calendar for both boxes, click the From day then
-    the To day directly on it (a click-click range select, the same UX
-    every mainstream date-range picker uses for "dragging" a range — a
+    date," then "it should be like the calendar icon is only one and can
+    drag only" — ONE box with ONE calendar icon showing "From – To" as a
+    single range, opening the one shared calendar. Click the start day
+    then the end day directly on it (a click-click range select, the same
+    UX every mainstream date-range picker uses for "dragging" a range — a
     literal mousedown-drag-release wouldn't work for picking two dates far
     apart on different calendar pages anyway).
 
-    Renders two plain text inputs (not type="date" — a native date input's
-    own popup calendar can never be restyled via CSS on any browser) plus
-    ONE custom-built dropdown calendar shared between them, in the app's
-    own gold/dark theme. The real values still POST as plain 'Y-m-d'
-    strings in the SAME $fromName/$toName fields every page's controller
-    already reads, so no backend change was needed for this redesign.
+    Renders one plain text input (not type="date" — a native date input's
+    own popup calendar can never be restyled via CSS on any browser)
+    showing both dates at once, plus ONE custom-built dropdown calendar,
+    in the app's own gold/dark theme. The real values still POST as plain
+    'Y-m-d' strings in the SAME $fromName/$toName fields every page's
+    controller already reads, so no backend change was needed for this
+    redesign.
 
     $fromName, $toName (form field names), $fromValue, $toValue (current
     'Y-m-d' date strings) required. Renders INSIDE the page's own <form>
     (not its own form) — same "auto-submit the filter form once a full
     range is picked" contract as before.
 --}}
-<div class="date-range-field relative flex items-end gap-3" data-from="{{ $fromValue }}" data-to="{{ $toValue }}">
-    <div>
-        <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">From</label>
-        <div class="relative">
-            <svg class="pointer-events-none absolute z-10 left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0121 6.75v13.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 20.25V6.75a1.5 1.5 0 011.5-1.5z"/>
-            </svg>
-            <input type="text" inputmode="none" autocomplete="off" readonly data-role="from-display"
-                   class="date-range-input w-36 cursor-pointer text-sm font-mono border border-line dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors">
-        </div>
-    </div>
-    <div>
-        <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">To</label>
-        <div class="relative">
-            <svg class="pointer-events-none absolute z-10 left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0121 6.75v13.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 20.25V6.75a1.5 1.5 0 011.5-1.5z"/>
-            </svg>
-            <input type="text" inputmode="none" autocomplete="off" readonly data-role="to-display"
-                   class="date-range-input w-36 cursor-pointer text-sm font-mono border border-line dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors">
-        </div>
+<div class="date-range-field relative" data-from="{{ $fromValue }}" data-to="{{ $toValue }}">
+    <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Date Range</label>
+    <div class="relative">
+        <svg class="pointer-events-none absolute z-10 left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0121 6.75v13.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 20.25V6.75a1.5 1.5 0 011.5-1.5z"/>
+        </svg>
+        <input type="text" inputmode="none" autocomplete="off" readonly data-role="range-display"
+               class="date-range-input w-56 cursor-pointer text-sm font-mono border border-line dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors">
     </div>
     <input type="hidden" name="{{ $fromName }}" value="{{ $fromValue }}" data-role="from-hidden">
     <input type="hidden" name="{{ $toName }}" value="{{ $toValue }}" data-role="to-hidden">
@@ -70,9 +61,9 @@
         .date-range-day-muted { color: #cbd5e1; cursor: default; }
         .dark .date-range-day-muted { color: #475569; }
         .date-range-day-today { border: 1px solid var(--color-primary); }
-        .date-range-day-selected { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; border-radius: 9999px !important; }
-        .date-range-day-in-range { background: #FEF9C3; border-radius: 0 !important; }
-        .dark .date-range-day-in-range { background: rgba(202,138,4,0.2); }
+        .date-range-day-selected { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
+        .date-range-day-in-range { background: #FEF9C3; color: var(--color-primary); font-weight: 600; }
+        .dark .date-range-day-in-range { background: rgba(202,138,4,0.25); }
         .date-range-hint { font-size: 0.6875rem; text-align: center; }
     </style>
 @endonce
@@ -95,8 +86,7 @@
     }
 
     function buildCalendar(field) {
-        const fromDisplay = field.querySelector('[data-role="from-display"]');
-        const toDisplay_ = field.querySelector('[data-role="to-display"]');
+        const rangeDisplay = field.querySelector('[data-role="range-display"]');
         const fromHidden = field.querySelector('[data-role="from-hidden"]');
         const toHidden = field.querySelector('[data-role="to-hidden"]');
 
@@ -183,8 +173,7 @@
         function apply(fromIso, toIso_) {
             fromHidden.value = fromIso;
             toHidden.value = toIso_;
-            fromDisplay.value = toDisplay(parseIso(fromIso));
-            toDisplay_.value = toDisplay(parseIso(toIso_));
+            rangeDisplay.value = `${toDisplay(parseIso(fromIso))} – ${toDisplay(parseIso(toIso_))}`;
             close();
             fromHidden.closest('form').submit();
         }
@@ -206,7 +195,7 @@
             const navBtn = e.target.closest('[data-nav]');
             const dayBtn = e.target.closest('.date-range-day:not(.date-range-day-muted)');
             const todayBtn = e.target.closest('[data-action="today"]');
-            const opensOn = e.target === fromDisplay || e.target === toDisplay_ || e.target.closest('svg');
+            const opensOn = e.target === rangeDisplay || e.target.closest('svg');
 
             if (opensOn) {
                 panel ? close() : open();
@@ -227,12 +216,13 @@
             }
         });
 
-        // Seed the visible text fields from whatever range the page
+        // Seed the visible text field from whatever range the page
         // rendered with — done here (not server-side) so toDisplay()'s own
         // MM/DD/YYYY formatting stays in ONE place rather than duplicated
         // in PHP too.
-        if (fromHidden.value) fromDisplay.value = toDisplay(parseIso(fromHidden.value));
-        if (toHidden.value) toDisplay_.value = toDisplay(parseIso(toHidden.value));
+        if (fromHidden.value && toHidden.value) {
+            rangeDisplay.value = `${toDisplay(parseIso(fromHidden.value))} – ${toDisplay(parseIso(toHidden.value))}`;
+        }
     }
 
     document.querySelectorAll('.date-range-field').forEach((field) => buildCalendar(field));
