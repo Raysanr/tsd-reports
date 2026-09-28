@@ -86,7 +86,18 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction \
 # install.
 FROM dunglas/frankenphp:1.12.7-php8.2 AS runtime
 
-RUN install-php-extensions pdo_pgsql zip gd
+# pcntl added 2026-09-28 (worker-mode switch) — root-caused live via a
+# failed Railway deploy: `octane:frankenphp` crashed on every boot attempt
+# with "Undefined constant Laravel\Octane\Commands\Concerns\SIGINT". Octane
+# subscribes to OS signals (SIGINT/SIGTERM/etc., for graceful worker
+# shutdown/restart) via PHP's pcntl extension, which defines those signal
+# constants — without pcntl loaded at all, PHP can't resolve the constant
+# name, not just skip the feature. Confirmed safe: Railway's own zero-
+# downtime deploy kept the previous successful deployment serving all live
+# traffic (0% error rate throughout) while this one failed its health
+# check and was discarded, so this was caught before ever reaching a real
+# user.
+RUN install-php-extensions pdo_pgsql zip gd pcntl
 
 # curl — used by entrypoint.sh's own self-check block (curls its own
 # /login right after boot) and not guaranteed present on this base image
