@@ -93,6 +93,38 @@ php artisan migrate --force
 # ones, clustering at exact multiples of ~500ms, consistent with requests
 # still queuing behind that same hard worker cap. FrankenPHP is a real
 # production PHP app server (built on Caddy) with genuine concurrency, no
-# fixed worker ceiling to hit. docker/Caddyfile reads $PORT itself (Railway
-# injects it at container start) — nothing to pass here.
-exec frankenphp run --config /etc/frankenphp/Caddyfile
+# fixed worker ceiling to hit.
+#
+# WORKER MODE via Laravel Octane (explicit request, 2026-09-28: reduce
+# Railway's Memory/CPU cost with zero functional change — classic mode
+# reboots the entire Laravel framework fresh on every single HTTP request,
+# real repeated CPU work at this app's real traffic volume, ~75 req/min
+# sustained per live Railway metrics checked that day). Switched from the
+# raw `frankenphp run --config docker/Caddyfile` invocation to Octane's own
+# `octane:frankenphp`, per FrankenPHP's own official docs: Laravel
+# specifically needs Octane for worker mode, not a hand-written Caddyfile
+# `worker` block — Octane's own request lifecycle correctly resets
+# container/facade/request state between requests, which a bare worker
+# script would not do safely on its own. Audited the whole app first (see
+# this session's own investigation) for static properties, singleton
+# bindings, globals, and cached auth/session state that could leak between
+# requests under worker mode — found none; the app was already written in
+# a way that's safe for this.
+#
+# docker/Caddyfile is no longer read directly — Octane generates its own
+# Caddyfile internally (see vendor/laravel/octane/src/Commands/stubs/
+# Caddyfile) pointing at public/frankenphp-worker.php as the worker entry
+# point, which is why that file is committed (not left to .gitignore's
+# default) — see .gitignore's own comment on that line.
+#
+# --host=0.0.0.0, not the command's own 127.0.0.1 default — required
+# inside a container so Railway's own edge/proxy can actually reach this
+# process; 127.0.0.1 would only accept connections from inside the same
+# container. --port reads Railway's injected $PORT the same way the old
+# Caddyfile's own {$PORT:8080} interpolation did.
+# --max-requests=500 (Octane's own default, stated explicitly here rather
+# than left implicit) recycles each worker after 500 requests — a second,
+# independent safety net alongside the audit above: even an undiscovered
+# state-leak bug would only ever affect at most 500 requests before that
+# worker restarts fresh, not persist indefinitely.
+exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --max-requests=500

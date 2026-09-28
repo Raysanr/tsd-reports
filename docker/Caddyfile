@@ -1,9 +1,16 @@
-# FrankenPHP/Caddy config for this app's production runtime (explicit
-# request, 2026-09-17: moving off `php artisan serve` — see the Dockerfile's
-# own doc comment for the full reasoning). Classic (non-worker) mode — no
-# `worker` block here; each request boots Laravel fresh, same behavior
-# php-fpm/`artisan serve` already had, deliberately not the lower-latency
-# but state-bleed-risk worker mode (revisit later as its own change).
+# NO LONGER READ AT RUNTIME (2026-09-28) — kept only as a reference/
+# rollback path. The web server now runs via Laravel Octane's own
+# `octane:frankenphp` (see docker/entrypoint.sh), which generates its own
+# Caddyfile internally for worker mode. This file describes the CLASSIC
+# (non-worker) config that was live from 2026-09-17 until the worker-mode
+# switch — restoring `exec frankenphp run --config docker/Caddyfile` in
+# entrypoint.sh (and re-adding the Dockerfile's own COPY of this file) is
+# the fastest rollback path if worker mode ever needs to be reverted.
+#
+# Original comment, still accurate for classic mode: explicit request,
+# 2026-09-17, moving off `php artisan serve` — see the Dockerfile's own doc
+# comment for the full reasoning. No `worker` block here — each request
+# boots Laravel fresh, same behavior php-fpm/`artisan serve` already had.
 #
 # {$PORT} — Railway injects PORT at container start, not build time, so it
 # has to be read here via Caddy's own env-var interpolation rather than

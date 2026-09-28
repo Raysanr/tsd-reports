@@ -23,3 +23,15 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+**/caddy
+frankenphp
+
+# frankenphp-worker.php (public/) is deliberately NOT ignored, despite
+# `octane:install` adding it here by default — the Docker build's builder
+# stage runs a completely clean composer install with no chance to
+# re-generate it, and it's a tiny, static stub (see Octane's own stub at
+# vendor/laravel/octane/src/Commands/stubs/frankenphp-worker.php) that
+# never needs regenerating unless Octane's own internal path changes, so
+# committing it once is simpler than teaching the Dockerfile to run
+# `octane:install` on every build.

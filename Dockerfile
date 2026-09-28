@@ -10,15 +10,24 @@
 # frankenphp) is a real, actively-maintained production PHP app server
 # built on Caddy — genuine concurrency, no separate nginx config to
 # maintain, and a much smaller Dockerfile/entrypoint diff than php-fpm+
-# nginx would need. Classic (non-worker) mode deliberately, not worker
-# mode: worker mode keeps the whole Laravel app booted in memory between
-# requests for lower latency, but needs every stateful singleton/static
-# property audited first to avoid request-to-request state bleed — a
-# real, separate risk class not worth taking on the SAME deploy as the
-# server swap itself, especially after a past outage tied to a server-
-# capacity change (docker/entrypoint.sh's own comment). Revisit worker
-# mode later as its own measured optimization once this classic-mode
-# migration has been stable in production for a while.
+# nginx would need. Started in classic (non-worker) mode deliberately, not
+# worker mode: worker mode keeps the whole Laravel app booted in memory
+# between requests for lower latency/cost, but needs every stateful
+# singleton/static property audited first to avoid request-to-request
+# state bleed — a real, separate risk class not worth taking on the SAME
+# deploy as the server swap itself, especially after a past outage tied to
+# a server-capacity change (docker/entrypoint.sh's own comment).
+#
+# Switched to worker mode 2026-09-28 (explicit request: reduce Railway's
+# Memory/CPU cost with zero functional change, confirmed live via
+# `railway metrics` this app runs at real, sustained traffic — ~75 req/min
+# — where classic mode's full-framework-reboot-per-request cost is real,
+# repeated CPU work). The audit this comment named as a prerequisite was
+# done first (static properties, singleton bindings, globals, cached auth/
+# session state — none found), then verified live: two distinct logged-in
+# users hammering the worker-mode server with genuinely concurrent
+# requests never saw each other's session data. See docker/entrypoint.sh's
+# own doc comment on its `octane:frankenphp` invocation for the mechanics.
 FROM php:8.2-cli AS builder
 
 RUN apt-get update && apt-get install -y \
@@ -98,7 +107,11 @@ WORKDIR /app
 COPY --from=builder /app /app
 RUN rm -rf /app/node_modules
 
-COPY docker/Caddyfile /etc/frankenphp/Caddyfile
+# docker/Caddyfile intentionally not copied anymore (2026-09-28, worker
+# mode switch — see entrypoint.sh's own doc comment): Octane's
+# octane:frankenphp generates its own Caddyfile internally now. The file
+# itself stays in the repo as a reference/rollback path to classic mode,
+# it's just no longer read at runtime.
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && chmod -R 775 storage bootstrap/cache
