@@ -78,6 +78,26 @@ use App\Models\TsaShift;
  * AND whoever's an eligible teammate AT THAT MOMENT is what gets split,
  * nothing carried forward or reconciled if she logs back in later that
  * same day.
+ *
+ * Login-side sweep added 2026-09-28 (root-caused from a real report:
+ * Grace Olivo's Leads page showed a pile of never-dialed leads with no
+ * green checkmark that never got handed off). redistribute() above only
+ * ever runs at the MOMENT someone logs out, and only checks who's online
+ * right then — if her entire outgoing shift logs out before anyone from
+ * the incoming shift logs in, `$online` is empty, redistribute() no-ops
+ * by design (she keeps her backlog, not left orphaned), and — this was
+ * the actual gap — nothing ever re-checks later once someone finally
+ * does log in. The backlog then sits stranded with the now-logged-out
+ * TSA indefinitely, until she personally logs back in or someone
+ * manually transfers it. sweepStrandedBacklogs() closes this: triggered
+ * on the LOGIN transition (see RedistributeStrandedTsaLeads job), it
+ * just re-runs redistribute() for every TSA who is CURRENTLY logged out
+ * — the exact same backlog-eligibility query, same tier-1/tier-2
+ * product logic, same no-date-filter behavior as the logout path, so
+ * this doesn't sweep up anything a logout-triggered run wouldn't already
+ * have moved if the timing had been different. A TSA who's still
+ * mid-shift and simply hasn't caught up on her queue is untouched —
+ * only backlogs belonging to someone who is ACTUALLY logged out move.
  */
 class LogoutLeadRedistributor
 {
@@ -215,5 +235,31 @@ class LogoutLeadRedistributor
         }
 
         return $moved;
+    }
+
+    /**
+     * Re-runs redistribute() for every TSA who is currently logged out and
+     * excludes $justLoggedIn (so a TSA logging back in doesn't immediately
+     * try to redistribute her own just-vacated backlog to herself — she's
+     * about to be "online" by the time this runs, but hasn't been added
+     * back to any roster query yet, and shouldn't be a source here anyway).
+     * Called on every login (see TsaShift::applyStatusChange()) so a
+     * backlog stranded because the whole outgoing shift logged out before
+     * anyone from the incoming shift logged in finally gets picked up the
+     * moment someone does — see this class's own doc comment above for the
+     * full root cause.
+     *
+     * Safe to call even when nobody is actually logged out (the common
+     * case) — the query below just comes back empty and this no-ops.
+     */
+    public static function sweepStrandedBacklogs(TsaShift $justLoggedIn): void
+    {
+        $loggedOutTsas = TsaShift::where('id', '!=', $justLoggedIn->id)
+            ->where('status', TsaShift::STATUS_LOGOUT)
+            ->get();
+
+        foreach ($loggedOutTsas as $tsa) {
+            self::redistribute($tsa);
+        }
     }
 }

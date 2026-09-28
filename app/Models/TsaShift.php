@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Jobs\RedistributeLoggedOutTsaLeads;
+use App\Jobs\RedistributeStrandedTsaLeads;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -334,6 +335,19 @@ class TsaShift extends Model
         // ->afterResponse() and not a real queued job.
         if ($status === self::STATUS_LOGOUT && !$wasLoggedOut) {
             RedistributeLoggedOutTsaLeads::dispatch($this)->afterResponse();
+        }
+
+        // Login-side sweep (root-caused 2026-09-28): the logout-triggered
+        // handoff above only checks who's online AT THE MOMENT someone logs
+        // out — if the whole outgoing shift logs out before anyone from the
+        // incoming shift logs in, that check finds nobody and no-ops, and
+        // nothing ever re-checks later. A fresh transition OUT of logout
+        // (a real login, not a no-op re-login) re-runs the same
+        // redistribute() logic for every TSA who's still logged out, so any
+        // backlog stranded by that timing gap finally gets picked up. See
+        // LogoutLeadRedistributor::sweepStrandedBacklogs()'s own doc comment.
+        if ($status !== self::STATUS_LOGOUT && $wasLoggedOut) {
+            RedistributeStrandedTsaLeads::dispatch($this)->afterResponse();
         }
     }
 

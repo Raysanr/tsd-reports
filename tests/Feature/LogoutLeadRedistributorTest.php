@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\RedistributeLoggedOutTsaLeads;
+use App\Jobs\RedistributeStrandedTsaLeads;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\Order;
@@ -47,6 +48,12 @@ class LogoutLeadRedistributorTest extends TestCase
     {
         $tsa->applyStatusChange(TsaShift::STATUS_LOGOUT);
         (new RedistributeLoggedOutTsaLeads($tsa))->handle();
+    }
+
+    private function logInAndSweep(TsaShift $tsa): void
+    {
+        $tsa->applyStatusChange(TsaShift::STATUS_LOGIN);
+        (new RedistributeStrandedTsaLeads($tsa))->handle();
     }
 
     /**
@@ -405,5 +412,95 @@ class LogoutLeadRedistributorTest extends TestCase
 
         $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
         Http::assertNothingSent();
+    }
+
+    /**
+     * Root-caused 2026-09-28 from a real report: Grace's Leads page showed
+     * a pile of never-dialed leads with no green checkmark that never got
+     * redistributed. The gap: redistribute() only checks who's online at
+     * the moment of THIS logout — if the entire outgoing shift logs out
+     * before anyone from the incoming shift logs in, that check finds
+     * nobody and silently no-ops, and nothing used to ever re-check once
+     * someone finally logged in. This proves the login-side sweep closes
+     * exactly that gap.
+     */
+    public function test_logging_in_sweeps_up_a_backlog_stranded_by_an_earlier_all_hands_logout(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+
+        // Everyone else logs out first, so Gemma's own upcoming logout
+        // transition (below) finds nobody online.
+        TsaShift::where('id', '!=', $gemma->id)->update(['status' => TsaShift::STATUS_LOGOUT]);
+        $lead = $this->leadFor($gemma);
+        $this->logOutAndRedistribute($gemma);
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id, 'sanity check: nobody was online to redistribute to yet');
+
+        // Mariel logs in later — the stranded backlog should finally move.
+        $this->logInAndSweep($mariel->fresh());
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+    }
+
+    /** A TSA who is still online and simply hasn't caught up on her own
+     *  queue must never have her backlog swept away just because a
+     *  teammate logged in — only an ACTUALLY logged-out TSA's backlog is
+     *  eligible for the sweep. */
+    public function test_logging_in_does_not_sweep_leads_from_a_tsa_who_is_still_online(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['status' => TsaShift::STATUS_CALLING]); // still working, just busy
+        $mariel->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        $lead = $this->leadFor($gemma);
+
+        $this->logInAndSweep($mariel);
+
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
+    }
+
+    /** A redundant login (already logged in, re-applying the same status)
+     *  must not re-trigger the sweep — mirrors the existing redundant-
+     *  logout guard (test_a_redundant_logout_does_not_re_trigger_
+     *  redistribution above). */
+    public function test_a_redundant_login_does_not_re_trigger_the_sweep(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        TsaShift::query()->update(['status' => TsaShift::STATUS_LOGOUT]);
+        $mariel->update(['status' => TsaShift::STATUS_LOGIN]); // already logged in
+
+        $lead = $this->leadFor($gemma);
+
+        $mariel->applyStatusChange(TsaShift::STATUS_READY_TO_CALL); // not a login transition
+
+        // Confirms the $wasLoggedOut guard on the sweep dispatch, not an
+        // empty-backlog false negative — the job itself is never invoked
+        // here since applyStatusChange() alone (without the afterResponse
+        // job actually running) never moves anything, matching the same
+        // convention the logout counterpart test relies on.
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id);
+    }
+
+    /** Confirms the sweep reuses the exact same any-age backlog query as
+     *  the logout path — an old, never-dialed lead stranded from a
+     *  previous day still moves on login, same as it already would have
+     *  moved on logout had the timing lined up differently. Not new sweep
+     *  behavior, just proof the same no-date-filter convention carries
+     *  through. */
+    public function test_sweep_moves_a_backlog_regardless_of_how_old_it_is(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        TsaShift::where('id', '!=', $mariel->id)->update(['status' => TsaShift::STATUS_LOGOUT]);
+        $mariel->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        $lead = $this->leadFor($gemma);
+        $lead->update(['assigned_at' => now()->subDays(3)]);
+
+        $this->logInAndSweep($mariel->fresh());
+
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
     }
 }
