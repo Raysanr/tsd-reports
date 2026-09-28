@@ -5,7 +5,7 @@
     persisted row, same as DsPprCalculator's own OVERALL TOTAL). Wraps
     _card-body with $editable = false.
 --}}
-<div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0">
+<div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0">
     <div class="px-5 py-4" style="background:{{ $headerBg }};">
         <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $label }}</span>
     </div>

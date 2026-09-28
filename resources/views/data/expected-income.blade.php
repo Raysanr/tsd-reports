@@ -72,7 +72,7 @@
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
     <div class="flex items-start gap-5 w-max">
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0" data-out-scope="1">
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
             <div class="px-5 py-4" style="background:#fde047;">
                 <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES — {{ $date->format('F j, Y') }}</span>
             </div>
@@ -89,7 +89,7 @@
         @foreach($dailyRows[$dateStr] as $row)
         @php $d = $row['derived']; @endphp
         @if($row['group'])
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0">
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0">
             <div class="px-5 py-4" style="background:#d9ead3;">
                 <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
             </div>
@@ -97,7 +97,7 @@
         </div>
         @else
         @php $product = $row['products']->first(); $entry = $dailyByKey->get($product->id . ':' . $dateStr); @endphp
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-80 shrink-0"
+        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
              data-product-id="{{ $product->id }}"
              data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}"
              data-custom-action="{{ route('data.expected-income.update-custom-row', ['product' => $product->id, 'date' => $dateStr]) }}">
