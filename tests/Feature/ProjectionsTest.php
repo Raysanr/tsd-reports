@@ -302,6 +302,47 @@ class ProjectionsTest extends TestCase
         $response->assertJsonPath('computed.pnl.orders', 2400);
     }
 
+    /** Full row-by-row scan against the real template (explicit request,
+     *  2026-09-28: "look at the every row make it match as is in the
+     *  template") — Product Research belongs under Operating Costs, right
+     *  after Government Benefits, not Selling And Marketing; Ad Account
+     *  Rental Fee doesn't appear in the template at all. Same fixes already
+     *  applied to Expected Income's own identical row lists that same day. */
+    public function test_selling_and_operating_cost_rows_match_the_template_exactly(): void
+    {
+        $selling = array_values(ProjectionCalculator::sellingCostRows());
+        $operating = array_keys(ProjectionCalculator::operatingCostRows());
+
+        $this->assertNotContains('Ad Account Rental Fee', $selling);
+        $this->assertNotContains('ad_account_rental_fee', array_keys(ProjectionCalculator::sellingCostRows()));
+        $this->assertNotContains('product_research', array_keys(ProjectionCalculator::sellingCostRows()));
+
+        $this->assertContains('product_research', $operating);
+        // Sits immediately after government_benefits, matching the
+        // template's own row order exactly.
+        $govIndex = array_search('government_benefits', $operating, true);
+        $this->assertSame('product_research', $operating[$govIndex + 1]);
+    }
+
+    /** Explicit follow-up, 2026-09-28: "why the Number of Orders is still
+     *  not editable" — the top-of-card stats block's own Number of Orders
+     *  row now saves via orders_override directly, same field the Gross
+     *  Sales row below already uses. */
+    public function test_number_of_orders_in_the_top_stats_block_is_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $openingShift),
+            ['orders_override' => 1234]
+        );
+
+        $response->assertOk();
+        $this->assertEquals(1234.0, $openingShift->fresh()->orders_override);
+        $response->assertJsonPath('computed.pnl.orders', 1234);
+    }
+
     /** Explicit follow-up, 2026-09-28: "make editable this Number of Leads,
      *  Conversion Rate, Average Order Value" then confirmed typing BOTH
      *  Leads and Conversion Rate recalculates Number of Orders as their

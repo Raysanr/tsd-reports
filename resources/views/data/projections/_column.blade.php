@@ -48,22 +48,27 @@
          ROAS/Standard Cost Per Message/Actual Cost Per Message are plain
          manual inputs with no formula participation.
 
-         Number of Leads/Conversion Rate/Average Order Value are editable
-         here too (explicit follow-up, 2026-09-28: "make editable this
-         Number of Leads, Conversion Rate, Average Order Value" — the
-         standalone "# of Orders" row below this block was removed the same
-         request, since Number of Orders here already shows the identical
-         figure). Number of Leads/Conversion Rate save via leads_override/
-         conversion_rate_override — nullable, same "blank restores the
-         target-derived value" convention as orders_override/
-         upselling_rate_override — and typing BOTH recalculates Number of
-         Orders as Leads × Conversion Rate, taking precedence over the Net
-         Income Target back-solve (see ProjectionCalculator::basePnl()'s
-         own doc comment). Average Order Value here is the SAME pj-field as
-         the target card's own AOV input further down this card — not a
-         second, independent value — so both always show identically.
-         Number of Orders stays read-only, mirroring whatever the chain
-         above actually produces. --}}
+         Number of Leads/Conversion Rate/Number of Orders/Average Order
+         Value are ALL editable here too (explicit follow-up, 2026-09-28:
+         "make editable this Number of Leads, Conversion Rate, Average
+         Order Value", then "why the Number of Orders is still not
+         editable" — the standalone "# of Orders" row that used to sit
+         below this block was removed the same day, since Number of Orders
+         here already shows the identical figure; it was left read-only by
+         mistake in that same pass, fixed here). Number of Leads/Conversion
+         Rate save via leads_override/conversion_rate_override, and Number
+         of Orders saves via orders_override directly (same field the
+         since-removed "# of Orders" row and the Gross Sales field below
+         both already used) — all nullable, same "blank restores the
+         target-derived value" convention as upselling_rate_override.
+         Typing BOTH Leads and Conversion Rate recalculates Number of
+         Orders as Leads × Conversion Rate, taking precedence over a typed
+         orders_override, which itself takes precedence over the Net Income
+         Target back-solve (see ProjectionCalculator::basePnl()'s own doc
+         comment for the full 3-tier precedence). Average Order Value here
+         is the SAME pj-field as the target card's own AOV input further
+         down this card — not a second, independent value — so both always
+         show identically. --}}
     <div class="px-5 py-3 font-mono text-[13px] space-y-1.5 border-b border-line dark:border-slate-700">
         @foreach([
             ['key' => 'roas', 'label' => 'ROAS'],
@@ -100,7 +105,12 @@
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
-            <span data-orders="1" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($p['orders'], 2) }}</span>
+            @if($editable)
+                <input type="text" inputmode="decimal" value="{{ number_format($p['orders'], 2) }}" data-field="orders_override" data-money="1" data-orders="1"
+                       class="pj-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            @else
+                <span data-orders="1" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($p['orders'], 2) }}</span>
+            @endif
         </div>
         <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
             <span class="text-ink-muted dark:text-slate-400">Average Order Value</span>

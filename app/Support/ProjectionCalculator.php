@@ -100,19 +100,24 @@ class ProjectionCalculator
         'advertising_cost'            => 0.0,
         'ads_vat'                     => 0.0,
         'ai_expense'                  => 0.0,
-        'ad_account_rental_fee'       => 0.0,
+        // ad_account_rental_fee removed (explicit request, 2026-09-28, a
+        // full row-by-row scan against the real template) — it doesn't
+        // appear anywhere in the template's own Selling And Marketing
+        // section. cod_fee/fulfillment_fee removed earlier (2026-09-24) —
+        // both are now computed formulas (Delivered × 2.24%, Orders × ₱25
+        // flat), not settable %-of-Gross-Sales rates — see
+        // COD_FEE_RATE_OF_DELIVERED/FULFILLMENT_FEE_PER_ORDER and
+        // pnlFromOrders()'s own doc comment.
         'shipping_fee'                => 0.0,
-        // cod_fee/fulfillment_fee removed (2026-09-24) — both are now
-        // computed formulas (Delivered × 2.24%, Orders × ₱25 flat), not
-        // settable %-of-Gross-Sales rates — see COD_FEE_RATE_OF_DELIVERED/
-        // FULFILLMENT_FEE_PER_ORDER and pnlFromOrders()'s own doc comment.
-        'product_research'            => 0.001302,
 
         'salaries'                    => 0.119526,
         'communication_allowance'     => 0.002604,
         'thirteenth_month_allowance'  => 0.009961,
         'sil'                         => 0.004582,
         'government_benefits'         => 0.009065,
+        // Moved here from Selling & Marketing (explicit request, 2026-09-28,
+        // real template screenshot).
+        'product_research'            => 0.001302,
         'miscellaneous_expenses'      => 0.000781,
         'magic_fund'                  => 0.000868,
         'company_assets'              => 0.005256,
@@ -137,21 +142,26 @@ class ProjectionCalculator
      *  the list twice, same "one definition, not two hand-kept-in-sync
      *  copies" convention as ProductPerformance::DISPOSITION_KEYWORDS). */
     public const SELLING_COST_ROWS = [
-        // Advertising Cost, Ads VAT, AI Expense, and Ad Account Rental Fee
-        // restored (explicit request, 2026-09-23: "the ad cost can you
-        // put it back? make it same as in the sheets") — reversing the
-        // earlier removal from the same day. Every one of them is 0.00 by
-        // DEFAULT in the source sheet's own columns, but the rows
-        // themselves are real, editable line items there, same as every
-        // other Selling And Marketing row.
+        // Advertising Cost, Ads VAT, and AI Expense restored (explicit
+        // request, 2026-09-23: "the ad cost can you put it back? make it
+        // same as in the sheets") — reversing the earlier removal from the
+        // same day. Every one of them is 0.00 by DEFAULT in the source
+        // sheet's own columns, but the rows themselves are real, editable
+        // line items there, same as every other Selling And Marketing row.
+        //
+        // Ad Account Rental Fee removed (explicit request, 2026-09-28, a
+        // full row-by-row scan against the real template): it doesn't
+        // appear anywhere in the template's own Selling And Marketing
+        // section — same fix already applied to Expected Income's own
+        // identical row list that same day. Product Research MOVED to
+        // Operating Costs below (also confirmed against the template — it
+        // sits right after Government Benefits there, not here).
         'advertising_cost'      => 'Advertising Cost',
         'ads_vat'                => 'Ads VAT',
         'ai_expense'             => 'Projected Botcake AI Expense',
-        'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
         'cod_fee'                => 'COD Fee',
         'fulfillment_fee'        => 'Fulfillment Fee',
-        'product_research'       => 'Product Research',
     ];
 
     /** COD Fee and Fulfillment Fee are computed formulas, not settable
@@ -186,6 +196,10 @@ class ProjectionCalculator
         'thirteenth_month_allowance'  => '13th Month Allowance',
         'sil'                         => 'SIL',
         'government_benefits'         => 'Government Benefits',
+        // Moved here from Selling & Marketing (explicit request, 2026-09-28,
+        // real template screenshot) — sits right after Government Benefits,
+        // same fix already applied to Expected Income's own identical row.
+        'product_research'            => 'Product Research',
         'miscellaneous_expenses'      => 'Miscellaneous expenses',
         'magic_fund'                  => 'Magic Fund',
         'company_assets'              => 'Company Assets',
