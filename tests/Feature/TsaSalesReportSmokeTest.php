@@ -92,6 +92,24 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('Eyecare');
     }
 
+    /** Explicit request, 2026-09-28: "make the opening is in first and the
+     *  closing is in last" — config('teams') itself lists 'sh-naturals'
+     *  before 'eyecare' (confirmed live: those slugs are currently
+     *  displayed as "Team Closing"/"Team Opening" via the editable team-
+     *  name-history feature). Reordered ONLY on this page, scoped to
+     *  TsaSalesReportController::index() — every other page reading
+     *  Teams::config() keeps its own existing order, per explicit
+     *  confirmation this shouldn't change app-wide. */
+    public function test_eyecare_team_is_listed_before_sh_naturals(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $response->assertSeeInOrder(['Eyecare', 'SH Naturals']);
+    }
+
     /** Same whereBetween()-on-a-datetime-column bug fixed 2026-09-26 in
      *  DsPprReportController/ExpectedIncomeController — see
      *  DsPprReportSmokeTest's own regression test for the full root cause. */

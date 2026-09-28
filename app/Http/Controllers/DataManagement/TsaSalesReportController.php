@@ -33,7 +33,22 @@ class TsaSalesReportController extends Controller
         $dateFrom = $request->input('date_from') ?: today()->startOfWeek()->toDateString();
         $dateTo   = $request->input('date_to') ?: today()->toDateString();
 
-        $teams = collect(Teams::config());
+        // Explicit request, 2026-09-28: "make the opening is in first and
+        // the closing is in last" — config('teams') itself lists
+        // 'sh-naturals' before 'eyecare' (confirmed live: those slugs are
+        // currently DISPLAYED as "Team Closing"/"Team Opening" via the
+        // editable team-name-history feature — see Teams::nameFor()'s own
+        // doc comment for why the slug and its shown label are two
+        // separate things). Reordered HERE, scoped to this one page only —
+        // the shared config itself stays untouched, so every other page
+        // that reads Teams::config() (Call Tracker, Dashboard, Leads
+        // Report, Settings, etc.) keeps its own existing order, per
+        // explicit confirmation this shouldn't change app-wide. Sorted by
+        // the fixed slug, never the editable display label, so a future
+        // rename can never silently break this ordering.
+        $teamOrder = ['eyecare', 'sh-naturals'];
+        $teams = collect(Teams::config())
+            ->sortBy(fn ($team, $slug) => array_search($slug, $teamOrder, true) ?? PHP_INT_MAX);
         $tsas  = TsaShift::orderBy('sort_order')->get();
 
         // whereDate() >=/<=, not a raw whereBetween() on the date-cast
