@@ -181,10 +181,11 @@
         let totalOperatingCosts = 0;
         OPERATING_KEYS.forEach((key) => { operatingLines[key] = Number(row[key]) || 0; totalOperatingCosts += operatingLines[key]; });
 
-        const netIncome = grossProfit - totalSellingCosts - totalOperatingCosts;
+        const incomeBeforeOpex = grossProfit - totalSellingCosts;
+        const netIncome = incomeBeforeOpex - totalOperatingCosts;
 
         return {
-            roas: Number(row.roas) || 0, actual_cost_per_lead: Number(row.actual_cost_per_lead) || 0,
+            roas: Number(row.roas) || 0, standard_cost_per_message: Number(row.standard_cost_per_message) || 0, actual_cost_per_lead: Number(row.actual_cost_per_lead) || 0,
             number_of_leads: leads, conversion_rate: conversionRate, number_of_orders: orders, average_order_value: aov,
             gross_sales: grossSales, cancelled, returns, delivered,
             tax_allocation: taxAllocation, tax_allocation_pct: grossSales > 0 ? taxAllocation / grossSales : 0,
@@ -192,6 +193,7 @@
             gross_profit: grossProfit, gross_profit_pct: grossSales > 0 ? grossProfit / grossSales : 0,
             selling_lines: sellingLines, total_selling_costs: totalSellingCosts,
             total_selling_costs_pct: grossSales > 0 ? totalSellingCosts / grossSales : 0,
+            income_before_opex: incomeBeforeOpex, income_before_opex_pct: grossSales > 0 ? incomeBeforeOpex / grossSales : 0,
             operating_lines: operatingLines, total_operating_costs: totalOperatingCosts,
             total_operating_costs_pct: grossSales > 0 ? totalOperatingCosts / grossSales : 0,
             net_income: netIncome, net_income_pct: grossSales > 0 ? netIncome / grossSales : 0,
@@ -209,7 +211,7 @@
             const isPct = key === 'conversion_rate' || key.endsWith('_pct');
             const isInt = key === 'number_of_leads' || key === 'number_of_orders';
             el.textContent = isPct ? fmtPct(value) : (isInt ? fmtInt(value) : fmtMoney(value));
-            const isLoss = (key === 'gross_profit' || key === 'net_income') && value < 0;
+            const isLoss = (key === 'gross_profit' || key === 'net_income' || key === 'income_before_opex') && value < 0;
             el.classList.toggle('text-red-600', isLoss);
             el.classList.toggle('dark:text-red-400', isLoss);
             // Net Income (only — Gross Profit stays plain ink when positive,

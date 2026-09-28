@@ -220,6 +220,13 @@
         setValue('[data-pnl="gross_profit_pct"]', p.gross_profit_pct, true);
         setValue('[data-pnl="total_selling_costs"]', p.total_selling_costs);
         setValue('[data-pnl="total_selling_costs_pct"]', p.total_selling_costs_pct, true);
+        setValue('[data-pnl="income_before_opex"]', p.income_before_opex);
+        setValue('[data-pnl="income_before_opex_pct"]', p.income_before_opex_pct, true);
+        const incomeBeforeOpexEl = card.querySelector('[data-pnl="income_before_opex"]');
+        if (incomeBeforeOpexEl) {
+            incomeBeforeOpexEl.classList.toggle('text-red-600', p.income_before_opex < 0);
+            incomeBeforeOpexEl.classList.toggle('dark:text-red-400', p.income_before_opex < 0);
+        }
         setValue('[data-pnl="total_operating_costs"]', p.total_operating_costs);
         setValue('[data-pnl="total_operating_costs_pct"]', p.total_operating_costs_pct, true);
         setValue('[data-pnl="net_income"]', p.net_income);

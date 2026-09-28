@@ -112,4 +112,32 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(15.0, $summed['roas'], 0.01);
         $this->assertEqualsWithDelta(30.0, $summed['actual_cost_per_lead'], 0.01);
     }
+
+    /** Explicit request, 2026-09-28 (real template screenshot): a new
+     *  "Income Before OPEX" subtotal, sitting between Total Selling Costs
+     *  and Operating Costs — Gross Profit minus Selling & Marketing costs
+     *  only, before Operating Costs are subtracted. */
+    public function test_income_before_opex_subtracts_selling_costs_only(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
+
+        $expected = $d['gross_profit'] - $d['total_selling_costs'];
+        $this->assertEqualsWithDelta($expected, $d['income_before_opex'], 0.01);
+
+        // And Net Income continues from THAT subtotal, not independently
+        // recomputed — Income Before OPEX minus Total Operating Costs.
+        $this->assertEqualsWithDelta($d['income_before_opex'] - $d['total_operating_costs'], $d['net_income'], 0.01);
+    }
+
+    /** Same template — a new plain manual input alongside ROAS/Actual Cost
+     *  Per Message, averaged across rows the same way as those two. */
+    public function test_sum_averages_standard_cost_per_message_across_rows(): void
+    {
+        $rowA = ExpectedIncomeCalculator::derive(['standard_cost_per_message' => 40.0]);
+        $rowB = ExpectedIncomeCalculator::derive(['standard_cost_per_message' => 60.0]);
+
+        $summed = ExpectedIncomeCalculator::sum([$rowA, $rowB]);
+
+        $this->assertEqualsWithDelta(50.0, $summed['standard_cost_per_message'], 0.01);
+    }
 }

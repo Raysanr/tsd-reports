@@ -29,9 +29,22 @@
     data.projections.custom-rows.destroy, on every card the row appears on
     (not just the one showing the ×), same "shared definition" reasoning
     as the row itself.
+
+    $rowColor (optional, 'red' or 'blue'): explicit request, 2026-09-28
+    (real template screenshot) — Cancelled/Projected Returns/Projected
+    Delivered in red, Tax Allocation/Geniusmakers Management Fee/HMO
+    Expense in blue. Applies to both the label and the value (input or
+    span), leaving the %-column always the same muted color.
 --}}
+@php
+    $rowColorClass = match ($rowColor ?? null) {
+        'red' => 'text-red-600 dark:text-red-400',
+        'blue' => 'text-blue-600 dark:text-blue-400',
+        default => null,
+    };
+@endphp
 <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-    <span class="text-ink-muted dark:text-slate-400 inline-flex items-center gap-1">
+    <span class="{{ $rowColorClass ?? 'text-ink-muted dark:text-slate-400' }} inline-flex items-center gap-1">
         {{ $label }}
         @isset($customRowId)
             <button type="button" data-remove-custom-row="{{ $customRowId }}" title="Remove this row"
@@ -51,10 +64,10 @@
                data-rate="{{ $rateKey }}"
                data-mode="dollar"
                @if($pnlKey ?? null) data-pnl-input="{{ $pnlKey }}" @else data-line-input="{{ $lineKey }}" @endif
-               class="pj-rate-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+               class="pj-rate-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs {{ $rowColorClass ?? 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
     @else
         <span @if($pnlKey ?? null) data-pnl="{{ $pnlKey }}" @else data-line="{{ $lineKey }}" @endif
-              class="text-right text-ink dark:text-slate-100">{{ number_format($value, 2) }}</span>
+              class="text-right {{ $rowColorClass ?? 'text-ink dark:text-slate-100' }}">{{ number_format($value, 2) }}</span>
     @endif
     <span data-rate-pct="{{ $rateKey }}" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ number_format($ratePct, 2) }}%</span>
 </div>

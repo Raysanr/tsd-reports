@@ -35,7 +35,7 @@ class ExpectedIncomeCalculator
     public const SELLING_COST_ROWS = [
         'advertising_cost'      => 'Advertising Cost',
         'ads_vat'                => 'Ads VAT',
-        'ai_expense'             => 'AI Expense',
+        'ai_expense'             => 'Projected Botcake AI Expense',
         'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
         'product_research'       => 'Product Research',
@@ -159,6 +159,7 @@ class ExpectedIncomeCalculator
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $roas               = (float) ($row['roas'] ?? 0);
+        $standardCostPerMessage = (float) ($row['standard_cost_per_message'] ?? 0);
         $actualCostPerLead  = (float) ($row['actual_cost_per_lead'] ?? 0);
         $leads              = (float) ($row['number_of_leads'] ?? 0);
         $orders             = (float) ($row['number_of_orders'] ?? 0);
@@ -183,10 +184,17 @@ class ExpectedIncomeCalculator
             ->mapWithKeys(fn ($key) => [$key => (float) ($row[$key] ?? 0)]);
         $totalOperatingCosts = $operatingLines->sum();
 
-        $netIncome = $grossProfit - $totalSellingCosts - $totalOperatingCosts;
+        // Explicit request, 2026-09-28 (real template screenshot): a
+        // subtotal between Total Selling Costs and Operating Costs —
+        // Gross Profit minus Selling & Marketing costs only, before
+        // Operating Costs are subtracted.
+        $incomeBeforeOpex = $grossProfit - $totalSellingCosts;
+
+        $netIncome = $incomeBeforeOpex - $totalOperatingCosts;
 
         return [
             'roas' => $roas,
+            'standard_cost_per_message' => $standardCostPerMessage,
             'actual_cost_per_lead' => $actualCostPerLead,
             'number_of_leads' => $leads,
             'conversion_rate' => $conversionRate,
@@ -210,6 +218,8 @@ class ExpectedIncomeCalculator
             'selling_lines' => $sellingLines,
             'total_selling_costs' => $totalSellingCosts,
             'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
+            'income_before_opex' => $incomeBeforeOpex,
+            'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
             'operating_lines' => $operatingLines,
             'total_operating_costs' => $totalOperatingCosts,
             'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
@@ -273,6 +283,7 @@ class ExpectedIncomeCalculator
         if ($rowCount > 0) {
             $perRow = array_map(fn ($row) => self::derive($row, $sellingKeys, $operatingKeys), $rows);
             $summed['roas'] = array_sum(array_column($perRow, 'roas')) / $rowCount;
+            $summed['standard_cost_per_message'] = array_sum(array_column($perRow, 'standard_cost_per_message')) / $rowCount;
             $summed['actual_cost_per_lead'] = array_sum(array_column($perRow, 'actual_cost_per_lead')) / $rowCount;
         }
 

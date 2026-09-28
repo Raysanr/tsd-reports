@@ -32,7 +32,8 @@
 
     @foreach([
         ['key' => 'roas', 'label' => 'ROAS', 'money' => true],
-        ['key' => 'actual_cost_per_lead', 'label' => 'Actual Cost Per Lead', 'money' => true],
+        ['key' => 'standard_cost_per_message', 'label' => 'Standard Cost Per Message', 'money' => true],
+        ['key' => 'actual_cost_per_lead', 'label' => 'Actual Cost Per Message', 'money' => true],
         ['key' => 'number_of_leads', 'label' => 'Number of Leads', 'int' => true],
     ] as $col)
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
@@ -82,33 +83,33 @@
         <span class="text-right text-ink-muted dark:text-slate-500 text-xs">100.00%</span>
     </div>
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">Cancelled</span>
-        <span data-out="cancelled" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['cancelled']) }}</span>
+        <span class="text-red-600 dark:text-red-400">Cancelled</span>
+        <span data-out="cancelled" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['cancelled']) }}</span>
         <span class="text-right text-ink-muted dark:text-slate-500 text-xs">5.00%</span>
     </div>
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">Projected Returns</span>
-        <span data-out="returns" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['returns']) }}</span>
+        <span class="text-red-600 dark:text-red-400">Projected Returns</span>
+        <span data-out="returns" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['returns']) }}</span>
         <span class="text-right text-ink-muted dark:text-slate-500 text-xs">25.00%</span>
     </div>
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">Projected Delivered</span>
-        <span data-out="delivered" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['delivered']) }}</span>
+        <span class="text-red-600 dark:text-red-400">Projected Delivered</span>
+        <span data-out="delivered" class="text-right text-red-600 dark:text-red-400">{{ $fmtMoney($d['delivered']) }}</span>
         <span class="text-right text-ink-muted dark:text-slate-500 text-xs">70.00%</span>
     </div>
 
     @foreach([
-        ['key' => 'tax_allocation', 'label' => 'Tax Allocation'],
+        ['key' => 'tax_allocation', 'label' => 'Tax Allocation', 'blue' => true],
         ['key' => 'product_cost', 'label' => 'Product Cost'],
     ] as $col)
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">{{ $col['label'] }}</span>
+        <span class="{{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
         @if($editable ?? false)
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
                    data-field="{{ $col['key'] }}" data-money="1"
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         @else
-            <span data-out="{{ $col['key'] }}" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d[$col['key']]) }}</span>
+            <span data-out="{{ $col['key'] }}" class="text-right {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
         @endif
         <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
     </div>
@@ -154,17 +155,27 @@
         <span data-out="total_selling_costs_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['total_selling_costs_pct']) }}</span>
     </div>
 
+    {{-- Income Before OPEX — explicit request, 2026-09-28 (real template
+         screenshot): Gross Profit minus Selling & Marketing costs only,
+         before Operating Costs are subtracted. --}}
+    <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 font-bold">
+        <span class="text-ink dark:text-slate-100">Income Before OPEX</span>
+        <span data-out="income_before_opex" class="text-right {{ $d['income_before_opex'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d['income_before_opex']) }}</span>
+        <span data-out="income_before_opex_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['income_before_opex_pct']) }}</span>
+    </div>
+
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Operating Costs</div>
     @foreach($operatingRows as $key => $label)
     @php($isCustom = in_array($key, $customRowKeys ?? [], true))
+    @php($isBlue = in_array($key, ['geniusmakers_management_fee', 'hmo_expense'], true))
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
+        <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $label }}</span>
         @if($editable ?? false)
             <input type="text" inputmode="decimal" value="{{ number_format($d['operating_lines'][$key] ?? 0, 2) }}"
                    data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
         @else
-            <span data-out="{{ $key }}" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['operating_lines'][$key] ?? 0) }}</span>
+            <span data-out="{{ $key }}" class="text-right {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d['operating_lines'][$key] ?? 0) }}</span>
         @endif
         <span data-out-pct="{{ $key }}" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $d['gross_sales'] > 0 ? $fmtPct(($d['operating_lines'][$key] ?? 0) / $d['gross_sales']) : '0.00%' }}</span>
     </div>

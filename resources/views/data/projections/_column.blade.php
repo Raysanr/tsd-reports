@@ -78,10 +78,10 @@
             <span class="text-right text-ink-muted dark:text-slate-500 text-xs">100.00%</span>
         </div>
 
-        @include('data.projections._pnl-row', ['label' => 'Cancelled & Waiting', 'pnlKey' => 'cancelled', 'rateKey' => 'cancelled', 'value' => $p['cancelled'], 'ratePct' => $rates['cancelled'] * 100, 'editable' => false])
-        @include('data.projections._pnl-row', ['label' => 'Returns', 'pnlKey' => 'returns', 'rateKey' => 'returns', 'value' => $p['returns'], 'ratePct' => $rates['returns'] * 100, 'editable' => false])
-        @include('data.projections._pnl-row', ['label' => 'Delivered', 'pnlKey' => 'delivered', 'rateKey' => 'delivered', 'value' => $p['delivered'], 'ratePct' => $rates['delivered'] * 100, 'editable' => false])
-        @include('data.projections._pnl-row', ['label' => 'Tax Allocation', 'pnlKey' => 'tax_allocation', 'rateKey' => 'tax_allocation', 'value' => $p['tax_allocation'], 'ratePct' => $rates['tax_allocation'] * 100, 'editable' => $editable])
+        @include('data.projections._pnl-row', ['label' => 'Cancelled & Waiting', 'pnlKey' => 'cancelled', 'rateKey' => 'cancelled', 'value' => $p['cancelled'], 'ratePct' => $rates['cancelled'] * 100, 'editable' => false, 'rowColor' => 'red'])
+        @include('data.projections._pnl-row', ['label' => 'Returns', 'pnlKey' => 'returns', 'rateKey' => 'returns', 'value' => $p['returns'], 'ratePct' => $rates['returns'] * 100, 'editable' => false, 'rowColor' => 'red'])
+        @include('data.projections._pnl-row', ['label' => 'Delivered', 'pnlKey' => 'delivered', 'rateKey' => 'delivered', 'value' => $p['delivered'], 'ratePct' => $rates['delivered'] * 100, 'editable' => false, 'rowColor' => 'red'])
+        @include('data.projections._pnl-row', ['label' => 'Tax Allocation', 'pnlKey' => 'tax_allocation', 'rateKey' => 'tax_allocation', 'value' => $p['tax_allocation'], 'ratePct' => $rates['tax_allocation'] * 100, 'editable' => $editable, 'rowColor' => 'blue'])
         @include('data.projections._pnl-row', ['label' => 'Product Cost', 'pnlKey' => 'product_cost', 'rateKey' => 'product_cost', 'value' => $p['product_cost'], 'ratePct' => $rates['product_cost'] * 100, 'editable' => $editable])
 
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">
@@ -143,6 +143,15 @@
             <span data-pnl="total_selling_costs_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ number_format($p['total_selling_costs_pct'] * 100, 2) }}%</span>
         </div>
 
+        {{-- Income Before OPEX — explicit request, 2026-09-28 (real
+             template screenshot): Gross Profit minus Selling & Marketing
+             costs only, before Operating Costs are subtracted. --}}
+        <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 font-bold">
+            <span class="text-ink dark:text-slate-100">Income Before OPEX</span>
+            <span data-pnl="income_before_opex" class="text-right {{ $p['income_before_opex'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ number_format($p['income_before_opex'], 2) }}</span>
+            <span data-pnl="income_before_opex_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ number_format($p['income_before_opex_pct'] * 100, 2) }}%</span>
+        </div>
+
         <div class="pt-3 pb-1 flex items-center justify-between">
             <span class="font-bold text-ink dark:text-slate-100">Operating Costs</span>
             @if($canAddCustomRow)
@@ -153,8 +162,11 @@
             @endif
         </div>
         @foreach(\App\Support\ProjectionCalculator::operatingCostRows() as $key => $rowLabel)
-            @php $isCustomFixed = $customRowsByKey->get($key)?->is_fixed ?? false; @endphp
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !$isCustomFixed, 'customRowId' => $customRowsByKey->get($key)?->id])
+            @php
+                $isCustomFixed = $customRowsByKey->get($key)?->is_fixed ?? false;
+                $rowColor = in_array($key, ['geniusmakers_management_fee', 'hmo_expense'], true) ? 'blue' : null;
+            @endphp
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !$isCustomFixed, 'customRowId' => $customRowsByKey->get($key)?->id, 'rowColor' => $rowColor])
         @endforeach
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Operating Costs</span>

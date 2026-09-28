@@ -352,6 +352,40 @@ class ProjectionsTest extends TestCase
         }
     }
 
+    /** Explicit request, 2026-09-28 (real template screenshot): a new
+     *  "Income Before OPEX" subtotal (Gross Profit minus Total Selling
+     *  Costs, before Operating Costs). Confirmed internally consistent —
+     *  Net Income = Income Before OPEX - Total Operating Costs — on EVERY
+     *  column, including the two Daily columns, whose own Fulfillment Fee
+     *  delta-adjustment (see ProjectionCalculator::forAllColumns()'s own
+     *  doc comment) has to flow through this new subtotal too, not just
+     *  Net Income directly, or the two would silently disagree with each
+     *  other on exactly those two columns. */
+    public function test_income_before_opex_is_consistent_with_net_income_on_every_column(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+        $response->assertOk();
+
+        $computed = $response->viewData('computed');
+
+        foreach ($computed as $entry) {
+            $pnl = $entry['pnl'];
+            $expectedNetIncome = $pnl['income_before_opex'] - $pnl['total_operating_costs'];
+            $this->assertEqualsWithDelta(
+                $expectedNetIncome, $pnl['net_income'], 0.01,
+                "Income Before OPEX minus Total Operating Costs should equal Net Income for {$entry['column']['key']}"
+            );
+
+            $expectedIncomeBeforeOpex = $pnl['gross_profit'] - $pnl['total_selling_costs'];
+            $this->assertEqualsWithDelta(
+                $expectedIncomeBeforeOpex, $pnl['income_before_opex'], 0.01,
+                "Gross Profit minus Total Selling Costs should equal Income Before OPEX for {$entry['column']['key']}"
+            );
+        }
+    }
+
     /** Regression, 2026-09-23: "if i edit this like the tsa is 8 why the
      *  other individual tsa is not changing" — a follow-up sheet audit
      *  confirmed Individual TSA Monthly's own ÷6 genuinely tracks its own

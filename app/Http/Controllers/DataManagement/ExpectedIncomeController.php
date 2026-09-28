@@ -212,7 +212,8 @@ class ExpectedIncomeController extends Controller
     public function update(Request $request, Product $product, string $date)
     {
         $data = $request->validate([
-            'roas'                 => ['sometimes', 'numeric', 'min:0'],
+            'roas'                       => ['sometimes', 'numeric', 'min:0'],
+            'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
             'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
             'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
             'number_of_orders'     => ['sometimes', 'integer', 'min:0'],

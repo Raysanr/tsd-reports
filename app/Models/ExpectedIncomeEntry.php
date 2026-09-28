@@ -13,7 +13,7 @@ class ExpectedIncomeEntry extends Model
 {
     protected $fillable = [
         'product_id', 'entry_date',
-        'roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
+        'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
         'tax_allocation', 'product_cost',
         'advertising_cost', 'ads_vat', 'ai_expense', 'ad_account_rental_fee', 'shipping_fee', 'product_research',
         'salaries', 'communication_allowance', 'thirteenth_month_allowance', 'sil', 'government_benefits',
@@ -25,6 +25,7 @@ class ExpectedIncomeEntry extends Model
     protected $casts = [
         'entry_date'           => 'date',
         'roas'                 => 'float',
+        'standard_cost_per_message' => 'float',
         'actual_cost_per_lead' => 'float',
         'number_of_leads'      => 'integer',
         'number_of_orders'     => 'integer',

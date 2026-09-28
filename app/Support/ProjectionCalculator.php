@@ -146,7 +146,7 @@ class ProjectionCalculator
         // other Selling And Marketing row.
         'advertising_cost'      => 'Advertising Cost',
         'ads_vat'                => 'Ads VAT',
-        'ai_expense'             => 'AI Expense',
+        'ai_expense'             => 'Projected Botcake AI Expense',
         'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
         'cod_fee'                => 'COD Fee',
@@ -394,6 +394,7 @@ class ProjectionCalculator
         $totalSellingCosts = $a['total_selling_costs'] + $b['total_selling_costs'];
         $totalOperatingCosts = $a['total_operating_costs'] + $b['total_operating_costs'];
         $grossProfit = $a['gross_profit'] + $b['gross_profit'];
+        $incomeBeforeOpex = ($a['income_before_opex'] ?? 0) + ($b['income_before_opex'] ?? 0);
         $netIncome = $a['net_income'] + $b['net_income'];
 
         return [
@@ -410,6 +411,8 @@ class ProjectionCalculator
                 ->mapWithKeys(fn ($key) => [$key => ($a['selling_lines'][$key] ?? 0) + ($b['selling_lines'][$key] ?? 0)]),
             'total_selling_costs' => $totalSellingCosts,
             'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
+            'income_before_opex' => $incomeBeforeOpex,
+            'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
             'operating_lines' => collect(array_keys(self::operatingCostRows()))
                 ->mapWithKeys(fn ($key) => [$key => ($a['operating_lines'][$key] ?? 0) + ($b['operating_lines'][$key] ?? 0)]),
             'total_operating_costs' => $totalOperatingCosts,
@@ -453,7 +456,11 @@ class ProjectionCalculator
             ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)]);
         $totalOperatingCosts = $operatingLines->sum();
 
-        $netIncome = $grossProfit - $totalSellingCosts - $totalOperatingCosts;
+        // Income Before OPEX — explicit request, 2026-09-28 (real template
+        // screenshot): Gross Profit minus Selling & Marketing costs only,
+        // before Operating Costs are subtracted.
+        $incomeBeforeOpex = $grossProfit - $totalSellingCosts;
+        $netIncome = $incomeBeforeOpex - $totalOperatingCosts;
 
         return [
             'orders' => $orders,
@@ -468,6 +475,8 @@ class ProjectionCalculator
             'selling_lines' => $sellingLines,
             'total_selling_costs' => $totalSellingCosts,
             'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
+            'income_before_opex' => $incomeBeforeOpex,
+            'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
             'operating_lines' => $operatingLines,
             'total_operating_costs' => $totalOperatingCosts,
             'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
@@ -499,6 +508,8 @@ class ProjectionCalculator
             'selling_lines' => $pnl['selling_lines']->map(fn ($v) => $v * $factor),
             'total_selling_costs' => $pnl['total_selling_costs'] * $factor,
             'total_selling_costs_pct' => $pnl['total_selling_costs_pct'],
+            'income_before_opex' => $pnl['income_before_opex'] * $factor,
+            'income_before_opex_pct' => $pnl['income_before_opex_pct'],
             'operating_lines' => $pnl['operating_lines']->map(fn ($v) => $v * $factor),
             'total_operating_costs' => $pnl['total_operating_costs'] * $factor,
             'total_operating_costs_pct' => $pnl['total_operating_costs_pct'],
@@ -561,6 +572,14 @@ class ProjectionCalculator
                     $pnl['selling_lines'] = $pnl['selling_lines']->put('fulfillment_fee', $fulfillmentFee);
                     $pnl['total_selling_costs'] += $delta;
                     $pnl['total_selling_costs_pct'] = $pnl['gross_sales'] > 0 ? $pnl['total_selling_costs'] / $pnl['gross_sales'] : 0.0;
+                    // Income Before OPEX sits between Total Selling Costs
+                    // and Net Income in the same chain — the Fulfillment
+                    // Fee delta above has to flow through it too, or Net
+                    // Income (still Income Before OPEX - Total Operating
+                    // Costs, unchanged below) would silently disagree with
+                    // its own Income Before OPEX figure on this one column.
+                    $pnl['income_before_opex'] = ($pnl['income_before_opex'] ?? 0) - $delta;
+                    $pnl['income_before_opex_pct'] = $pnl['gross_sales'] > 0 ? $pnl['income_before_opex'] / $pnl['gross_sales'] : 0.0;
                     $pnl['net_income'] -= $delta;
                     $pnl['net_income_pct'] = $pnl['gross_sales'] > 0 ? $pnl['net_income'] / $pnl['gross_sales'] : 0.0;
                 }
