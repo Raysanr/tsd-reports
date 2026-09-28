@@ -35,7 +35,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3.75 8.25h16.5M4.5 5.25h15A1.5 1.5 0 0121 6.75v13.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 20.25V6.75a1.5 1.5 0 011.5-1.5z"/>
         </svg>
         <input type="text" inputmode="none" autocomplete="off" readonly data-role="range-display"
-               class="date-range-input w-56 cursor-pointer text-sm font-mono border border-line dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors">
+               class="date-range-input w-[23rem] cursor-pointer text-sm font-mono border border-line dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors">
     </div>
     <input type="hidden" name="{{ $fromName }}" value="{{ $fromValue }}" data-role="from-hidden">
     <input type="hidden" name="{{ $toName }}" value="{{ $toValue }}" data-role="to-hidden">
@@ -76,9 +76,10 @@
 // then the To day directly on it — same "picker" UX as Google/Stripe/etc
 // range pickers, since a literal mouse drag can't span two calendar pages).
 (function () {
+    const MONTH_ABBR = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May', 'June', 'July', 'Aug.', 'Sept.', 'Oct.', 'Nov.', 'Dec.'];
     function pad(n) { return String(n).padStart(2, '0'); }
     function toIso(date) { return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
-    function toDisplay(date) { return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}`; }
+    function toDisplay(date) { return `${MONTH_ABBR[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`; }
     function parseIso(str) {
         if (!str) return new Date();
         const [y, m, d] = str.split('-').map(Number);
