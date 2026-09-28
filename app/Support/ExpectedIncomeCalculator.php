@@ -41,7 +41,6 @@ class ExpectedIncomeCalculator
         'ai_expense'             => 'Projected Botcake AI Expense',
         'ad_account_rental_fee'  => 'Ad Account Rental Fee',
         'shipping_fee'           => 'Shipping Fee',
-        'product_research'       => 'Product Research',
     ];
 
     public const OPERATING_COST_ROWS = [
@@ -50,6 +49,9 @@ class ExpectedIncomeCalculator
         'thirteenth_month_allowance'  => '13th Month Allowance',
         'sil'                         => 'SIL',
         'government_benefits'         => 'Government Benefits',
+        // Moved here from Selling & Marketing (explicit request, 2026-09-28,
+        // real template screenshot) — sits right after Government Benefits.
+        'product_research'            => 'Product Research',
         'miscellaneous_expenses'      => 'Miscellaneous expenses',
         'magic_fund'                  => 'Magic Fund',
         'company_assets'              => 'Company Assets',
