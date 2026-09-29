@@ -26,8 +26,10 @@ use Illuminate\Http\Request;
  *   2. A bottom per-TSA cost-allocation table (CostBreakdownTsaEntry, keyed
  *      to the app's REAL TsaShift roster) — Days is the only field that
  *      drives a real formula (her own % share of every shared cost pool);
- *      base_salary/tsa_bonus are manual but don't feed anything past their
- *      own row. The 21 shared monthly pools (CostBreakdownPool) split
+ *      base_salary is manual (her real full monthly total — no separate
+ *      bonus field, explicit follow-up 2026-09-29: "there's no bonus on
+ *      the sheets") but doesn't feed anything past its own row. The 21
+ *      shared monthly pools (CostBreakdownPool) split
  *      across every TSA by her own % share — see CostBreakdownCalculator's
  *      own doc comment for the full formula chain and the real sheet's own
  *      genuine off-by-one formula bug this app deliberately does NOT
@@ -103,36 +105,40 @@ class CostBreakdownController extends Controller
         ]);
     }
 
-    /** TOTAL SALARY OF TSD — sum of every real TSA's own monthly total
-     *  (base_salary + tsa_bonus), confirmed against the sheet's own raw
-     *  CSV to exclude the CEO/Sales Director/Telesales Manager/QA
-     *  Specialist/Junior AI Engineer/Supervisor rows entirely — those are
-     *  shown on the same page for context, but this one figure is
-     *  Telesales-ASSOCIATE-only, same "TSD" (Telesales Department staff,
-     *  not the wider leadership/support team) framing the sheet's own
-     *  label implies. */
+    /** TOTAL SALARY OF TSD — sum of every real TSA's own base_salary
+     *  (already her real full monthly total — explicit follow-up,
+     *  2026-09-29: "there's no bonus on the sheets"), confirmed against
+     *  the sheet's own raw CSV to exclude the CEO/Sales Director/Telesales
+     *  Manager/QA Specialist/Junior AI Engineer/Supervisor rows entirely —
+     *  those are shown on the same page for context, but this one figure
+     *  is Telesales-ASSOCIATE-only, same "TSD" (Telesales Department
+     *  staff, not the wider leadership/support team) framing the sheet's
+     *  own label implies. */
     private function totalSalaryOfTsd($tsaRows): float
     {
-        return $tsaRows->sum(fn ($row) => CostBreakdownCalculator::tsaMonthlyTotal($row['entry']->base_salary, $row['entry']->tsa_bonus));
+        return $tsaRows->sum(fn ($row) => $row['entry']->base_salary);
     }
 
     /** Auto-save for one role's own field (explicit request, 2026-09-29,
      *  same debounced-PATCH-per-field convention as every other page in
-     *  this module). */
+     *  this module). shared_bonus/shared_bonus_span are read-only from
+     *  this endpoint's own perspective (purely a display figure — see
+     *  add_shared_bonus_span_to_cost_breakdown_roles_table's own doc
+     *  comment — this app has no UI control for either, so they're
+     *  intentionally absent from the validated fields below). */
     public function updateRole(Request $request, CostBreakdownRole $costBreakdownRole)
     {
         $data = $request->validate([
             'label' => ['sometimes', 'string', 'max:255'],
             'person_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
-            'shared_bonus' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
 
         $costBreakdownRole->update($data);
 
         return response()->json([
             'success' => true,
-            'total' => CostBreakdownCalculator::roleTotal($costBreakdownRole->base_salary, $costBreakdownRole->shared_bonus),
+            'total' => $costBreakdownRole->base_salary,
         ]);
     }
 
@@ -156,15 +162,16 @@ class CostBreakdownController extends Controller
         ]);
     }
 
-    /** Auto-save for one TSA's own Days/base_salary/tsa_bonus. Days is the
-     *  only field here that changes every OTHER TSA's own % share too
-     *  (see CostBreakdownCalculator's own doc comment) — same "shared
-     *  total, every row recomputed" reasoning as updatePool() above. */
+    /** Auto-save for one TSA's own Days/base_salary — base_salary is her
+     *  real full monthly total already (no separate bonus field, see
+     *  CostBreakdownTsaEntry's own doc comment). Days is the only field
+     *  here that changes every OTHER TSA's own % share too (see
+     *  CostBreakdownCalculator's own doc comment) — same "shared total,
+     *  every row recomputed" reasoning as updatePool() above. */
     public function updateTsaEntry(Request $request, TsaShift $tsaShift)
     {
         $data = $request->validate([
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
-            'tsa_bonus' => ['sometimes', 'numeric', 'min:0'],
             'days' => ['sometimes', 'integer', 'min:0'],
         ]);
 
@@ -175,8 +182,7 @@ class CostBreakdownController extends Controller
 
         return response()->json([
             'success' => true,
-            'monthlyTotal' => CostBreakdownCalculator::tsaMonthlyTotal($entry->base_salary, $entry->tsa_bonus),
-            'dailyRate' => CostBreakdownCalculator::tsaDailyRate(CostBreakdownCalculator::tsaMonthlyTotal($entry->base_salary, $entry->tsa_bonus)),
+            'dailyRate' => CostBreakdownCalculator::tsaDailyRate($entry->base_salary),
             'recomputed' => $this->recomputeAllTsaRows(),
         ]);
     }

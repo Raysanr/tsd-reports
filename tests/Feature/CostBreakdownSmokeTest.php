@@ -70,8 +70,11 @@ class CostBreakdownSmokeTest extends TestCase
 
         $response->assertOk();
         $this->assertEquals(50000, $ceo->fresh()->base_salary);
-        // 50,000 + her own existing 10,341.13 bonus.
-        $response->assertJsonPath('total', fn ($v) => abs($v - 60341.13) < 0.01);
+        // Base Salary IS the role's own Total now (no separate bonus field
+        // anywhere — explicit follow-up, 2026-09-29: "there's no bonus on
+        // the sheets"). The CEO's own 10,341.13 reference figure is purely
+        // informational and never added in.
+        $response->assertJsonPath('total', fn ($v) => abs($v - 50000) < 0.01);
     }
 
     public function test_updating_a_pools_amount_recomputes_every_tsas_own_row(): void
@@ -133,20 +136,20 @@ class CostBreakdownSmokeTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
 
+        // Base Salary IS her real full monthly total directly (no separate
+        // bonus field anywhere — explicit follow-up, 2026-09-29).
         $response = $this->actingAs($admin)->patchJson(
             route('data.cost-breakdown.update-tsa-entry', $tsa),
-            ['base_salary' => 19500, 'tsa_bonus' => 20888.75]
+            ['base_salary' => 40388.75]
         );
 
         $response->assertOk();
         $this->assertDatabaseHas('cost_breakdown_tsa_entries', [
             'tsa_id' => $tsa->id,
-            'base_salary' => 19500,
-            'tsa_bonus' => 20888.75,
+            'base_salary' => 40388.75,
         ]);
-        // 19,500 + 20,888.75 = 40,388.75 monthly, ÷ 24 = 1,682.86 daily —
-        // matching the real sheet's own numbers exactly.
-        $response->assertJsonPath('monthlyTotal', fn ($v) => abs($v - 40388.75) < 0.01);
+        // 40,388.75 ÷ 24 = 1,682.86 daily — matching the real sheet's own
+        // numbers exactly.
         $response->assertJsonPath('dailyRate', fn ($v) => abs($v - 1682.86) < 0.01);
     }
 

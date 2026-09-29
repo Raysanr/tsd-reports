@@ -104,30 +104,12 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(150.0, $row['total'], 0.01);
     }
 
-    public function test_role_total_adds_the_shared_bonus_when_present(): void
-    {
-        // CEO — confirmed against the sheet's own raw CSV export, the
-        // 10,341.13 bonus sits in the CEO's own row, not a neighboring one.
-        $this->assertEqualsWithDelta(54436.72, CostBreakdownCalculator::roleTotal(44095.59, 10341.13), 0.01);
-    }
-
-    public function test_role_total_is_just_the_base_salary_when_there_is_no_bonus(): void
-    {
-        // Sales Director — confirmed no bonus column value for this role.
-        $this->assertEqualsWithDelta(19998.00, CostBreakdownCalculator::roleTotal(19998.00, null), 0.01);
-    }
-
-    /** Every real TSA gets the exact same flat 20,888.75 bonus on top of
-     *  her own base salary, confirmed across every one of the 12 real
-     *  names in the sheet regardless of shift or base amount. */
-    public function test_tsa_monthly_total_matches_the_real_sheet(): void
-    {
-        $this->assertEqualsWithDelta(40388.75, CostBreakdownCalculator::tsaMonthlyTotal(19500.00, 20888.75), 0.01);
-        $this->assertEqualsWithDelta(38308.75, CostBreakdownCalculator::tsaMonthlyTotal(17420.00, 20888.75), 0.01);
-        $this->assertEqualsWithDelta(36488.75, CostBreakdownCalculator::tsaMonthlyTotal(15600.00, 20888.75), 0.01);
-    }
-
-    public function test_tsa_daily_rate_divides_the_monthly_total_by_24(): void
+    /** Base Salary is a TSA's real full monthly total directly (no
+     *  separate bonus field anywhere — explicit follow-up, 2026-09-29:
+     *  "there's no bonus on the sheets so it should no bonus in that") —
+     *  confirmed exact against the sheet's own real numbers for every one
+     *  of the 12 real names, regardless of shift or amount. */
+    public function test_tsa_daily_rate_divides_the_base_salary_by_24(): void
     {
         $this->assertEqualsWithDelta(1682.86, CostBreakdownCalculator::tsaDailyRate(40388.75), 0.01);
         $this->assertEqualsWithDelta(1596.20, CostBreakdownCalculator::tsaDailyRate(38308.75), 0.01);

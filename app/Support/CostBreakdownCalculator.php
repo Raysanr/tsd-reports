@@ -78,32 +78,20 @@ class CostBreakdownCalculator
         return $row;
     }
 
-    /** One role's own real monthly total on the top salary section —
-     *  base_salary + shared_bonus (bonus is nullable/0 for a role that
-     *  doesn't get one, e.g. Sales Director/Telesales Manager/Junior AI
-     *  Engineer — confirmed against the sheet's own raw CSV, the bonus
-     *  column is genuinely blank for those rows, not a shared value
-     *  inherited from a neighboring row). */
-    public static function roleTotal(float $baseSalary, ?float $sharedBonus): float
+    /** A real TSA's own daily rate — her own base_salary ÷ 24 working days
+     *  — confirmed exact against the sheet's own real numbers (e.g. Julie
+     *  Francisco: 40,388.75 ÷ 24 = 1,682.86 daily, matching to the cent).
+     *  base_salary here already IS her real full monthly total (explicit
+     *  follow-up, 2026-09-29: "there's no bonus on the sheets so it should
+     *  no bonus in that" — Julie's own base_salary is typed as 40,388.75
+     *  directly, not built from a separate 19,500 + 20,888.75 bonus split
+     *  anywhere in this app). 24, not `days` from the cost-allocation
+     *  table below — this divisor is a fixed working-days-per-month
+     *  assumption for the DAILY RATE display only, completely independent
+     *  of how many days she actually logged this month for the
+     *  shared-pool split above. */
+    public static function tsaDailyRate(float $baseSalary): float
     {
-        return $baseSalary + ($sharedBonus ?? 0.0);
-    }
-
-    /** A real TSA's own monthly total (base_salary + tsa_bonus) and daily
-     *  rate (that total ÷ 24 working days) — confirmed exact against the
-     *  sheet's own real numbers (e.g. Julie Francisco: 19,500.00 +
-     *  20,888.75 = 40,388.75 total, ÷ 24 = 1,682.86 daily, matching to the
-     *  cent). 24, not `days` from the cost-allocation table below — this
-     *  divisor is a fixed working-days-per-month assumption for the DAILY
-     *  RATE display only, completely independent of how many days she
-     *  actually logged this month for the shared-pool split above. */
-    public static function tsaMonthlyTotal(float $baseSalary, float $tsaBonus): float
-    {
-        return $baseSalary + $tsaBonus;
-    }
-
-    public static function tsaDailyRate(float $monthlyTotal): float
-    {
-        return $monthlyTotal / 24;
+        return $baseSalary / 24;
     }
 }

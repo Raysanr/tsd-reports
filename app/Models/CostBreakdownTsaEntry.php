@@ -7,37 +7,35 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /** One real TSA's own Cost Breakdown payroll numbers — see
  *  create_cost_breakdown_tsa_entries_table's own doc comment for why
- *  base_salary/tsa_bonus are manual but `days` drives a real formula. */
+ *  base_salary is manual but `days` drives a real formula. base_salary is
+ *  her REAL full monthly total (explicit follow-up, 2026-09-29: "there's
+ *  no bonus on the sheets so it should no bonus in that" — see
+ *  drop_tsa_bonus_from_cost_breakdown_tsa_entries_table's own doc
+ *  comment), not a base figure with a separate bonus added elsewhere. */
 class CostBreakdownTsaEntry extends Model
 {
-    protected $fillable = ['tsa_id', 'base_salary', 'tsa_bonus', 'days'];
+    protected $fillable = ['tsa_id', 'base_salary', 'days'];
 
     protected $casts = [
         'base_salary' => 'float',
-        'tsa_bonus' => 'float',
         'days' => 'integer',
     ];
 
-    /** Real base salaries confirmed against the sheet's own raw CSV, keyed
-     *  by tsa_key (matches TsaShift's own tsa_key column, not display_name
-     *  — the app's real roster's own stable identifier). Every real TSA
-     *  gets the exact same flat 20,888.75 tsa_bonus, confirmed across
-     *  every one of the sheet's 12 named TSAs regardless of shift or base
-     *  amount — see CostBreakdownCalculator's own doc comment. Only the 6
-     *  TSAs currently in this app's own live roster have a real starting
-     *  base_salary here; ensureSeeded() below is a no-op for anyone not
+    /** Real full monthly totals confirmed against the sheet's own raw CSV
+     *  export, keyed by tsa_key (matches TsaShift's own tsa_key column,
+     *  not display_name — the app's real roster's own stable identifier).
+     *  Only the 6 TSAs currently in this app's own live roster have a real
+     *  starting value here; ensureSeeded() below is a no-op for anyone not
      *  listed (a TSA added later starts at 0/manual entry, same as any
      *  other page in this module). */
     public const SEED_BASE_SALARIES = [
-        'Julie' => 19500.00,
-        'Joana' => 17420.00,
-        'Marisol' => 19500.00,
-        'Gemma' => 19500.00,
-        'Mariel' => 19987.50,
-        'Kathleen' => 19987.50,
+        'Julie' => 40388.75,
+        'Joana' => 38308.75,
+        'Marisol' => 40388.75,
+        'Gemma' => 40388.75,
+        'Mariel' => 40876.25,
+        'Kathleen' => 40876.25,
     ];
-
-    public const TSA_BONUS = 20888.75;
 
     /** Self-heals an empty table the same way CostBreakdownRole::
      *  ensureSeeded() does. Seeds only the TSAs already in the real
@@ -58,7 +56,7 @@ class CostBreakdownTsaEntry extends Model
 
             static::firstOrCreate(
                 ['tsa_id' => $tsa->id],
-                ['base_salary' => $baseSalary, 'tsa_bonus' => self::TSA_BONUS, 'days' => 30]
+                ['base_salary' => $baseSalary, 'days' => 30]
             );
         }
     }
