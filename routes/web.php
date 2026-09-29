@@ -338,5 +338,27 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // key/value instead — same "key/value PATCH, not a named field per
         // row" convention as ProjectionController::updateRates().
         Route::patch('/expected-income/{product}/{date}/custom-row', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateCustomRow'])->name('expected-income.update-custom-row');
+
+        // Cost Breakdown (explicit request, 2026-09-29: "add new page in
+        // data management (COST BREAKDOWN)") — the top salary/org section
+        // (roles) and the bottom per-TSA cost-allocation table each get
+        // their own PATCH endpoint, same "one row/cell at a time,
+        // debounced auto-save" convention as every other page in this
+        // module. /roles/{costBreakdownRole} and /pools/{costBreakdownPool}
+        // both bind to real, pre-seeded rows (CostBreakdownRole::
+        // ensureSeeded()/CostBreakdownPool::ensureSeeded(), called from the
+        // controller's own index()) — unlike DSPPR/Expected Income's own
+        // cell routes, there's always a row to bind to here, so plain
+        // route-model binding works rather than an upsert-by-(product,date)
+        // pattern.
+        Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
+        Route::patch('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateRole'])->name('cost-breakdown.update-role');
+        Route::patch('/cost-breakdown/pools/{costBreakdownPool}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updatePool'])->name('cost-breakdown.update-pool');
+        // {tsaShift}, not {costBreakdownTsaEntry} — the view keys every
+        // input by the real TSA (tsa_id), never the entry row's own id,
+        // since a TSA with nothing typed yet has no CostBreakdownTsaEntry
+        // row at all; same upsert-by-real-key convention as DSPPR/Expected
+        // Income's own {product}/{date} routes.
+        Route::patch('/cost-breakdown/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateTsaEntry'])->name('cost-breakdown.update-tsa-entry');
     });
 });

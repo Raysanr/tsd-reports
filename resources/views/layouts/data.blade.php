@@ -111,6 +111,17 @@
             </svg>
             Expected Income
         </a>
+
+        {{-- Cost Breakdown, right next to Expected Income (explicit
+             request, 2026-09-29: "add new page in data management (COST
+             BREAKDOWN)"). --}}
+        <a href="{{ route('data.cost-breakdown') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.cost-breakdown*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Cost Breakdown
+        </a>
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
