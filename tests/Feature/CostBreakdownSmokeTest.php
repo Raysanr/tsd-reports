@@ -97,6 +97,35 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertSame(21, CostBreakdownPool::count());
     }
 
+    /** Regression test, 2026-09-29: a dev database that already had these
+     *  7 roles from before shared_bonus_span/team existed (or before their
+     *  own seed values changed) silently stayed stuck on the OLD values
+     *  forever — ensureSeeded()'s earlier "only touch an empty table"
+     *  version never re-synced an already-existing row. Confirms
+     *  ensureSeeded() now re-syncs those structural fields even when the
+     *  table is already populated, without touching base_salary (the one
+     *  field a real admin edit could be sitting in). */
+    public function test_ensure_seeded_resyncs_structural_fields_on_an_already_populated_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+
+        // Simulate the exact stale state found live: span/team reset to
+        // their old pre-fix values, and a real admin edit sitting in
+        // base_salary that must survive the resync untouched.
+        $ceo = CostBreakdownRole::where('label', 'CEO')->firstOrFail();
+        $ceo->update(['shared_bonus_span' => 1, 'base_salary' => 99999.99]);
+        $openingSupervisor = CostBreakdownRole::where('label', 'Telesales Supervisor (Opening Shift)')->firstOrFail();
+        $openingSupervisor->update(['team' => null]);
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $this->assertSame(3, $ceo->fresh()->shared_bonus_span);
+        $this->assertEquals(99999.99, $ceo->fresh()->base_salary);
+        $this->assertSame('Eyecare Team', $openingSupervisor->fresh()->team);
+    }
+
     public function test_updating_a_roles_field_persists_and_returns_its_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

@@ -53,14 +53,21 @@ class CostBreakdownPool extends Model
         ['key' => 'hmo_expense', 'label' => 'HMO Expense', 'amount' => 4642.75, 'sort_order' => 20],
     ];
 
+    /** Creates any missing pool (with its full seed values, amount
+     *  included) AND re-syncs label/sort_order on an ALREADY-EXISTING pool
+     *  on every call — same "only if empty" fragility CostBreakdownRole::
+     *  ensureSeeded() had, root-caused live, 2026-09-29, fixed here too.
+     *  amount is deliberately EXCLUDED from the re-sync (existing rows
+     *  only) — it's the one field this app's own UI actually lets someone
+     *  type a real edit into. */
     public static function ensureSeeded(): void
     {
-        if (static::query()->exists()) {
-            return;
-        }
-
         foreach (self::SEED_POOLS as $seed) {
-            static::firstOrCreate(['key' => $seed['key']], $seed);
+            $pool = static::firstOrCreate(['key' => $seed['key']], $seed);
+            $pool->fill(collect($seed)->except(['key', 'amount'])->all());
+            if ($pool->isDirty()) {
+                $pool->save();
+            }
         }
     }
 }

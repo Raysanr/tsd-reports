@@ -50,14 +50,27 @@ class CostBreakdownRole extends Model
         ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 6],
     ];
 
+    /** Creates any missing role (with its full seed values, base_salary
+     *  included) AND re-syncs every STRUCTURAL field (person_name/team/
+     *  shared_bonus/shared_bonus_span/sort_order) on an ALREADY-EXISTING
+     *  role on every call, not just when the table is first empty —
+     *  root-caused live, 2026-09-29: an earlier "only seed if empty"
+     *  version left a dev database's already-existing rows silently stuck
+     *  on old shared_bonus_span/team values (both 1/null) after this
+     *  class's own SEED_ROLES changed in later commits, since
+     *  firstOrCreate() never touches a row that already exists.
+     *  base_salary is deliberately EXCLUDED from the re-sync (existing
+     *  rows only) — it's the one field this app's own UI actually lets
+     *  someone type a real edit into, so overwriting it on every page load
+     *  would silently discard that edit the next time this runs. */
     public static function ensureSeeded(): void
     {
-        if (static::query()->exists()) {
-            return;
-        }
-
         foreach (self::SEED_ROLES as $seed) {
-            static::firstOrCreate(['label' => $seed['label']], $seed);
+            $role = static::firstOrCreate(['label' => $seed['label']], $seed);
+            $role->fill(collect($seed)->except(['label', 'base_salary'])->all());
+            if ($role->isDirty()) {
+                $role->save();
+            }
         }
     }
 }
