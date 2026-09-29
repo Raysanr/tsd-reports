@@ -242,22 +242,28 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_updating_a_tsas_salary_fields_persists_and_returns_totals(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
         $tsa = TsaShift::first();
 
-        // Base Salary IS her real full monthly total directly (no separate
-        // bonus field anywhere — explicit follow-up, 2026-09-29).
+        // base_salary is her RAW base only (explicit reversal, 2026-09-30,
+        // from the user's own formula-bar screenshot: "=D5+D9+D12+C13") —
+        // her own returned 'total' is base_salary + every applicable
+        // overhead ref (executive + support + her own team's Supervisor),
+        // confirmed exact: 19,500.00 + (10,341.13 + 4,833.33 + 5,714.29) =
+        // 40,388.75, matching Julie Francisco's own real sheet total.
         $response = $this->actingAs($admin)->patchJson(
             route('data.cost-breakdown.update-tsa-entry', $tsa),
-            ['base_salary' => 40388.75]
+            ['base_salary' => 19500.00]
         );
 
         $response->assertOk();
         $this->assertDatabaseHas('cost_breakdown_tsa_entries', [
             'tsa_id' => $tsa->id,
-            'base_salary' => 40388.75,
+            'base_salary' => 19500.00,
         ]);
-        // 40,388.75 ÷ 24 = 1,682.86 daily — matching the real sheet's own
-        // numbers exactly.
+        $response->assertJsonPath('total', fn ($v) => abs($v - 40388.75) < 0.01);
+        // Daily rate divides her own TOTAL (not her raw base) by 24 —
+        // 40,388.75 ÷ 24 = 1,682.86, matching the real sheet's own numbers.
         $response->assertJsonPath('dailyRate', fn ($v) => abs($v - 1682.86) < 0.01);
     }
 

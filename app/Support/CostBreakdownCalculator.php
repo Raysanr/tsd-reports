@@ -17,10 +17,11 @@ namespace App\Support;
  * NOT replicate that bug — every column here always uses its own correct
  * pool):
  *
- * - Each TSA's Days is the only manually-typed number that feeds a real
- *   formula chain here (base_salary/tsa_bonus are manual too, but don't
- *   drive anything past their own row — see CostBreakdownTsaEntry's own
- *   doc comment). Her % share = her own Days ÷ SUM of every TSA's Days —
+ * - Each TSA's Days is the only manually-typed number that feeds this
+ *   file's own per-TSA COST-ALLOCATION table below (her own base_salary
+ *   feeds a separate formula chain instead — her own salary-section TOTAL,
+ *   see tsaTotal() below — and does not affect this cost-allocation
+ *   table at all). Her % share = her own Days ÷ SUM of every TSA's Days —
  *   confirmed against the sheet's own uniform 30-days/8.33% starting state
  *   (30 ÷ (30×12) = 8.33% exactly). A TSA who worked fewer days this month
  *   gets a smaller % share of every shared cost pool below, and everyone
@@ -78,21 +79,34 @@ class CostBreakdownCalculator
         return $row;
     }
 
-    /** A real TSA's own daily rate — her own base_salary ÷ 24 working days
-     *  — confirmed exact against the sheet's own real numbers (e.g. Julie
-     *  Francisco: 40,388.75 ÷ 24 = 1,682.86 daily, matching to the cent).
-     *  base_salary here already IS her real full monthly total (explicit
-     *  follow-up, 2026-09-29: "there's no bonus on the sheets so it should
-     *  no bonus in that" — Julie's own base_salary is typed as 40,388.75
-     *  directly, not built from a separate 19,500 + 20,888.75 bonus split
-     *  anywhere in this app). 24, not `days` from the cost-allocation
-     *  table below — this divisor is a fixed working-days-per-month
-     *  assumption for the DAILY RATE display only, completely independent
-     *  of how many days she actually logged this month for the
-     *  shared-pool split above. */
-    public static function tsaDailyRate(float $baseSalary): float
+    /** A real TSA's own daily rate — her own TOTAL (see tsaTotal() below,
+     *  NOT her own raw base_salary alone) ÷ 24 working days — confirmed
+     *  exact against the sheet's own real numbers (e.g. Julie Francisco:
+     *  40,388.75 ÷ 24 = 1,682.86 daily, matching to the cent). 24, not
+     *  `days` from the cost-allocation table below — this divisor is a
+     *  fixed working-days-per-month assumption for the DAILY RATE display
+     *  only, completely independent of how many days she actually logged
+     *  this month for the shared-pool split above. */
+    public static function tsaDailyRate(float $total): float
     {
-        return $baseSalary / 24;
+        return $total / 24;
+    }
+
+    /** One real TSA's own full monthly TOTAL — confirmed a LIVE FORMULA in
+     *  the real sheet from the user's own formula-bar screenshot,
+     *  2026-09-30: "=D5+D9+D12+C13" for Julie Francisco — her own row's
+     *  total is the SUM of every overhead group's own per-TSA reference
+     *  figure (executive + support + her OWN team's Supervisor, all 3
+     *  from overheadPerTsa() above) PLUS her own raw base_salary. This
+     *  REVERSES the earlier 2026-09-29 conclusion that base_salary alone
+     *  already was her real folded total with "no bonus" — that reading
+     *  was wrong; base_salary is her raw base ONLY, confirmed exact:
+     *  Julie 19,500.00 + (10,341.13 + 4,833.33 + 5,714.29) = 40,388.75.
+     *  $overheadRefs is every applicable group figure for her (just the 3
+     *  values, in any order — summed here). */
+    public static function tsaTotal(float $baseSalary, array $overheadRefs): float
+    {
+        return $baseSalary + array_sum($overheadRefs);
     }
 
     /** One overhead group's own per-TSA figure — confirmed a LIVE FORMULA

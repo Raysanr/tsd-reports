@@ -104,15 +104,30 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(150.0, $row['total'], 0.01);
     }
 
-    /** Base Salary is a TSA's real full monthly total directly (no
-     *  separate bonus field anywhere — explicit follow-up, 2026-09-29:
-     *  "there's no bonus on the sheets so it should no bonus in that") —
-     *  confirmed exact against the sheet's own real numbers for every one
-     *  of the 12 real names, regardless of shift or amount. */
-    public function test_tsa_daily_rate_divides_the_base_salary_by_24(): void
+    /** tsaDailyRate() takes a TSA's own TOTAL (see tsaTotal() below), not
+     *  her raw base_salary — confirmed exact against the sheet's own real
+     *  numbers for every one of the 12 real names, regardless of shift or
+     *  amount. */
+    public function test_tsa_daily_rate_divides_the_total_by_24(): void
     {
         $this->assertEqualsWithDelta(1682.86, CostBreakdownCalculator::tsaDailyRate(40388.75), 0.01);
         $this->assertEqualsWithDelta(1596.20, CostBreakdownCalculator::tsaDailyRate(38308.75), 0.01);
         $this->assertEqualsWithDelta(1520.36, CostBreakdownCalculator::tsaDailyRate(36488.75), 0.01);
+    }
+
+    /** A TSA's own TOTAL — confirmed a LIVE FORMULA from the user's own
+     *  formula-bar screenshot, 2026-09-30: "=D5+D9+D12+C13" for Julie
+     *  Francisco — her own raw base_salary (19,500.00) plus every
+     *  applicable overhead ref (executive 10,341.13 + support 4,833.33 +
+     *  her own team's Supervisor 5,714.29) = 40,388.75, matching the
+     *  sheet exactly. This REVERSES the earlier 2026-09-29 conclusion that
+     *  base_salary alone already was her real folded total — that reading
+     *  coincidentally matched the numbers because every TSA on the same
+     *  team adds the exact same combined overhead figure to her own base. */
+    public function test_tsa_total_sums_base_salary_and_every_overhead_ref(): void
+    {
+        $total = CostBreakdownCalculator::tsaTotal(19500.00, [10341.13, 4833.33, 5714.29]);
+
+        $this->assertEqualsWithDelta(40388.75, $total, 0.01);
     }
 }

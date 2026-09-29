@@ -25,11 +25,14 @@ use Illuminate\Http\Request;
  *
  *   2. A bottom per-TSA cost-allocation table (CostBreakdownTsaEntry, keyed
  *      to the app's REAL TsaShift roster) — Days is the only field that
- *      drives a real formula (her own % share of every shared cost pool);
- *      base_salary is manual (her real full monthly total — no separate
- *      bonus field, explicit follow-up 2026-09-29: "there's no bonus on
- *      the sheets") but doesn't feed anything past its own row. The 21
- *      shared monthly pools (CostBreakdownPool) split
+ *      drives a real formula here (her own % share of every shared cost
+ *      pool); base_salary is manual (her RAW base salary only — her own
+ *      displayed TOTAL in the top salary section is a separate LIVE
+ *      FORMULA, base_salary + her applicable overhead refs, confirmed from
+ *      the user's own formula-bar screenshot 2026-09-30 — see
+ *      CostBreakdownCalculator::tsaTotal()'s own doc comment) but
+ *      base_salary doesn't feed this bottom table's own formulas at all.
+ *      The 21 shared monthly pools (CostBreakdownPool) split
  *      across every TSA by her own % share — see CostBreakdownCalculator's
  *      own doc comment for the full formula chain and the real sheet's own
  *      genuine off-by-one formula bug this app deliberately does NOT
@@ -80,17 +83,8 @@ class CostBreakdownController extends Controller
         // 'total', 6 for 'team' — see
         // CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS and
         // CostBreakdownCalculator::overheadPerTsa()'s own doc comment.
-        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
-        $overheadByRoleId = $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
-            if (!$role->overhead_group) {
-                return [$role->id => null];
-            }
-
-            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
-
-            return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
-        });
+        $overheadByRoleId = $this->overheadByRoleId($roles);
+        $overheadRefsByTeam = $this->overheadRefsByTeam($roles, $overheadByRoleId);
 
         // Salary section render list (explicit follow-up, 2026-09-29:
         // "the supervisor of opening and closing is in the rows of their
@@ -110,9 +104,10 @@ class CostBreakdownController extends Controller
         // EARLIER role's own rowspan renders no "Overhead / TSA" cell of
         // its own at all — tracked with a running counter as roles are
         // walked in order.
+        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
         $rowspanRemaining = 0;
         $seenGroups = [];
-        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, &$rowspanRemaining, &$seenGroups) {
+        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, $overheadRefsByTeam, &$rowspanRemaining, &$seenGroups) {
             $coveredByRowspan = $rowspanRemaining > 0;
             $rowspan = 0;
 
@@ -133,9 +128,15 @@ class CostBreakdownController extends Controller
             ]]);
 
             if ($role->team) {
+                $overheadRefs = $overheadRefsByTeam->get($role->team) ?? [];
                 $rows = $rows->concat(
                     $tsaRows->filter(fn ($row) => $row['tsa']->team === $role->team)
-                        ->map(fn ($row) => ['type' => 'tsa', 'tsa' => $row['tsa'], 'entry' => $row['entry']])
+                        ->map(fn ($row) => [
+                            'type' => 'tsa',
+                            'tsa' => $row['tsa'],
+                            'entry' => $row['entry'],
+                            'total' => CostBreakdownCalculator::tsaTotal($row['entry']->base_salary, $overheadRefs),
+                        ])
                 );
             }
 
@@ -176,7 +177,7 @@ class CostBreakdownController extends Controller
         // (see totalSalaryOfTsd() below), always in sync with the top
         // section rather than a second, independently-typed figure that
         // could drift from it.
-        $totalSalaryOfTsd = $this->totalSalaryOfTsd($tsaRows);
+        $totalSalaryOfTsd = $this->totalSalaryOfTsd($salaryRows);
         $poolTotalsRow = $pools->reduce(function ($carry, CostBreakdownPool $pool) {
             $carry[$pool->key] = $pool->amount;
             return $carry;
@@ -196,18 +197,23 @@ class CostBreakdownController extends Controller
         ]);
     }
 
-    /** TOTAL SALARY OF TSD — sum of every real TSA's own base_salary
-     *  (already her real full monthly total — explicit follow-up,
-     *  2026-09-29: "there's no bonus on the sheets"), confirmed against
-     *  the sheet's own raw CSV to exclude the CEO/Sales Director/Telesales
-     *  Manager/QA Specialist/Junior AI Engineer/Supervisor rows entirely —
-     *  those are shown on the same page for context, but this one figure
-     *  is Telesales-ASSOCIATE-only, same "TSD" (Telesales Department
-     *  staff, not the wider leadership/support team) framing the sheet's
-     *  own label implies. */
-    private function totalSalaryOfTsd($tsaRows): float
+    /** TOTAL SALARY OF TSD — sum of every real TSA's own freshly-computed
+     *  TOTAL (base_salary + her applicable overhead refs — see
+     *  CostBreakdownCalculator::tsaTotal()'s own doc comment), NOT her raw
+     *  base_salary alone (explicit reversal, 2026-09-30, from the user's
+     *  own formula-bar screenshot proving base_salary is her raw base
+     *  only). Confirmed against the sheet's own raw CSV to exclude the
+     *  CEO/Sales Director/Telesales Manager/QA Specialist/Junior AI
+     *  Engineer/Supervisor rows entirely — those are shown on the same
+     *  page for context, but this one figure is Telesales-ASSOCIATE-only,
+     *  same "TSD" (Telesales Department staff, not the wider leadership/
+     *  support team) framing the sheet's own label implies. $salaryRows is
+     *  the SAME flat sequence the top section renders from — reused here
+     *  rather than recomputed so this total can never drift from what's
+     *  actually displayed. */
+    private function totalSalaryOfTsd($salaryRows): float
     {
-        return $tsaRows->sum(fn ($row) => $row['entry']->base_salary);
+        return $salaryRows->where('type', 'tsa')->sum('total');
     }
 
     /** Auto-save for one role's own base_salary (explicit request,
@@ -245,7 +251,16 @@ class CostBreakdownController extends Controller
      *  number, per the real sheet's own merged cell). */
     private function recomputeAllRoleOverhead(): array
     {
-        $roles = CostBreakdownRole::all();
+        return $this->overheadByRoleId(CostBreakdownRole::all())->all();
+    }
+
+    /** Every role's own overhead-per-TSA figure, keyed by role id — null
+     *  for a role with no overhead_group at all (CostBreakdownRole::
+     *  OVERHEAD_DIVISOR_COUNTS' own doc comment has the full formula).
+     *  Shared by index() and recomputeAllRoleOverhead() so this app never
+     *  computes it two different ways. */
+    private function overheadByRoleId($roles)
+    {
         $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
 
         return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
@@ -257,7 +272,26 @@ class CostBreakdownController extends Controller
             $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
 
             return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
-        })->all();
+        });
+    }
+
+    /** Every team's own applicable overhead refs for CostBreakdownCalculator
+     *  ::tsaTotal() — the executive group's figure (company-wide), the
+     *  support group's figure (company-wide), and THAT team's own
+     *  Supervisor's figure, keyed by team. Confirmed a LIVE FORMULA from
+     *  the user's own formula-bar screenshot, 2026-09-30:
+     *  "=D5+D9+D12+C13" for Julie Francisco — every TSA on the SAME team
+     *  sees the SAME 3 refs, only her own base_salary differs. */
+    private function overheadRefsByTeam($roles, $overheadByRoleId)
+    {
+        $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
+            ->unique('overhead_group')
+            ->map(fn (CostBreakdownRole $role) => $overheadByRoleId->get($role->id))
+            ->values()->all();
+
+        return $roles->whereNotNull('team')->mapWithKeys(
+            fn (CostBreakdownRole $supervisor) => [$supervisor->team => array_merge($companyWideRefs, [$overheadByRoleId->get($supervisor->id)])]
+        );
     }
 
     /** Auto-save for one shared pool's own monthly amount. Returns every
@@ -281,9 +315,10 @@ class CostBreakdownController extends Controller
     }
 
     /** Auto-save for one TSA's own Days/base_salary — base_salary is her
-     *  real full monthly total already (no separate bonus field, see
-     *  CostBreakdownTsaEntry's own doc comment). Days is the only field
-     *  here that changes every OTHER TSA's own % share too (see
+     *  RAW base salary only (her own displayed TOTAL is computed fresh from
+     *  base_salary + her applicable overhead refs — see
+     *  CostBreakdownCalculator::tsaTotal()'s own doc comment). Days is the
+     *  only field here that changes every OTHER TSA's own % share too (see
      *  CostBreakdownCalculator's own doc comment) — same "shared total,
      *  every row recomputed" reasoning as updatePool() above. */
     public function updateTsaEntry(Request $request, TsaShift $tsaShift)
@@ -298,9 +333,14 @@ class CostBreakdownController extends Controller
         $entry->fill($data);
         $entry->save();
 
+        $roles = CostBreakdownRole::all();
+        $overheadRefs = $this->overheadRefsByTeam($roles, $this->overheadByRoleId($roles))->get($tsaShift->team) ?? [];
+        $total = CostBreakdownCalculator::tsaTotal($entry->base_salary, $overheadRefs);
+
         return response()->json([
             'success' => true,
-            'dailyRate' => CostBreakdownCalculator::tsaDailyRate($entry->base_salary),
+            'total' => $total,
+            'dailyRate' => CostBreakdownCalculator::tsaDailyRate($total),
             'recomputed' => $this->recomputeAllTsaRows(),
         ]);
     }

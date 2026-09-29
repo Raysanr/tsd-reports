@@ -51,6 +51,7 @@
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Total</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
                     </tr>
                 </thead>
@@ -103,9 +104,10 @@
                             <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 border-x border-line dark:border-slate-700 {{ $groupEndClass }}"></td>
                             @endif
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                         </tr>
                     @else
-                        @php $tsa = $item['tsa']; $entry = $item['entry']; $dailyRate = $entry->base_salary / 24; @endphp
+                        @php $tsa = $item['tsa']; $entry = $item['entry']; $total = $item['total']; $dailyRate = $total / 24; @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
@@ -115,6 +117,13 @@
                                        class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
                             <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 border-x border-line dark:border-slate-700 {{ $groupEndClass }}"></td>
+                            {{-- Her own TOTAL — base_salary + every applicable
+                                 overhead ref, a LIVE FORMULA confirmed from
+                                 the user's own formula-bar screenshot,
+                                 2026-09-30: "=D5+D9+D12+C13" — never typed
+                                 directly, see CostBreakdownCalculator::
+                                 tsaTotal()'s own doc comment. --}}
+                            <td data-out="total" class="px-4 py-2 text-right font-mono font-bold text-ink dark:text-slate-100 {{ $groupEndClass }}">{{ $fmtMoney($total) }}</td>
                             <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                         </tr>
                     @endif
@@ -357,17 +366,26 @@
                     input.value = fmtMoney(value);
                 }
 
-                // Base Salary IS the role's own Total now (no separate
-                // bonus field anywhere — explicit follow-up, 2026-09-29),
-                // so there's no derived total cell to refresh for a
-                // data-role-row save beyond the input itself — but her own
-                // (or a groupmate's own) overhead-per-TSA figure may have
-                // just changed, see applyRecomputedOverhead() below.
+                // A role's own Base Salary has no derived total cell of its
+                // own to refresh beyond the input itself, but her own (or a
+                // groupmate's own) overhead-per-TSA figure may have just
+                // changed, see applyRecomputedOverhead() below.
                 if (data.recomputedOverhead) applyRecomputedOverhead(data.recomputedOverhead);
 
-                if (row.hasAttribute('data-tsa-salary-row') && typeof data.dailyRate === 'number') {
-                    const el = row.querySelector('[data-out="daily_rate"]');
-                    if (el) el.textContent = fmtMoney(data.dailyRate);
+                // A TSA's own Total is a LIVE FORMULA (base_salary + her
+                // applicable overhead refs, confirmed from the user's own
+                // formula-bar screenshot, 2026-09-30) — refresh both her own
+                // Total and Daily Rate cells from the server's freshly-
+                // computed figures rather than re-deriving them client-side.
+                if (row.hasAttribute('data-tsa-salary-row')) {
+                    if (typeof data.total === 'number') {
+                        const totalEl = row.querySelector('[data-out="total"]');
+                        if (totalEl) totalEl.textContent = fmtMoney(data.total);
+                    }
+                    if (typeof data.dailyRate === 'number') {
+                        const el = row.querySelector('[data-out="daily_rate"]');
+                        if (el) el.textContent = fmtMoney(data.dailyRate);
+                    }
                 }
 
                 if (data.recomputed) applyRecomputed(data.recomputed);
