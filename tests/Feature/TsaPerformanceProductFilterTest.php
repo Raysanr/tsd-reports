@@ -37,6 +37,11 @@ class TsaPerformanceProductFilterTest extends TestCase
         // longer real product name should still be found when filtering by it.
         $shift = TsaShift::where('team', 'SH Naturals')->first();
 
+        // SH Naturals is the "Closing" team — TeamShiftWindow (2026-09-29)
+        // only counts an order in this page's hourly totals when its own
+        // created hour falls in Closing's 15:00-23:59 window. A bare now()
+        // only works when the test happens to run in that window — pinned
+        // to 4pm so this test isn't flaky depending on the time of day.
         Order::create([
             'pancake_order_id'   => 'test-canpro-1',
             'team'               => 'SH Naturals',
@@ -45,8 +50,8 @@ class TsaPerformanceProductFilterTest extends TestCase
             'raw_tags'           => ['CANPRO JUICE DRINK', strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
             'is_upsell'          => false,
             'status_code'        => 1,
-            'pancake_created_at' => now(),
-            'synced_at'          => now(),
+            'pancake_created_at' => now()->setTime(16, 0),
+            'synced_at'          => now()->setTime(16, 0),
         ]);
 
         $response = $this->get(route('tsa-performance', [

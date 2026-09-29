@@ -22,6 +22,13 @@ class TsaPerformanceUpsellingRateTest extends TestCase
     {
         $shift = TsaShift::where('team', 'SH Naturals')->first();
         $today = now()->toDateString();
+        // SH Naturals is the "Closing" team — TeamShiftWindow (2026-09-29)
+        // only counts an order in this page's hourly totals (and thus
+        // totalUpsellingRate) when its own created hour falls in Closing's
+        // 15:00-23:59 window. A bare now() only works when the test happens
+        // to run in that window — pinned to 4pm so this test isn't flaky
+        // depending on the time of day it's actually run.
+        $createdAt = now()->setTime(16, 0);
 
         // 3 upsell orders (disposition deliberately NOT "confirmed via call", so it
         // doesn't also get counted as a confirmed_via_call order below).
@@ -33,8 +40,8 @@ class TsaPerformanceUpsellingRateTest extends TestCase
                 'disposition'        => 'UPSELL W CONFIRMATION',
                 'is_upsell'          => true,
                 'status_code'        => 1,
-                'pancake_created_at' => now(),
-                'synced_at'          => now(),
+                'pancake_created_at' => $createdAt,
+                'synced_at'          => $createdAt,
             ]);
         }
 
@@ -47,8 +54,8 @@ class TsaPerformanceUpsellingRateTest extends TestCase
                 'disposition'        => 'CONFIRMED VIA CALL',
                 'is_upsell'          => false,
                 'status_code'        => 1,
-                'pancake_created_at' => now(),
-                'synced_at'          => now(),
+                'pancake_created_at' => $createdAt,
+                'synced_at'          => $createdAt,
             ]);
         }
 
@@ -64,8 +71,8 @@ class TsaPerformanceUpsellingRateTest extends TestCase
             'disposition'        => 'UNCATERED LEADS',
             'is_upsell'          => false,
             'status_code'        => 0,
-            'pancake_created_at' => now(),
-            'synced_at'          => now(),
+            'pancake_created_at' => $createdAt,
+            'synced_at'          => $createdAt,
         ]);
 
         $response = $this->get(route('tsa-performance', ['team' => 'sh-naturals', 'date' => $today]));
