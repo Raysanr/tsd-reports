@@ -41,16 +41,33 @@ class CostBreakdownRole extends Model
         ['label' => 'QA Specialist', 'person_name' => 'Jake Yamson', 'base_salary' => 28000.00, 'overhead_group' => 'support', 'overhead_divisor' => 'total', 'sort_order' => 3],
         ['label' => 'Junior AI Engineer', 'person_name' => 'Raysan Raymundo', 'base_salary' => 30000.00, 'overhead_group' => 'support', 'overhead_divisor' => 'total', 'sort_order' => 4],
         // =C12/6 — each Supervisor's own base salary alone, divided by HER
-        // OWN team's real TSA headcount (not the company-wide total) —
-        // confirmed exact: 34,285.71 ÷ 6 = 5,714.285. team (explicit
-        // follow-up, 2026-09-29: "the supervisor of opening and closing is
-        // in the rows of their TSA's") is how the controller knows which
-        // real TsaShift rows to nest directly beneath her AND which
-        // team's own headcount this divisor uses — matches TsaShift's own
-        // `team` column values exactly (TeamShiftWindow's own
-        // OPENING_TEAM/CLOSING_TEAM constants).
-        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'team' => 'Eyecare Team', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'team', 'sort_order' => 5],
-        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'team', 'sort_order' => 6],
+        // OWN team's TSA headcount — confirmed exact: 34,285.71 ÷ 6 =
+        // 5,714.285. team (explicit follow-up, 2026-09-29: "the supervisor
+        // of opening and closing is in the rows of their TSA's") is how
+        // the controller knows which real TsaShift rows to nest directly
+        // beneath her — matches TsaShift's own `team` column values
+        // exactly (TeamShiftWindow's own OPENING_TEAM/CLOSING_TEAM
+        // constants). overhead_group is UNIQUE PER SUPERVISOR (not shared
+        // "supervisor" for both) — a shared group name would make the
+        // controller's own merged-cell rowspan span across BOTH shifts'
+        // rows as if they were one group, root-caused live 2026-09-29 from
+        // a screenshot showing the Opening Shift's own merged cell
+        // visually bleeding down into the Closing Shift's own row.
+        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'team' => 'Eyecare Team', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor_opening', 'overhead_divisor' => 'team', 'sort_order' => 5],
+        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor_closing', 'overhead_divisor' => 'team', 'sort_order' => 6],
+    ];
+
+    /** The sheet's OWN fixed TSA headcount per overhead_divisor value —
+     *  12 total, 6 per team — confirmed exact against its own 3 real
+     *  cells (see CostBreakdownCalculator::overheadPerTsa()'s own doc
+     *  comment). Explicit decision, 2026-09-29: always match the sheet's
+     *  own numbers exactly, NOT this app's own real (currently smaller)
+     *  TsaShift roster — an earlier version divided by the real live
+     *  headcount instead, which produced different figures than the sheet
+     *  while the real roster is still below 12. */
+    public const OVERHEAD_DIVISOR_COUNTS = [
+        'total' => 12,
+        'team' => 6,
     ];
 
     /** Creates any missing role (with its full seed values, base_salary

@@ -104,11 +104,14 @@ class CostBreakdownCalculator
      *    - CEO+Sales Director+Telesales Manager ÷ 12 (total TSAs) = 10,341.13
      *    - QA Specialist+Junior AI Engineer ÷ 12 (total TSAs) = 4,833.33
      *    - Each Supervisor alone ÷ 6 (her OWN team's TSAs) = 5,714.285
-     *  $tsaCount is passed in rather than hardcoded 12/6 (explicit
-     *  decision, 2026-09-29) — this app's own real TsaShift roster is
-     *  smaller than the sheet's own 12-person snapshot, and the figure
-     *  should track whatever headcount is genuinely live right now rather
-     *  than a frozen sheet-era number; returns 0.0 if $tsaCount is 0
+     *  $tsaCount is the sheet's OWN fixed divisor (12 total, 6 per team —
+     *  see CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS), not this app's own
+     *  real live TsaShift headcount (explicit reversal, 2026-09-29: an
+     *  earlier version divided by the real roster's own count instead so
+     *  the figure would track a growing team automatically, but the user
+     *  wants this figure to always equal the sheet's own numbers exactly,
+     *  not drift from them while the real roster is still smaller than
+     *  the sheet's own 12-person snapshot). Returns 0.0 if $tsaCount is 0
      *  (division-by-zero guard, same convention as shareOfDays() above). */
     public static function overheadPerTsa(array $groupBaseSalaries, int $tsaCount): float
     {

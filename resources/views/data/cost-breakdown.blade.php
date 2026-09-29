@@ -87,7 +87,7 @@
                                  informational, never editable, never added
                                  into any total. --}}
                             @php
-                                $overheadTitle = 'Combined salary ÷ ' . ($role->overhead_divisor === 'team' ? $role->team . "'s" : 'total') . ' TSA headcount — reference only, not added to any total';
+                                $overheadTitle = 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] . ' TSAs (matches the sheet) — reference only, not added to any total';
                             @endphp
                             <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-right font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 align-middle" title="{{ $overheadTitle }}">
                                 {{ $fmtMoney($item['overhead']) }}

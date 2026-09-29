@@ -59,10 +59,11 @@ class CostBreakdownSmokeTest extends TestCase
     /** The CEO/Sales Director/Telesales Manager group's own overhead-per-
      *  TSA figure (confirmed a LIVE FORMULA in the real sheet, 2026-09-29:
      *  "look at this formula ... it is all divided of all 12 tsa" — their
-     *  own combined base_salary ÷ the REAL total TSA headcount, 6 in this
-     *  app's own live roster, not the sheet's frozen 12) must never be
-     *  duplicated onto the rows it visually spans — those render with NO
-     *  overhead figure of their own at all (a real HTML rowspan covers
+     *  own combined base_salary ÷ the sheet's OWN fixed 12-TSA headcount,
+     *  explicit decision 2026-09-29 to always match the sheet's own
+     *  numbers rather than this app's own smaller real roster) must never
+     *  be duplicated onto the rows it visually spans — those render with
+     *  NO overhead figure of their own at all (a real HTML rowspan covers
      *  them instead). */
     public function test_the_executive_groups_overhead_figure_is_not_duplicated_onto_the_rows_it_spans(): void
     {
@@ -72,8 +73,9 @@ class CostBreakdownSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
         $response->assertOk();
-        // (44,095.59 + 19,998.00 + 60,000.00) ÷ 6 real TSAs = 20,682.265.
-        $expected = number_format((44095.59 + 19998.00 + 60000.00) / 6, 2);
+        // (44,095.59 + 19,998.00 + 60,000.00) ÷ 12 (sheet's own fixed
+        // total headcount) = 10,341.13, matching the sheet exactly.
+        $expected = number_format((44095.59 + 19998.00 + 60000.00) / 12, 2);
         // Appears exactly once on the page (the CEO's own rowspan cell),
         // not once per row it visually spans.
         $content = $response->getContent();
@@ -155,9 +157,10 @@ class CostBreakdownSmokeTest extends TestCase
     /** Explicit follow-up, 2026-09-29: "look at this formula ... it is all
      *  divided of all 12 tsa" — the CEO/Sales Director/Telesales Manager's
      *  own overhead-per-TSA figure is a LIVE FORMULA (their combined
-     *  base_salary ÷ real TSA headcount), so editing the CEO's own
-     *  base_salary must recompute and return every role's own freshly-
-     *  updated overhead figure, not just her own row. */
+     *  base_salary ÷ the sheet's OWN fixed 12-TSA headcount, explicit
+     *  decision 2026-09-29 to match the sheet exactly), so editing the
+     *  CEO's own base_salary must recompute and return every role's own
+     *  freshly-updated overhead figure, not just her own row. */
     public function test_updating_a_roles_base_salary_recomputes_its_whole_overhead_groups_figure(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -165,7 +168,6 @@ class CostBreakdownSmokeTest extends TestCase
         $ceo = CostBreakdownRole::where('label', 'CEO')->firstOrFail();
         $salesDirector = CostBreakdownRole::where('label', 'Sales Director')->firstOrFail();
         $telesalesManager = CostBreakdownRole::where('label', 'Telesales Manager')->firstOrFail();
-        $tsaCount = TsaShift::count();
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.cost-breakdown.update-role', $ceo),
@@ -174,11 +176,11 @@ class CostBreakdownSmokeTest extends TestCase
 
         $response->assertOk();
         // 50,000 (just-edited) + Sales Director's own + Telesales
-        // Manager's own base salaries ÷ real TSA count — both the CEO's
-        // own row AND the Sales Director's own row (same overhead_group,
-        // no base_salary of her own changed) must show the SAME
-        // freshly-recomputed figure.
-        $expected = (50000 + $salesDirector->base_salary + $telesalesManager->base_salary) / $tsaCount;
+        // Manager's own base salaries ÷ 12 (sheet's own fixed total
+        // headcount) — both the CEO's own row AND the Sales Director's own
+        // row (same overhead_group, no base_salary of her own changed)
+        // must show the SAME freshly-recomputed figure.
+        $expected = (50000 + $salesDirector->base_salary + $telesalesManager->base_salary) / 12;
         $response->assertJsonPath("recomputedOverhead.{$ceo->id}", fn ($v) => abs($v - $expected) < 0.01);
         $response->assertJsonPath("recomputedOverhead.{$salesDirector->id}", fn ($v) => abs($v - $expected) < 0.01);
     }

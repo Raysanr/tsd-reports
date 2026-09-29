@@ -72,21 +72,22 @@ class CostBreakdownController extends Controller
         // all divided of all 12 tsa"), not a manually-typed number as this
         // app originally modeled it. Grouped by overhead_group (roles
         // sharing the same group sum their own base_salary together before
-        // dividing), each group's own divisor is either the TOTAL real TSA
-        // headcount or, for a Supervisor (overhead_divisor === 'team'),
-        // just HER OWN team's real TSA count — see
-        // CostBreakdownCalculator::overheadPerTsa()'s own doc comment for
-        // the exact 3 real numbers this reproduces.
-        $totalTsaCount = $tsas->count();
-        $tsaCountByTeam = $tsas->countBy(fn (TsaShift $tsa) => $tsa->team);
+        // dividing) — each Supervisor has her OWN overhead_group (not a
+        // shared "supervisor" one), so her own merged cell never spans
+        // into the other shift's own rows. Divisor is the sheet's OWN
+        // fixed headcount (explicit decision, 2026-09-29: match the sheet
+        // exactly, not this app's own smaller real roster) — 12 total for
+        // 'total', 6 for 'team' — see
+        // CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS and
+        // CostBreakdownCalculator::overheadPerTsa()'s own doc comment.
         $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
-        $overheadByRoleId = $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup, $totalTsaCount, $tsaCountByTeam) {
+        $overheadByRoleId = $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
             if (!$role->overhead_group) {
                 return [$role->id => null];
             }
 
             $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = $role->overhead_divisor === 'team' ? ($tsaCountByTeam->get($role->team) ?? 0) : $totalTsaCount;
+            $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
 
             return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
         });
@@ -245,17 +246,15 @@ class CostBreakdownController extends Controller
     private function recomputeAllRoleOverhead(): array
     {
         $roles = CostBreakdownRole::all();
-        $totalTsaCount = TsaShift::count();
-        $tsaCountByTeam = TsaShift::all()->countBy(fn (TsaShift $tsa) => $tsa->team);
         $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
 
-        return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup, $totalTsaCount, $tsaCountByTeam) {
+        return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
             if (!$role->overhead_group) {
                 return [$role->id => null];
             }
 
             $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = $role->overhead_divisor === 'team' ? ($tsaCountByTeam->get($role->team) ?? 0) : $totalTsaCount;
+            $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
 
             return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
         })->all();
