@@ -67,42 +67,20 @@ class AppServiceProvider extends ServiceProvider
         // now agree.
         RedirectIfAuthenticated::redirectUsing(fn () => route('hub'));
 
-        // Sub-minute leads loop (explicit request, 2026-09-12: "make it like
-        // realtime displaying in the leads when there's new in the POS").
-        // This used to live in docker/entrypoint.sh's schedule:work branch,
-        // but Railway's upbeat-light service runs `php artisan schedule:work`
-        // directly as its configured start command — confirmed via
-        // `railway ssh -- cat /proc/1/cmdline`, which showed schedule:work
-        // as PID 1 itself, not a child of entrypoint.sh — so that script
-        // never executes at all for this service and the loop never started
-        // (storage/logs/leads-loop.log never got created; sync-leads kept
-        // firing at the old 60s cadence). Hooking it here instead runs
-        // inside the same schedule:work PHP process regardless of how
-        // Railway invokes it, so it can't be silently bypassed the same way
-        // again. Only ever fires once: boot() runs a single time at process
-        // startup for a long-running command like schedule:work, not once
-        // per scheduler tick.
-        //
-        // Must be nohup'd: exec() forks a throwaway `sh -c` to launch the
-        // background subshell, then that throwaway shell exits immediately
-        // once the job is backgrounded. Without nohup, the kernel sent
-        // SIGHUP to the loop's process group when its parent shell died —
-        // confirmed live: the loop ran exactly one iteration then went
-        // silent (leads-loop.log stopped growing entirely, never crashed,
-        // no second line ever appeared) since SIGHUP's default disposition
-        // kills the process, and it always happened to survive just long
-        // enough to finish whichever sync was already in flight.
-        if ($this->app->runningInConsole() && in_array('schedule:work', $_SERVER['argv'] ?? [], true)) {
-            $interval = (int) (env('LEADS_LOOP_INTERVAL', 15));
-            $logFile  = storage_path('logs/leads-loop.log');
-            $cmd = sprintf(
-                'nohup sh -c \'while true; do %s %s pancake:sync-leads >> %s 2>&1; sleep %d; done\' > /dev/null 2>&1 &',
-                escapeshellarg(PHP_BINARY),
-                escapeshellarg(base_path('artisan')),
-                escapeshellarg($logFile),
-                max(5, $interval)
-            );
-            exec($cmd);
-        }
+        // Sub-minute leads loop REMOVED (explicit request, 2026-09-29: "i
+        // just want to reduce the consumption" — a real cost driver found
+        // while investigating Railway's bill). This used to spawn a brand
+        // new PHP process running pancake:sync-leads every 15 seconds,
+        // forever, via a raw nohup'd shell loop — completely independent of
+        // (and on top of) routes/console.php's own `Schedule::command(
+        // SyncPancakeLeads::class)->everyMinute()`, which runs the EXACT
+        // SAME command. That's ~5,700 extra full Laravel boots/day beyond
+        // the scheduled once-a-minute sync, confirmed as the dominant cost
+        // in the upbeat-light service (~62% of this app's entire Railway
+        // bill) via `railway usage projects --json`'s own per-service
+        // breakdown. Leads now surface within the scheduler's normal ~60s
+        // cadence instead of ~15s — same latency every other scheduled sync
+        // in this app already has, and the tradeoff explicitly accepted
+        // over paying for near-real-time.
     }
 }
