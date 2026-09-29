@@ -139,6 +139,21 @@ class CostBreakdownController extends Controller
             }
 
             return $rows;
+        })->values();
+
+        // group_end (view-only, purely visual): true on the LAST row of
+        // each cluster — {CEO, Sales Director, Telesales Manager}, {QA
+        // Specialist, Junior AI Engineer}, {each Supervisor + her own
+        // team's real TSAs} — so the view can draw a gap AFTER it instead
+        // of a divider line under every single row (explicit follow-up,
+        // 2026-09-29: "no row line ... make it look clean like there's a
+        // group"). A new cluster starts at the next 'role' row that isn't
+        // itself covered by an earlier row's rowspan, so the row right
+        // before it is that cluster's own last row.
+        $salaryRows = $salaryRows->map(function ($row, $index) use ($salaryRows) {
+            $next = $salaryRows->get($index + 1);
+            $row['group_end'] = !$next || ($next['type'] === 'role' && !$next['covered_by_rowspan']);
+            return $row;
         });
 
         $totalDays = $tsaRows->sum(fn ($row) => $row['entry']->days);

@@ -54,18 +54,25 @@
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-line dark:divide-slate-700">
+                <tbody>
                     @foreach($salaryRows as $item)
+                    {{-- No per-row divider line (explicit follow-up,
+                         2026-09-29: "no row line ... make it look clean
+                         like there's a group") — instead, a thick
+                         page-colored border under the LAST row of each
+                         cluster reads as a gap between groups, same visual
+                         effect as the sheet's own blank spacer rows. --}}
+                    @php $groupEndClass = $item['group_end'] ? 'border-b-[10px] border-white dark:border-slate-900' : ''; @endphp
                     @if($item['type'] === 'role')
                         @php $role = $item['role']; @endphp
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
-                            <td class="px-4 py-2 whitespace-nowrap">
+                            <td class="px-4 py-2 whitespace-nowrap {{ $groupEndClass }}">
                                 <p class="font-mono font-bold text-ink dark:text-slate-100">{{ $role->label }}</p>
                                 @if($role->person_name)
                                     <p class="font-mono text-xs text-ink-muted dark:text-slate-400">{{ $role->person_name }}</p>
                                 @endif
                             </td>
-                            <td class="px-4 py-1.5 text-right">
+                            <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
                                        data-field="base_salary" data-money="1"
                                        class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
@@ -86,22 +93,22 @@
                                 {{ $fmtMoney($item['overhead']) }}
                             </td>
                             @elseif(!$item['covered_by_rowspan'])
-                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60"></td>
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 {{ $groupEndClass }}"></td>
                             @endif
-                            <td class="px-4 py-2"></td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                         </tr>
                     @else
                         @php $tsa = $item['tsa']; $entry = $item['entry']; $dailyRate = $entry->base_salary / 24; @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
-                            <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ $tsa->display_name }}</td>
-                            <td class="px-4 py-1.5 text-right">
+                            <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
+                            <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
                                        data-field="base_salary" data-money="1"
                                        class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
-                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60"></td>
-                            <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400">{{ $fmtMoney($dailyRate) }}</td>
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 {{ $groupEndClass }}"></td>
+                            <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                         </tr>
                     @endif
                     @endforeach
