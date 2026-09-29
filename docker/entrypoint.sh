@@ -127,4 +127,20 @@ php artisan migrate --force
 # independent safety net alongside the audit above: even an undiscovered
 # state-leak bug would only ever affect at most 500 requests before that
 # worker restarts fresh, not persist indefinitely.
-exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --max-requests=500
+#
+# --workers=2 (explicit request, 2026-09-29: "i just want to make it reduce
+# the faster consumption" — a real cost regression found after the switch).
+# Left at the default (`auto`) until now, which FrankenPHP resolves to one
+# worker THREAD PER CPU CORE — Railway's plan here reports 8 vCPUs, so this
+# container was running up to 8 fully-booted Laravel apps resident in
+# memory simultaneously. Confirmed via `railway metrics`: avg memory roughly
+# DOUBLED after the worker-mode switch (148-213MB under classic mode →
+# 360-374MB under worker mode, at comparable ~80-130 req/min traffic) even
+# though avg CPU dropped as expected — since Memory is this app's single
+# largest Railway cost line (~60% of the bill), that unbounded worker count
+# was actively working against the whole point of switching to worker mode.
+# 2 workers is enough for this app's real traffic (well under 100 req/min
+# sustained, every request fast) while cutting resident memory back down
+# toward classic-mode levels, without giving up worker mode's lower-CPU
+# request handling entirely.
+exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=2 --max-requests=500
