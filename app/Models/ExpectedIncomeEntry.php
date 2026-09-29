@@ -8,11 +8,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /** One product's raw numbers for one DAY on the Expected Income 2026 page —
  *  see the create_expected_income_entries_table migration's own doc
  *  comment for why every field here is manual entry, not a computed rate,
- *  and why storage is per-day (range-summed on read, not a stored MTD row). */
+ *  and why storage is per-day (range-summed on read, not a stored MTD row).
+ *  tsa_id is nullable (explicit request, 2026-09-30: "change the dates
+ *  into per TSA and per team") — NULL means this row is the product-level
+ *  total shown in the page's own "ALL" view (unchanged since before this
+ *  column existed); a real tsa_id is one specific TSA's own numbers for
+ *  that product+day, shown when her team is selected instead — see
+ *  add_tsa_id_to_expected_income_tables's own doc comment. */
 class ExpectedIncomeEntry extends Model
 {
     protected $fillable = [
-        'product_id', 'entry_date',
+        'product_id', 'tsa_id', 'entry_date',
         'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
         'gross_sales', 'cancelled', 'returns', 'delivered',
         'tax_allocation', 'product_cost',
@@ -68,5 +74,10 @@ class ExpectedIncomeEntry extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    public function tsa(): BelongsTo
+    {
+        return $this->belongsTo(TsaShift::class, 'tsa_id');
     }
 }

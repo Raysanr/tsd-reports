@@ -338,6 +338,25 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // key/value instead — same "key/value PATCH, not a named field per
         // row" convention as ProjectionController::updateRates().
         Route::patch('/expected-income/{product}/{date}/custom-row', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateCustomRow'])->name('expected-income.update-custom-row');
+        // Per-TSA variants (explicit request, 2026-09-30: "change the
+        // dates into per TSA and per team") — separate named routes rather
+        // than an optional {tsa?} segment mixed into the two above, so a
+        // product-level save (tsa_id NULL, the "ALL" view's own cards)
+        // never has to reason about a route parameter it doesn't have.
+        // {date} BEFORE {tsaShift} in the URL — root-caused live,
+        // 2026-09-30: Laravel's ControllerDispatcher resolves a
+        // controller method's arguments PURELY by ARRAY POSITION (route
+        // segment order), not by matching parameter NAMES — it only skips
+        // re-resolving a class type that's already present in that array,
+        // it never reorders the array to match the method's own parameter
+        // order. A route ordered {tsaShift}/{date} silently fed the
+        // resolved TsaShift MODEL into update()'s own string $date
+        // argument (and the date string into $tsaShift), a TypeError only
+        // caught at runtime — the URL's own segment order must always
+        // match update()/updateCustomRow()'s own (Product, string $date,
+        // ?TsaShift $tsaShift) parameter order exactly.
+        Route::patch('/expected-income/{product}/{date}/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update-tsa');
+        Route::patch('/expected-income/{product}/{date}/tsa/{tsaShift}/custom-row', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateCustomRow'])->name('expected-income.update-custom-row-tsa');
 
         // Cost Breakdown (explicit request, 2026-09-29: "add new page in
         // data management (COST BREAKDOWN)") — the top salary/org section

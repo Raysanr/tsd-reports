@@ -25,7 +25,24 @@
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
     <form method="GET" class="flex items-end gap-3 flex-wrap">
+        <input type="hidden" name="team" value="{{ $selectedTeam }}">
         @include('data._date-range-filter', ['fromName' => 'date_from', 'toName' => 'date_to', 'fromValue' => $dateFrom, 'toValue' => $dateTo])
+
+        {{-- Team filter (explicit request, 2026-09-30: "i want to add team
+             filter like this ... ALL / TEAM CLOSING / TEAM OPENING") — ALL
+             keeps the page's own original product-level cards + both
+             teams' own auto-summed rollup cards; picking a real team
+             swaps in that team's own real TSAs, one full row of product
+             cards each, no separate product-level cards. --}}
+        <div class="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+            @foreach($teams as $key => $label)
+            <button type="submit" name="team" value="{{ $key }}" data-filter-btn
+                    class="px-3 py-1.5 text-xs font-semibold font-mono cursor-pointer transition-colors duration-200 motion-reduce:transition-none
+                           {{ $selectedTeam === $key ? 'bg-primary text-white' : 'bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+                {{ strtoupper($label) }}
+            </button>
+            @endforeach
+        </div>
     </form>
     <div class="flex items-center gap-3">
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
@@ -58,18 +75,32 @@
      (explicit request, 2026-09-26: "in the top there's expected sales and
      after that it is dates going down"), each independently editable and
      independently drag-scrollable. Same overall-card + product-cards
-     pattern as the summary row above, just for that one day's own figures. --}}
+     pattern as the summary row above, just for that one day's own figures.
+
+     Team filter (explicit request, 2026-09-30, confirmed live via
+     screenshot exactly which part of the page this touches: "the top is
+     still like that [unaffected] ... in the down the yellow is only TSA
+     NAMES"): selectedTeam === 'all' keeps the ORIGINAL single "TELESALES —
+     [date]" overall card + every product's own card, tsa_id NULL,
+     unchanged from before this feature; a real team swaps that one block
+     for ONE block PER REAL TSA on that team, her own name where the date
+     card's title used to be, each followed by her own product cards — for
+     EVERY date, same per-day stacking either way. --}}
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
+@endphp
+<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
+
+@if($selectedTeam === 'all')
+@php
     // Computed in the controller from every product's own RAW row for
     // this day, not from $dailyRows' already-derived output — see
-    // ExpectedIncomeController::index()'s own doc comment on
+    // ExpectedIncomeController::buildAllDailyRows()'s own doc comment on
     // $dailyOverallTotals for the bug this fixed (a re-summed already-
     // derived row silently drops every Selling/Operating line's value).
     $dayOverallTotal = $dailyOverallTotals[$dateStr];
 @endphp
-<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
     <div class="flex items-start gap-5 w-max">
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
@@ -110,6 +141,49 @@
         @endforeach
     </div>
 </div>
+@else
+    @foreach($tsaRows as $tsaRow)
+    @php
+        $tsa = $tsaRow['tsa'];
+        $tsaDailyRows = $tsaRow['dailyRows'][$dateStr];
+        $tsaDailyByKey = $tsaRow['dailyByKey'];
+        $tsaDayOverallTotal = $tsaRow['dailyOverallTotals'][$dateStr];
+    @endphp
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
+        <div class="flex items-start gap-5 w-max">
+            {{-- Her own name where "TELESALES — [date]" used to be — a
+                 read-only rollup of HER OWN product cards for this day
+                 (confirmed live, 2026-09-30: "the yellow is stil has this,
+                 it is over all of the individual tsa ... but it is not
+                 editable"), same role and full P&L body as the overall
+                 card in the ALL view, just scoped to her own products. --}}
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+                <div class="px-5 py-4" style="background:#fde047;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $tsaDayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            </div>
+
+            @foreach($tsaDailyRows as $row)
+            @php
+                $d = $row['derived'];
+                $product = $row['products']->first();
+                $entry = $tsaDailyByKey->get($product->id . ':' . $dateStr);
+            @endphp
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
+                 data-product-id="{{ $product->id }}"
+                 data-action="{{ route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $dateStr]) }}"
+                 data-custom-action="{{ route('data.expected-income.update-custom-row-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $dateStr]) }}">
+                <div class="px-5 py-4" style="background:#d9ead3;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endforeach
+@endif
 @endforeach
 
 @push('scripts')

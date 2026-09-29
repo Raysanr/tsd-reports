@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
+use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -451,5 +452,172 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('text-red-600');
+    }
+
+    /** Explicit request, 2026-09-30: "change the dates into per TSA and per
+     *  team ... i want to add team filter." Confirmed live via screenshot,
+     *  2026-09-30: the top range-summary row ("Telesales Expected
+     *  Performance" + product cards) is UNCHANGED by the team filter — it
+     *  keeps showing the exact same product-level total, tsa_id NULL,
+     *  regardless of which team pill is selected. */
+    public function test_the_range_summary_row_is_unchanged_by_the_team_filter(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 1000]);
+        // A real per-TSA entry for the SAME product+day must NOT bleed into
+        // the product-level summary — confirmed via its own tsa_id column.
+        // Her own 99,999 legitimately DOES appear further down the page (in
+        // her own daily card, which is real per-TSA data) — this test only
+        // checks the TOP summary section's own slice of the page, not the
+        // whole response, so it isn't a false positive off her own card.
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 99999]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => TsaShift::first()->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('Telesales Expected Performance');
+        $content = $response->getContent();
+        // Only the summary scroller's own slice of the page — everything
+        // from "eiSummaryScroller" up to the date heading that starts the
+        // daily section below it (where her own real 99,999 legitimately
+        // does appear, on her own per-TSA card).
+        $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, today()->format('F j, Y'), $summaryStart);
+        $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+        $this->assertStringContainsString('1,000.00', $summaryHtml);
+        $this->assertStringNotContainsString('99,999.00', $summaryHtml);
+    }
+
+    /** Confirmed live via screenshot, 2026-09-30: picking a real team
+     *  swaps the daily "TELESALES — [date]" overall card for one block PER
+     *  REAL TSA on that team, her own name as the card title, followed by
+     *  her own product cards. */
+    public function test_selecting_a_team_shows_one_block_per_real_tsa_named_by_her_own_name(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee($tsa->display_name);
+        $response->assertDontSee('TELESALES — ' . today()->format('F j, Y'));
+    }
+
+    /** Confirmed live via screenshot, 2026-09-30: "the yellow is stil has
+     *  this, it is over all of the individual tsa" then "but it is not
+     *  editable" — her own name card is a READ-ONLY rollup of her own
+     *  product cards for that day (same role/shape as "TELESALES —
+     *  [date]" in the ALL view), not a bare name label and not an
+     *  editable-inputs card of its own. */
+    public function test_the_tsa_overview_card_sums_her_own_products_and_is_read_only(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $date = today()->toDateString();
+
+        ExpectedIncomeEntry::create(['product_id' => $productA->id, 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 1000]);
+        ExpectedIncomeEntry::create(['product_id' => $productB->id, 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 500]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        // Her own name card appears BEFORE any real editable <input> (her
+        // own first PRODUCT card starts right after it) — confirming her
+        // own overview card renders the read-only _card-body branch, not
+        // the editable one.
+        $namePos = strpos($content, $tsa->display_name);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $this->assertNotFalse($firstFieldPos, 'expected an editable field somewhere after her own name');
+        // 1,000 + 500 = 1,500 — her own combined total across both products.
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+        $this->assertStringContainsString('1,500.00', $overviewHtml);
+        $this->assertStringNotContainsString('data-field=', $overviewHtml);
+    }
+
+    /** Her own numbers are completely independent of the "ALL" view's own
+     *  product-level entries (tsa_id NULL) — editing her own card writes a
+     *  real tsa_id row, never overwriting or reading the shared one. */
+    public function test_a_tsas_own_entry_is_independent_of_the_product_level_entry(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'gross_sales' => 1000]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 500]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'gross_sales' => 500,
+        ]);
+        // The product-level (tsa_id NULL) row is untouched.
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => null, 'gross_sales' => 1000,
+        ]);
+    }
+
+    /** Same "upsert, never a duplicate" convention as the product-level
+     *  update() endpoint — saving a TSA's own field twice for the same
+     *  product+day updates the one row, not two. */
+    public function test_updating_a_tsas_entry_twice_does_not_create_a_duplicate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        $route = route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]);
+        $this->actingAs($admin)->patchJson($route, ['gross_sales' => 100])->assertOk();
+        $this->actingAs($admin)->patchJson($route, ['gross_sales' => 200])->assertOk();
+
+        $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsa->id)->count());
+        $this->assertEquals(200, ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsa->id)->first()->gross_sales);
+    }
+
+    /** A TSA's own custom-row value is saved through the tsa-scoped custom
+     *  row endpoint, independent of the product-level custom value for the
+     *  same key/product/day. */
+    public function test_a_tsas_own_custom_row_value_is_independent_of_the_product_level_one(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        \App\Models\ProjectionCustomRow::create([
+            'key' => 'custom_warehouse_fee', 'section' => 'selling',
+            'label' => 'Warehouse Fee', 'is_fixed' => false, 'sort_order' => 0,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-custom-row-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['key' => 'custom_warehouse_fee', 'value' => 250]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_custom_values', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'custom_row_key' => 'custom_warehouse_fee', 'value' => 250.00,
+        ]);
     }
 }
