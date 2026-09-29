@@ -45,12 +45,12 @@
             <span id="cbRoleSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-[13px] cb-table">
+            <table class="w-full text-[13px] cb-table border-separate border-spacing-0">
                 <thead>
                     <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
-                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600">Shared Ref.</th>
+                        <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
                     </tr>
                 </thead>
@@ -58,11 +58,14 @@
                     @foreach($salaryRows as $item)
                     {{-- No per-row divider line (explicit follow-up,
                          2026-09-29: "no row line ... make it look clean
-                         like there's a group") — instead, a thick
-                         page-colored border under the LAST row of each
-                         cluster reads as a gap between groups, same visual
+                         like there's a group") — instead a visible
+                         slate-toned gap block under the LAST row of each
+                         cluster reads as a gap between groups (a plain
+                         white border was invisible against this table's
+                         own white rows — explicit follow-up, 2026-09-30:
+                         "it is like it is still combine all"), same visual
                          effect as the sheet's own blank spacer rows. --}}
-                    @php $groupEndClass = $item['group_end'] ? 'border-b-[10px] border-white dark:border-slate-900' : ''; @endphp
+                    @php $groupEndClass = $item['group_end'] ? 'border-b-8 border-slate-100 dark:border-slate-800' : ''; @endphp
                     @if($item['type'] === 'role')
                         @php $role = $item['role']; @endphp
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
@@ -85,15 +88,19 @@
                                  2026-09-29 — see CostBreakdownCalculator::
                                  overheadPerTsa()'s own doc comment), purely
                                  informational, never editable, never added
-                                 into any total. --}}
+                                 into any total. A thin side border + centered
+                                 text (explicit follow-up, 2026-09-30: "atleast
+                                 thin line and make it centers in the row")
+                                 marks it as its own distinct merged region,
+                                 same as the real sheet's own cell borders. --}}
                             @php
                                 $overheadTitle = 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] . ' TSAs (matches the sheet) — reference only, not added to any total';
                             @endphp
-                            <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-right font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 align-middle" title="{{ $overheadTitle }}">
+                            <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-center font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border-x border-line dark:border-slate-700 align-middle" title="{{ $overheadTitle }}">
                                 {{ $fmtMoney($item['overhead']) }}
                             </td>
                             @elseif(!$item['covered_by_rowspan'])
-                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 border-x border-line dark:border-slate-700 {{ $groupEndClass }}"></td>
                             @endif
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                         </tr>
@@ -107,7 +114,7 @@
                                        data-field="base_salary" data-money="1"
                                        class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
-                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60 border-x border-line dark:border-slate-700 {{ $groupEndClass }}"></td>
                             <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                         </tr>
                     @endif
