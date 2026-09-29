@@ -97,7 +97,7 @@
                             @php
                                 $overheadTitle = 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] . ' TSAs (matches the sheet) — reference only, not added to any total';
                             @endphp
-                            <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-center font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border-x border-b-8 border-line dark:border-slate-700 border-b-slate-100 dark:border-b-slate-800 align-middle" title="{{ $overheadTitle }}">
+                            <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-center font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border-x border-b-8 border-line dark:border-slate-700 border-b-white dark:border-b-slate-900 align-middle" title="{{ $overheadTitle }}">
                                 {{ $fmtMoney($item['overhead']) }}
                             </td>
                             @elseif(!$item['covered_by_rowspan'])
