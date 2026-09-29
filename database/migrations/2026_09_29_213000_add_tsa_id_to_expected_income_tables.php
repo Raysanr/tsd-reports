@@ -44,6 +44,18 @@ use Illuminate\Support\Facades\Schema;
  * own replacement index keeps a permanent _new suffix rather than being
  * renamed back to the original name afterward — this dev DB runs MariaDB
  * 10.4, which doesn't support RENAME INDEX (added in MariaDB 10.5.2).
+ *
+ * dropUnique(['product_id', 'entry_date']) assumes Laravel's naming
+ * convention (expected_income_entries_product_id_entry_date_unique) — true
+ * on this app's local MySQL dev DB, but WRONG on production (Postgres):
+ * confirmed via a real failed deploy (2026-09-29) that production's actual
+ * constraint is still named ..._product_id_month_unique, because the
+ * column was created as `month` and later renamed to `entry_date` by
+ * rename_month_to_entry_date_on_expected_income_entries_table — a Postgres
+ * RENAME COLUMN does not rename constraints already defined on that
+ * column. Fixed by looking up the real constraint name from the
+ * database's own catalog at migration time instead of assuming either
+ * name.
  */
 return new class extends Migration
 {
@@ -61,7 +73,7 @@ return new class extends Migration
             $table->unique(['product_id', 'entry_date', 'tsa_id']);
         });
         Schema::table('expected_income_entries', function (Blueprint $table) {
-            $table->dropUnique(['product_id', 'entry_date']);
+            $table->dropUnique(self::oldProductDateConstraintName());
         });
 
         // Named ei_custom_values_unique_new rather than reusing/renaming
@@ -84,7 +96,7 @@ return new class extends Migration
         // as up() — product_id's own FK always needs SOME index covering
         // it, so the (product_id, entry_date) replacement goes in first.
         Schema::table('expected_income_entries', function (Blueprint $table) {
-            $table->unique(['product_id', 'entry_date']);
+            $table->unique(['product_id', 'entry_date'], 'expected_income_entries_product_id_entry_date_unique');
         });
         Schema::table('expected_income_entries', function (Blueprint $table) {
             $table->dropUnique(['product_id', 'entry_date', 'tsa_id']);
@@ -98,5 +110,30 @@ return new class extends Migration
             $table->dropUnique('ei_custom_values_unique_new');
             $table->dropConstrainedForeignId('tsa_id');
         });
+    }
+
+    /**
+     * Looks up the real name of the unique constraint/index covering
+     * exactly (product_id, entry_date) on expected_income_entries via
+     * Schema::getIndexes() — Laravel 12's own cross-driver introspection
+     * (MySQL, Postgres, SQLite alike) — rather than assuming Laravel's
+     * naming convention. See this file's own top doc comment for why
+     * that assumption is wrong: on production (Postgres) the constraint
+     * is still named after the table's original `month` column
+     * (..._product_id_month_unique), while on this app's local MySQL
+     * dev DB it matches the convention
+     * (..._product_id_entry_date_unique) — the column was renamed after
+     * the constraint was created, and no database renames a constraint
+     * just because its column was renamed.
+     */
+    private static function oldProductDateConstraintName(): string
+    {
+        foreach (Schema::getIndexes('expected_income_entries') as $index) {
+            if ($index['unique'] && $index['columns'] === ['product_id', 'entry_date']) {
+                return $index['name'];
+            }
+        }
+
+        return 'expected_income_entries_product_id_entry_date_unique';
     }
 };
