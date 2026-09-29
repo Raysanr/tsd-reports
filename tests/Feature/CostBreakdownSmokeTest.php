@@ -34,6 +34,46 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertSee('Cost Allocation Per TSA');
     }
 
+    /** Explicit follow-up, 2026-09-29: "the supervisor of opening and
+     *  closing is in the rows of their TSA's" — each shift's own
+     *  Supervisor renders immediately above her own team's real TSAs, in
+     *  ONE continuous table, not as separate sections. */
+    public function test_each_supervisor_is_immediately_followed_by_her_own_teams_tsas(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        // Eyecare Team = Opening (TeamShiftWindow's own OPENING_TEAM) —
+        // its own real TSAs (Julie, Joana, Marisol) appear after the
+        // Opening Supervisor, before the Closing Supervisor's own name.
+        $response->assertSeeInOrder([
+            'Telesales Supervisor (Opening Shift)',
+            'Julie',
+            'Telesales Supervisor (Closing Shift)',
+            'Gemma De Guzman',
+        ]);
+    }
+
+    /** The CEO's own 10,341.13 shared reference figure must never be
+     *  duplicated onto the Sales Director/Telesales Manager rows it
+     *  visually spans — those two rows render with NO shared_bonus value
+     *  of their own at all (a real HTML rowspan covers them instead). */
+    public function test_the_ceos_shared_reference_figure_is_not_duplicated_onto_the_rows_it_spans(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        // Appears exactly once on the page (the CEO's own rowspan cell),
+        // not once per row it visually spans.
+        $content = $response->getContent();
+        $this->assertSame(1, substr_count($content, '10,341.13'));
+    }
+
     public function test_a_non_admin_cannot_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);

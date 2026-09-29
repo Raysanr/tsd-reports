@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
  *  doc comment for why every field here is manual entry. */
 class CostBreakdownRole extends Model
 {
-    protected $fillable = ['label', 'person_name', 'base_salary', 'shared_bonus', 'shared_bonus_span', 'sort_order'];
+    protected $fillable = ['label', 'person_name', 'team', 'base_salary', 'shared_bonus', 'shared_bonus_span', 'sort_order'];
 
     protected $casts = [
         'base_salary' => 'float',
@@ -40,9 +40,14 @@ class CostBreakdownRole extends Model
         // Supervisors: base_salary IS the real folded total (34,285.71 +
         // 5,714.29 = 40,000.00) — no separate bonus field or column at all,
         // same convention as the individual TSA rows below them
-        // (CostBreakdownTsaEntry's own doc comment).
-        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 5],
-        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 6],
+        // (CostBreakdownTsaEntry's own doc comment). team (explicit
+        // follow-up, 2026-09-29: "the supervisor of opening and closing is
+        // in the rows of their TSA's") is how the controller knows which
+        // real TsaShift rows to nest directly beneath her — matches
+        // TsaShift's own `team` column values exactly (TeamShiftWindow's
+        // own OPENING_TEAM/CLOSING_TEAM constants).
+        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'team' => 'Eyecare Team', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 5],
+        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 6],
     ];
 
     public static function ensureSeeded(): void

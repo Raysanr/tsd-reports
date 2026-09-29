@@ -20,108 +20,91 @@
 
 <div class="space-y-8">
 
-    {{-- Top salary/org section — every field manual (explicit request,
+    {{-- Salary breakdown — every field manual (explicit request,
          2026-09-29: no formula derives a CEO/Sales Director/Manager's real
          salary anywhere else in this app). No separate "bonus" field
          (explicit follow-up, 2026-09-29: "there's no bonus on the sheets
          so it should no bonus in that") — each row's own Base Salary is
          her real full monthly figure. The 10,341.13 (CEO/Sales
          Director/Telesales Manager) and 4,833.33 (QA Specialist/Junior AI
-         Engineer) figures are shown exactly like the real sheet's own
-         merged cell — a shared reference number spanning those rows,
-         never added into anyone's own Base Salary or any total. Modern
-         card layout rather than the real sheet's own dense spreadsheet
-         grid, per "use tailwind css components for the modern design." --}}
+         Engineer) figures render as a real HTML rowspan, exactly like the
+         sheet's own merged cell — a shared reference number, never added
+         into anyone's own Base Salary or any total.
+
+         Each shift's own Supervisor is immediately followed by her own
+         team's real TSAs, ONE continuous table (explicit follow-up,
+         2026-09-29: "the supervisor of opening and closing is in the rows
+         of their TSA's") — $salaryRows is this exact interleaved sequence,
+         built once in the controller. Modern table styling (sticky
+         header, zebra rows, tabular numerals) rather than the real
+         sheet's own dense spreadsheet grid, per "use tailwind css
+         components for the modern design." --}}
     <div class="rounded-2xl border border-line dark:border-slate-700 bg-white dark:bg-slate-900 shadow-panel overflow-hidden">
         <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between">
             <h2 class="font-mono font-bold text-sm uppercase tracking-wide text-white">Telesales Dept — Salary Breakdown</h2>
             <span id="cbRoleSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
         </div>
-
-        <div class="flex">
-            <div class="flex-1 divide-y divide-line dark:divide-slate-700">
-                @foreach($roles as $role)
-                <div class="px-6 py-4 flex flex-wrap items-center gap-4" data-role-row data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
-                    <div class="w-full sm:w-64 shrink-0">
-                        <p class="font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $role->label }}</p>
-                        @if($role->person_name)
-                            <p class="font-mono text-xs text-ink-muted dark:text-slate-400">{{ $role->person_name }}</p>
-                        @endif
-                    </div>
-
-                    <label class="flex items-center gap-2 ml-auto">
-                        <span class="text-xs font-mono text-ink-muted dark:text-slate-400 whitespace-nowrap">Base Salary</span>
-                        <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
-                               data-field="base_salary" data-money="1"
-                               class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1.5 text-sm font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none font-mono">
-                    </label>
-                </div>
-                @endforeach
-            </div>
-
-            {{-- The sheet's own merged reference column — rendered as a
-                 narrow rail of "spanning" chips rather than a real HTML
-                 table rowspan, since the roles above are a flex list of
-                 <div>s, not <tr>s. Purely informational (never editable,
-                 never added into any total) — a role with no shared_bonus
-                 (most of them) shows nothing here at all. --}}
-            <div class="w-32 shrink-0 border-l border-line dark:border-slate-700 relative">
-                @php $y = 0; @endphp
-                @foreach($roles as $role)
-                    @php $rowHeightRem = 4.5; @endphp
-                    @if($role->shared_bonus !== null)
-                    <div class="absolute left-0 right-0 flex items-center justify-center px-2"
-                         style="top: {{ $y }}rem; height: {{ $rowHeightRem * $role->shared_bonus_span }}rem;">
-                        <span class="font-mono font-bold text-sm text-ink-muted dark:text-slate-400" title="Shared across {{ $role->shared_bonus_span }} rows — reference only, not added to any total">{{ $fmtMoney($role->shared_bonus) }}</span>
-                    </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-[13px] cb-table">
+                <thead>
+                    <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
+                        <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600">Shared Ref.</th>
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-line dark:divide-slate-700">
+                    @foreach($salaryRows as $item)
+                    @if($item['type'] === 'role')
+                        @php $role = $item['role']; @endphp
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
+                            <td class="px-4 py-2 whitespace-nowrap">
+                                <p class="font-mono font-bold text-ink dark:text-slate-100">{{ $role->label }}</p>
+                                @if($role->person_name)
+                                    <p class="font-mono text-xs text-ink-muted dark:text-slate-400">{{ $role->person_name }}</p>
+                                @endif
+                            </td>
+                            <td class="px-4 py-1.5 text-right">
+                                <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
+                                       data-field="base_salary" data-money="1"
+                                       class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                            </td>
+                            @if($role->shared_bonus !== null)
+                            {{-- Real rowspan, matching the sheet's own
+                                 merged cell exactly — purely informational,
+                                 never editable, never added into any
+                                 total. --}}
+                            <td rowspan="{{ $role->shared_bonus_span }}" class="px-4 py-2 text-right font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 align-middle" title="Shared across {{ $role->shared_bonus_span }} rows — reference only, not added to any total">
+                                {{ $fmtMoney($role->shared_bonus) }}
+                            </td>
+                            @elseif(!$item['covered_by_rowspan'])
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60"></td>
+                            @endif
+                            <td class="px-4 py-2"></td>
+                        </tr>
+                    @else
+                        @php $tsa = $item['tsa']; $entry = $item['entry']; $dailyRate = $entry->base_salary / 24; @endphp
+                        <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                            data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
+                            <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ $tsa->display_name }}</td>
+                            <td class="px-4 py-1.5 text-right">
+                                <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
+                                       data-field="base_salary" data-money="1"
+                                       class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                            </td>
+                            <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60"></td>
+                            <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400">{{ $fmtMoney($dailyRate) }}</td>
+                        </tr>
                     @endif
-                    @php $y += $rowHeightRem; @endphp
-                @endforeach
-            </div>
+                    @endforeach
+                </tbody>
+            </table>
         </div>
 
         <div class="px-6 py-4 bg-slate-100 dark:bg-slate-800/60 flex items-center justify-between">
             <span class="font-mono font-bold text-sm text-ink dark:text-slate-100">TOTAL SALARY OF TSD</span>
             <span class="font-mono font-bold text-lg text-primary">{{ $fmtMoney($totalSalaryOfTsd) }}</span>
-        </div>
-    </div>
-
-    {{-- Per-TSA payroll — Base Salary IS her real full monthly total, no
-         separate bonus field (explicit follow-up, 2026-09-29), same real
-         roster the cost-allocation table below uses. --}}
-    <div class="rounded-2xl border border-line dark:border-slate-700 bg-white dark:bg-slate-900 shadow-panel overflow-hidden">
-        <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between">
-            <h2 class="font-mono font-bold text-sm uppercase tracking-wide text-white">Telesales Associates — Salary</h2>
-            <span id="cbTsaSalarySaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="w-full text-[13px] cb-table">
-                <thead>
-                    <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
-                        <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">TSA</th>
-                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
-                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-line dark:divide-slate-700">
-                    @foreach($tsaRows as $row)
-                    @php
-                        $tsa = $row['tsa']; $entry = $row['entry'];
-                        $dailyRate = $entry->base_salary / 24;
-                    @endphp
-                    <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                        data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
-                        <td class="px-4 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ $tsa->display_name }}</td>
-                        <td class="px-4 py-1.5 text-right">
-                            <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
-                                   data-field="base_salary" data-money="1"
-                                   class="cb-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                        </td>
-                        <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400">{{ $fmtMoney($dailyRate) }}</td>
-                    </tr>
-                    @endforeach
-                </tbody>
-            </table>
         </div>
     </div>
 
@@ -407,7 +390,7 @@
             } else if (input.closest('[data-role-row]')) {
                 saveGenericField(input, 'cbRoleSaveStatus');
             } else if (input.closest('[data-tsa-salary-row]')) {
-                saveGenericField(input, 'cbTsaSalarySaveStatus');
+                saveGenericField(input, 'cbRoleSaveStatus');
             } else if (input.closest('[data-pool-row]')) {
                 saveGenericField(input, 'cbPoolSaveStatus');
             }
@@ -423,7 +406,7 @@
         } else if (input.closest('[data-role-row]')) {
             saveGenericField(input, 'cbRoleSaveStatus');
         } else if (input.closest('[data-tsa-salary-row]')) {
-            saveGenericField(input, 'cbTsaSalarySaveStatus');
+            saveGenericField(input, 'cbRoleSaveStatus');
         } else if (input.closest('[data-pool-row]')) {
             saveGenericField(input, 'cbPoolSaveStatus');
         }

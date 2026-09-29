@@ -67,6 +67,43 @@ class CostBreakdownController extends Controller
             return ['tsa' => $tsa, 'entry' => $entry];
         });
 
+        // Salary section render list (explicit follow-up, 2026-09-29:
+        // "the supervisor of opening and closing is in the rows of their
+        // TSA's") — a flat sequence of ['type' => 'role'|'tsa', ...]
+        // entries, built ONCE here so the view never has to know which
+        // role owns which team's TSAs itself. A Supervisor role
+        // (role->team set) is immediately followed by every real TsaShift
+        // whose own `team` column matches hers, in that team's existing
+        // roster order — every other role has no TSAs nested under it at
+        // all, same as the real sheet.
+        //
+        // covered_by_rowspan (role rows only): whether an EARLIER role's
+        // own shared_bonus rowspan cell still visually covers THIS row's
+        // "Shared Ref." column — a real HTML rowspan cell must never have
+        // a sibling <td> for that same column underneath it, or every
+        // column in the row shifts left by one. Tracked here with a
+        // running counter as roles are walked in their own sort order,
+        // decrementing once per role row (a role WITH its own
+        // shared_bonus starts a fresh span instead of consuming the
+        // current one, matching how a real spreadsheet's own merged
+        // regions can never overlap).
+        $rowspanRemaining = 0;
+        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, &$rowspanRemaining) {
+            $coveredByRowspan = $role->shared_bonus === null && $rowspanRemaining > 0;
+            $rowspanRemaining = $role->shared_bonus !== null ? $role->shared_bonus_span - 1 : max(0, $rowspanRemaining - 1);
+
+            $rows = collect([['type' => 'role', 'role' => $role, 'covered_by_rowspan' => $coveredByRowspan]]);
+
+            if ($role->team) {
+                $rows = $rows->concat(
+                    $tsaRows->filter(fn ($row) => $row['tsa']->team === $role->team)
+                        ->map(fn ($row) => ['type' => 'tsa', 'tsa' => $row['tsa'], 'entry' => $row['entry']])
+                );
+            }
+
+            return $rows;
+        });
+
         $totalDays = $tsaRows->sum(fn ($row) => $row['entry']->days);
         $poolAmounts = $pools->pluck('amount', 'key')->all();
 
@@ -95,6 +132,7 @@ class CostBreakdownController extends Controller
 
         return view('data.cost-breakdown', [
             'roles' => $roles,
+            'salaryRows' => $salaryRows,
             'pools' => $pools,
             'tsaRows' => $tsaRows,
             'totalDays' => $totalDays,
