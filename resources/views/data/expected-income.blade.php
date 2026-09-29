@@ -80,33 +80,33 @@
         </div>
 
         {{-- Grouped products (explicit request, 2026-09-26: a combo
-             created on DSPPR "will reflect it to the expected income")
-             render exactly like the read-only overall card above — one
-             summed card, no inputs — since a combined figure is never
-             directly editable; edit the real numbers by ungrouping on
-             DSPPR first. An ungrouped product keeps its normal editable
-             card, unchanged. --}}
+             created on DSPPR "will reflect it to the expected income") are
+             now editable too (explicit follow-up, 2026-09-29: "make it
+             editable because in the side of users the merged products is
+             only 1 product only") — same as DSPPR's own identical fix,
+             a group's card saves to its own FIRST member product
+             ($row['products']->first(), always the same product whichever
+             page you're on), while $d (this card's own DISPLAYED figures)
+             stays the full summed total across every member — the
+             controller's own withCustomRowValues()-equivalent derive()
+             call already pools every member's real data, this just makes
+             the card itself typeable now instead of forcing an ungroup
+             trip to DSPPR first. --}}
         @foreach($dailyRows[$dateStr] as $row)
-        @php $d = $row['derived']; @endphp
-        @if($row['group'])
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0">
-            <div class="px-5 py-4" style="background:#d9ead3;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
-            </div>
-            @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
-        </div>
-        @else
-        @php $product = $row['products']->first(); $entry = $dailyByKey->get($product->id . ':' . $dateStr); @endphp
+        @php
+            $d = $row['derived'];
+            $product = $row['products']->first();
+            $entry = $dailyByKey->get($product->id . ':' . $dateStr);
+        @endphp
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
              data-product-id="{{ $product->id }}"
              data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}"
              data-custom-action="{{ route('data.expected-income.update-custom-row', ['product' => $product->id, 'date' => $dateStr]) }}">
             <div class="px-5 py-4" style="background:#d9ead3;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $product->display_name }}</span>
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
             </div>
             @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
         </div>
-        @endif
         @endforeach
     </div>
 </div>

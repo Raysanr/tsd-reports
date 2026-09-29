@@ -176,6 +176,66 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertSee('1,500.00'); // 1,000 + 500 summed into the one combined row.
     }
 
+    /** Explicit follow-up, 2026-09-29: "make it editable because in the
+     *  side of users the merged products is only 1 product only" — a
+     *  grouped row is now editable, saving to the group's own FIRST member
+     *  product ($row['products']->first(), same product the Blade's own
+     *  data-product-id always uses). */
+    public function test_updating_a_grouped_products_cell_saves_to_its_first_member(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $today = today()->toDateString();
+
+        $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'TO',
+            'product_ids' => [$productA->id, $productB->id],
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update', ['product' => $productA->id, 'date' => $today]),
+            ['gross_sales' => 2000, 'total_orders' => 2]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('dsppr_entries', [
+            'product_id' => $productA->id,
+            'gross_sales' => 2000,
+        ]);
+    }
+
+    /** The group's own READ-ONLY cells (NI %, AOV, ...) must keep
+     *  reflecting the FULL group total after an edit, not just the one
+     *  member the edit landed on — the other member's own previously-saved
+     *  numbers are still real and still part of what this row displays. */
+    public function test_updating_a_grouped_products_cell_returns_the_full_group_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $today = today()->toDateString();
+
+        // productB already has its own real, separately-saved data.
+        DsPprEntry::create(['product_id' => $productB->id, 'entry_date' => $today, 'gross_sales' => 500, 'total_orders' => 1]);
+
+        $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'TO',
+            'product_ids' => [$productA->id, $productB->id],
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update', ['product' => $productA->id, 'date' => $today]),
+            ['gross_sales' => 1000, 'total_orders' => 1]
+        );
+
+        $response->assertOk();
+        // 1,000 (just-edited productA) + 500 (productB's own untouched
+        // data) = 1,500 — the group's TRUE combined total, not just
+        // productA's own 1,000.
+        $response->assertJsonPath('derived.gross_sales', fn ($v) => (float) $v === 1500.0);
+    }
+
     public function test_a_product_cannot_join_two_groups(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

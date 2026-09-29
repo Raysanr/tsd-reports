@@ -157,6 +157,61 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('1,500.00');
     }
 
+    /** Explicit follow-up, 2026-09-29: "make it editable because in the
+     *  side of users the merged products is only 1 product only" — same
+     *  fix already applied to DSPPR's own identical grouping — a grouped
+     *  card now saves to the group's own FIRST member product. */
+    public function test_updating_a_grouped_products_cell_saves_to_its_first_member(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $date = today()->toDateString();
+
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update', ['product' => $productA->id, 'date' => $date]),
+            ['gross_sales' => 2000]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $productA->id,
+            'gross_sales' => 2000,
+        ]);
+    }
+
+    /** The group's own DISPLAYED figures must keep reflecting the FULL
+     *  group total after an edit, not just the one member the edit landed
+     *  on — the other member's own previously-saved numbers are still real
+     *  and still part of what this card shows. */
+    public function test_updating_a_grouped_products_cell_returns_the_full_group_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $date = today()->toDateString();
+
+        // productB already has its own real, separately-saved data.
+        ExpectedIncomeEntry::create(['product_id' => $productB->id, 'entry_date' => $date, 'gross_sales' => 500]);
+
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update', ['product' => $productA->id, 'date' => $date]),
+            ['gross_sales' => 1000]
+        );
+
+        $response->assertOk();
+        // 1,000 (just-edited productA) + 500 (productB's own untouched
+        // data) = 1,500 — the group's TRUE combined total, not just
+        // productA's own 1,000.
+        $response->assertJsonPath('derived.gross_sales', fn ($v) => (float) $v === 1500.0);
+    }
+
     /** Explicit request, 2026-09-28: "when i add in the + icon in the
      *  projections it should be automatically added to the expected income
      *  rows" — a row added via Projections' own custom-row endpoint shows

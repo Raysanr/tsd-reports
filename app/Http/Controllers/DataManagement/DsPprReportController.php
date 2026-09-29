@@ -143,9 +143,36 @@ class DsPprReportController extends Controller
         $entry->fill($data);
         $entry->save();
 
+        // A merged/grouped product is now editable AS IF it's one product
+        // (explicit request, 2026-09-29: "in the side of users the merged
+        // products is only 1 product only") — $product here is always the
+        // group's own FIRST member (see dsppr.blade.php's own
+        // data-product-id, always $row['products']->first()->id), so a
+        // typed edit lands on that one product's own DsPprEntry same as
+        // any ungrouped product. But this row's own READ-ONLY cells (NI %,
+        // AOV, Excess Leads, Pick-up/Conversion/Upselling Rate) must still
+        // reflect the FULL group total, not just this one member — the
+        // frontend has no way to know the other member(s)' own stored
+        // numbers (they're never rendered in the DOM at all once grouped),
+        // so the server has to resolve and return the true summed figures
+        // here instead.
+        $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
+        if ($group) {
+            $memberEntries = DsPprEntry::whereIn('product_id', $group->products->pluck('id'))
+                ->whereDate('entry_date', $entryDate)
+                ->get()
+                ->keyBy('product_id');
+            $pooled = $group->products->map(
+                fn (Product $p) => $memberEntries->get($p->id)?->toArray() ?? ['product_id' => $p->id, 'entry_date' => $entryDate]
+            );
+            $derived = DsPprCalculator::sum($pooled->all());
+        } else {
+            $derived = DsPprCalculator::derive($entry->toArray());
+        }
+
         return response()->json([
             'success' => true,
-            'derived' => DsPprCalculator::derive($entry->toArray()),
+            'derived' => $derived,
         ]);
     }
 

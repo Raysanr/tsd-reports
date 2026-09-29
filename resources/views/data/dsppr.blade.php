@@ -220,7 +220,16 @@
                 @endphp
                 <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                     data-row-key="{{ $rowKey }}"
-                    @if(!$isGroup) data-product-id="{{ $row['products']->first()->id }}" @endif
+                    {{-- Explicit request, 2026-09-29: "make it editable
+                         because in the side of users the merged products is
+                         only 1 product only" — a group row is now editable
+                         too, saving to its own FIRST member product
+                         (deterministic: $row['products'] keeps the overall
+                         product list's own sort order, not merge order).
+                         The other member(s)' own previously-saved numbers
+                         are untouched underneath; every new edit on this
+                         row goes to the one primary product from now on. --}}
+                    data-product-id="{{ $row['products']->first()->id }}"
                     @if($isGroup) data-group-id="{{ $row['group']->id }}" @endif>
                     {{-- A group row's own cell is a valid DROP TARGET too
                          (explicit follow-up, 2026-09-26: "what about more
@@ -243,19 +252,26 @@
                         @php
                             $dateStr = $date->toDateString();
                             $emptyRow = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
-                            // A group's own cell pools EVERY member
-                            // product's own entry for this date before
+                            // A group's own DISPLAYED total ($d) still pools
+                            // EVERY member product's own entry before
                             // summing — same reasoning as the controller's
                             // own $dailyRows (a group's daily figure is
                             // never just one member's, even if only one
                             // member happens to have data for this day).
+                            // $raw (what an editable input reads from/saves
+                            // to) is the FIRST member's own entry only —
+                            // explicit request, 2026-09-29: a group is
+                            // editable as if it's one product now, and that
+                            // one product is always the first member (same
+                            // $row['products']->first() the row's own
+                            // data-product-id above already commits to).
                             $pooled = $row['products']->map(fn ($p) => $dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow);
-                            $raw = $isGroup ? $emptyRow : ($pooled->first() ?: $emptyRow);
+                            $raw = $pooled->first() ?: $emptyRow;
                             $d = $isGroup ? \App\Support\DsPprCalculator::sum($pooled->all()) : \App\Support\DsPprCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
-                            @if($col['editable'] && !$isGroup)
+                            @if($col['editable'])
                             <td class="px-2 py-1.5 {{ $borderClass }}">
                                 <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
                                        value="{{ ($col['money'] ?? false) ? number_format($raw[$col['key']], 2) : $raw[$col['key']] }}"

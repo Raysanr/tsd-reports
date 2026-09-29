@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ExpectedIncomeCustomValue;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
+use App\Models\ProductGroup;
 use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductGrouping;
 use Illuminate\Http\Request;
@@ -264,11 +265,7 @@ class ExpectedIncomeController extends Controller
 
         return response()->json([
             'success' => true,
-            'derived' => ExpectedIncomeCalculator::derive(
-                $this->withCustomRowValues($entry, $entryDate),
-                array_keys(ExpectedIncomeCalculator::sellingCostRows()),
-                array_keys(ExpectedIncomeCalculator::operatingCostRows())
-            ),
+            'derived' => $this->derivedForProductOrGroup($product, $entryDate),
         ]);
     }
 
@@ -308,17 +305,46 @@ class ExpectedIncomeController extends Controller
         // Selling/Operating Costs and Net Income exactly like a built-in
         // one, so the frontend needs the SAME full derived payload update()
         // above returns, not just the one changed field.
-        $entry = ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $entryDate)->first()
-            ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'entry_date' => $entryDate]);
-
         return response()->json([
             'success' => true,
-            'derived' => ExpectedIncomeCalculator::derive(
-                $this->withCustomRowValues($entry, $entryDate),
-                array_keys(ExpectedIncomeCalculator::sellingCostRows()),
-                array_keys(ExpectedIncomeCalculator::operatingCostRows())
-            ),
+            'derived' => $this->derivedForProductOrGroup($product, $entryDate),
         ]);
+    }
+
+    /** Shared by update() and updateCustomRow() above — $product is always
+     *  a group's own FIRST member when it's grouped (see
+     *  expected-income.blade.php's own data-product-id), so a save always
+     *  lands on that one real product's own ExpectedIncomeEntry, but the
+     *  card DISPLAYING it must still show the FULL group total (explicit
+     *  request, 2026-09-29: "in the side of users the merged products is
+     *  only 1 product only", same fix already applied to DSPPR's own
+     *  identical update()) — the frontend has no way to know the other
+     *  member(s)' own stored numbers (never rendered anywhere once
+     *  grouped), so the server resolves and returns the true summed
+     *  figures here instead of just $product's own slice. */
+    private function derivedForProductOrGroup(Product $product, string $entryDate): array
+    {
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+
+        $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
+        if (!$group) {
+            $entry = ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $entryDate)->first()
+                ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'entry_date' => $entryDate]);
+
+            return ExpectedIncomeCalculator::derive($this->withCustomRowValues($entry, $entryDate), $sellingKeys, $operatingKeys);
+        }
+
+        $memberEntries = ExpectedIncomeEntry::whereIn('product_id', $group->products->pluck('id'))
+            ->whereDate('entry_date', $entryDate)
+            ->get()
+            ->keyBy('product_id');
+        $pooled = $group->products->map(function (Product $p) use ($memberEntries, $entryDate) {
+            $memberEntry = $memberEntries->get($p->id) ?? new ExpectedIncomeEntry(['product_id' => $p->id, 'entry_date' => $entryDate]);
+            return $this->withCustomRowValues($memberEntry, $entryDate);
+        });
+
+        return ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
     }
 
     /** Merges every custom row's own currently-saved value onto $entry's
