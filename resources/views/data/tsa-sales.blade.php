@@ -99,14 +99,14 @@
                 @php $d = $rs['derived']; @endphp
                 <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="catered_leads">{{ number_format($d['catered_leads']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="pickup_rate">{{ $fmtPct($d['pickup_rate']) }}</td>
-                    <td class="px-3 py-2 text-right" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="catered_leads">{{ number_format($d['catered_leads']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="pickup_rate">{{ $fmtPct($d['pickup_rate']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
                 </tr>
                 @endforeach
                 @php $gt = $gs['groupTotal']; @endphp
@@ -194,7 +194,14 @@
                                        class="tsr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
                             @else
-                            <td class="px-3 py-2 text-right {{ $borderClass }} {{ $col['key'] === 'ni_pct' && $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : '' }}"
+                            @php
+                                $cellColor = match (true) {
+                                    $col['key'] === 'net_income' => $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400',
+                                    $col['key'] === 'ni_pct' && $d['ni_pct'] < 0 => 'text-red-600 dark:text-red-400',
+                                    default => 'text-ink dark:text-slate-100',
+                                };
+                            @endphp
+                            <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
                                 data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
                                 {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
                             </td>
