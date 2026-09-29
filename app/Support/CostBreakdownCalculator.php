@@ -94,4 +94,24 @@ class CostBreakdownCalculator
     {
         return $baseSalary / 24;
     }
+
+    /** One overhead group's own per-TSA figure — confirmed a LIVE FORMULA
+     *  in the real sheet, not a manually-typed number as this app
+     *  originally (wrongly) modeled it (explicit follow-up, 2026-09-29:
+     *  "look at this formula ... it is all divided of all 12 tsa"):
+     *  $groupBaseSalaries summed, divided by $tsaCount. Confirmed exact
+     *  against the sheet's own 3 real cells:
+     *    - CEO+Sales Director+Telesales Manager ÷ 12 (total TSAs) = 10,341.13
+     *    - QA Specialist+Junior AI Engineer ÷ 12 (total TSAs) = 4,833.33
+     *    - Each Supervisor alone ÷ 6 (her OWN team's TSAs) = 5,714.285
+     *  $tsaCount is passed in rather than hardcoded 12/6 (explicit
+     *  decision, 2026-09-29) — this app's own real TsaShift roster is
+     *  smaller than the sheet's own 12-person snapshot, and the figure
+     *  should track whatever headcount is genuinely live right now rather
+     *  than a frozen sheet-era number; returns 0.0 if $tsaCount is 0
+     *  (division-by-zero guard, same convention as shareOfDays() above). */
+    public static function overheadPerTsa(array $groupBaseSalaries, int $tsaCount): float
+    {
+        return $tsaCount > 0 ? array_sum($groupBaseSalaries) / $tsaCount : 0.0;
+    }
 }

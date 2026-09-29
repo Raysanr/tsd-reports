@@ -67,6 +67,30 @@ class CostBreakdownController extends Controller
             return ['tsa' => $tsa, 'entry' => $entry];
         });
 
+        // Overhead-per-TSA — confirmed a LIVE FORMULA in the real sheet
+        // (explicit follow-up, 2026-09-29: "look at this formula ... it is
+        // all divided of all 12 tsa"), not a manually-typed number as this
+        // app originally modeled it. Grouped by overhead_group (roles
+        // sharing the same group sum their own base_salary together before
+        // dividing), each group's own divisor is either the TOTAL real TSA
+        // headcount or, for a Supervisor (overhead_divisor === 'team'),
+        // just HER OWN team's real TSA count — see
+        // CostBreakdownCalculator::overheadPerTsa()'s own doc comment for
+        // the exact 3 real numbers this reproduces.
+        $totalTsaCount = $tsas->count();
+        $tsaCountByTeam = $tsas->countBy(fn (TsaShift $tsa) => $tsa->team);
+        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
+        $overheadByRoleId = $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup, $totalTsaCount, $tsaCountByTeam) {
+            if (!$role->overhead_group) {
+                return [$role->id => null];
+            }
+
+            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
+            $tsaCount = $role->overhead_divisor === 'team' ? ($tsaCountByTeam->get($role->team) ?? 0) : $totalTsaCount;
+
+            return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
+        });
+
         // Salary section render list (explicit follow-up, 2026-09-29:
         // "the supervisor of opening and closing is in the rows of their
         // TSA's") — a flat sequence of ['type' => 'role'|'tsa', ...]
@@ -77,22 +101,35 @@ class CostBreakdownController extends Controller
         // roster order — every other role has no TSAs nested under it at
         // all, same as the real sheet.
         //
-        // covered_by_rowspan (role rows only): whether an EARLIER role's
-        // own shared_bonus rowspan cell still visually covers THIS row's
-        // "Shared Ref." column — a real HTML rowspan cell must never have
-        // a sibling <td> for that same column underneath it, or every
-        // column in the row shifts left by one. Tracked here with a
-        // running counter as roles are walked in their own sort order,
-        // decrementing once per role row (a role WITH its own
-        // shared_bonus starts a fresh span instead of consuming the
-        // current one, matching how a real spreadsheet's own merged
-        // regions can never overlap).
+        // rowspan (role rows only): how many rows this role's own overhead
+        // figure visually covers — every OTHER role sharing the same
+        // overhead_group AFTER this one in sort order, +1 for itself (the
+        // FIRST role in a group anchors the merged cell, same convention
+        // as a real spreadsheet's own merged region). A role covered by an
+        // EARLIER role's own rowspan renders no "Overhead / TSA" cell of
+        // its own at all — tracked with a running counter as roles are
+        // walked in order.
         $rowspanRemaining = 0;
-        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, &$rowspanRemaining) {
-            $coveredByRowspan = $role->shared_bonus === null && $rowspanRemaining > 0;
-            $rowspanRemaining = $role->shared_bonus !== null ? $role->shared_bonus_span - 1 : max(0, $rowspanRemaining - 1);
+        $seenGroups = [];
+        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, &$rowspanRemaining, &$seenGroups) {
+            $coveredByRowspan = $rowspanRemaining > 0;
+            $rowspan = 0;
 
-            $rows = collect([['type' => 'role', 'role' => $role, 'covered_by_rowspan' => $coveredByRowspan]]);
+            if (!$coveredByRowspan && $role->overhead_group && !in_array($role->overhead_group, $seenGroups, true)) {
+                $seenGroups[] = $role->overhead_group;
+                $rowspan = $rolesByGroup->get($role->overhead_group)->count();
+                $rowspanRemaining = $rowspan - 1;
+            } elseif ($rowspanRemaining > 0) {
+                $rowspanRemaining--;
+            }
+
+            $rows = collect([[
+                'type' => 'role',
+                'role' => $role,
+                'overhead' => $overheadByRoleId->get($role->id),
+                'rowspan' => $rowspan,
+                'covered_by_rowspan' => $coveredByRowspan,
+            ]]);
 
             if ($role->team) {
                 $rows = $rows->concat(
@@ -157,13 +194,17 @@ class CostBreakdownController extends Controller
         return $tsaRows->sum(fn ($row) => $row['entry']->base_salary);
     }
 
-    /** Auto-save for one role's own field (explicit request, 2026-09-29,
-     *  same debounced-PATCH-per-field convention as every other page in
-     *  this module). shared_bonus/shared_bonus_span are read-only from
-     *  this endpoint's own perspective (purely a display figure — see
-     *  add_shared_bonus_span_to_cost_breakdown_roles_table's own doc
-     *  comment — this app has no UI control for either, so they're
-     *  intentionally absent from the validated fields below). */
+    /** Auto-save for one role's own base_salary (explicit request,
+     *  2026-09-29, same debounced-PATCH-per-field convention as every other
+     *  page in this module). overhead_group/overhead_divisor are read-only
+     *  from this endpoint's own perspective (structural fields with no UI
+     *  control — see rework_shared_bonus_into_overhead_group_on_cost_
+     *  breakdown_roles_table's own doc comment). Editing base_salary here
+     *  can change OTHER roles' own overhead-per-TSA figure too (a role
+     *  sharing this one's own overhead_group sums their base_salary
+     *  together before dividing) — returns every role's own freshly-
+     *  recomputed overhead figure, same "one shared value change, every
+     *  dependent row refreshed" convention as updatePool() below. */
     public function updateRole(Request $request, CostBreakdownRole $costBreakdownRole)
     {
         $data = $request->validate([
@@ -177,7 +218,32 @@ class CostBreakdownController extends Controller
         return response()->json([
             'success' => true,
             'total' => $costBreakdownRole->base_salary,
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
         ]);
+    }
+
+    /** Every role's own freshly-recomputed overhead-per-TSA figure, keyed
+     *  by role id — shared by updateRole() above since editing one role's
+     *  base_salary can change every OTHER role in the same overhead_group's
+     *  own displayed figure too (they all show the SAME summed-then-divided
+     *  number, per the real sheet's own merged cell). */
+    private function recomputeAllRoleOverhead(): array
+    {
+        $roles = CostBreakdownRole::all();
+        $totalTsaCount = TsaShift::count();
+        $tsaCountByTeam = TsaShift::all()->countBy(fn (TsaShift $tsa) => $tsa->team);
+        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
+
+        return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup, $totalTsaCount, $tsaCountByTeam) {
+            if (!$role->overhead_group) {
+                return [$role->id => null];
+            }
+
+            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
+            $tsaCount = $role->overhead_divisor === 'team' ? ($tsaCountByTeam->get($role->team) ?? 0) : $totalTsaCount;
+
+            return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
+        })->all();
     }
 
     /** Auto-save for one shared pool's own monthly amount. Returns every

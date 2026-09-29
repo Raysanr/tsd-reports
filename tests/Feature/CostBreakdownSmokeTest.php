@@ -56,11 +56,15 @@ class CostBreakdownSmokeTest extends TestCase
         ]);
     }
 
-    /** The CEO's own 10,341.13 shared reference figure must never be
-     *  duplicated onto the Sales Director/Telesales Manager rows it
-     *  visually spans — those two rows render with NO shared_bonus value
-     *  of their own at all (a real HTML rowspan covers them instead). */
-    public function test_the_ceos_shared_reference_figure_is_not_duplicated_onto_the_rows_it_spans(): void
+    /** The CEO/Sales Director/Telesales Manager group's own overhead-per-
+     *  TSA figure (confirmed a LIVE FORMULA in the real sheet, 2026-09-29:
+     *  "look at this formula ... it is all divided of all 12 tsa" — their
+     *  own combined base_salary ÷ the REAL total TSA headcount, 6 in this
+     *  app's own live roster, not the sheet's frozen 12) must never be
+     *  duplicated onto the rows it visually spans — those render with NO
+     *  overhead figure of their own at all (a real HTML rowspan covers
+     *  them instead). */
+    public function test_the_executive_groups_overhead_figure_is_not_duplicated_onto_the_rows_it_spans(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -68,10 +72,12 @@ class CostBreakdownSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
         $response->assertOk();
+        // (44,095.59 + 19,998.00 + 60,000.00) ÷ 6 real TSAs = 20,682.265.
+        $expected = number_format((44095.59 + 19998.00 + 60000.00) / 6, 2);
         // Appears exactly once on the page (the CEO's own rowspan cell),
         // not once per row it visually spans.
         $content = $response->getContent();
-        $this->assertSame(1, substr_count($content, '10,341.13'));
+        $this->assertSame(1, substr_count($content, $expected));
     }
 
     public function test_a_non_admin_cannot_view_the_report_page(): void
@@ -98,7 +104,7 @@ class CostBreakdownSmokeTest extends TestCase
     }
 
     /** Regression test, 2026-09-29: a dev database that already had these
-     *  7 roles from before shared_bonus_span/team existed (or before their
+     *  7 roles from before team/overhead_group existed (or before their
      *  own seed values changed) silently stayed stuck on the OLD values
      *  forever — ensureSeeded()'s earlier "only touch an empty table"
      *  version never re-synced an already-existing row. Confirms
@@ -110,18 +116,18 @@ class CostBreakdownSmokeTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
 
-        // Simulate the exact stale state found live: span/team reset to
-        // their old pre-fix values, and a real admin edit sitting in
-        // base_salary that must survive the resync untouched.
+        // Simulate the exact stale state found live: overhead_group/team
+        // reset to their old pre-fix values, and a real admin edit sitting
+        // in base_salary that must survive the resync untouched.
         $ceo = CostBreakdownRole::where('label', 'CEO')->firstOrFail();
-        $ceo->update(['shared_bonus_span' => 1, 'base_salary' => 99999.99]);
+        $ceo->update(['overhead_group' => null, 'base_salary' => 99999.99]);
         $openingSupervisor = CostBreakdownRole::where('label', 'Telesales Supervisor (Opening Shift)')->firstOrFail();
         $openingSupervisor->update(['team' => null]);
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
         $response->assertOk();
-        $this->assertSame(3, $ceo->fresh()->shared_bonus_span);
+        $this->assertSame('executive', $ceo->fresh()->overhead_group);
         $this->assertEquals(99999.99, $ceo->fresh()->base_salary);
         $this->assertSame('Eyecare Team', $openingSupervisor->fresh()->team);
     }
@@ -141,9 +147,40 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertEquals(50000, $ceo->fresh()->base_salary);
         // Base Salary IS the role's own Total now (no separate bonus field
         // anywhere — explicit follow-up, 2026-09-29: "there's no bonus on
-        // the sheets"). The CEO's own 10,341.13 reference figure is purely
+        // the sheets"). Her own overhead-per-TSA reference figure is purely
         // informational and never added in.
         $response->assertJsonPath('total', fn ($v) => abs($v - 50000) < 0.01);
+    }
+
+    /** Explicit follow-up, 2026-09-29: "look at this formula ... it is all
+     *  divided of all 12 tsa" — the CEO/Sales Director/Telesales Manager's
+     *  own overhead-per-TSA figure is a LIVE FORMULA (their combined
+     *  base_salary ÷ real TSA headcount), so editing the CEO's own
+     *  base_salary must recompute and return every role's own freshly-
+     *  updated overhead figure, not just her own row. */
+    public function test_updating_a_roles_base_salary_recomputes_its_whole_overhead_groups_figure(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $ceo = CostBreakdownRole::where('label', 'CEO')->firstOrFail();
+        $salesDirector = CostBreakdownRole::where('label', 'Sales Director')->firstOrFail();
+        $telesalesManager = CostBreakdownRole::where('label', 'Telesales Manager')->firstOrFail();
+        $tsaCount = TsaShift::count();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-role', $ceo),
+            ['base_salary' => 50000]
+        );
+
+        $response->assertOk();
+        // 50,000 (just-edited) + Sales Director's own + Telesales
+        // Manager's own base salaries ÷ real TSA count — both the CEO's
+        // own row AND the Sales Director's own row (same overhead_group,
+        // no base_salary of her own changed) must show the SAME
+        // freshly-recomputed figure.
+        $expected = (50000 + $salesDirector->base_salary + $telesalesManager->base_salary) / $tsaCount;
+        $response->assertJsonPath("recomputedOverhead.{$ceo->id}", fn ($v) => abs($v - $expected) < 0.01);
+        $response->assertJsonPath("recomputedOverhead.{$salesDirector->id}", fn ($v) => abs($v - $expected) < 0.01);
     }
 
     public function test_updating_a_pools_amount_recomputes_every_tsas_own_row(): void

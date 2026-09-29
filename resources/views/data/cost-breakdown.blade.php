@@ -58,7 +58,7 @@
                     @foreach($salaryRows as $item)
                     @if($item['type'] === 'role')
                         @php $role = $item['role']; @endphp
-                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
                             <td class="px-4 py-2 whitespace-nowrap">
                                 <p class="font-mono font-bold text-ink dark:text-slate-100">{{ $role->label }}</p>
                                 @if($role->person_name)
@@ -70,13 +70,20 @@
                                        data-field="base_salary" data-money="1"
                                        class="cb-field w-32 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-2 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
-                            @if($role->shared_bonus !== null)
+                            @if($item['rowspan'] > 0)
                             {{-- Real rowspan, matching the sheet's own
-                                 merged cell exactly — purely informational,
-                                 never editable, never added into any
-                                 total. --}}
-                            <td rowspan="{{ $role->shared_bonus_span }}" class="px-4 py-2 text-right font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 align-middle" title="Shared across {{ $role->shared_bonus_span }} rows — reference only, not added to any total">
-                                {{ $fmtMoney($role->shared_bonus) }}
+                                 merged cell exactly — this group's own
+                                 combined base_salary ÷ TSA headcount (a
+                                 LIVE FORMULA in the real sheet, confirmed
+                                 2026-09-29 — see CostBreakdownCalculator::
+                                 overheadPerTsa()'s own doc comment), purely
+                                 informational, never editable, never added
+                                 into any total. --}}
+                            @php
+                                $overheadTitle = 'Combined salary ÷ ' . ($role->overhead_divisor === 'team' ? $role->team . "'s" : 'total') . ' TSA headcount — reference only, not added to any total';
+                            @endphp
+                            <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-right font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 align-middle" title="{{ $overheadTitle }}">
+                                {{ $fmtMoney($item['overhead']) }}
                             </td>
                             @elseif(!$item['covered_by_rowspan'])
                             <td class="px-4 py-2 bg-slate-100 dark:bg-slate-800/60"></td>
@@ -253,6 +260,21 @@
         refreshCostTableTotals();
     }
 
+    // Applies a fresh { roleId: overheadValue|null } payload (the
+    // controller's own recomputeAllRoleOverhead() shape) — editing one
+    // role's own base_salary can change every OTHER role sharing the same
+    // overhead_group's own displayed figure too, since they all show the
+    // SAME summed-then-divided number (the real sheet's own merged cell).
+    // null entries (a role with no overhead_group at all) are skipped —
+    // there's no anchor cell to update for them.
+    function applyRecomputedOverhead(recomputedOverhead) {
+        Object.entries(recomputedOverhead).forEach(([roleId, value]) => {
+            if (value === null) return;
+            const cell = document.querySelector(`[data-overhead-anchor-role-id="${roleId}"]`);
+            if (cell) cell.textContent = fmtMoney(value);
+        });
+    }
+
     // Recomputes the bottom table's own TOTAL row (Days sum + row-total
     // sum) purely from what's currently in the DOM — same "read live
     // values, don't wait for a reload" convention as DSPPR/Expected
@@ -324,7 +346,10 @@
                 // Base Salary IS the role's own Total now (no separate
                 // bonus field anywhere — explicit follow-up, 2026-09-29),
                 // so there's no derived total cell to refresh for a
-                // data-role-row save beyond the input itself.
+                // data-role-row save beyond the input itself — but her own
+                // (or a groupmate's own) overhead-per-TSA figure may have
+                // just changed, see applyRecomputedOverhead() below.
+                if (data.recomputedOverhead) applyRecomputedOverhead(data.recomputedOverhead);
 
                 if (row.hasAttribute('data-tsa-salary-row') && typeof data.dailyRate === 'number') {
                     const el = row.querySelector('[data-out="daily_rate"]');

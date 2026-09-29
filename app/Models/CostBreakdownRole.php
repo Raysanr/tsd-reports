@@ -10,59 +10,62 @@ use Illuminate\Database\Eloquent\Model;
  *  doc comment for why every field here is manual entry. */
 class CostBreakdownRole extends Model
 {
-    protected $fillable = ['label', 'person_name', 'team', 'base_salary', 'shared_bonus', 'shared_bonus_span', 'sort_order'];
+    protected $fillable = ['label', 'person_name', 'team', 'base_salary', 'overhead_group', 'overhead_divisor', 'sort_order'];
 
     protected $casts = [
         'base_salary' => 'float',
-        'shared_bonus' => 'float',
-        'shared_bonus_span' => 'integer',
         'sort_order' => 'integer',
     ];
 
     /** The real sheet's own starting roster and numbers, confirmed against
-     *  its own raw CSV export (2026-09-29) — see
-     *  add_shared_bonus_span_to_cost_breakdown_roles_table's own doc
-     *  comment for why shared_bonus is a purely informational figure
-     *  visually spanning multiple rows, never added into base_salary or
-     *  any total. Self-heals an empty table the same way ProjectionColumn::
-     *  ensureSeeded() does. */
+     *  its own raw CSV export (2026-09-29) — overhead_group/
+     *  overhead_divisor replace what this app used to (wrongly) treat as a
+     *  manually-typed "shared bonus" — see
+     *  rework_shared_bonus_into_overhead_group_on_cost_breakdown_roles_
+     *  table's own doc comment for the real formula this class's own
+     *  overheadPerTsa() now computes fresh instead of reading a stored
+     *  number. Self-heals an empty table the same way
+     *  ProjectionColumn::ensureSeeded() does. */
     public const SEED_ROLES = [
-        // 10,341.13 visually spans this row + the next 2 (Sales Director,
-        // Telesales Manager) in the real sheet — shown as a merged cell,
-        // never added to anyone's own base_salary.
-        ['label' => 'CEO', 'person_name' => null, 'base_salary' => 44095.59, 'shared_bonus' => 10341.13, 'shared_bonus_span' => 3, 'sort_order' => 0],
-        ['label' => 'Sales Director', 'person_name' => null, 'base_salary' => 19998.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 1],
-        ['label' => 'Telesales Manager', 'person_name' => 'Allaisa Jane Insigne', 'base_salary' => 60000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 2],
-        // 4,833.33 visually spans this row + the next 1 (Junior AI
-        // Engineer).
-        ['label' => 'QA Specialist', 'person_name' => 'Jake Yamson', 'base_salary' => 28000.00, 'shared_bonus' => 4833.33, 'shared_bonus_span' => 2, 'sort_order' => 3],
-        ['label' => 'Junior AI Engineer', 'person_name' => 'Raysan Raymundo', 'base_salary' => 30000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 4],
-        // Supervisors: base_salary IS the real folded total (34,285.71 +
-        // 5,714.29 = 40,000.00) — no separate bonus field or column at all,
-        // same convention as the individual TSA rows below them
-        // (CostBreakdownTsaEntry's own doc comment). team (explicit
+        // Real formula, confirmed from the sheet's own cell (2026-09-29):
+        // =(C5+C6+C7)/12 — CEO + Sales Director + Telesales Manager's own
+        // base salaries, divided by the TOTAL real TSA headcount (12 in
+        // the sheet's own snapshot; this app uses whatever the real
+        // TsaShift roster's own count is right now instead of a frozen
+        // 12 — see overheadPerTsa()'s own doc comment).
+        ['label' => 'CEO', 'person_name' => null, 'base_salary' => 44095.59, 'overhead_group' => 'executive', 'overhead_divisor' => 'total', 'sort_order' => 0],
+        ['label' => 'Sales Director', 'person_name' => null, 'base_salary' => 19998.00, 'overhead_group' => 'executive', 'overhead_divisor' => 'total', 'sort_order' => 1],
+        ['label' => 'Telesales Manager', 'person_name' => 'Allaisa Jane Insigne', 'base_salary' => 60000.00, 'overhead_group' => 'executive', 'overhead_divisor' => 'total', 'sort_order' => 2],
+        // =(C9+C10)/12 — QA Specialist + Junior AI Engineer, divided by
+        // the total real TSA headcount too.
+        ['label' => 'QA Specialist', 'person_name' => 'Jake Yamson', 'base_salary' => 28000.00, 'overhead_group' => 'support', 'overhead_divisor' => 'total', 'sort_order' => 3],
+        ['label' => 'Junior AI Engineer', 'person_name' => 'Raysan Raymundo', 'base_salary' => 30000.00, 'overhead_group' => 'support', 'overhead_divisor' => 'total', 'sort_order' => 4],
+        // =C12/6 — each Supervisor's own base salary alone, divided by HER
+        // OWN team's real TSA headcount (not the company-wide total) —
+        // confirmed exact: 34,285.71 ÷ 6 = 5,714.285. team (explicit
         // follow-up, 2026-09-29: "the supervisor of opening and closing is
         // in the rows of their TSA's") is how the controller knows which
-        // real TsaShift rows to nest directly beneath her — matches
-        // TsaShift's own `team` column values exactly (TeamShiftWindow's
-        // own OPENING_TEAM/CLOSING_TEAM constants).
-        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'team' => 'Eyecare Team', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 5],
-        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 40000.00, 'shared_bonus' => null, 'shared_bonus_span' => 1, 'sort_order' => 6],
+        // real TsaShift rows to nest directly beneath her AND which
+        // team's own headcount this divisor uses — matches TsaShift's own
+        // `team` column values exactly (TeamShiftWindow's own
+        // OPENING_TEAM/CLOSING_TEAM constants).
+        ['label' => 'Telesales Supervisor (Opening Shift)', 'person_name' => 'Lhiza Alconera', 'team' => 'Eyecare Team', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'team', 'sort_order' => 5],
+        ['label' => 'Telesales Supervisor (Closing Shift)', 'person_name' => 'Gretchen Orencio', 'team' => 'SH Naturals', 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'team', 'sort_order' => 6],
     ];
 
     /** Creates any missing role (with its full seed values, base_salary
      *  included) AND re-syncs every STRUCTURAL field (person_name/team/
-     *  shared_bonus/shared_bonus_span/sort_order) on an ALREADY-EXISTING
+     *  overhead_group/overhead_divisor/sort_order) on an ALREADY-EXISTING
      *  role on every call, not just when the table is first empty —
      *  root-caused live, 2026-09-29: an earlier "only seed if empty"
      *  version left a dev database's already-existing rows silently stuck
-     *  on old shared_bonus_span/team values (both 1/null) after this
-     *  class's own SEED_ROLES changed in later commits, since
-     *  firstOrCreate() never touches a row that already exists.
-     *  base_salary is deliberately EXCLUDED from the re-sync (existing
-     *  rows only) — it's the one field this app's own UI actually lets
-     *  someone type a real edit into, so overwriting it on every page load
-     *  would silently discard that edit the next time this runs. */
+     *  on old values after this class's own SEED_ROLES changed in later
+     *  commits, since firstOrCreate() never touches a row that already
+     *  exists. base_salary is deliberately EXCLUDED from the re-sync
+     *  (existing rows only) — it's the one field this app's own UI
+     *  actually lets someone type a real edit into, so overwriting it on
+     *  every page load would silently discard that edit the next time
+     *  this runs. */
     public static function ensureSeeded(): void
     {
         foreach (self::SEED_ROLES as $seed) {
