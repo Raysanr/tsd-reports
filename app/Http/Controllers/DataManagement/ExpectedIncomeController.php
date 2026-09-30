@@ -8,6 +8,7 @@ use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\TsaShift;
+use App\Support\DateRangeFilter;
 use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductGrouping;
 use App\Support\Teams;
@@ -72,8 +73,13 @@ class ExpectedIncomeController extends Controller
 {
     public function index(Request $request)
     {
-        $dateFrom = $request->input('date_from') ?: today()->startOfMonth()->toDateString();
-        $dateTo   = $request->input('date_to') ?: today()->toDateString();
+        // See DateRangeFilter's own doc comment — remembers the last range
+        // picked on THIS page across separate visits (a fresh sidebar-link
+        // navigation has no query string of its own to fall back to),
+        // defaulting to "today only" on a brand-new session.
+        $range = DateRangeFilter::resolve($request, 'expected-income');
+        $dateFrom = $range['from'];
+        $dateTo   = $range['to'];
 
         $selectedTeam = $request->input('team', 'all');
         $teamsConfig = Teams::config();

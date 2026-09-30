@@ -45,6 +45,41 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('Telesales Expected Performance');
     }
 
+    /** Explicit request, 2026-09-30: "why is it when i am clicking other
+     *  page and then go back why is it resetting ... i want to make it it
+     *  is first like today only when first open." A bare visit with no
+     *  date_from/date_to in the URL (e.g. clicking the sidebar link fresh)
+     *  defaults to today only, not the old "this month" default. */
+    public function test_a_bare_visit_with_no_date_params_defaults_to_today_only(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertViewHas('dateFrom', today()->toDateString());
+        $response->assertViewHas('dateTo', today()->toDateString());
+    }
+
+    /** Explicit request, 2026-09-30: "depend of the user if they will date
+     *  pick wide range" — once a real range is picked, a LATER bare visit
+     *  (no date params at all, exactly what a fresh sidebar-link click
+     *  produces) remembers it instead of resetting to today. */
+    public function test_a_picked_range_is_remembered_on_a_later_bare_visit(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-02-01', 'date_to' => '2026-02-10',
+        ]))->assertOk();
+
+        $laterResponse = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $laterResponse->assertOk();
+        $laterResponse->assertViewHas('dateFrom', '2026-02-01');
+        $laterResponse->assertViewHas('dateTo', '2026-02-10');
+    }
+
     public function test_a_non_admin_cannot_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
+use App\Support\DateRangeFilter;
 use App\Support\DsPprCalculator;
 use App\Support\ProductGrouping;
 use Illuminate\Http\Request;
@@ -29,8 +30,13 @@ class DsPprReportController extends Controller
 {
     public function index(Request $request)
     {
-        $dateFrom = $request->input('date_from') ?: today()->startOfWeek()->toDateString();
-        $dateTo   = $request->input('date_to') ?: today()->toDateString();
+        // See DateRangeFilter's own doc comment — remembers the last range
+        // picked on THIS page across separate visits, defaulting to "today
+        // only" on a brand-new session (changed 2026-09-30 from "this
+        // week" — explicit decision to make every report page consistent).
+        $range = DateRangeFilter::resolve($request, 'dsppr');
+        $dateFrom = $range['from'];
+        $dateTo   = $range['to'];
         $teamSlug = $request->input('team');
 
         $teams = collect(\App\Support\Teams::config());

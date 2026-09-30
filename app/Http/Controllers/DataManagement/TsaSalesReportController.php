@@ -5,6 +5,7 @@ namespace App\Http\Controllers\DataManagement;
 use App\Http\Controllers\Controller;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
+use App\Support\DateRangeFilter;
 use App\Support\TsaSalesCalculator;
 use App\Support\Teams;
 use Illuminate\Http\Request;
@@ -30,8 +31,13 @@ class TsaSalesReportController extends Controller
 {
     public function index(Request $request)
     {
-        $dateFrom = $request->input('date_from') ?: today()->startOfWeek()->toDateString();
-        $dateTo   = $request->input('date_to') ?: today()->toDateString();
+        // See DateRangeFilter's own doc comment — remembers the last range
+        // picked on THIS page across separate visits, defaulting to "today
+        // only" on a brand-new session (changed 2026-09-30 from "this
+        // week" — explicit decision to make every report page consistent).
+        $range = DateRangeFilter::resolve($request, 'tsa-sales');
+        $dateFrom = $range['from'];
+        $dateTo   = $range['to'];
 
         // Explicit request, 2026-09-28: "make the opening is in first and
         // the closing is in last" — config('teams') itself lists
