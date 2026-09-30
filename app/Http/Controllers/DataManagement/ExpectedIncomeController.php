@@ -345,10 +345,14 @@ class ExpectedIncomeController extends Controller
         // should be DAILY COST ROW will reflect no change of label" —
         // Salaries alone still divides by product count, via
         // $dailyRatePerProductByTsaId above). NOT scoped to any specific
-        // TSA (same figure on every card, confirmed live via screenshot:
-        // two different TSAs' cards both showed the same figures), so
-        // computed once for the whole request rather than per TSA.
-        $dailyCostRow = TsaDailyRateService::dailyCostRow();
+        // TSA, but IS scoped to this one team's own real TSA count
+        // (explicit correction, 2026-09-30: "the Operating Costs of per
+        // product is divided by number of tsa of which team ... Operating
+        // Costs of gemma so the product cards is the operating costs is
+        // divided by 6 because they are 6 in the team") — same figure on
+        // every card within this one team, computed once for the whole
+        // request rather than per TSA.
+        $dailyCostRow = TsaDailyRateService::dailyCostRow($teamConfig['order_team']);
 
         $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyCostRow) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
@@ -683,8 +687,9 @@ class ExpectedIncomeController extends Controller
             return $derived;
         }
 
+        $team = TsaShift::find($tsaId)?->team;
         $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostRow(), [
+        $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostRow($team ?? ''), [
             'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
         ]);
 

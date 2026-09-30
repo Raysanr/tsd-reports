@@ -871,10 +871,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        // Sources the plain "Daily Cost" row (pool ÷ real TSA count ÷ 24),
-        // NOT dailyCostPerProductRow() — explicit correction, 2026-09-30:
-        // "it should be DAILY COST ROW will reflect no change of label".
-        $expected = TsaDailyRateService::dailyCostRow()['communication_allowance'];
+        // Sources the plain "Daily Cost" row (pool ÷ THIS TEAM's own real
+        // TSA count ÷ 24), NOT dailyCostPerProductRow() — explicit
+        // correction, 2026-09-30: "it should be DAILY COST ROW will
+        // reflect no change of label", then further corrected the same
+        // day to scope the divisor to the TSA's own team, not every team:
+        // "Operating Costs of gemma so the product cards is the operating
+        // costs is divided by 6 because they are 6 in the team".
+        $expected = TsaDailyRateService::dailyCostRow($tsa->team)['communication_allowance'];
         $this->assertGreaterThan(0, $expected);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -891,6 +895,29 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             '/data-out="communication_allowance"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
             $dailyHtml
         );
+    }
+
+    /** The Operating Costs divisor is THIS TSA's own team headcount only,
+     *  not every real TSA site-wide (explicit correction, 2026-09-30:
+     *  "the Operating Costs of per product is divided by number of tsa of
+     *  which team ... Operating Costs of gemma so the product cards is
+     *  the operating costs is divided by 6 because they are 6 in the
+     *  team"). The real seed roster starts both teams at 3-each, so this
+     *  adds a 4th TSA to ONE team only and proves the two teams' own
+     *  locked figures diverge — a site-wide divisor would keep them
+     *  identical. */
+    public function test_operating_cost_divisor_is_scoped_to_the_tsas_own_team_not_every_team(): void
+    {
+        CostBreakdownPool::ensureSeeded();
+        TsaShift::create(['tsa_key' => 'Extra', 'display_name' => 'Extra TSA', 'team' => 'SH Naturals', 'sort_order' => 99]);
+
+        $shNaturalsRow = TsaDailyRateService::dailyCostRow('SH Naturals');
+        $eyecareRow = TsaDailyRateService::dailyCostRow('Eyecare Team');
+
+        // SH Naturals now has 4 TSAs, Eyecare Team still has 3 — a smaller
+        // team divisor means a LARGER per-TSA daily cost figure.
+        $this->assertNotEqualsWithDelta($shNaturalsRow['communication_allowance'], $eyecareRow['communication_allowance'], 0.001);
+        $this->assertGreaterThan($shNaturalsRow['communication_allowance'], $eyecareRow['communication_allowance']);
     }
 
     /** A product-level save with no tsa_id at all (update()'s own

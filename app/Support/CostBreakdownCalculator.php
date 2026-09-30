@@ -96,8 +96,14 @@ class CostBreakdownCalculator
      *  ['pool_key' => value, ..., 'total' => sum] shape as rowForShare(),
      *  so the view renders it with identical markup.
      *
-     *  $tsaCount: the app's own real TsaShift::count() — 0 renders every
-     *  figure as 0 (division-by-zero guarded here, since unlike
+     *  $tsaCount: the divisor headcount — scoped to just ONE team's own
+     *  real TsaShift count (explicit correction, 2026-09-30: "the Operating
+     *  Costs of per product is divided by number of tsa of which team ...
+     *  Operating Costs of gemma so the product cards is the operating
+     *  costs is divided by 6 because they are 6 in the team" — NOT the
+     *  site-wide TsaShift::count() across every team, which this method
+     *  used before that correction). 0 renders every figure as 0
+     *  (division-by-zero guarded here, since unlike
      *  tsaDailyRatePerProduct()'s $productCount this divisor sits INSIDE
      *  the same expression as the ÷24). */
     public static function dailyCostRow(array $pools, int $tsaCount): array

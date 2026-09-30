@@ -63,34 +63,35 @@ class TsaDailyRateService
         })->all();
     }
 
-    /** Every shared pool's own "Daily Cost" figure — pool amount ÷ real TSA
-     *  count ÷ 24, NOT divided further by product count (explicit
-     *  correction, 2026-09-30: "it should be DAILY COST ROW will reflect
-     *  no change of label" — Expected Income's own locked Operating Costs
-     *  rows source THIS row, not dailyCostPerProductRow() below, which
-     *  Salaries alone still uses via perProductByTsaId() above). NOT
-     *  scoped to any specific TSA (same figure on every TSA's own card,
-     *  confirmed live via screenshot: two different TSAs' cards both
-     *  showed identical figures) — see CostBreakdownCalculator::
-     *  dailyCostRow()'s own doc comment for the confirmed-exact formula.
+    /** Every shared pool's own "Daily Cost" figure — pool amount ÷ ONE
+     *  TEAM's own real TSA count ÷ 24, NOT divided further by product
+     *  count (explicit correction, 2026-09-30: "it should be DAILY COST
+     *  ROW will reflect no change of label" — Expected Income's own
+     *  locked Operating Costs rows source THIS row, never
+     *  CostBreakdownCalculator::dailyCostPerProductRow(), which Salaries
+     *  alone still gets via perProductByTsaId() above; Cost Breakdown's
+     *  own page-wide "Daily Cost per product" mini-table calls
+     *  CostBreakdownCalculator::dailyCostRow()/dailyCostPerProductRow()
+     *  directly instead of through this service, deliberately unscoped by
+     *  team — see CostBreakdownController::index()'s own doc comment).
+     *  $team is a real order_team value (e.g.
+     *  CostBreakdownController's own $teamConfig['order_team']) — the
+     *  divisor is THAT team's own TsaShift::where('team', $team)->count(),
+     *  NOT the site-wide TsaShift::count() across every team (explicit
+     *  correction, 2026-09-30: "the Operating Costs of per product is
+     *  divided by number of tsa of which team ... Operating Costs of
+     *  gemma so the product cards is the operating costs is divided by 6
+     *  because they are 6 in the team" — reverses the earlier "same figure
+     *  on every TSA's own card" reading; that screenshot happened to show
+     *  two TSAs on the SAME team, so the figures matched only coincidentally).
      *  Keyed by pool key (e.g. 'communication_allowance'), same keys
      *  ExpectedIncomeCalculator::OPERATING_COST_ROWS uses. */
-    public static function dailyCostRow(): array
+    public static function dailyCostRow(string $team): array
     {
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $teamTsaCount = TsaShift::where('team', $team)->count();
 
-        return CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaShift::count());
-    }
-
-    /** Same "Daily Cost" row from dailyCostRow() above, split further
-     *  across every CHECKED product — used by Cost Breakdown's own "Daily
-     *  Cost per product" table row, NOT by Expected Income's locked
-     *  Operating Costs rows (those use dailyCostRow() above instead, per
-     *  the same explicit correction). Kept as a separate method so the
-     *  two call sites can never accidentally source the wrong row. */
-    public static function dailyCostPerProductRow(): array
-    {
-        return CostBreakdownCalculator::dailyCostPerProductRow(self::dailyCostRow(), self::productCount());
+        return CostBreakdownCalculator::dailyCostRow($poolAmounts, $teamTsaCount);
     }
 
     /** Only products marked has_cost_allocation divide the cost (explicit
