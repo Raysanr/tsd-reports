@@ -143,39 +143,72 @@ class ExpectedIncomeController extends Controller
      *  "team-independent" to "TSA-inclusive", not the same thing. */
     private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys): array
     {
-        $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        ['cards' => $summaryCards, 'overallTotal' => $summaryOverallTotal] =
+            $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, null);
 
-        // One row (or product GROUP row — explicit request, 2026-09-26:
-        // "it will reflect it to the expected income") per product, summed
-        // across the whole selected range — the sheet's own "TELESALES
-        // EXPECTED PERFORMANCE" is the same idea (a range total), just
-        // always MTD there where this page lets any range be picked, same
-        // convention as DsPprReportController::index(). A grouped row
-        // pools every member product's own entries together before
-        // summing, same as DSPPR's own identical grouping call.
-        $summaryCards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys) {
+        // One row per real team (explicit request, 2026-09-30, from the
+        // sheet's own screenshot: "TEAM OPENING SHIFT" / "TEAM CLOSING
+        // SHIFT" cards, each followed by that team's OWN set of product
+        // cards) — reverses the earlier 2026-09-26 "no per-team cards"
+        // decision recorded in the view; this is a newer, explicit,
+        // screenshot-confirmed request superseding it. Each team's row is
+        // built the exact same way as the main one above, just scoped to
+        // that team's own products and restricted to that team's own real
+        // TSAs (plus the shared product-level entries — explicit decision,
+        // 2026-09-30: "team's TSAs plus the shared product-level entries").
+        $teamSummaryRows = collect(Teams::config())->map(function (array $teamConfig, string $teamSlug) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys) {
+            $teamProducts = $products->where('team', $teamConfig['order_team'])->values();
+            $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->pluck('id')->all();
+
+            ['cards' => $cards, 'overallTotal' => $overallTotal] =
+                $this->buildSummaryRow($teamProducts, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds);
+
+            return [
+                'label'        => $teamConfig['name'],
+                'cards'        => $cards,
+                'overallTotal' => $overallTotal,
+            ];
+        })->values();
+
+        return [
+            'summaryCards'        => $summaryCards,
+            'summaryOverallTotal' => $summaryOverallTotal,
+            'teamSummaryRows'     => $teamSummaryRows,
+        ];
+    }
+
+    /** Shared by buildSummary() for both the main team-independent row and
+     *  each per-team row — builds one overall rollup total plus one card
+     *  per product (or product GROUP — explicit request, 2026-09-26: "it
+     *  will reflect it to the expected income"), all summed across the
+     *  WHOLE selected range. $onlyTsaIds is forwarded as-is to
+     *  rawByProductAndDateAllTsas() — see that method's own doc comment
+     *  for exactly what it restricts. */
+    private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds): array
+    {
+        $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
+
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate));
             return ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
         });
-        // Every product/day's own RAW row (not $summaryCards's already-
-        // derived output) — root-caused live, 2026-09-28: sum()'s own
-        // $row[$key] lookups only ever find a Selling/Operating line as a
-        // TOP-LEVEL array key, but a derive()d row nests every one of those
-        // under selling_lines/operating_lines instead, so re-summing
-        // already-derived rows silently read 0 for every manually-entered
-        // line (confirmed live: a 500 Advertising Cost vanished from this
+
+        // Every product/day's own RAW row (not $cards's own already-derived
+        // output) — root-caused live, 2026-09-28: sum()'s own $row[$key]
+        // lookups only ever find a Selling/Operating line as a TOP-LEVEL
+        // array key, but a derive()d row nests every one of those under
+        // selling_lines/operating_lines instead, so re-summing already-
+        // derived rows silently reads 0 for every manually-entered line
+        // (confirmed live: a 500 Advertising Cost vanished from this
         // overall total while still showing correctly on every individual
         // product card). Every OTHER real total on this page (Gross Sales,
         // Cancelled, etc.) escaped this bug only because derive() also
         // returns those as top-level keys, purely by coincidence of which
         // keys happen to be duplicated at both levels.
         $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->flatMap(fn ($rowsForDate) => $rowsForDate))->all();
-        $summaryOverallTotal = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
+        $overallTotal = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
 
-        return [
-            'summaryCards'        => $summaryCards,
-            'summaryOverallTotal' => $summaryOverallTotal,
-        ];
+        return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
 
     /** The ALL view's own daily rows — one row of cards PER calendar day,
@@ -343,12 +376,23 @@ class ExpectedIncomeController extends Controller
      *  row), so the caller can sum() across all of them rather than merge
      *  a single one. A product/day with no rows at all still gets an empty
      *  list, never a missing key — every SUM caller downstream expects
-     *  every (product, day) pair to be present. */
-    private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys)
+     *  every (product, day) pair to be present.
+     *
+     *  $onlyTsaIds restricts which real TSAs' rows get pooled in — null
+     *  (the main "TELESALES" overall card) means every TSA, an array of
+     *  ids (one team's own summary card, added 2026-09-30 per the sheet's
+     *  own "TEAM OPENING SHIFT"/"TEAM CLOSING SHIFT" cards) means only
+     *  those TSAs. The product-level (tsa_id NULL) row is ALWAYS included
+     *  either way — explicit decision, 2026-09-30: a team card is "that
+     *  team's own TSAs plus the shared product-level entries", the same
+     *  shared figure folded into every team's own card, not divided
+     *  between them. */
+    private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null)
     {
         $entries = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
             ->whereDate('entry_date', '>=', $dateFrom)
             ->whereDate('entry_date', '<=', $dateTo)
+            ->when($onlyTsaIds !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('tsa_id')->orWhereIn('tsa_id', $onlyTsaIds)))
             ->get()
             ->groupBy(fn (ExpectedIncomeEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
 

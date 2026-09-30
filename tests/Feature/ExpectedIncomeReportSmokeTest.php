@@ -526,6 +526,69 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertSame($summaryA, $summaryB);
     }
 
+    /** Confirmed live via screenshot, 2026-09-30: "in the first cards is
+     *  the overall and in the next down part is like team opening and
+     *  closing" — below the main TELESALES summary row, one more full row
+     *  per real team (labeled by its real name, e.g. SH NATURALS/EYECARE),
+     *  shown regardless of which team pill is selected. */
+    public function test_a_per_team_summary_row_appears_for_every_real_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $afterMainSummary = strpos($content, 'id="eiSummaryScroller"');
+        // "EYECARE" also appears earlier as a filter pill label — only
+        // proof of a real summary ROW is finding it again AFTER the main
+        // summary scroller.
+        $this->assertNotFalse(strpos($content, 'SH NATURALS', $afterMainSummary));
+        $this->assertNotFalse(strpos($content, 'EYECARE', $afterMainSummary));
+    }
+
+    /** A team's own summary row only pools that team's own TSAs' entries
+     *  (plus the shared product-level entry) — never the other team's. */
+    public function test_a_teams_own_summary_row_excludes_the_other_teams_tsa_entries(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $shNaturalsProduct = Product::where('team', 'SH Naturals')->first();
+        $eyecareProduct = Product::where('team', 'Eyecare Team')->first();
+        $shNaturalsTsa = TsaShift::where('team', 'SH Naturals')->first();
+        $eyecareTsa = TsaShift::where('team', 'Eyecare Team')->first();
+        $date = today()->toDateString();
+
+        ExpectedIncomeEntry::create(['product_id' => $shNaturalsProduct->id, 'tsa_id' => $shNaturalsTsa->id, 'entry_date' => $date, 'gross_sales' => 7000]);
+        ExpectedIncomeEntry::create(['product_id' => $eyecareProduct->id, 'tsa_id' => $eyecareTsa->id, 'entry_date' => $date, 'gross_sales' => 3000]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        // Bound each team row by the START of the NEXT team row's own
+        // heading (config/teams.php orders sh-naturals before eyecare) —
+        // NOT by the daily section's date heading, which sits after BOTH
+        // team rows and would let one row's slice swallow the other's.
+        $afterMainSummary = strpos($content, 'id="eiSummaryScroller"');
+        $shStart = strpos($content, 'SH NATURALS', $afterMainSummary);
+        $this->assertNotFalse($shStart, 'expected to find the SH NATURALS summary row');
+        $eyeStart = strpos($content, 'EYECARE', $shStart);
+        $this->assertNotFalse($eyeStart, 'expected to find the EYECARE summary row');
+        $dailySectionStart = strpos($content, today()->format('F j, Y'), $eyeStart);
+
+        $shNaturalsRow = substr($content, $shStart, $eyeStart - $shStart);
+        $eyecareRow = substr($content, $eyeStart, $dailySectionStart - $eyeStart);
+
+        $this->assertStringContainsString('7,000.00', $shNaturalsRow);
+        $this->assertStringNotContainsString('3,000.00', $shNaturalsRow);
+        $this->assertStringContainsString('3,000.00', $eyecareRow);
+        $this->assertStringNotContainsString('7,000.00', $eyecareRow);
+    }
+
     /** Confirmed live via screenshot, 2026-09-30: picking a real team
      *  swaps the daily "TELESALES — [date]" overall card for one block PER
      *  REAL TSA on that team, her own name as the card title, followed by

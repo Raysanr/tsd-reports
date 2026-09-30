@@ -56,11 +56,10 @@
 {{-- Range summary row — the sheet's own "TELESALES EXPECTED PERFORMANCE"
      (a range total, not a single day; here the range is whatever's picked
      above rather than always MTD) — one overall rollup card, then every
-     product's own card, same visual pattern as Projections' cards. No
-     per-team cards (explicit decision, 2026-09-26, reconfirmed after being
-     shown the real sheet's own Team Eyecare/Team SH Naturals cards: "i
-     want exactly like in the sheets but i want to make it like no per
-     team"). --}}
+     product's own card, same visual pattern as Projections' cards. Always
+     shown regardless of the team filter pill (explicit decision, confirmed
+     live via screenshot — the team filter only ever changed the DAILY rows
+     below this). --}}
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
     <div class="flex items-start gap-5 w-max">
@@ -70,6 +69,27 @@
         @endforeach
     </div>
 </div>
+
+{{-- Per-team summary rows — explicit request, 2026-09-30, from a screenshot
+     of the real sheet's own "TEAM OPENING SHIFT"/"TEAM CLOSING SHIFT" cards:
+     "in the first cards is the overall and in the next down part is like
+     team opening and closing". One full row per real team, same shape as
+     the row above (an overall card + that team's own product cards), but
+     scoped to that team's own real TSAs' entries (plus the shared
+     product-level entries — see buildSummaryRow()'s own doc comment). This
+     reverses an earlier 2026-09-26 "no per-team cards" decision — a newer,
+     explicit, screenshot-confirmed request supersedes it. --}}
+@foreach($teamSummaryRows as $teamRow)
+<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($teamRow['label']) }}</div>
+<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8">
+    <div class="flex items-start gap-5 w-max">
+        @include('data.expected-income._card', ['d' => $teamRow['overallTotal'], 'label' => strtoupper($teamRow['label']), 'headerBg' => '#000000', 'headerText' => '#ffffff', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @foreach($teamRow['cards'] as $card)
+        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+        @endforeach
+    </div>
+</div>
+@endforeach
 
 {{-- Daily rows — one row of cards PER calendar day, stacking downward
      (explicit request, 2026-09-26: "in the top there's expected sales and
