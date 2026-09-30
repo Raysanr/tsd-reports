@@ -231,6 +231,35 @@ class ExpectedIncomeCalculator
         ];
     }
 
+    /** Overrides an already-derived row's own Salaries line with a figure
+     *  computed elsewhere (a TSA's own Daily Rate / Product from Cost
+     *  Breakdown — explicit request, 2026-09-30: "the salaries row is
+     *  based to the Daily Rate / Product"), then recomputes every figure
+     *  that cascades from it: Total Operating Costs, Income Before OPEX's
+     *  own totals are unaffected (Selling costs only), Net Income, and
+     *  every affected _pct. Takes an already-derive()d/sum()d row rather
+     *  than re-deriving from raw inputs since Salaries isn't one of
+     *  derive()'s own raw $row inputs at all — it's a manual
+     *  operating_lines entry there, swapped out AFTER the fact here
+     *  instead, same "controller overrides, calculator only recomputes
+     *  the cascade" separation as the rest of this class. */
+    public static function withOverriddenSalaries(array $derived, float $salariesOverride): array
+    {
+        $operatingLines = collect($derived['operating_lines'])->put('salaries', $salariesOverride);
+        $totalOperatingCosts = $operatingLines->sum();
+
+        $grossSales = $derived['gross_sales'];
+        $netIncome = $derived['income_before_opex'] - $totalOperatingCosts;
+
+        return array_merge($derived, [
+            'operating_lines' => $operatingLines,
+            'total_operating_costs' => $totalOperatingCosts,
+            'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
+            'net_income' => $netIncome,
+            'net_income_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
+        ]);
+    }
+
     /** Sums N raw rows' own inputs, then derives the summed row's own
      *  figures fresh from those totals — confirmed-exact "recompute the
      *  ratio from summed dollars" convention, same as

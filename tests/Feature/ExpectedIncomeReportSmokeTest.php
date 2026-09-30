@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\CostBreakdownRole;
+use App\Models\CostBreakdownTsaEntry;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\TsaShift;
 use App\Models\User;
+use App\Support\ProductGrouping;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -769,6 +772,93 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
         $this->assertStringContainsString('1,500.00', $overviewHtml);
         $this->assertStringNotContainsString('data-field=', $overviewHtml);
+    }
+
+    /** Salaries on a TSA-scoped product card is locked to her own Daily
+     *  Rate / Product from Cost Breakdown (explicit request, 2026-09-30:
+     *  "the salaries row is based to the Daily Rate / Product") — no
+     *  editable input for it at all, even though every other field on the
+     *  same card stays editable. */
+    public function test_a_tsas_product_card_shows_salaries_locked_to_her_daily_rate_per_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // Her own first product card's own slice — bounded by her own
+        // overview card's name (start) and the next TSA's own name or end
+        // of the daily section (a single-TSA-per-team fixture keeps this
+        // simple: just check no data-field="salaries" appears anywhere
+        // inside the whole daily section, since every product card is
+        // hers).
+        $dailySectionStart = strpos($content, 'ei-day-scroller');
+        $dailyHtml = substr($content, $dailySectionStart);
+        $this->assertStringNotContainsString('data-field="salaries"', $dailyHtml);
+
+        // Her own Total from Cost Breakdown: 19,500.00 raw base_salary +
+        // every applicable overhead ref (whatever CostBreakdownRole::
+        // ensureSeeded()'s own real seed values total to) — rather than
+        // re-deriving that chain here, just confirm SOME non-zero read-only
+        // Salaries figure renders (a locked 0.00 would mean the override
+        // never applied at all).
+        $this->assertMatchesRegularExpression('/data-out="salaries"[^>]*>\s*[1-9][\d,]*\.\d{2}/', $dailyHtml);
+    }
+
+    /** A product-level save with no tsa_id at all (update()'s own
+     *  $tsaShift = null branch — the shared, non-TSA-scoped entry every
+     *  page's own tsa_id-NULL row still writes to) has no TSA to compute a
+     *  Daily Rate / Product from, so Salaries there is unaffected — the
+     *  override never applies and the manually-entered figure passes
+     *  through unchanged, same as before this feature. */
+    public function test_a_product_level_save_with_no_tsa_leaves_salaries_manual(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $product = Product::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
+            ['salaries' => 750.00]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.operating_lines.salaries', fn ($v) => abs($v - 750.00) < 0.01);
+    }
+
+    /** update()'s own returned 'derived' payload reflects the Salaries
+     *  override too (explicit follow-up — a live autosave must never
+     *  repaint the card with the stale pre-lock manual figure it's
+     *  replacing). */
+    public function test_updating_a_tsas_product_card_returns_salaries_from_her_daily_rate_per_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        $product = Product::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 5000]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.operating_lines.salaries', fn ($v) => $v > 0);
     }
 
     /** Her own numbers are completely independent of the "ALL" view's own

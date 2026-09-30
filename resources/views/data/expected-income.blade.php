@@ -128,7 +128,7 @@
                 <div class="px-5 py-4" style="background:#d9ead3;">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
                 </div>
-                @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+                @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true, 'tsaScoped' => true])
             </div>
             @endforeach
         </div>
@@ -287,7 +287,13 @@
                 });
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => {
                 const el = card.querySelector(`[data-field="${key}"]`);
-                raw[key] = el ? parseMoney(el.value) : 0;
+                if (el) { raw[key] = parseMoney(el.value); return; }
+                // Salaries on a TSA-scoped card has no input at all (locked
+                // to her own Daily Rate / Product — explicit request,
+                // 2026-09-30) — read its server-rendered read-only span
+                // instead of silently treating it as 0.
+                const out = card.querySelector(`[data-out="${key}"]`);
+                raw[key] = out ? parseMoney(out.textContent) : 0;
             });
             rawRows.push(raw);
             const d = derive(raw);

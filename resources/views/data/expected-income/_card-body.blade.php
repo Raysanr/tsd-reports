@@ -171,9 +171,18 @@
     @foreach($operatingRows as $key => $label)
     @php($isCustom = in_array($key, $customRowKeys ?? [], true))
     @php($isBlue = in_array($key, ['geniusmakers_management_fee', 'hmo_expense'], true))
+    {{-- Salaries on a TSA-scoped card (explicit request, 2026-09-30: "the
+         salaries row is based to the Daily Rate / Product") is a computed
+         formula, never editable, even though every other Operating row on
+         this same card still is — same "computed, never editable" pattern
+         as COD Fee/Fulfillment Fee above, just scoped to only THIS one row
+         and only when $tsaScoped is true (the ALL view's own tsa_id-NULL
+         cards have no TSA to compute a Daily Rate from, so Salaries there
+         is unaffected, still a plain manual input). --}}
+    @php($isSalariesLocked = $key === 'salaries' && ($tsaScoped ?? false))
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $label }}</span>
-        @if($editable ?? false)
+        @if(($editable ?? false) && !$isSalariesLocked)
             <input type="text" inputmode="decimal" value="{{ number_format($d['operating_lines'][$key] ?? 0, 2) }}"
                    data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
