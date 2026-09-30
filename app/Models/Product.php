@@ -13,10 +13,12 @@ class Product extends Model
 
     protected $fillable = [
         'display_name', 'match_keyword', 'match_exclude_keyword', 'pancake_product_ids', 'team', 'sort_order',
+        'has_cost_allocation',
     ];
 
     protected $casts = [
         'is_hidden'            => 'boolean',
+        'has_cost_allocation'  => 'boolean',
         'pancake_product_ids'  => 'array',
     ];
 

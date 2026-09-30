@@ -8,7 +8,6 @@ use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
-use App\Support\ProductGrouping;
 use App\Support\TsaDailyRateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -293,6 +292,11 @@ class CostBreakdownSmokeTest extends TestCase
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        // Only FLAGGED products divide the cost (explicit follow-up,
+        // 2026-09-30: "user only can identify what product that has
+        // cost") — nothing is flagged by default, so flag one here to
+        // exercise the real figure this test actually checks.
+        Product::orderBy('team')->orderBy('sort_order')->first()->update(['has_cost_allocation' => true]);
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
@@ -322,6 +326,10 @@ class CostBreakdownSmokeTest extends TestCase
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         $product = Product::orderBy('team')->orderBy('sort_order')->first();
+        // Only FLAGGED products divide the cost (explicit follow-up,
+        // 2026-09-30) — flag this one so its own column carries a real
+        // figure to assert against below.
+        $product->update(['has_cost_allocation' => true]);
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
@@ -332,18 +340,75 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertGreaterThan(0, $expected);
 
         $content = $response->getContent();
-        $rowStart = strpos($content, "data-tsa-id=\"{$tsa->id}\"");
+        // Bound by the BOTTOM cost-allocation table's own row marker
+        // (data-tsa-cost-row) specifically — the TOP salary table now also
+        // carries a plain data-tsa-id on its own rows (added so its own
+        // "Daily Rate / Product" cell can be live-refreshed), and that row
+        // comes FIRST in the page, so a bare "data-tsa-id" search would
+        // match the wrong table entirely.
+        $rowStart = strpos($content, "data-tsa-cost-row data-tsa-id=\"{$tsa->id}\"");
         $rowEnd = strpos($content, '</tr>', $rowStart);
         $rowHtml = substr($content, $rowStart, $rowEnd - $rowStart);
 
-        // Every product column shows the SAME figure for a given TSA (the
-        // sheet's own formula never varies per product) — count how many
-        // data-out="product" cells in her own row carry it, matching the
-        // real product count (only counting THOSE cells, not any other
-        // column that might coincidentally share the same number).
-        $productCount = ProductGrouping::rows(Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
+        // Every FLAGGED product column shows the SAME figure for a given
+        // TSA (the sheet's own formula never varies per product) — only
+        // ONE product is flagged in this test, so exactly one
+        // data-out="product" cell should carry it (an unflagged product's
+        // own column stays blank instead).
         preg_match_all('/data-out="product"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/', $rowHtml, $matches);
-        $this->assertCount($productCount, $matches[0]);
+        $this->assertCount(1, $matches[0]);
+    }
+
+    /** An unflagged product's own column shows a genuinely BLANK cell
+     *  (explicit follow-up, 2026-09-30: "user only can identify what
+     *  product that has cost") — never a typed 0.00, same "never a typed
+     *  0" state as the real sheet's own unfilled columns. */
+    public function test_an_unflagged_products_own_column_is_blank(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        $unflagged = Product::orderBy('team')->orderBy('sort_order')->first();
+        // Deliberately left unflagged (has_cost_allocation defaults false).
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $rowStart = strpos($content, "data-tsa-cost-row data-tsa-id=\"{$tsa->id}\"");
+        $rowEnd = strpos($content, '</tr>', $rowStart);
+        $rowHtml = substr($content, $rowStart, $rowEnd - $rowStart);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="product" data-product-label="' . preg_quote($unflagged->display_name, '/') . '"[^>]*>\s*</',
+            $rowHtml
+        );
+    }
+
+    /** Toggling a product's own "has cost" checkbox (explicit request,
+     *  2026-09-30) persists the flag and returns every real TSA's own
+     *  freshly-recomputed product columns — the divisor itself changed. */
+    public function test_toggling_a_products_has_cost_checkbox_persists_and_recomputes(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $product = Product::orderBy('team')->orderBy('sort_order')->first();
+        $tsa = TsaShift::first();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-product-has-cost-allocation', $product),
+            ['has_cost_allocation' => true]
+        );
+
+        $response->assertOk();
+        $this->assertTrue($product->fresh()->has_cost_allocation);
+        $response->assertJsonPath('hasCostAllocation', true);
+
+        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected);
+        $response->assertJsonPath("recomputed.{$tsa->id}.derived.products.{$product->display_name}", fn ($v) => abs($v - $expected) < 0.01);
     }
 
     public function test_a_non_admin_cannot_update_any_cost_breakdown_field(): void
@@ -354,9 +419,11 @@ class CostBreakdownSmokeTest extends TestCase
         $role = CostBreakdownRole::first();
         $pool = CostBreakdownPool::first();
         $tsa = TsaShift::first();
+        $product = Product::first();
 
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-role', $role), ['base_salary' => 1])->assertForbidden();
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-pool', $pool), ['amount' => 1])->assertForbidden();
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-tsa-entry', $tsa), ['days' => 1])->assertForbidden();
+        $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-product-has-cost-allocation', $product), ['has_cost_allocation' => true])->assertForbidden();
     }
 }

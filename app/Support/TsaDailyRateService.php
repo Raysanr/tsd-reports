@@ -26,6 +26,13 @@ use App\Models\TsaShift;
  * which the real sheet's own formula never references at all for this
  * column. base_salary/overhead refs feed a COMPLETELY SEPARATE formula
  * chain (tsaTotal()) that has no bearing on this one.
+ *
+ * Only products with has_cost_allocation = true divide the cost (explicit
+ * request, 2026-09-30: "user only can identify what product that has
+ * cost") — matches the real sheet's own template, which only ever filled
+ * in 7 of its product columns rather than dividing by every product
+ * automatically. Toggled per-product on Cost Breakdown's own Cost
+ * Allocation Per TSA table.
  */
 class TsaDailyRateService
 {
@@ -52,14 +59,36 @@ class TsaDailyRateService
         })->all();
     }
 
-    /** Same card count Expected Income's own product cards show
-     *  (ProductGrouping::rows() merges a product GROUP into one combined
-     *  card) — identical to CostBreakdownController::productCount()'s own
-     *  doc comment. */
+    /** Only products marked has_cost_allocation divide the cost (explicit
+     *  request, 2026-09-30: "is it possible that can be select which
+     *  product will be divided? ... user only can identify what product
+     *  that has cost") — matches the real sheet's own template, which only
+     *  ever filled in 7 of its product columns, leaving the rest blank
+     *  rather than dividing by every product automatically. A product
+     *  GROUP still counts as ONE card here (ProductGrouping::rows(), same
+     *  as Expected Income's own product cards), but only if flagged. */
     public static function productCount(): int
+    {
+        return self::flaggedProductRows()->count();
+    }
+
+    /** Every flagged product's own display row, same shape
+     *  ProductGrouping::rows() returns for Expected Income's cards —
+     *  shared by CostBreakdownController so the Cost Allocation Per TSA
+     *  table's own product COLUMNS are exactly this same flagged set, never
+     *  a different list than what the divisor above actually counts. Groups
+     *  EVERY product first (ProductGrouping::rows() needs every member
+     *  present to resolve a group at all), then filters — a grouped row's
+     *  own checkbox only ever toggles the group's FIRST member (same "the
+     *  group's first member owns the edit" convention Expected Income's own
+     *  grouped cards already use), so gating on that same member here keeps
+     *  the checkbox and this list from ever disagreeing. */
+    public static function flaggedProductRows()
     {
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
 
-        return ProductGrouping::rows($products, fn () => null)->count();
+        return ProductGrouping::rows($products, fn () => null)
+            ->filter(fn ($row) => $row['products']->first()->has_cost_allocation)
+            ->values();
     }
 }

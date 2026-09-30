@@ -131,7 +131,7 @@
                             $dailyRatePerProduct = $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0;
                         @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                            data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
+                            data-tsa-salary-row data-tsa-id="{{ $tsa->id }}" data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
@@ -212,10 +212,27 @@
                              confirmed against the real sheet's own xlsx
                              formulas (AA45=Z45/7, AB45=Z45/7): her own
                              Daily Rate (row TOTAL ÷ 24) split evenly across
-                             every product, same figure repeated in each
-                             column, never a value unique per product. --}}
+                             every FLAGGED product, same figure repeated in
+                             each of THEIR columns, never a value unique per
+                             product. A per-product checkbox in the header
+                             (explicit follow-up, 2026-09-30: "user only can
+                             identify what product that has cost") decides
+                             whether it's in that split at all — unflagged
+                             products still show their own column (so it can
+                             be checked later) but with a blank body cell,
+                             same "genuinely empty, not a typed 0" state as
+                             the real sheet's own unfilled columns. --}}
                         @foreach($productRows as $product)
-                        <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap bg-sky-100 dark:bg-sky-900">{{ strtoupper($product['label']) }}</th>
+                        @php $productModel = $product['products']->first(); @endphp
+                        <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap bg-sky-100 dark:bg-sky-900">
+                            <div class="flex items-center justify-end gap-1.5">
+                                <input type="checkbox" data-product-cost-toggle data-product-id="{{ $productModel->id }}"
+                                       data-action="{{ route('data.cost-breakdown.update-product-has-cost-allocation', $productModel) }}"
+                                       {{ $productModel->has_cost_allocation ? 'checked' : '' }}
+                                       class="w-3.5 h-3.5 rounded border-slate-400 text-primary focus:ring-primary/40 cursor-pointer">
+                                <span>{{ strtoupper($product['label']) }}</span>
+                            </div>
+                        </th>
                         @endforeach
                     </tr>
                 </thead>
@@ -236,7 +253,13 @@
                         @endforeach
                         <td data-out="row_total" class="px-4 py-2 text-right font-bold bg-black text-white">{{ $fmtMoney($d['total']) }}</td>
                         @foreach($productRows as $product)
-                        <td data-out="product" data-product-label="{{ $product['label'] }}" class="px-3 py-2 text-right text-ink dark:text-slate-100 bg-sky-50/60 dark:bg-sky-950/20">{{ $fmtMoney($d['products'][$product['label']] ?? 0) }}</td>
+                        {{-- A genuinely blank cell for an unflagged product
+                             (array_key_exists, not ?? 0 — a flagged product
+                             whose figure happens to compute to exactly 0.00
+                             must still show "0.00", not blank) — same
+                             "never a typed 0" state as the real sheet's own
+                             unfilled columns. --}}
+                        <td data-out="product" data-product-label="{{ $product['label'] }}" class="px-3 py-2 text-right text-ink dark:text-slate-100 bg-sky-50/60 dark:bg-sky-950/20">{{ array_key_exists($product['label'], $d['products']) ? $fmtMoney($d['products'][$product['label']]) : '' }}</td>
                         @endforeach
                     </tr>
                     @endforeach
@@ -314,9 +337,16 @@
                         return;
                     }
                     // Product columns (explicit request, 2026-09-30) — same
-                    // Daily Rate / Product figure repeated into every one,
-                    // keyed by product label rather than a pool key.
+                    // Daily Rate / Product figure repeated into every
+                    // FLAGGED one, keyed by product label rather than a
+                    // pool key. Every OTHER product column on the row is
+                    // cleared blank first — toggling one product's own
+                    // checkbox drops it out of `value` entirely (it's not
+                    // omitted-but-zero, genuinely absent), so a live
+                    // uncheck must blank its own cell too, not just leave
+                    // the previous figure sitting there stale.
                     if (key === 'products') {
+                        costRow.querySelectorAll('[data-out="product"]').forEach((cell) => { cell.textContent = ''; });
                         Object.entries(value).forEach(([label, productValue]) => {
                             const cell = costRow.querySelector(`[data-out="product"][data-product-label="${CSS.escape(label)}"]`);
                             if (cell) cell.textContent = fmtMoney(productValue);
@@ -328,6 +358,19 @@
                 });
                 const daysInput = costRow.querySelector('[data-field="days"]');
                 if (daysInput && document.activeElement !== daysInput) daysInput.value = data.days;
+            }
+
+            // The TOP salary table's own "Daily Rate / Product" cell for
+            // this same TSA (explicit follow-up, 2026-09-30) — every
+            // product in data.derived.products carries the SAME figure
+            // (see the "products" branch above), so any one value works;
+            // absent entirely only when every product is unflagged, same
+            // "blank, not 0.00" state as the bottom table's own cells.
+            const salaryRow = document.querySelector(`[data-tsa-salary-row][data-tsa-id="${tsaId}"]`);
+            if (salaryRow) {
+                const cell = salaryRow.querySelector('[data-out="daily_rate_per_product"]');
+                const values = Object.values(data.derived.products || {});
+                if (cell) cell.textContent = values.length ? fmtMoney(values[0]) : '';
             }
         });
         refreshCostTableTotals();
@@ -522,6 +565,39 @@
             saveGenericField(input, 'cbPoolSaveStatus');
         }
     }, true);
+
+    // Per-product "has cost" checkbox (explicit request, 2026-09-30: "user
+    // only can identify what product that has cost") — a plain boolean
+    // toggle, saves immediately on change (no debounce needed, unlike a
+    // text field), then repaints every TSA row's own product columns from
+    // the server's freshly-recomputed figures (the divisor itself changed).
+    document.addEventListener('change', (e) => {
+        const checkbox = e.target.closest('[data-product-cost-toggle]');
+        if (!checkbox) return;
+
+        const status = document.getElementById('cbTsaSaveStatus');
+        flashStatus(status, 'Saving…', false);
+
+        fetch(checkbox.dataset.action, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: new URLSearchParams({ _method: 'PATCH', has_cost_allocation: checkbox.checked ? '1' : '0' }).toString(),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then((data) => {
+                flashStatus(status, 'Saved', false);
+                if (data.recomputed) applyRecomputed(data.recomputed);
+            })
+            .catch(() => {
+                checkbox.checked = !checkbox.checked;
+                flashStatus(status, 'Could not save — try again.', true);
+                window.showToast?.('Could not save — try again.', 'error');
+            });
+    });
 })();
 </script>
 @endpush

@@ -788,6 +788,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        // Only FLAGGED products divide the cost on Cost Breakdown (explicit
+        // follow-up, 2026-09-30: "user only can identify what product that
+        // has cost") — flag one so this test's own Salaries figure is
+        // non-zero, same as before that feature.
+        Product::first()->update(['has_cost_allocation' => true]);
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -853,6 +858,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
         $product = Product::first();
+        // Only FLAGGED products divide the cost (explicit follow-up,
+        // 2026-09-30) — flag it so Salaries computes to a non-zero figure.
+        $product->update(['has_cost_allocation' => true]);
         $date = today()->toDateString();
 
         $response = $this->actingAs($admin)->patchJson(

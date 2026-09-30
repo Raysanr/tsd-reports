@@ -385,5 +385,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // row at all; same upsert-by-real-key convention as DSPPR/Expected
         // Income's own {product}/{date} routes.
         Route::patch('/cost-breakdown/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateTsaEntry'])->name('cost-breakdown.update-tsa-entry');
+        // Per-product "has cost" checkbox on the Cost Allocation Per TSA
+        // table's own column headers (explicit request, 2026-09-30: "user
+        // only can identify what product that has cost") — {product}, not
+        // a Cost Breakdown model, since this flag lives on the real
+        // Product record itself (shared with every other page that reads
+        // Product, not scoped to this page alone).
+        Route::patch('/cost-breakdown/products/{product}/has-cost-allocation', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateProductHasCostAllocation'])->name('cost-breakdown.update-product-has-cost-allocation');
     });
 });
