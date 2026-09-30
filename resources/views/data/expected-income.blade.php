@@ -53,55 +53,12 @@
     </div>
 </div>
 
-{{-- Range summary row — the sheet's own "TELESALES EXPECTED PERFORMANCE"
-     (a range total, not a single day; here the range is whatever's picked
-     above rather than always MTD) — one overall rollup card, then every
-     product's own card, same visual pattern as Projections' cards. Always
-     shown regardless of the team filter pill (explicit decision, confirmed
-     live via screenshot — the team filter only ever changed the DAILY rows
-     below this). --}}
-<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
-<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
-    <div class="flex items-start gap-5 w-max">
-        @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
-        @foreach($summaryCards as $card)
-        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
-        @endforeach
-    </div>
-</div>
-
-{{-- Per-team summary rows — explicit request, 2026-09-30, from a
-     screenshot of the real sheet's own "TEAM OPENING SHIFT"/"TEAM CLOSING
-     SHIFT" cards: "in the first cards is the overall and in the next down
-     part is like team opening and closing". Same shape as the main row
-     above — an overall card, THEN that team's own product cards too
-     (explicit correction, 2026-09-30, after a wrong trim: "I SAID IT IS
-     NOT TRIMMED, IT HAS PRODUCT CARDS STILL" — the per-team rows keep
-     their own product cards exactly like the main row does; only the main
-     row's own overall card is described as "overall of both teams").
-     Scoped to that team's own real TSAs' entries (plus the shared
-     product-level entries — see buildSummaryRow()'s own doc comment).
-
-     ALL-view only (explicit follow-up, 2026-09-30: "why is it when i am
-     with filter in the per team why is it there's per team in there too
-     like in all? it will be only the Telesales Expected Performance and
-     TSA'S CARDS AND THEIR PRODUCTS") — selecting a real team shows just the
-     plain main summary row above, then goes straight to that team's own
-     TSA cards below; these per-team rows are an ALL-view-only addition,
-     same gating as the daily section's own selectedTeam check below. --}}
-@if($selectedTeam === 'all')
-@foreach($teamSummaryRows as $teamRow)
-<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($teamRow['label']) }}</div>
-<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8">
-    <div class="flex items-start gap-5 w-max">
-        @include('data.expected-income._card', ['d' => $teamRow['overallTotal'], 'label' => strtoupper($teamRow['label']), 'headerBg' => '#000000', 'headerText' => '#ffffff', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
-        @foreach($teamRow['cards'] as $card)
-        @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
-        @endforeach
-    </div>
-</div>
-@endforeach
-@endif
+{{-- Range summary row + per-team summary rows — extracted into
+     _summary-section so the same markup can be re-rendered as an AJAX
+     fragment (ExpectedIncomeController::summary()) and live-refreshed
+     after every autosave, no full page reload needed. See that partial's
+     own doc comment. --}}
+@include('data.expected-income._summary-section')
 
 {{-- Daily rows — one row of cards PER calendar day, stacking downward
      (explicit request, 2026-09-26: "in the top there's expected sales and
@@ -126,61 +83,16 @@
      PER REAL TSA on that team, her own name where the overall card's
      title used to be, each followed by her own product cards — for EVERY
      date, same per-day stacking either way. --}}
+{{-- ALL-view daily rows removed (explicit request, 2026-09-30: ALL should
+     only show Telesales Expected Performance + TEAM 1 + TEAM 2 summary
+     rows above, no per-date card rows) — daily per-date cards now only
+     render once a real team is picked. --}}
+@if($selectedTeam !== 'all')
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
 @endphp
 
-@if($selectedTeam === 'all')
-@php
-    // Computed in the controller from every product's own RAW row for
-    // this day, not from $dailyRows' already-derived output — see
-    // ExpectedIncomeController::buildAllDailyRows()'s own doc comment on
-    // $dailyOverallTotals for the bug this fixed (a re-summed already-
-    // derived row silently drops every Selling/Operating line's value).
-    $dayOverallTotal = $dailyOverallTotals[$dateStr];
-@endphp
-<div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
-    <div class="flex items-start gap-5 w-max">
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
-            <div class="px-5 py-4" style="background:#fde047;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES</span>
-            </div>
-            @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
-        </div>
-
-        {{-- Grouped products (explicit request, 2026-09-26: a combo
-             created on DSPPR "will reflect it to the expected income") are
-             now editable too (explicit follow-up, 2026-09-29: "make it
-             editable because in the side of users the merged products is
-             only 1 product only") — same as DSPPR's own identical fix,
-             a group's card saves to its own FIRST member product
-             ($row['products']->first(), always the same product whichever
-             page you're on), while $d (this card's own DISPLAYED figures)
-             stays the full summed total across every member — the
-             controller's own withCustomRowValues()-equivalent derive()
-             call already pools every member's real data, this just makes
-             the card itself typeable now instead of forcing an ungroup
-             trip to DSPPR first. --}}
-        @foreach($dailyRows[$dateStr] as $row)
-        @php
-            $d = $row['derived'];
-            $product = $row['products']->first();
-            $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-        @endphp
-        <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
-             data-product-id="{{ $product->id }}"
-             data-action="{{ route('data.expected-income.update', ['product' => $product->id, 'date' => $dateStr]) }}"
-             data-custom-action="{{ route('data.expected-income.update-custom-row', ['product' => $product->id, 'date' => $dateStr]) }}">
-            <div class="px-5 py-4" style="background:#d9ead3;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
-            </div>
-            @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
-        </div>
-        @endforeach
-    </div>
-</div>
-@else
     @foreach($tsaRows as $tsaRow)
     @php
         $tsa = $tsaRow['tsa'];
@@ -222,8 +134,8 @@
         </div>
     </div>
     @endforeach
-@endif
 @endforeach
+@endif
 
 @push('scripts')
 <script>
@@ -461,11 +373,48 @@
                 }
                 if (data?.derived) applyDerived(card, data.derived);
                 if (scroller) refreshDayOverall(scroller);
+                scheduleSummaryRefresh();
             })
             .catch(() => {
                 if (status) status.textContent = 'Failed';
                 flashStatus('Could not save — try again.', true);
                 window.showToast?.('Could not save — try again.', 'error');
+            });
+    }
+
+    // Refreshes "Telesales Expected Performance" + the per-team summary
+    // rows from the server after every autosave (explicit request,
+    // 2026-09-30: "why should i fully reload the page to reflect that" —
+    // that row pools every TSA/team's own entries, so no in-scroller
+    // re-sum like refreshDayOverall() above can keep it live). Debounced
+    // and coalesced (one in-flight fetch at a time, one more queued behind
+    // it) so a burst of field saves doesn't fire a request per keystroke.
+    let summaryRefreshTimer = null, summaryRefreshInFlight = false, summaryRefreshQueued = false;
+    function scheduleSummaryRefresh() {
+        clearTimeout(summaryRefreshTimer);
+        summaryRefreshTimer = setTimeout(runSummaryRefresh, 400);
+    }
+    function runSummaryRefresh() {
+        if (summaryRefreshInFlight) { summaryRefreshQueued = true; return; }
+        summaryRefreshInFlight = true;
+        fetch('{{ route('data.expected-income.summary') }}?' + new URLSearchParams(window.location.search), {
+            headers: { Accept: 'text/html' },
+        })
+            .then((res) => (res.ok ? res.text() : Promise.reject(res)))
+            .then((html) => {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = html.trim();
+                const fresh = wrapper.firstElementChild;
+                const current = document.getElementById('eiSummarySection');
+                if (fresh && current) {
+                    current.replaceWith(fresh);
+                    wireScroller(fresh.querySelectorAll('.ei-scroller'));
+                }
+            })
+            .catch(() => { /* best-effort refresh — the daily card the user is typing into already saved fine */ })
+            .finally(() => {
+                summaryRefreshInFlight = false;
+                if (summaryRefreshQueued) { summaryRefreshQueued = false; runSummaryRefresh(); }
             });
     }
 
@@ -491,27 +440,33 @@
     });
 
     // Click-and-drag horizontal scroll (same convention as dsppr.blade.php's
-    // own scroller), wired to every row's scroller independently.
-    document.querySelectorAll('.ei-scroller').forEach((scroller) => {
-        let isDragging = false, dragStartX = 0, dragStartScroll = 0;
+    // own scroller), wired to every row's scroller independently. Factored
+    // into a function so runSummaryRefresh() above can re-wire it onto the
+    // fresh scrollers it swaps in after replaceWith() — the old elements'
+    // listeners are destroyed along with them.
+    function wireScroller(scrollers) {
+        scrollers.forEach((scroller) => {
+            let isDragging = false, dragStartX = 0, dragStartScroll = 0;
 
-        scroller.addEventListener('mousedown', (e) => {
-            if (e.target.closest('input')) return;
-            isDragging = true;
-            dragStartX = e.pageX;
-            dragStartScroll = scroller.scrollLeft;
-            scroller.classList.add('cursor-grabbing');
+            scroller.addEventListener('mousedown', (e) => {
+                if (e.target.closest('input')) return;
+                isDragging = true;
+                dragStartX = e.pageX;
+                dragStartScroll = scroller.scrollLeft;
+                scroller.classList.add('cursor-grabbing');
+            });
+            window.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                scroller.scrollLeft = dragStartScroll - (e.pageX - dragStartX);
+            });
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+                scroller.classList.remove('cursor-grabbing');
+            });
         });
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            e.preventDefault();
-            scroller.scrollLeft = dragStartScroll - (e.pageX - dragStartX);
-        });
-        window.addEventListener('mouseup', () => {
-            isDragging = false;
-            scroller.classList.remove('cursor-grabbing');
-        });
-    });
+    }
+    wireScroller(document.querySelectorAll('.ei-scroller'));
 })();
 </script>
 @endpush

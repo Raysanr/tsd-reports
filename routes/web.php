@@ -357,6 +357,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // ?TsaShift $tsaShift) parameter order exactly.
         Route::patch('/expected-income/{product}/{date}/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update-tsa');
         Route::patch('/expected-income/{product}/{date}/tsa/{tsaShift}/custom-row', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateCustomRow'])->name('expected-income.update-custom-row-tsa');
+        // Live refresh for the top "Telesales Expected Performance" row
+        // (explicit request, 2026-09-30: it pools EVERY TSA/team's own
+        // entries — see buildSummary()'s own doc comment — so no single
+        // scroller's client-side re-sum can keep it live; the page re-asks
+        // the server for fresh totals after every autosave instead).
+        Route::get('/expected-income/summary', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'summary'])->name('expected-income.summary');
 
         // Cost Breakdown (explicit request, 2026-09-29: "add new page in
         // data management (COST BREAKDOWN)") — the top salary/org section

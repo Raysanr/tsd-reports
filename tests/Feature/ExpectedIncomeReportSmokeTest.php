@@ -154,9 +154,16 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
 
+        // ALL no longer renders any daily data-date rows at all (explicit
+        // request, 2026-09-30: "it should be only Telesales Expected
+        // Performance, TEAM 1, TEAM 2 and no other rows of cards") — daily
+        // rows now only render once a real team is picked, so this
+        // off-by-one check needs a real team slug to have any data-date
+        // markup to assert against.
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => '2026-09-21',
             'date_to' => '2026-09-30',
+            'team' => 'sh-naturals',
         ]));
 
         $response->assertOk();
@@ -651,7 +658,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertNotFalse($shStart, 'expected to find the SH NATURALS summary row');
         $eyeStart = strpos($content, 'EYECARE', $shStart);
         $this->assertNotFalse($eyeStart, 'expected to find the EYECARE summary row');
-        $dailySectionStart = strpos($content, today()->format('F j, Y'), $eyeStart);
+        // Bound by the <script> tag closing off the page's own inline JS —
+        // the ALL view no longer renders ANY daily rows below the summary
+        // section at all (explicit request, 2026-09-30: "it should be only
+        // Telesales Expected Performance, TEAM 1, TEAM 2 and no other rows
+        // of cards"), so the EYECARE row simply runs to the end of the
+        // page's real content instead of being followed by a daily section.
+        $dailySectionStart = strpos($content, '<script>', $eyeStart);
+        $this->assertNotFalse($dailySectionStart, 'expected to find the page script tag after both team rows');
 
         $shNaturalsRow = substr($content, $shStart, $eyeStart - $shStart);
         $eyecareRow = substr($content, $eyeStart, $dailySectionStart - $eyeStart);
@@ -793,5 +807,29 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertDatabaseHas('expected_income_custom_values', [
             'product_id' => $product->id, 'tsa_id' => $tsa->id, 'custom_row_key' => 'custom_warehouse_fee', 'value' => 250.00,
         ]);
+    }
+
+    /** Live refresh for the top "Telesales Expected Performance" row
+     *  (explicit request, 2026-09-30: "why should i fully reload the page
+     *  to reflect that" — a TSA's own save doesn't repaint this row client
+     *  side, since it pools every TSA/team's own entries; the page instead
+     *  re-fetches this endpoint after every autosave). Asserts the
+     *  fragment reflects a freshly saved TSA entry with no page reload. */
+    public function test_the_summary_endpoint_reflects_a_tsas_entry_with_no_page_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 60000]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income.summary', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('id="eiSummarySection"', false);
+        $response->assertSee('60,000.00');
     }
 }

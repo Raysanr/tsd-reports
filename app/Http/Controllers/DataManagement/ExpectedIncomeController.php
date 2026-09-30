@@ -134,6 +134,47 @@ class ExpectedIncomeController extends Controller
         ]));
     }
 
+    /** Live refresh for the top "Telesales Expected Performance" row
+     *  (explicit request, 2026-09-30: "why should i fully reload the page
+     *  to reflect that" — typing into any TSA's card saves via
+     *  update()/updateCustomRow() but neither of those repaints THIS row,
+     *  since it pools every TSA/team's own entries rather than just the
+     *  cards sitting in the same scroller as the field that changed — see
+     *  buildSummary()'s own doc comment). Re-resolves the same date range
+     *  + team the page is currently showing (same DateRangeFilter::resolve()
+     *  call as index(), so this never drifts from what's on screen) and
+     *  returns the summary section re-rendered as an HTML fragment — same
+     *  partial index() itself includes, so the two can never visually
+     *  diverge. */
+    public function summary(Request $request)
+    {
+        $range = DateRangeFilter::resolve($request, 'expected-income');
+        $dateFrom = $range['from'];
+        $dateTo   = $range['to'];
+
+        $selectedTeam = $request->input('team', 'all');
+        $teamsConfig = Teams::config();
+        if ($selectedTeam !== 'all' && !isset($teamsConfig[$selectedTeam])) {
+            $selectedTeam = 'all';
+        }
+
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+
+        return view('data.expected-income._summary-section', array_merge($summaryData, [
+            'sellingRows'   => ExpectedIncomeCalculator::sellingCostRows(),
+            'operatingRows' => ExpectedIncomeCalculator::operatingCostRows(),
+            'customRowKeys' => ExpectedIncomeCalculator::customRowKeys(),
+            'fmtMoney'      => fn ($n) => number_format((float) $n, 2),
+            'fmtPct'        => fn ($n) => number_format(((float) $n) * 100, 2) . '%',
+            'selectedTeam'  => $selectedTeam,
+        ]));
+    }
+
     /** The top range-summary row's own data — one overall rollup card
      *  ("TELESALES EXPECTED PERFORMANCE") plus every product's own card,
      *  summed across the WHOLE selected range. Pools EVERY tsa_id for each
