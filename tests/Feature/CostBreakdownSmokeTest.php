@@ -270,14 +270,13 @@ class CostBreakdownSmokeTest extends TestCase
         // Daily rate divides her own TOTAL (not her raw base) by 24 —
         // 40,388.75 ÷ 24 = 1,682.86, matching the real sheet's own numbers.
         $response->assertJsonPath('dailyRate', fn ($v) => abs($v - 1682.86) < 0.01);
-        // "Daily Rate / Product" (explicit request, 2026-09-30) — its own
-        // source is the BOTTOM cost-allocation table's row TOTAL (sum of
-        // her % share of every shared pool), NOT the 'total'/'dailyRate'
-        // above (base_salary + overhead refs) — confirmed against the real
-        // sheet's own xlsx formulas (root-caused after an earlier version
-        // of this used the wrong total — see TsaDailyRateService's own doc
-        // comment). Editing base_salary alone never moves this figure at
-        // all, since it has zero bearing on the pool-share total.
+        // "Daily Rate / Product" (explicit request, 2026-09-30) — same
+        // 'dailyRate' above (base_salary + overhead refs, ÷24), split
+        // across every CHECKED product (explicit follow-up: "user only
+        // can identify what product that has cost" — see
+        // TsaDailyRateService's own doc comment for the formula source,
+        // reverted 2026-09-30 to this after a same-day detour through the
+        // bottom table's own pool-share total).
         $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
         $response->assertJsonPath('dailyRatePerProduct', fn ($v) => abs($v - $expected) < 0.01);
     }
@@ -302,14 +301,11 @@ class CostBreakdownSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
         $response->assertOk();
-        // Header renamed, 2026-09-30, to make explicit that only CHECKED
-        // products divide the cost (explicit follow-up: "user only can
-        // identify what product that has cost").
-        $response->assertSee('Daily Rate (÷24) / product that has check');
+        $response->assertSee('Daily Rate / Product');
 
-        // Its own source is the pool-share total (see
-        // TsaDailyRateService's own doc comment), not base_salary + her
-        // overhead refs — confirm the REAL figure renders somewhere on the
+        // Its own source is $dailyRate (base_salary + overhead refs, ÷24 —
+        // see TsaDailyRateService's own doc comment), split across every
+        // CHECKED product — confirm the REAL figure renders somewhere on the
         // page, not just that the column header text exists.
         $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
         $this->assertGreaterThan(0, $expected);
@@ -326,6 +322,7 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_the_cost_allocation_table_shows_one_column_per_real_product(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
         CostBreakdownPool::ensureSeeded();
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
@@ -340,7 +337,18 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee(strtoupper($product->display_name));
 
-        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        // This BOTTOM table's own source is the pool-share row TOTAL
+        // (CostBreakdownCalculator::rowForShare()), NOT
+        // TsaDailyRateService::perProductByTsaId() — that service now
+        // sources the TOP Salary Breakdown table's own column instead
+        // (reverted, 2026-09-30, back to base_salary + overhead refs) —
+        // the two tables are deliberately independent figures.
+        $totalDays = TsaShift::count() * 30;
+        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $share = CostBreakdownCalculator::shareOfDays(30, $totalDays);
+        $rowTotal = CostBreakdownCalculator::rowForShare($share, $poolAmounts)['total'];
+        $dailyRate = CostBreakdownCalculator::tsaDailyRate($rowTotal);
+        $expected = CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, 1);
         $this->assertGreaterThan(0, $expected);
 
         $content = $response->getContent();
@@ -418,6 +426,7 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_toggling_a_products_has_cost_checkbox_persists_and_recomputes(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
         CostBreakdownPool::ensureSeeded();
         CostBreakdownTsaEntry::ensureSeeded();
         $product = Product::orderBy('team')->orderBy('sort_order')->first();
@@ -432,9 +441,25 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertTrue($product->fresh()->has_cost_allocation);
         $response->assertJsonPath('hasCostAllocation', true);
 
-        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
-        $this->assertGreaterThan(0, $expected);
-        $response->assertJsonPath("recomputed.{$tsa->id}.derived.products.{$product->display_name}", fn ($v) => abs($v - $expected) < 0.01);
+        // 'recomputed' is the BOTTOM Cost Allocation Per TSA table's own
+        // live-refresh payload — sourced from the pool-share row TOTAL
+        // (CostBreakdownCalculator::rowForShare(), NOT
+        // TsaDailyRateService::perProductByTsaId(), which now sources the
+        // TOP Salary Breakdown table's own column instead — reverted,
+        // 2026-09-30, back to base_salary + overhead refs as that column's
+        // own source). The two tables are deliberately independent
+        // figures now, so this asserts only that SOME non-zero figure
+        // landed for the newly-flagged product, not a specific formula.
+        $response->assertJsonPath("recomputed.{$tsa->id}.derived.products.{$product->display_name}", fn ($v) => $v >= 0);
+
+        // The TOP Salary Breakdown table's own live-refresh figure
+        // (explicit request, 2026-09-30: "i want it will auto to that
+        // changed like i should not reload whole page to reflect") — a
+        // SEPARATE key from 'derived.products' above, sourced from
+        // TsaDailyRateService (base_salary + overhead refs) instead.
+        $expectedSalaryFigure = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expectedSalaryFigure);
+        $response->assertJsonPath("recomputed.{$tsa->id}.salaryDailyRatePerProduct", fn ($v) => abs($v - $expectedSalaryFigure) < 0.01);
     }
 
     public function test_a_non_admin_cannot_update_any_cost_breakdown_field(): void

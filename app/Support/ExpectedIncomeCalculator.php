@@ -231,21 +231,32 @@ class ExpectedIncomeCalculator
         ];
     }
 
-    /** Overrides an already-derived row's own Salaries line with a figure
-     *  computed elsewhere (a TSA's own Daily Rate / Product from Cost
-     *  Breakdown — explicit request, 2026-09-30: "the salaries row is
-     *  based to the Daily Rate / Product"), then recomputes every figure
-     *  that cascades from it: Total Operating Costs, Income Before OPEX's
-     *  own totals are unaffected (Selling costs only), Net Income, and
-     *  every affected _pct. Takes an already-derive()d/sum()d row rather
-     *  than re-deriving from raw inputs since Salaries isn't one of
-     *  derive()'s own raw $row inputs at all — it's a manual
-     *  operating_lines entry there, swapped out AFTER the fact here
-     *  instead, same "controller overrides, calculator only recomputes
-     *  the cascade" separation as the rest of this class. */
-    public static function withOverriddenSalaries(array $derived, float $salariesOverride): array
+    /** Overrides an already-derived row's own Operating Costs lines with
+     *  figures computed elsewhere (Cost Breakdown's own per-TSA Daily Rate
+     *  / Product for Salaries, and its "Daily Cost per product" mini-table
+     *  for every other shared-pool row — explicit request, 2026-09-30:
+     *  "the salaries row is based to the Daily Rate / Product", then
+     *  "the daily cost is it is this [Communication Allowance, 13th Month
+     *  Allowance, SIL, ...]"), then recomputes every figure that cascades
+     *  from Total Operating Costs: Net Income and every affected _pct
+     *  (Income Before OPEX and the Selling side of the P&L are unaffected
+     *  — Operating Costs sits entirely downstream of those). Takes an
+     *  already-derive()d/sum()d row rather than re-deriving from raw
+     *  inputs, same "controller overrides, calculator only recomputes the
+     *  cascade" separation as the rest of this class.
+     *
+     *  $overrides: ['operating_key' => value, ...] — any subset of
+     *  operating_lines' own keys; a key not present here keeps its
+     *  existing (manually-entered) value untouched. Keys in $overrides
+     *  that AREN'T already one of operating_lines' own keys are silently
+     *  ignored (e.g. a caller passing through CostBreakdownCalculator::
+     *  dailyCostRow()'s own 'total' key by mistake) rather than injecting
+     *  a bogus new line into the P&L. */
+    public static function withOverriddenOperatingCosts(array $derived, array $overrides): array
     {
-        $operatingLines = collect($derived['operating_lines'])->put('salaries', $salariesOverride);
+        $operatingLines = collect($derived['operating_lines']);
+        $overrides = array_intersect_key($overrides, $operatingLines->all());
+        $operatingLines = $operatingLines->merge($overrides);
         $totalOperatingCosts = $operatingLines->sum();
 
         $grossSales = $derived['gross_sales'];

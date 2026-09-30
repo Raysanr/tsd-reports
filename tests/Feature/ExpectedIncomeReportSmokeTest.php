@@ -11,6 +11,7 @@ use App\Models\ProductGroup;
 use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\ProductGrouping;
+use App\Support\TsaDailyRateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -820,6 +821,76 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // Salaries figure renders (a locked 0.00 would mean the override
         // never applied at all).
         $this->assertMatchesRegularExpression('/data-out="salaries"[^>]*>\s*[1-9][\d,]*\.\d{2}/', $dailyHtml);
+    }
+
+    /** Every BUILT-IN Operating Costs row (not just Salaries) on a
+     *  TSA-scoped product card is locked to Cost Breakdown's own figures
+     *  (explicit follow-up, 2026-09-30: "the daily cost is it is this
+     *  [Communication Allowance, 13th Month Allowance, SIL, ...]") — no
+     *  editable input for any of the 21 built-in rows. A CUSTOM row (added
+     *  via Projections' + icon) has no Cost Breakdown source, so it stays
+     *  a plain editable input even here. */
+    public function test_every_built_in_operating_cost_row_is_locked_on_a_tsas_product_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        \App\Models\ProjectionCustomRow::create([
+            'key' => 'custom_office_snacks', 'section' => 'operating',
+            'label' => 'Office Snacks', 'is_fixed' => false, 'sort_order' => 0,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $dailySectionStart = strpos($content, 'ei-day-scroller');
+        $dailyHtml = substr($content, $dailySectionStart);
+
+        // None of the 20 shared-pool keys has an editable input here.
+        foreach (array_keys(\App\Support\ExpectedIncomeCalculator::OPERATING_COST_ROWS) as $key) {
+            $this->assertStringNotContainsString("data-field=\"{$key}\"", $dailyHtml, "expected {$key} to be locked (no input) on a TSA-scoped card");
+        }
+        // The custom row still has one.
+        $this->assertStringContainsString('data-field="custom_office_snacks"', $dailyHtml);
+    }
+
+    /** A built-in Operating Costs row's own LOCKED figure matches Cost
+     *  Breakdown's own "Daily Cost per product" mini-table exactly —
+     *  never a stale/zero placeholder. */
+    public function test_a_locked_operating_cost_row_shows_cost_breakdowns_own_figure(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        Product::first()->update(['has_cost_allocation' => true]);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        // Sources the plain "Daily Cost" row (pool ÷ real TSA count ÷ 24),
+        // NOT dailyCostPerProductRow() — explicit correction, 2026-09-30:
+        // "it should be DAILY COST ROW will reflect no change of label".
+        $expected = TsaDailyRateService::dailyCostRow()['communication_allowance'];
+        $this->assertGreaterThan(0, $expected);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $dailySectionStart = strpos($content, 'ei-day-scroller');
+        $dailyHtml = substr($content, $dailySectionStart);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="communication_allowance"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
+            $dailyHtml
+        );
     }
 
     /** A product-level save with no tsa_id at all (update()'s own

@@ -288,10 +288,11 @@
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => {
                 const el = card.querySelector(`[data-field="${key}"]`);
                 if (el) { raw[key] = parseMoney(el.value); return; }
-                // Salaries on a TSA-scoped card has no input at all (locked
-                // to her own Daily Rate / Product — explicit request,
-                // 2026-09-30) — read its server-rendered read-only span
-                // instead of silently treating it as 0.
+                // Every BUILT-IN Operating Costs row on a TSA-scoped card
+                // has no input at all (locked to Cost Breakdown's own
+                // figures — explicit request, 2026-09-30) — read its
+                // server-rendered read-only span instead of silently
+                // treating it as 0.
                 const out = card.querySelector(`[data-out="${key}"]`);
                 raw[key] = out ? parseMoney(out.textContent) : 0;
             });

@@ -153,41 +153,62 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(50.0, $summed['standard_cost_per_message'], 0.01);
     }
 
-    /** withOverriddenSalaries() (explicit request, 2026-09-30: "the
-     *  salaries row is based to the Daily Rate / Product") swaps Salaries
-     *  and recomputes every figure that cascades from it — Total Operating
+    /** withOverriddenOperatingCosts() (explicit request, 2026-09-30: "the
+     *  salaries row is based to the Daily Rate / Product", then "the daily
+     *  cost is it is this [Communication Allowance, 13th Month Allowance,
+     *  SIL, ...]") swaps any subset of Operating Costs lines and
+     *  recomputes every figure that cascades from them — Total Operating
      *  Costs, Net Income, and their own _pct — while leaving every OTHER
-     *  field (Gross Profit, Total Selling Costs, Income Before OPEX)
-     *  completely untouched, since Salaries only ever affects the OPEX
-     *  side of the P&L. */
-    public function test_with_overridden_salaries_recomputes_only_the_opex_cascade(): void
+     *  field (Gross Profit, Total Selling Costs, Income Before OPEX, and
+     *  any operating line NOT in $overrides) completely untouched. */
+    public function test_with_overridden_operating_costs_recomputes_only_the_opex_cascade(): void
     {
-        $d = ExpectedIncomeCalculator::derive(array_merge(self::CLEARSIGHT, ['salaries' => 999.00, 'communication_allowance' => 100.00]));
+        $d = ExpectedIncomeCalculator::derive(array_merge(self::CLEARSIGHT, ['salaries' => 999.00, 'communication_allowance' => 100.00, 'sil' => 50.00]));
 
-        $overridden = ExpectedIncomeCalculator::withOverriddenSalaries($d, 210.36);
+        $overridden = ExpectedIncomeCalculator::withOverriddenOperatingCosts($d, ['salaries' => 210.36, 'communication_allowance' => 25.00]);
 
         $this->assertEqualsWithDelta(210.36, $overridden['operating_lines']['salaries'], 0.01);
-        // Every other operating line is untouched — only salaries swapped.
-        $this->assertEqualsWithDelta(100.00, $overridden['operating_lines']['communication_allowance'], 0.01);
+        $this->assertEqualsWithDelta(25.00, $overridden['operating_lines']['communication_allowance'], 0.01);
+        // A line NOT in $overrides keeps its original value untouched.
+        $this->assertEqualsWithDelta(50.00, $overridden['operating_lines']['sil'], 0.01);
 
-        $expectedTotalOperating = $d['total_operating_costs'] - 999.00 + 210.36;
+        $expectedTotalOperating = $d['total_operating_costs'] - 999.00 + 210.36 - 100.00 + 25.00;
         $this->assertEqualsWithDelta($expectedTotalOperating, $overridden['total_operating_costs'], 0.01);
         $this->assertEqualsWithDelta($d['income_before_opex'] - $expectedTotalOperating, $overridden['net_income'], 0.01);
 
-        // Untouched — Salaries has no bearing on the Gross Profit/Selling
-        // side of the P&L at all.
+        // Untouched — Operating Costs has no bearing on the Gross
+        // Profit/Selling side of the P&L at all.
         $this->assertSame($d['gross_profit'], $overridden['gross_profit']);
         $this->assertSame($d['total_selling_costs'], $overridden['total_selling_costs']);
         $this->assertSame($d['income_before_opex'], $overridden['income_before_opex']);
     }
 
-    public function test_with_overridden_salaries_handles_zero_gross_sales_without_dividing_by_zero(): void
+    public function test_with_overridden_operating_costs_handles_zero_gross_sales_without_dividing_by_zero(): void
     {
         $d = ExpectedIncomeCalculator::derive(['salaries' => 500.00]);
 
-        $overridden = ExpectedIncomeCalculator::withOverriddenSalaries($d, 0.0);
+        $overridden = ExpectedIncomeCalculator::withOverriddenOperatingCosts($d, ['salaries' => 0.0]);
 
         $this->assertSame(0.0, $overridden['total_operating_costs_pct']);
         $this->assertSame(0.0, $overridden['net_income_pct']);
+    }
+
+    /** Root-caused 2026-09-30: a caller passing through
+     *  CostBreakdownCalculator::dailyCostRow()'s own 'total' key
+     *  unfiltered (that array has 21 keys — 20 real pools plus its own
+     *  'total' sum) crashed with a TypeError the first time this hit a
+     *  real Collection-typed operating_lines, and before that would have
+     *  silently injected a bogus 22nd "operating cost" line inflating
+     *  Total Operating Costs by roughly double. A key not already present
+     *  in operating_lines must be dropped, not merged in. */
+    public function test_with_overridden_operating_costs_ignores_keys_not_already_in_operating_lines(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(array_merge(self::CLEARSIGHT, ['salaries' => 100.00]));
+
+        $overridden = ExpectedIncomeCalculator::withOverriddenOperatingCosts($d, ['salaries' => 50.00, 'total' => 999999.99]);
+
+        $this->assertArrayNotHasKey('total', $overridden['operating_lines']);
+        $expectedTotalOperating = $d['total_operating_costs'] - 100.00 + 50.00;
+        $this->assertEqualsWithDelta($expectedTotalOperating, $overridden['total_operating_costs'], 0.01);
     }
 }

@@ -398,11 +398,10 @@ class CostBreakdownController extends Controller
         $total = CostBreakdownCalculator::tsaTotal($entry->base_salary, $overheadRefs);
         $dailyRate = CostBreakdownCalculator::tsaDailyRate($total);
 
-        // Daily Rate / Product's own source is the BOTTOM cost-allocation
-        // table's row TOTAL (pool-share sum), not $total above — see
-        // TsaDailyRateService's own doc comment. A Days change (this same
-        // endpoint's other field) can move it for THIS TSA too, so it's
-        // recomputed fresh here rather than reused from before this save.
+        // Daily Rate / Product = $dailyRate above ($total ÷ 24) split
+        // across every CHECKED product — see TsaDailyRateService's own doc
+        // comment. Recomputed fresh here (not reused from before this
+        // save) since editing base_salary just moved $total/$dailyRate.
         $dailyRatePerProduct = TsaDailyRateService::perProductByTsaId()[$tsaShift->id] ?? 0.0;
 
         return response()->json([
@@ -439,8 +438,16 @@ class CostBreakdownController extends Controller
 
     /** Every real TSA's own freshly-recomputed % share + per-pool row +
      *  row TOTAL + product columns, keyed by tsa_id — shared by
-     *  updatePool()/updateTsaEntry() above since either one changes every
-     *  row's own figures, not just the one just-saved cell's row. */
+     *  updatePool()/updateTsaEntry()/updateProductHasCostAllocation() above
+     *  since any of those changes every row's own figures, not just the
+     *  one just-saved cell's row. Also carries each TSA's own TOP salary
+     *  table "Daily Rate / Product" figure under 'salaryDailyRatePerProduct'
+     *  (explicit request, 2026-09-30: "i want it will auto to that changed
+     *  like i should not reload whole page to reflect" — a product
+     *  checkbox toggle changes the divisor for BOTH tables at once, but
+     *  they're deliberately different SOURCE totals — see
+     *  TsaDailyRateService's own doc comment — so this key is intentionally
+     *  separate from 'derived.products' above, never conflated). */
     private function recomputeAllTsaRows(): array
     {
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
@@ -448,10 +455,11 @@ class CostBreakdownController extends Controller
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
         $flaggedProductRows = TsaDailyRateService::flaggedProductRows();
         $flaggedProductCount = $flaggedProductRows->count();
+        $salaryDailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
 
         $totalDays = $tsas->sum(fn (TsaShift $tsa) => ($entriesByTsaId->get($tsa->id)?->days) ?? 30);
 
-        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $totalDays, $poolAmounts, $flaggedProductRows, $flaggedProductCount) {
+        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $totalDays, $poolAmounts, $flaggedProductRows, $flaggedProductCount, $salaryDailyRatePerProductByTsaId) {
             $entry = $entriesByTsaId->get($tsa->id);
             $days = $entry?->days ?? 30;
             $share = CostBreakdownCalculator::shareOfDays($days, $totalDays);
@@ -464,6 +472,7 @@ class CostBreakdownController extends Controller
                 'days' => $days,
                 'share' => $share,
                 'derived' => $derived,
+                'salaryDailyRatePerProduct' => $salaryDailyRatePerProductByTsaId[$tsa->id] ?? 0.0,
             ]];
         })->all();
     }

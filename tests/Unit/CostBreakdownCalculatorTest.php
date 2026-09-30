@@ -177,16 +177,16 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(210.36, CostBreakdownCalculator::tsaDailyRatePerProduct(1682.86, 8), 0.01);
     }
 
-    /** Full formula chain for "Daily Rate / Product," confirmed exact
-     *  against the real sheet's own xlsx cell formulas (root-caused
-     *  2026-09-30 via openpyxl inspection, not a screenshot read alone —
-     *  cell AA45 for Julie Francisco: '=Z45/7', Z45: '=Y45/24', Y45:
-     *  '=sum(D45:X45)'). The source is the BOTTOM cost-allocation table's
-     *  own row TOTAL (rowForShare()'s own 'total' — the sum of her % share
-     *  of every shared pool), NOT tsaTotal() (base_salary + overhead
-     *  refs) — an earlier version of TsaDailyRateService used tsaTotal()
-     *  instead, which the real sheet's own formula never references for
-     *  this column at all. */
+    /** Full formula chain for the "Daily Cost per product" / "Daily Cost"
+     *  mini-table (NOT the Salary Breakdown table's own "Daily Rate /
+     *  Product" column, which sources tsaTotal() instead — see
+     *  TsaDailyRateService's own doc comment), confirmed exact against the
+     *  real sheet's own xlsx cell formulas (root-caused 2026-09-30 via
+     *  openpyxl inspection, not a screenshot read alone — cell AA45 for
+     *  Julie Francisco: '=Z45/7', Z45: '=Y45/24', Y45: '=sum(D45:X45)').
+     *  This mini-table's own source IS the bottom cost-allocation table's
+     *  row TOTAL (rowForShare()'s own 'total') — see
+     *  CostBreakdownCalculator::dailyCostRow()'s own doc comment. */
     public function test_daily_rate_per_product_formula_chain_matches_the_real_sheets_own_xlsx_cells(): void
     {
         // Julie Francisco's real pool-share sum, confirmed via the sheet's

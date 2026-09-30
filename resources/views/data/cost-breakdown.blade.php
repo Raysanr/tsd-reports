@@ -60,10 +60,8 @@
                              every FLAGGED product only (explicit follow-up,
                              2026-09-30: "user only can identify what
                              product that has cost" — see TsaDailyRateService
-                             ::productCount()'s own doc comment). Header
-                             text renamed, 2026-09-30, to make that explicit
-                             rather than implying every product participates. --}}
-                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24) / product that has check</th>
+                             ::productCount()'s own doc comment). --}}
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate / Product</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -122,14 +120,11 @@
                         @php
                             $tsa = $item['tsa']; $entry = $item['entry']; $total = $item['total'];
                             $dailyRate = \App\Support\CostBreakdownCalculator::tsaDailyRate($total);
-                            // Daily Rate / Product's own source total is the
-                            // BOTTOM "Cost Allocation Per TSA" table's own row
-                            // TOTAL (pool-share sum), NOT this row's $total
-                            // above (base_salary + overhead refs) — confirmed
-                            // against the real sheet's own xlsx formulas, see
-                            // TsaDailyRateService's own doc comment for the
-                            // full root cause of the earlier wrong-total bug
-                            // this replaced.
+                            // Daily Rate / Product = $dailyRate above split
+                            // across every CHECKED product (explicit
+                            // follow-up, 2026-09-30: "user only can
+                            // identify what product that has cost") — see
+                            // TsaDailyRateService's own doc comment.
                             $dailyRatePerProduct = $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0;
                         @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
@@ -399,16 +394,18 @@
             }
 
             // The TOP salary table's own "Daily Rate / Product" cell for
-            // this same TSA (explicit follow-up, 2026-09-30) — every
-            // product in data.derived.products carries the SAME figure
-            // (see the "products" branch above), so any one value works;
-            // absent entirely only when every product is unflagged, same
-            // "blank, not 0.00" state as the bottom table's own cells.
+            // this same TSA (explicit request, 2026-09-30: "i want it will
+            // auto to that changed like i should not reload whole page to
+            // reflect") — data.salaryDailyRatePerProduct, a SEPARATE figure
+            // from data.derived.products above (that one sources the
+            // BOTTOM table's own pool-share total; this one sources the
+            // TOP table's own base_salary + overhead refs — see
+            // TsaDailyRateService's own doc comment for why the two tables
+            // are deliberately independent).
             const salaryRow = document.querySelector(`[data-tsa-salary-row][data-tsa-id="${tsaId}"]`);
             if (salaryRow) {
                 const cell = salaryRow.querySelector('[data-out="daily_rate_per_product"]');
-                const values = Object.values(data.derived.products || {});
-                if (cell) cell.textContent = values.length ? fmtMoney(values[0]) : '';
+                if (cell) cell.textContent = data.salaryDailyRatePerProduct > 0 ? fmtMoney(data.salaryDailyRatePerProduct) : '';
             }
         });
         refreshCostTableTotals();
