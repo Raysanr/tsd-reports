@@ -38,28 +38,45 @@ use App\Models\TsaShift;
 class TsaDailyRateService
 {
     /** Every real TSA's own Daily Rate / Product, keyed by tsa_id — the
-     *  single call site Expected Income's controller needs, computed once
-     *  per request (not per card) since it's the same figure for every one
-     *  of a TSA's own product cards on a given day. */
+     *  single call site Expected Income's controller needs for each
+     *  PRODUCT card's own Salaries row, computed once per request (not per
+     *  card) since it's the same figure for every one of a TSA's own
+     *  product cards on a given day. Her own "[TSA NAME]" overview card
+     *  does NOT use this — see dailyRateByTsaId() below. */
     public static function perProductByTsaId(): array
+    {
+        $dailyRateByTsaId = self::dailyRateByTsaId();
+        $productCount = self::productCount();
+
+        return collect($dailyRateByTsaId)
+            ->map(fn (float $dailyRate) => CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productCount))
+            ->all();
+    }
+
+    /** Every real TSA's own plain Daily Rate (her own TOTAL ÷ 24), keyed
+     *  by tsa_id — NOT divided by product count, unlike
+     *  perProductByTsaId() above. Used by her own "[TSA NAME]" overview
+     *  card's own Salaries figure (explicit follow-up, 2026-09-30, "same
+     *  in the salaries" — right after the identical correction for the
+     *  other 20 Operating Costs rows: "in the product cards only okay? ...
+     *  not in tsa name card"). */
+    public static function dailyRateByTsaId(): array
     {
         $roles = CostBreakdownRole::all();
         $overheadByRoleId = self::overheadByRoleId($roles);
         $overheadRefsByTeam = self::overheadRefsByTeam($roles, $overheadByRoleId);
-        $productCount = self::productCount();
 
         $tsas = TsaShift::all();
         $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
 
-        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $overheadRefsByTeam, $productCount) {
+        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $overheadRefsByTeam) {
             $entry = $entriesByTsaId->get($tsa->id);
             $baseSalary = $entry?->base_salary ?? 0.0;
             $overheadRefs = $overheadRefsByTeam->get($tsa->team) ?? [];
 
             $total = CostBreakdownCalculator::tsaTotal($baseSalary, $overheadRefs);
-            $dailyRate = CostBreakdownCalculator::tsaDailyRate($total);
 
-            return [$tsa->id => CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productCount)];
+            return [$tsa->id => CostBreakdownCalculator::tsaDailyRate($total)];
         })->all();
     }
 

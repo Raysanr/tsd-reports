@@ -933,6 +933,45 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Same divide-only-on-product-cards rule applies to Salaries too
+     *  (explicit follow-up, 2026-09-30, right after the identical
+     *  correction for the other 20 Operating Costs rows: "same in the
+     *  salaries") — her own overview card shows the plain Daily Rate
+     *  (TOTAL ÷ 24), not the Daily Rate / Product every product card
+     *  underneath it shows. */
+    public function test_the_tsa_overview_card_does_not_divide_salaries_by_product_count(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        Product::orderBy('id')->take(2)->get()->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $undivided = TsaDailyRateService::dailyRateByTsaId()[$tsa->id];
+        $dividedByProduct = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan($dividedByProduct, $undivided, 'test setup: dividing by 2 products should shrink the figure');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $tsa->display_name);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+        $productCardsHtml = substr($content, $firstFieldPos);
+
+        $this->assertStringContainsString(number_format($undivided, 2), $overviewHtml);
+        $this->assertStringNotContainsString(number_format($dividedByProduct, 2), $overviewHtml);
+        $this->assertMatchesRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dividedByProduct, 2), '/') . '/',
+            $productCardsHtml
+        );
+    }
+
     /** A product-level save with no tsa_id at all (update()'s own
      *  $tsaShift = null branch — the shared, non-TSA-scoped entry every
      *  page's own tsa_id-NULL row still writes to) has no TSA to compute a
