@@ -70,15 +70,26 @@
     </div>
 </div>
 
-{{-- Per-team summary rows — explicit request, 2026-09-30, from a screenshot
-     of the real sheet's own "TEAM OPENING SHIFT"/"TEAM CLOSING SHIFT" cards:
-     "in the first cards is the overall and in the next down part is like
-     team opening and closing". One full row per real team, same shape as
-     the row above (an overall card + that team's own product cards), but
-     scoped to that team's own real TSAs' entries (plus the shared
-     product-level entries — see buildSummaryRow()'s own doc comment). This
-     reverses an earlier 2026-09-26 "no per-team cards" decision — a newer,
-     explicit, screenshot-confirmed request supersedes it. --}}
+{{-- Per-team summary rows — explicit request, 2026-09-30, from a
+     screenshot of the real sheet's own "TEAM OPENING SHIFT"/"TEAM CLOSING
+     SHIFT" cards: "in the first cards is the overall and in the next down
+     part is like team opening and closing". Same shape as the main row
+     above — an overall card, THEN that team's own product cards too
+     (explicit correction, 2026-09-30, after a wrong trim: "I SAID IT IS
+     NOT TRIMMED, IT HAS PRODUCT CARDS STILL" — the per-team rows keep
+     their own product cards exactly like the main row does; only the main
+     row's own overall card is described as "overall of both teams").
+     Scoped to that team's own real TSAs' entries (plus the shared
+     product-level entries — see buildSummaryRow()'s own doc comment).
+
+     ALL-view only (explicit follow-up, 2026-09-30: "why is it when i am
+     with filter in the per team why is it there's per team in there too
+     like in all? it will be only the Telesales Expected Performance and
+     TSA'S CARDS AND THEIR PRODUCTS") — selecting a real team shows just the
+     plain main summary row above, then goes straight to that team's own
+     TSA cards below; these per-team rows are an ALL-view-only addition,
+     same gating as the daily section's own selectedTeam check below. --}}
+@if($selectedTeam === 'all')
 @foreach($teamSummaryRows as $teamRow)
 <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($teamRow['label']) }}</div>
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8">
@@ -90,27 +101,35 @@
     </div>
 </div>
 @endforeach
+@endif
 
 {{-- Daily rows — one row of cards PER calendar day, stacking downward
      (explicit request, 2026-09-26: "in the top there's expected sales and
      after that it is dates going down"), each independently editable and
      independently drag-scrollable. Same overall-card + product-cards
      pattern as the summary row above, just for that one day's own figures.
+     No heading above each day's own row, and no date inside the overall
+     card's own title either — explicit follow-up, 2026-09-30: "there will
+     be no dates in all" then, after the standalone heading removal alone
+     didn't cover it, "the only will be gone is this in the down part"
+     pointing at "TELESALES — SEPTEMBER 30, 2026" still showing inside
+     that card's own title. The overall card is now titled plain
+     "TELESALES", same as every other card on the page never showing a
+     date in its own title.
 
      Team filter (explicit request, 2026-09-30, confirmed live via
      screenshot exactly which part of the page this touches: "the top is
      still like that [unaffected] ... in the down the yellow is only TSA
-     NAMES"): selectedTeam === 'all' keeps the ORIGINAL single "TELESALES —
-     [date]" overall card + every product's own card, tsa_id NULL,
-     unchanged from before this feature; a real team swaps that one block
-     for ONE block PER REAL TSA on that team, her own name where the date
-     card's title used to be, each followed by her own product cards — for
-     EVERY date, same per-day stacking either way. --}}
+     NAMES"): selectedTeam === 'all' keeps the ORIGINAL single "TELESALES"
+     overall card + every product's own card, tsa_id NULL, unchanged from
+     before this feature; a real team swaps that one block for ONE block
+     PER REAL TSA on that team, her own name where the overall card's
+     title used to be, each followed by her own product cards — for EVERY
+     date, same per-day stacking either way. --}}
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
 @endphp
-<div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ $date->format('F j, Y') }}</div>
 
 @if($selectedTeam === 'all')
 @php
@@ -125,7 +144,7 @@
     <div class="flex items-start gap-5 w-max">
         <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
             <div class="px-5 py-4" style="background:#fde047;">
-                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES — {{ $date->format('F j, Y') }}</span>
+                <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">TELESALES</span>
             </div>
             @include('data.expected-income._card-body', ['d' => $dayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
         </div>
@@ -171,8 +190,8 @@
     @endphp
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
         <div class="flex items-start gap-5 w-max">
-            {{-- Her own name where "TELESALES — [date]" used to be — a
-                 read-only rollup of HER OWN product cards for this day
+            {{-- Her own name where the plain "TELESALES" card title used
+                 to be — a read-only rollup of HER OWN product cards for this day
                  (confirmed live, 2026-09-30: "the yellow is stil has this,
                  it is over all of the individual tsa ... but it is not
                  editable"), same role and full P&L body as the overall

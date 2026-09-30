@@ -49,14 +49,14 @@ use Illuminate\Support\Carbon;
  *
  *   - The DAILY rows below it (one row per calendar day, stacking
  *     downward) are what the team filter actually changes:
- *       - selectedTeam = 'all' (default): each day's own "TELESALES —
- *         [date]" overall card + every product's own card, tsa_id NULL —
+ *       - selectedTeam = 'all' (default): each day's own "TELESALES"
+ *         overall card + every product's own card, tsa_id NULL —
  *         unchanged in substance from before this feature. See
  *         buildAllDailyRows().
- *       - selectedTeam = a real team slug: the "TELESALES — [date]" card
+ *       - selectedTeam = a real team slug: the "TELESALES" card
  *         is replaced by ONE block PER REAL TSA on that team ("in the down
- *         the yellow is only TSA NAMES") — her own name where the date
- *         card's title used to be, followed by her own product cards, for
+ *         the yellow is only TSA NAMES") — her own name where that card's
+ *         title used to be, followed by her own product cards, for
  *         EVERY date in the range (not a single range-summed row — the
  *         exact same per-day stacking as the ALL view, just repeated once
  *         per TSA). Every card here reads/writes ExpectedIncomeEntry rows
@@ -118,7 +118,7 @@ class ExpectedIncomeController extends Controller
         // only TSA NAMES" when a team is picked) — one row per calendar
         // day either way, but each day's own card set is either every
         // product (ALL) or one block per real TSA on that team, her own
-        // name where "TELESALES — [date]" used to be, each followed by her
+        // name where "TELESALES" used to be, each followed by her
         // own product cards.
         $dailyData = $selectedTeam === 'all'
             ? $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys)
@@ -237,7 +237,7 @@ class ExpectedIncomeController extends Controller
             return [$dateStr => $rows];
         });
 
-        // Each day's own "TELESALES — [date]" rollup card, summed from
+        // Each day's own "TELESALES" rollup card, summed from
         // every product's own RAW row for that day (ungrouped, all
         // products flattened) — NOT from $dailyRows' own already-derived
         // output, same root cause and fix as $summaryOverallTotal above.
@@ -258,7 +258,7 @@ class ExpectedIncomeController extends Controller
     /** A specific team's own daily rows — confirmed live, 2026-09-30, from
      *  a screenshot: "in the down the yellow is only TSA NAMES" — the
      *  SAME per-day stacking as buildAllDailyRows() above, just with the
-     *  overall "TELESALES — [date]" card replaced by ONE block PER REAL
+     *  overall "TELESALES" card replaced by ONE block PER REAL
      *  TSA on that team (her own name, her own product cards), repeated
      *  for every date. Every card here reads/writes ExpectedIncomeEntry
      *  rows with a real tsa_id — completely independent numbers from the
@@ -281,7 +281,7 @@ class ExpectedIncomeController extends Controller
 
             // Her own "[TSA NAME]" overview card — a read-only rollup of
             // HER OWN product cards for that one day, same role
-            // "TELESALES — [date]" plays in the ALL view (confirmed live,
+            // "TELESALES" plays in the ALL view (confirmed live,
             // 2026-09-30, from a screenshot: "the yellow is stil has this,
             // it is over all of the individual tsa ... but it is not
             // editable") — summed from her own RAW rows for that day

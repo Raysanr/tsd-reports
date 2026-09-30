@@ -160,8 +160,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertSee('September 30, 2026');
-        $response->assertDontSee('October 1, 2026');
+        // No visible date text anywhere in the daily section any more
+        // (explicit request, 2026-09-30: "there will be no dates in all" /
+        // "the only will be gone is this in the down part") — check the
+        // day-scroller's own data-date attribute instead.
+        $response->assertSee('data-date="2026-09-30"', false);
+        $response->assertDontSee('data-date="2026-10-01"', false);
     }
 
     /** Explicit request, 2026-09-26: a product group created on DSPPR
@@ -432,7 +436,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('765.68');
     }
 
-    /** Same bug, the daily "TELESALES — [date]" rollup card. */
+    /** Same bug, the daily "TELESALES" rollup card. */
     public function test_a_days_overall_total_includes_a_manually_entered_selling_cost(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -453,7 +457,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // Same math as the range-summary test above — with only one day
         // and one product in range, the day's own overall card and the
         // range summary's overall card show the identical total.
-        $response->assertSeeInOrder(['TELESALES — ' . today()->format('F j, Y'), '765.68']);
+        $response->assertSeeInOrder(['TELESALES', '765.68']);
     }
 
     /** Explicit request, 2026-09-28: "the net income it should be green if
@@ -520,9 +524,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('Telesales Expected Performance');
         $content = $response->getContent();
-        // Only the summary scroller's own slice of the page.
+        // Only the summary scroller's own slice of the page — bounded by
+        // the daily section's own "ei-day-scroller" marker, not a date
+        // heading (neither view has a bare standalone one any more).
         $summaryStart = strpos($content, 'id="eiSummaryScroller"');
-        $dailySectionStart = strpos($content, today()->format('F j, Y'), $summaryStart);
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
         $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
         // 1,000 (product-level) + 99,999 (her own) = 100,999.00 combined.
         $this->assertStringContainsString('100,999.00', $summaryHtml);
@@ -544,7 +550,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $extractSummaryHtml = function (string $content) {
             $summaryStart = strpos($content, 'id="eiSummaryScroller"');
-            $dailySectionStart = strpos($content, today()->format('F j, Y'), $summaryStart);
+            // The daily section always starts with an "ei-day-scroller"
+            // element in every view (ALL or a real team) — a more reliable
+            // boundary than a date heading, since neither view has a bare
+            // standalone date heading of its own any more.
+            $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
             return substr($content, $summaryStart, $dailySectionStart - $summaryStart);
         };
 
@@ -582,6 +592,34 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // summary scroller.
         $this->assertNotFalse(strpos($content, 'SH NATURALS', $afterMainSummary));
         $this->assertNotFalse(strpos($content, 'EYECARE', $afterMainSummary));
+    }
+
+    /** Explicit follow-up, 2026-09-30: "why is it when i am with filter in
+     *  the per team why is it there's per team in there too like in all?
+     *  it will be only the Telesales Expected Performance and TSA'S CARDS
+     *  AND THEIR PRODUCTS" — selecting a real team must show ONLY the
+     *  plain main summary row, then go straight to that team's own TSA
+     *  cards; the per-team summary rows (SH NATURALS/EYECARE black-header
+     *  cards) are an ALL-view-only addition. */
+    public function test_per_team_summary_rows_do_not_appear_when_a_specific_team_is_selected(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $afterMainSummary = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $afterMainSummary);
+        // The gap between the main summary row and the daily section must
+        // contain NO per-team summary row heading at all.
+        $betweenSummaryAndDaily = substr($content, $afterMainSummary, $dailySectionStart - $afterMainSummary);
+        $this->assertStringNotContainsString('SH NATURALS', $betweenSummaryAndDaily);
+        $this->assertStringNotContainsString('EYECARE', $betweenSummaryAndDaily);
     }
 
     /** A team's own summary row only pools that team's own TSAs' entries
@@ -625,9 +663,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     }
 
     /** Confirmed live via screenshot, 2026-09-30: picking a real team
-     *  swaps the daily "TELESALES — [date]" overall card for one block PER
-     *  REAL TSA on that team, her own name as the card title, followed by
-     *  her own product cards. */
+     *  swaps the daily "TELESALES" overall card for one block PER REAL TSA
+     *  on that team, her own name as the card title, followed by her own
+     *  product cards. */
     public function test_selecting_a_team_shows_one_block_per_real_tsa_named_by_her_own_name(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -641,7 +679,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($tsa->display_name);
-        $response->assertDontSee('TELESALES — ' . today()->format('F j, Y'));
+        // The main summary row above still legitimately shows "TELESALES"
+        // regardless of team — only the DAILY section's own overall card
+        // is replaced by her own name, so check that slice specifically.
+        $content = $response->getContent();
+        $dailySectionStart = strpos($content, 'ei-day-scroller');
+        $this->assertStringNotContainsString('TELESALES', substr($content, $dailySectionStart));
     }
 
     /** Confirmed live via screenshot, 2026-09-30: "the yellow is stil has
