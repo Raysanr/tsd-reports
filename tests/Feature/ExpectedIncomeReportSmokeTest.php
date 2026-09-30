@@ -933,13 +933,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Same divide-only-on-product-cards rule applies to Salaries too
-     *  (explicit follow-up, 2026-09-30, right after the identical
-     *  correction for the other 20 Operating Costs rows: "same in the
-     *  salaries") — her own overview card shows the plain Daily Rate
-     *  (TOTAL ÷ 24), not the Daily Rate / Product every product card
-     *  underneath it shows. */
-    public function test_the_tsa_overview_card_does_not_divide_salaries_by_product_count(): void
+    /** Unlike the other 20 Operating Costs rows, Salaries divides by
+     *  product count on BOTH her own overview card AND every product card
+     *  underneath it (explicit correction, 2026-09-30, from a screenshot:
+     *  "for example gemma in the cost break down is this / 240.41 / so it
+     *  will be her salaries in the EXPECTED INCOME" — reverses an earlier
+     *  same-day "same in the salaries" instruction that had wrongly made
+     *  the overview card show the UNDIVIDED rate instead). */
+    public function test_the_tsa_overview_card_also_divides_salaries_by_product_count(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -964,8 +965,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
         $productCardsHtml = substr($content, $firstFieldPos);
 
-        $this->assertStringContainsString(number_format($undivided, 2), $overviewHtml);
-        $this->assertStringNotContainsString(number_format($dividedByProduct, 2), $overviewHtml);
+        $this->assertStringNotContainsString(number_format($undivided, 2), $overviewHtml);
+        $this->assertStringContainsString(number_format($dividedByProduct, 2), $overviewHtml);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dividedByProduct, 2), '/') . '/',
             $productCardsHtml

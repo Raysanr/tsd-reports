@@ -334,12 +334,15 @@ class ExpectedIncomeController extends Controller
         // than a second independently-derived number. Looked up once here
         // (not per card) since it's identical for every one of a TSA's own
         // product cards on a given day. Her own "[TSA NAME]" overview
-        // card's own Salaries does NOT divide by product count either
-        // (explicit follow-up, 2026-09-30, "same in the salaries" — right
-        // after the identical correction for the other 20 rows) — it
-        // sources $dailyRateByTsaId below instead.
+        // card's own Salaries uses this SAME divided figure too (explicit
+        // correction, 2026-09-30, from a screenshot: "for example gemma in
+        // the cost break down is this / 240.41 / so it will be her
+        // salaries in the EXPECTED INCOME" — reverses the SAME DAY's
+        // earlier "same in the salaries" instruction, which had wrongly
+        // read as "match the other 20 rows' undivided-on-the-overview-card
+        // behavior" when the user actually meant the overview card should
+        // ALSO show the divided figure, same as every product card).
         $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
 
         // Every OTHER Operating Costs row (Communication Allowance, 13th
         // Month Allowance, SIL, ... every shared pool except Salaries —
@@ -359,10 +362,11 @@ class ExpectedIncomeController extends Controller
         $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow) {
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyCostPerProductRow, $dailyCostRow) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
-            $productCardOverrides = array_merge($dailyCostPerProductRow, ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]);
-            $overviewCardOverrides = array_merge($dailyCostRow, ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]);
+            $salariesOverride = ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0];
+            $productCardOverrides = array_merge($dailyCostPerProductRow, $salariesOverride);
+            $overviewCardOverrides = array_merge($dailyCostRow, $salariesOverride);
 
             $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $productCardOverrides) {
                 $dateStr = $date->toDateString();
