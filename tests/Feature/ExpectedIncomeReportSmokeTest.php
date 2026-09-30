@@ -503,19 +503,17 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     /** Explicit request, 2026-09-30: "change the dates into per TSA and per
      *  team ... i want to add team filter." Confirmed live via screenshot,
      *  2026-09-30: the top range-summary row ("Telesales Expected
-     *  Performance" + product cards) is UNCHANGED by the team filter — it
-     *  keeps showing the exact same product-level total, tsa_id NULL,
-     *  regardless of which team pill is selected. */
+     *  Performance" + product cards) pools every TSA's own entry on the
+     *  CURRENTLY SELECTED team (or every TSA site-wide in the ALL view) —
+     *  see buildSummary()'s own doc comment for the two decisions this
+     *  behavior went through the same day. */
     /** Confirmed live via screenshot, 2026-09-30: "why in the top
      *  LUMIEYES/CLEAR SIGHT is not reflecting, it is per team" — the top
-     *  summary card now pools EVERY tsa_id for a product (the product-level
-     *  row, if any, plus every real TSA's own entry), not just the
-     *  product-level row, so typing into any TSA's card actually moves the
-     *  top total. The team FILTER SELECTION itself still doesn't change
-     *  this row (always every TSA regardless of which pill is picked) —
-     *  that part of the original design is unchanged, only the
-     *  tsa_id-NULL-only pool was. */
-    public function test_the_range_summary_row_pools_every_tsas_entry_regardless_of_team_filter(): void
+     *  summary card pools EVERY tsa_id for a product on the selected team
+     *  (the product-level row, if any, plus every real TSA's own entry on
+     *  that team), not just the product-level row, so typing into any
+     *  TSA's card actually moves the top total. */
+    public function test_the_range_summary_row_pools_every_tsas_entry_on_the_selected_team(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
@@ -541,11 +539,13 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringContainsString('100,999.00', $summaryHtml);
     }
 
-    /** The team filter PILL itself is still orthogonal to the top summary
-     *  — switching teams must not change which TSAs' entries get pooled
-     *  into it (always every TSA on every team, not just the selected
-     *  one's). */
-    public function test_the_range_summary_row_is_identical_no_matter_which_team_is_selected(): void
+    /** The team filter PILL now scopes the top summary too (explicit
+     *  correction, 2026-09-30: "when per team filter the Telesales
+     *  Expected Performance is per team only" — reverses the SAME DAY's
+     *  earlier "always every TSA on every team" decision) — an entry
+     *  belonging to a DIFFERENT team's TSA must not appear in this team's
+     *  top summary total. */
+    public function test_the_range_summary_row_only_pools_the_selected_teams_own_tsas(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
@@ -575,7 +575,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $summaryA = $extractSummaryHtml($responseA->getContent());
         $summaryB = $extractSummaryHtml($responseB->getContent());
         $this->assertStringContainsString('42,000.00', $summaryA);
-        $this->assertSame($summaryA, $summaryB);
+        $this->assertStringNotContainsString('42,000.00', $summaryB);
     }
 
     /** Confirmed live via screenshot, 2026-09-30: "in the first cards is

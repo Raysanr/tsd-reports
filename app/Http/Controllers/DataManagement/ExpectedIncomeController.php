@@ -106,12 +106,14 @@ class ExpectedIncomeController extends Controller
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
         // The top range-summary row ("Telesales Expected Performance" +
-        // every product's own card) ALWAYS shows the same product-level
-        // totals regardless of which team is selected (confirmed live,
-        // 2026-09-30, from a screenshot: "the top is still like that" — the
-        // team filter only changes the DAILY rows below it). Built once
-        // here, unconditionally, so switching teams never touches it.
-        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        // every product's own card) scopes to the selected team's own real
+        // TSAs (explicit correction, 2026-09-30: "when per team filter the
+        // Telesales Expected Performance is per team only") — null (every
+        // TSA, site-wide) only in the ALL view.
+        $summaryTeamTsaIds = $selectedTeam === 'all'
+            ? null
+            : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all();
+        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $summaryTeamTsaIds);
 
         // The DAILY rows below the summary DO change with the team filter
         // (confirmed by the same screenshot: "in the down the yellow is
@@ -163,7 +165,10 @@ class ExpectedIncomeController extends Controller
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
-        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        $summaryTeamTsaIds = $selectedTeam === 'all'
+            ? null
+            : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all();
+        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $summaryTeamTsaIds);
 
         return view('data.expected-income._summary-section', array_merge($summaryData, [
             'sellingRows'   => ExpectedIncomeCalculator::sellingCostRows(),
@@ -184,14 +189,21 @@ class ExpectedIncomeController extends Controller
      *  screenshot: "why in the top LUMIEYES/CLEAR SIGHT is not reflecting,
      *  it is per team") from an earlier tsa_id-NULL-only design that made
      *  the top card look broken once TSAs started entering their own
-     *  numbers under their own tsa_id instead. Still unaffected by the
-     *  team filter itself (always every TSA across every team, regardless
-     *  of which team pill is selected) — a real behavior change from
-     *  "team-independent" to "TSA-inclusive", not the same thing. */
-    private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys): array
+     *  numbers under their own tsa_id instead.
+     *
+     *  Now DOES change with the team filter (explicit correction,
+     *  2026-09-30: "when per team filter the Telesales Expected
+     *  Performance is per team only" — reverses the SAME DAY's earlier
+     *  "always every TSA across every team" decision recorded above; that
+     *  decision is superseded, not this one). $onlyTsaIds is null for the
+     *  ALL view (site-wide total, unchanged) or that team's own real TSA
+     *  ids when a specific team is selected — same parameter
+     *  buildSummaryRow() already forwards to rawByProductAndDateAllTsas()
+     *  for the per-team black-header rows below. */
+    private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null): array
     {
         ['cards' => $summaryCards, 'overallTotal' => $summaryOverallTotal] =
-            $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, null);
+            $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
         // One row per real team (explicit request, 2026-09-30, from the
         // sheet's own screenshot: "TEAM OPENING SHIFT" / "TEAM CLOSING
