@@ -92,6 +92,19 @@ class CostBreakdownCalculator
         return $total / 24;
     }
 
+    /** Her own Daily Rate split evenly across every product CARD (explicit
+     *  request, 2026-09-30: "add anothet column next to Daily Rate (÷24)
+     *  is like divided be all product ... how many product in the
+     *  cards") — $productCount is the same card count Expected Income's
+     *  own product cards show (a grouped pair counts as ONE card there,
+     *  via ProductGrouping::rows() — see CostBreakdownController::index()'s
+     *  own doc comment on $productCount). 0 when there are no products yet
+     *  (nothing to divide by) rather than a division-by-zero. */
+    public static function tsaDailyRatePerProduct(float $dailyRate, int $productCount): float
+    {
+        return $productCount > 0 ? $dailyRate / $productCount : 0.0;
+    }
+
     /** One real TSA's own full monthly TOTAL — confirmed a LIVE FORMULA in
      *  the real sheet from the user's own formula-bar screenshot,
      *  2026-09-30: "=D5+D9+D12+C13" for Julie Francisco — her own row's

@@ -265,6 +265,33 @@ class CostBreakdownSmokeTest extends TestCase
         // Daily rate divides her own TOTAL (not her raw base) by 24 —
         // 40,388.75 ÷ 24 = 1,682.86, matching the real sheet's own numbers.
         $response->assertJsonPath('dailyRate', fn ($v) => abs($v - 1682.86) < 0.01);
+        // "Daily Rate / Product" (explicit request, 2026-09-30: "add
+        // anothet column next to Daily Rate (÷24) is like divided be all
+        // product ... how many product in the cards") — her own Daily
+        // Rate split evenly across every product CARD, same card count
+        // Expected Income's own product cards show.
+        $productCount = \App\Support\ProductGrouping::rows(\App\Models\Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
+        $response->assertJsonPath('dailyRatePerProduct', fn ($v) => abs($v - (1682.86 / $productCount)) < 0.01);
+    }
+
+    /** "Daily Rate / Product" column (explicit request, 2026-09-30) renders
+     *  on the page itself — header text plus the correctly divided value
+     *  for a real TSA's own Daily Rate. */
+    public function test_the_salary_table_shows_daily_rate_per_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $response->assertSee('Daily Rate / Product');
+
+        $productCount = \App\Support\ProductGrouping::rows(\App\Models\Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
+        $this->assertGreaterThan(0, $productCount);
     }
 
     public function test_a_non_admin_cannot_update_any_cost_breakdown_field(): void

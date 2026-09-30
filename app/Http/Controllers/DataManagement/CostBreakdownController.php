@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\CostBreakdownCalculator;
+use App\Support\ProductGrouping;
 use Illuminate\Http\Request;
 
 /**
@@ -158,6 +160,8 @@ class CostBreakdownController extends Controller
             return $row;
         });
 
+        $productCount = $this->productCount();
+
         $totalDays = $tsaRows->sum(fn ($row) => $row['entry']->days);
         $poolAmounts = $pools->pluck('amount', 'key')->all();
 
@@ -194,6 +198,7 @@ class CostBreakdownController extends Controller
             'poolTotalsRow' => $poolTotalsRow,
             'grandTotal' => $grandTotal,
             'rowGrandTotal' => $tsaRows->sum(fn ($row) => $row['derived']['total']),
+            'productCount' => $productCount,
         ]);
     }
 
@@ -242,6 +247,21 @@ class CostBreakdownController extends Controller
             'total' => $costBreakdownRole->base_salary,
             'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
         ]);
+    }
+
+    /** Product count for the salary table's own "Daily Rate / Product"
+     *  column (explicit request, 2026-09-30: "divided be all product like
+     *  how many product in the cards") — same card count Expected Income's
+     *  own product cards show (ProductGrouping::rows() merges a product
+     *  GROUP into one combined card, same as there), not a bare
+     *  Product::count() that would double-count a grouped pair. Shared by
+     *  index() and updateTsaEntry() so a TSA's live autosave refresh never
+     *  divides by a different count than the page's own initial render. */
+    private function productCount(): int
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+
+        return ProductGrouping::rows($products, fn () => null)->count();
     }
 
     /** Every role's own freshly-recomputed overhead-per-TSA figure, keyed
@@ -336,11 +356,13 @@ class CostBreakdownController extends Controller
         $roles = CostBreakdownRole::all();
         $overheadRefs = $this->overheadRefsByTeam($roles, $this->overheadByRoleId($roles))->get($tsaShift->team) ?? [];
         $total = CostBreakdownCalculator::tsaTotal($entry->base_salary, $overheadRefs);
+        $dailyRate = CostBreakdownCalculator::tsaDailyRate($total);
 
         return response()->json([
             'success' => true,
             'total' => $total,
-            'dailyRate' => CostBreakdownCalculator::tsaDailyRate($total),
+            'dailyRate' => $dailyRate,
+            'dailyRatePerProduct' => CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $this->productCount()),
             'recomputed' => $this->recomputeAllTsaRows(),
         ]);
     }

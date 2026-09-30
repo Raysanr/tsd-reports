@@ -53,6 +53,15 @@
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Total</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24)</th>
+                        {{-- Explicit request, 2026-09-30: "add anothet
+                             column next to Daily Rate (÷24) is like divided
+                             be all product ... how many product in the
+                             cards" — her own Daily Rate split evenly across
+                             every product CARD Expected Income shows (a
+                             grouped pair counts as ONE card there, so it
+                             does here too — see $productCount's own doc
+                             comment in the controller). --}}
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate / Product</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -105,9 +114,14 @@
                             @endif
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                         </tr>
                     @else
-                        @php $tsa = $item['tsa']; $entry = $item['entry']; $total = $item['total']; $dailyRate = $total / 24; @endphp
+                        @php
+                            $tsa = $item['tsa']; $entry = $item['entry']; $total = $item['total'];
+                            $dailyRate = \App\Support\CostBreakdownCalculator::tsaDailyRate($total);
+                            $dailyRatePerProduct = \App\Support\CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productCount);
+                        @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
@@ -124,7 +138,8 @@
                                  directly, see CostBreakdownCalculator::
                                  tsaTotal()'s own doc comment. --}}
                             <td data-out="total" class="px-4 py-2 text-right font-mono font-bold text-ink dark:text-slate-100 {{ $groupEndClass }}">{{ $fmtMoney($total) }}</td>
-                            <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
+                            <td data-out="daily_rate" data-product-count="{{ $productCount }}" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
+                            <td data-out="daily_rate_per_product" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRatePerProduct) }}</td>
                         </tr>
                     @endif
                     @endforeach
@@ -385,6 +400,10 @@
                     if (typeof data.dailyRate === 'number') {
                         const el = row.querySelector('[data-out="daily_rate"]');
                         if (el) el.textContent = fmtMoney(data.dailyRate);
+                    }
+                    if (typeof data.dailyRatePerProduct === 'number') {
+                        const el = row.querySelector('[data-out="daily_rate_per_product"]');
+                        if (el) el.textContent = fmtMoney(data.dailyRatePerProduct);
                     }
                 }
 

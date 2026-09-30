@@ -115,6 +115,20 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(1520.36, CostBreakdownCalculator::tsaDailyRate(36488.75), 0.01);
     }
 
+    /** "Daily Rate / Product" column (explicit request, 2026-09-30: "add
+     *  anothet column next to Daily Rate (÷24) is like divided be all
+     *  product ... how many product in the cards") — her own Daily Rate
+     *  split evenly across every product card. */
+    public function test_tsa_daily_rate_per_product_divides_the_daily_rate_by_product_count(): void
+    {
+        $this->assertEqualsWithDelta(210.36, CostBreakdownCalculator::tsaDailyRatePerProduct(1682.86, 8), 0.01);
+    }
+
+    public function test_tsa_daily_rate_per_product_is_zero_when_there_are_no_products(): void
+    {
+        $this->assertSame(0.0, CostBreakdownCalculator::tsaDailyRatePerProduct(1682.86, 0));
+    }
+
     /** A TSA's own TOTAL — confirmed a LIVE FORMULA from the user's own
      *  formula-bar screenshot, 2026-09-30: "=D5+D9+D12+C13" for Julie
      *  Francisco — her own raw base_salary (19,500.00) plus every
