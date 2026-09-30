@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\ExpectedIncomeEntry;
@@ -783,6 +784,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
@@ -846,6 +848,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);

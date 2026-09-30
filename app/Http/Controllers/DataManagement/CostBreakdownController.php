@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\CostBreakdownCalculator;
 use App\Support\ProductGrouping;
+use App\Support\TsaDailyRateService;
 use Illuminate\Http\Request;
 
 /**
@@ -160,7 +161,19 @@ class CostBreakdownController extends Controller
             return $row;
         });
 
-        $productCount = $this->productCount();
+        // Product columns on the bottom cost-allocation table (explicit
+        // request, 2026-09-30: "add the products ... analyze the formula
+        // in the sheets") — every real product's own card, same roster
+        // Expected Income shows (ProductGrouping-merged card count, not a
+        // bare Product::count()). Confirmed against the real sheet's own
+        // xlsx formulas (AA45=Z45/7, AB45=Z45/7 for Julie Francisco — see
+        // TsaDailyRateService's own doc comment): every product column
+        // shows the SAME figure, her own Daily Rate ÷ product count, not a
+        // value that varies per product — the sheet's own formula never
+        // references which specific product the column is under at all.
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $productRows = ProductGrouping::rows($products, fn () => null);
+        $productCount = $productRows->count();
 
         $totalDays = $tsaRows->sum(fn ($row) => $row['entry']->days);
         $poolAmounts = $pools->pluck('amount', 'key')->all();
@@ -169,10 +182,18 @@ class CostBreakdownController extends Controller
         // own row TOTAL — computed once here so the view never has to call
         // into the calculator itself (same "controller computes, view only
         // renders" separation as every other report page in this module).
-        $tsaRows = $tsaRows->map(function ($row) use ($totalDays, $poolAmounts) {
+        // Her own Daily Rate / Product (same figure repeated into every
+        // product column — see doc comment above) is appended onto
+        // 'derived' under a 'products' key, keyed by that row's own label,
+        // so the view can render it identically to every pool column.
+        $tsaRows = $tsaRows->map(function ($row) use ($totalDays, $poolAmounts, $productRows) {
             $share = CostBreakdownCalculator::shareOfDays($row['entry']->days, $totalDays);
             $row['share'] = $share;
-            $row['derived'] = CostBreakdownCalculator::rowForShare($share, $poolAmounts);
+            $derived = CostBreakdownCalculator::rowForShare($share, $poolAmounts);
+            $dailyRate = CostBreakdownCalculator::tsaDailyRate($derived['total']);
+            $dailyRatePerProduct = CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productRows->count());
+            $derived['products'] = $productRows->pluck('label')->mapWithKeys(fn ($label) => [$label => $dailyRatePerProduct])->all();
+            $row['derived'] = $derived;
             return $row;
         });
 
@@ -192,6 +213,7 @@ class CostBreakdownController extends Controller
             'roles' => $roles,
             'salaryRows' => $salaryRows,
             'pools' => $pools,
+            'productRows' => $productRows,
             'tsaRows' => $tsaRows,
             'totalDays' => $totalDays,
             'totalSalaryOfTsd' => $totalSalaryOfTsd,
@@ -199,6 +221,7 @@ class CostBreakdownController extends Controller
             'grandTotal' => $grandTotal,
             'rowGrandTotal' => $tsaRows->sum(fn ($row) => $row['derived']['total']),
             'productCount' => $productCount,
+            'dailyRatePerProductByTsaId' => TsaDailyRateService::perProductByTsaId(),
         ]);
     }
 
@@ -252,18 +275,6 @@ class CostBreakdownController extends Controller
     /** Product count for the salary table's own "Daily Rate / Product"
      *  column (explicit request, 2026-09-30: "divided be all product like
      *  how many product in the cards") — same card count Expected Income's
-     *  own product cards show (ProductGrouping::rows() merges a product
-     *  GROUP into one combined card, same as there), not a bare
-     *  Product::count() that would double-count a grouped pair. Shared by
-     *  index() and updateTsaEntry() so a TSA's live autosave refresh never
-     *  divides by a different count than the page's own initial render. */
-    private function productCount(): int
-    {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
-
-        return ProductGrouping::rows($products, fn () => null)->count();
-    }
-
     /** Every role's own freshly-recomputed overhead-per-TSA figure, keyed
      *  by role id — shared by updateRole() above since editing one role's
      *  base_salary can change every OTHER role in the same overhead_group's
@@ -358,36 +369,48 @@ class CostBreakdownController extends Controller
         $total = CostBreakdownCalculator::tsaTotal($entry->base_salary, $overheadRefs);
         $dailyRate = CostBreakdownCalculator::tsaDailyRate($total);
 
+        // Daily Rate / Product's own source is the BOTTOM cost-allocation
+        // table's row TOTAL (pool-share sum), not $total above — see
+        // TsaDailyRateService's own doc comment. A Days change (this same
+        // endpoint's other field) can move it for THIS TSA too, so it's
+        // recomputed fresh here rather than reused from before this save.
+        $dailyRatePerProduct = TsaDailyRateService::perProductByTsaId()[$tsaShift->id] ?? 0.0;
+
         return response()->json([
             'success' => true,
             'total' => $total,
             'dailyRate' => $dailyRate,
-            'dailyRatePerProduct' => CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $this->productCount()),
+            'dailyRatePerProduct' => $dailyRatePerProduct,
             'recomputed' => $this->recomputeAllTsaRows(),
         ]);
     }
 
     /** Every real TSA's own freshly-recomputed % share + per-pool row +
-     *  row TOTAL, keyed by tsa_id — shared by updatePool()/updateTsaEntry()
-     *  above since either one changes every row's own figures, not just
-     *  the one just-saved cell's row. */
+     *  row TOTAL + product columns, keyed by tsa_id — shared by
+     *  updatePool()/updateTsaEntry() above since either one changes every
+     *  row's own figures, not just the one just-saved cell's row. */
     private function recomputeAllTsaRows(): array
     {
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
         $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $productRows = ProductGrouping::rows(Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null);
 
         $totalDays = $tsas->sum(fn (TsaShift $tsa) => ($entriesByTsaId->get($tsa->id)?->days) ?? 30);
 
-        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $totalDays, $poolAmounts) {
+        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $totalDays, $poolAmounts, $productRows) {
             $entry = $entriesByTsaId->get($tsa->id);
             $days = $entry?->days ?? 30;
             $share = CostBreakdownCalculator::shareOfDays($days, $totalDays);
+            $derived = CostBreakdownCalculator::rowForShare($share, $poolAmounts);
+            $dailyRate = CostBreakdownCalculator::tsaDailyRate($derived['total']);
+            $dailyRatePerProduct = CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productRows->count());
+            $derived['products'] = $productRows->pluck('label')->mapWithKeys(fn ($label) => [$label => $dailyRatePerProduct])->all();
 
             return [$tsa->id => [
                 'days' => $days,
                 'share' => $share,
-                'derived' => CostBreakdownCalculator::rowForShare($share, $poolAmounts),
+                'derived' => $derived,
             ]];
         })->all();
     }

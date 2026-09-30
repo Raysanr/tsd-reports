@@ -124,6 +124,33 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(210.36, CostBreakdownCalculator::tsaDailyRatePerProduct(1682.86, 8), 0.01);
     }
 
+    /** Full formula chain for "Daily Rate / Product," confirmed exact
+     *  against the real sheet's own xlsx cell formulas (root-caused
+     *  2026-09-30 via openpyxl inspection, not a screenshot read alone —
+     *  cell AA45 for Julie Francisco: '=Z45/7', Z45: '=Y45/24', Y45:
+     *  '=sum(D45:X45)'). The source is the BOTTOM cost-allocation table's
+     *  own row TOTAL (rowForShare()'s own 'total' — the sum of her % share
+     *  of every shared pool), NOT tsaTotal() (base_salary + overhead
+     *  refs) — an earlier version of TsaDailyRateService used tsaTotal()
+     *  instead, which the real sheet's own formula never references for
+     *  this column at all. */
+    public function test_daily_rate_per_product_formula_chain_matches_the_real_sheets_own_xlsx_cells(): void
+    {
+        // Julie Francisco's real pool-share sum, confirmed via the sheet's
+        // own xlsx export (cell Y45).
+        $rowTotal = 4194.82;
+
+        $dailyRate = CostBreakdownCalculator::tsaDailyRate($rowTotal);
+        $this->assertEqualsWithDelta(174.78, $dailyRate, 0.01);
+
+        // The real sheet's own template only ever extended this formula to
+        // 7 columns (AA through AG) before leaving the rest blank — see
+        // TsaDailyRateService's own doc comment for why this app's real
+        // product COUNT is used instead of a hardcoded 7.
+        $perProduct = CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, 7);
+        $this->assertEqualsWithDelta(24.97, $perProduct, 0.01);
+    }
+
     public function test_tsa_daily_rate_per_product_is_zero_when_there_are_no_products(): void
     {
         $this->assertSame(0.0, CostBreakdownCalculator::tsaDailyRatePerProduct(1682.86, 0));

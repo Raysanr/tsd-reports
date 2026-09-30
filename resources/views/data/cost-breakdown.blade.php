@@ -120,7 +120,15 @@
                         @php
                             $tsa = $item['tsa']; $entry = $item['entry']; $total = $item['total'];
                             $dailyRate = \App\Support\CostBreakdownCalculator::tsaDailyRate($total);
-                            $dailyRatePerProduct = \App\Support\CostBreakdownCalculator::tsaDailyRatePerProduct($dailyRate, $productCount);
+                            // Daily Rate / Product's own source total is the
+                            // BOTTOM "Cost Allocation Per TSA" table's own row
+                            // TOTAL (pool-share sum), NOT this row's $total
+                            // above (base_salary + overhead refs) — confirmed
+                            // against the real sheet's own xlsx formulas, see
+                            // TsaDailyRateService's own doc comment for the
+                            // full root cause of the earlier wrong-total bug
+                            // this replaced.
+                            $dailyRatePerProduct = $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0;
                         @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
@@ -138,7 +146,7 @@
                                  directly, see CostBreakdownCalculator::
                                  tsaTotal()'s own doc comment. --}}
                             <td data-out="total" class="px-4 py-2 text-right font-mono font-bold text-ink dark:text-slate-100 {{ $groupEndClass }}">{{ $fmtMoney($total) }}</td>
-                            <td data-out="daily_rate" data-product-count="{{ $productCount }}" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
+                            <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                             <td data-out="daily_rate_per_product" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRatePerProduct) }}</td>
                         </tr>
                     @endif
@@ -198,6 +206,17 @@
                         <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap {{ in_array($pool->key, ['business_development_fund','geniusmakers_management_fee','hmo_expense'], true) ? 'bg-rose-200 dark:bg-rose-800' : '' }}">{{ $pool->label }}</th>
                         @endforeach
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap bg-black text-white">TOTAL</th>
+                        {{-- Product columns (explicit request, 2026-09-30:
+                             "add the products ... analyze the formula in
+                             the sheets") — every real product's own card,
+                             confirmed against the real sheet's own xlsx
+                             formulas (AA45=Z45/7, AB45=Z45/7): her own
+                             Daily Rate (row TOTAL ÷ 24) split evenly across
+                             every product, same figure repeated in each
+                             column, never a value unique per product. --}}
+                        @foreach($productRows as $product)
+                        <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap bg-sky-100 dark:bg-sky-900">{{ strtoupper($product['label']) }}</th>
+                        @endforeach
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-line dark:divide-slate-700">
@@ -216,6 +235,9 @@
                         <td data-out="pool" data-pool-key="{{ $pool->key }}" class="px-3 py-2 text-right text-ink dark:text-slate-100">{{ $fmtMoney($d[$pool->key]) }}</td>
                         @endforeach
                         <td data-out="row_total" class="px-4 py-2 text-right font-bold bg-black text-white">{{ $fmtMoney($d['total']) }}</td>
+                        @foreach($productRows as $product)
+                        <td data-out="product" data-product-label="{{ $product['label'] }}" class="px-3 py-2 text-right text-ink dark:text-slate-100 bg-sky-50/60 dark:bg-sky-950/20">{{ $fmtMoney($d['products'][$product['label']] ?? 0) }}</td>
+                        @endforeach
                     </tr>
                     @endforeach
                 </tbody>
@@ -228,6 +250,9 @@
                         <td data-foot-pool-key="{{ $pool->key }}" class="px-3 py-2.5 text-right">{{ $fmtMoney($pool->amount) }}</td>
                         @endforeach
                         <td id="cbRowGrandTotal" class="px-4 py-2.5 text-right">{{ $fmtMoney($rowGrandTotal) }}</td>
+                        @foreach($productRows as $product)
+                        <td class="px-3 py-2.5"></td>
+                        @endforeach
                     </tr>
                 </tfoot>
             </table>
@@ -286,6 +311,16 @@
                     if (key === 'total') {
                         const totalEl = costRow.querySelector('[data-out="row_total"]');
                         if (totalEl) totalEl.textContent = fmtMoney(value);
+                        return;
+                    }
+                    // Product columns (explicit request, 2026-09-30) — same
+                    // Daily Rate / Product figure repeated into every one,
+                    // keyed by product label rather than a pool key.
+                    if (key === 'products') {
+                        Object.entries(value).forEach(([label, productValue]) => {
+                            const cell = costRow.querySelector(`[data-out="product"][data-product-label="${CSS.escape(label)}"]`);
+                            if (cell) cell.textContent = fmtMoney(productValue);
+                        });
                         return;
                     }
                     const cell = costRow.querySelector(`[data-out="pool"][data-pool-key="${key}"]`);

@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
+use App\Support\ProductGrouping;
+use App\Support\TsaDailyRateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -243,6 +246,8 @@ class CostBreakdownSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
 
         // base_salary is her RAW base only (explicit reversal, 2026-09-30,
@@ -265,13 +270,16 @@ class CostBreakdownSmokeTest extends TestCase
         // Daily rate divides her own TOTAL (not her raw base) by 24 —
         // 40,388.75 ÷ 24 = 1,682.86, matching the real sheet's own numbers.
         $response->assertJsonPath('dailyRate', fn ($v) => abs($v - 1682.86) < 0.01);
-        // "Daily Rate / Product" (explicit request, 2026-09-30: "add
-        // anothet column next to Daily Rate (÷24) is like divided be all
-        // product ... how many product in the cards") — her own Daily
-        // Rate split evenly across every product CARD, same card count
-        // Expected Income's own product cards show.
-        $productCount = \App\Support\ProductGrouping::rows(\App\Models\Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
-        $response->assertJsonPath('dailyRatePerProduct', fn ($v) => abs($v - (1682.86 / $productCount)) < 0.01);
+        // "Daily Rate / Product" (explicit request, 2026-09-30) — its own
+        // source is the BOTTOM cost-allocation table's row TOTAL (sum of
+        // her % share of every shared pool), NOT the 'total'/'dailyRate'
+        // above (base_salary + overhead refs) — confirmed against the real
+        // sheet's own xlsx formulas (root-caused after an earlier version
+        // of this used the wrong total — see TsaDailyRateService's own doc
+        // comment). Editing base_salary alone never moves this figure at
+        // all, since it has zero bearing on the pool-share total.
+        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $response->assertJsonPath('dailyRatePerProduct', fn ($v) => abs($v - $expected) < 0.01);
     }
 
     /** "Daily Rate / Product" column (explicit request, 2026-09-30) renders
@@ -281,6 +289,7 @@ class CostBreakdownSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
         CostBreakdownTsaEntry::ensureSeeded();
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
@@ -290,8 +299,51 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('Daily Rate / Product');
 
-        $productCount = \App\Support\ProductGrouping::rows(\App\Models\Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
-        $this->assertGreaterThan(0, $productCount);
+        // Its own source is the pool-share total (see
+        // TsaDailyRateService's own doc comment), not base_salary + her
+        // overhead refs — confirm the REAL figure renders somewhere on the
+        // page, not just that the column header text exists.
+        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected);
+        $response->assertSee(number_format($expected, 2));
+    }
+
+    /** The Cost Allocation Per TSA table's own product columns (explicit
+     *  request, 2026-09-30: "add the products ... analyze the formula in
+     *  the sheets") — one column per real product (the app's own roster,
+     *  not the sheet's static list), each showing that TSA's own Daily
+     *  Rate ÷ product count, confirmed against the real sheet's own xlsx
+     *  formulas (AA45=Z45/7, AB45=Z45/7 for Julie Francisco: every product
+     *  column repeats the SAME figure). */
+    public function test_the_cost_allocation_table_shows_one_column_per_real_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        $product = Product::orderBy('team')->orderBy('sort_order')->first();
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $response->assertSee(strtoupper($product->display_name));
+
+        $expected = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected);
+
+        $content = $response->getContent();
+        $rowStart = strpos($content, "data-tsa-id=\"{$tsa->id}\"");
+        $rowEnd = strpos($content, '</tr>', $rowStart);
+        $rowHtml = substr($content, $rowStart, $rowEnd - $rowStart);
+
+        // Every product column shows the SAME figure for a given TSA (the
+        // sheet's own formula never varies per product) — count how many
+        // data-out="product" cells in her own row carry it, matching the
+        // real product count (only counting THOSE cells, not any other
+        // column that might coincidentally share the same number).
+        $productCount = ProductGrouping::rows(Product::orderBy('team')->orderBy('sort_order')->get(), fn () => null)->count();
+        preg_match_all('/data-out="product"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/', $rowHtml, $matches);
+        $this->assertCount($productCount, $matches[0]);
     }
 
     public function test_a_non_admin_cannot_update_any_cost_breakdown_field(): void
