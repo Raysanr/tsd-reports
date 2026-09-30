@@ -183,6 +183,17 @@ class CostBreakdownController extends Controller
         $totalDays = $tsaRows->sum(fn ($row) => $row['entry']->days);
         $poolAmounts = $pools->pluck('amount', 'key')->all();
 
+        // "Daily Cost per product" / "Daily Cost" mini-table sitting above
+        // the per-TSA rows (explicit request, 2026-09-30, real sheet
+        // screenshot) — NOT scoped to any specific TSA, each pool's own
+        // amount ÷ the app's own REAL TSA count (explicit correction,
+        // 2026-09-30: "the 12 is number of the tsa" — not the sheet's own
+        // fixed 12-TSA headcount) ÷ 24 working days, then that same figure
+        // split across every FLAGGED product. See CostBreakdownCalculator::
+        // dailyCostRow()'s own doc comment for the confirmed-exact formula.
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, $tsas->count());
+        $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, $flaggedProductCount);
+
         // Each TSA's own % share + her own dollar amount per pool + her
         // own row TOTAL — computed once here so the view never has to call
         // into the calculator itself (same "controller computes, view only
@@ -238,6 +249,8 @@ class CostBreakdownController extends Controller
             'rowGrandTotal' => $tsaRows->sum(fn ($row) => $row['derived']['total']),
             'flaggedProductCount' => $flaggedProductCount,
             'dailyRatePerProductByTsaId' => TsaDailyRateService::perProductByTsaId(),
+            'dailyCostRow' => $dailyCostRow,
+            'dailyCostPerProductRow' => $dailyCostPerProductRow,
         ]);
     }
 

@@ -198,6 +198,42 @@
             <table class="cb-table border-collapse text-[13px]" id="cbTsaTable"
                    data-update-url-template="{{ route('data.cost-breakdown.update-tsa-entry', ['tsaShift' => '__TSA__']) }}">
                 <thead>
+                    {{-- "Daily Cost per product" / "Daily Cost" mini-table
+                         (explicit request, 2026-09-30, real sheet
+                         screenshot) — NOT scoped to any specific TSA, each
+                         pool's own amount ÷ the app's own REAL TSA count
+                         (explicit correction, 2026-09-30: "the 12 is number
+                         of the tsa") ÷ 24, then that split across every
+                         FLAGGED product — see CostBreakdownCalculator::
+                         dailyCostRow()'s own doc comment for the
+                         confirmed-exact formula. Same column grid as the
+                         per-TSA rows below (COST/Days/% cells blank, no
+                         product columns — this row predates the products
+                         feature on the real sheet, so it never had any). --}}
+                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs">
+                        <td class="cb-sticky px-4 py-1.5 font-semibold whitespace-nowrap bg-slate-100 dark:bg-slate-800">Daily Cost per product</td>
+                        <td class="px-3 py-1.5"></td>
+                        <td class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700"></td>
+                        @foreach($pools as $pool)
+                        <td class="px-3 py-1.5 text-right">{{ $fmtMoney($dailyCostPerProductRow[$pool->key] ?? 0) }}</td>
+                        @endforeach
+                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white">{{ $fmtMoney($dailyCostPerProductRow['total'] ?? 0) }}</td>
+                        @foreach($productRows as $product)
+                        <td class="px-3 py-1.5"></td>
+                        @endforeach
+                    </tr>
+                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs border-b border-line dark:border-slate-700">
+                        <td class="cb-sticky px-4 py-1.5 font-semibold whitespace-nowrap bg-slate-100 dark:bg-slate-800">Daily Cost</td>
+                        <td class="px-3 py-1.5"></td>
+                        <td class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700"></td>
+                        @foreach($pools as $pool)
+                        <td class="px-3 py-1.5 text-right">{{ $fmtMoney($dailyCostRow[$pool->key] ?? 0) }}</td>
+                        @endforeach
+                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white">{{ $fmtMoney($dailyCostRow['total']) }}</td>
+                        @foreach($productRows as $product)
+                        <td class="px-3 py-1.5"></td>
+                        @endforeach
+                    </tr>
                     <tr class="bg-yellow-200 dark:bg-yellow-700 text-ink dark:text-slate-950">
                         <th class="cb-sticky text-left px-4 py-2.5 font-bold whitespace-nowrap">COST</th>
                         <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap">Days</th>

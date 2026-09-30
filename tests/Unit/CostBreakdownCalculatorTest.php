@@ -104,6 +104,59 @@ class CostBreakdownCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(150.0, $row['total'], 0.01);
     }
 
+    /** "Daily Cost per product" / "Daily Cost" mini-table (explicit
+     *  request, 2026-09-30, real sheet screenshot) — each pool's own
+     *  amount ÷ the app's own REAL TSA count (explicit correction,
+     *  2026-09-30: "the 12 is number of the tsa") ÷ 24. Confirmed against
+     *  the real sheet's own xlsx numbers at ITS then-current 12-TSA
+     *  roster: Communication Allowance 500.42 ÷ 12 ÷ 24 = 1.74, and the
+     *  pool-sum TOTAL 50,337.86 ÷ 12 ÷ 24 = 174.78, matching to the cent. */
+    public function test_daily_cost_row_divides_each_pool_by_real_tsa_count_and_24(): void
+    {
+        $row = CostBreakdownCalculator::dailyCostRow(['communication_allowance' => 500.42], 12);
+
+        $this->assertEqualsWithDelta(1.74, $row['communication_allowance'], 0.01);
+        $this->assertEqualsWithDelta(1.74, $row['total'], 0.01);
+    }
+
+    public function test_daily_cost_row_total_matches_the_real_sheets_own_pool_sum(): void
+    {
+        $pools = [
+            'communication_allowance' => 500.42, 'thirteenth_month_allowance' => 5801.19, 'sil' => 2668.92,
+            'government_benefits' => 5922.47, 'miscellaneous_expenses' => 3760.38, 'product_research' => 625.00,
+            'magic_fund' => 416.67, 'company_assets' => 2522.68, 'executive_benefits' => 2416.67,
+            'office_miscellaneous' => 1216.67, 'maintenance_expenses' => 2241.67, 'consultants' => 645.83,
+            'managers_allowance' => 833.33, 'birthday_cake_allowance' => 75.00, 'water_bill' => 25.42,
+            'internet' => 566.54, 'rent' => 4706.25, 'electricity' => 4500.00,
+            'business_development_fund' => 2083.33, 'geniusmakers_management_fee' => 4166.67, 'hmo_expense' => 4642.75,
+        ];
+
+        $row = CostBreakdownCalculator::dailyCostRow($pools, 12);
+
+        $this->assertEqualsWithDelta(174.78, $row['total'], 0.01);
+    }
+
+    public function test_daily_cost_row_is_zero_when_there_are_no_real_tsas(): void
+    {
+        $row = CostBreakdownCalculator::dailyCostRow(['communication_allowance' => 500.42], 0);
+
+        $this->assertSame(0.0, $row['communication_allowance']);
+        $this->assertSame(0.0, $row['total']);
+    }
+
+    /** "Daily Cost per product" — the Daily Cost row split further across
+     *  every flagged product. Confirmed exact against the real sheet's own
+     *  xlsx: Communication Allowance 1.74 ÷ 7 = 0.25, matching to the
+     *  cent. */
+    public function test_daily_cost_per_product_row_divides_by_product_count(): void
+    {
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow(['communication_allowance' => 500.42], 12);
+
+        $perProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, 7);
+
+        $this->assertEqualsWithDelta(0.25, $perProductRow['communication_allowance'], 0.01);
+    }
+
     /** tsaDailyRate() takes a TSA's own TOTAL (see tsaTotal() below), not
      *  her raw base_salary — confirmed exact against the sheet's own real
      *  numbers for every one of the 12 real names, regardless of shift or

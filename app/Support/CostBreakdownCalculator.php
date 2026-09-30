@@ -79,6 +79,60 @@ class CostBreakdownCalculator
         return $row;
     }
 
+    /** The "Daily Cost per product" / "Daily Cost" mini-table sitting above
+     *  the Cost Allocation Per TSA table's own per-TSA rows (explicit
+     *  request, 2026-09-30, from a real sheet screenshot) — NOT scoped to
+     *  any specific TSA, unlike rowForShare() above. Each pool's own amount
+     *  split across the app's own REAL TSA count (explicit correction,
+     *  2026-09-30: "the 12 is number of the tsa" — deliberately NOT the
+     *  sheet's own fixed 12-TSA headcount the overhead-per-TSA figures
+     *  elsewhere on this page use; this row scales automatically as real
+     *  TSAs are added/removed instead), then ÷ 24 working days — confirmed
+     *  exact against the real sheet's own xlsx formulas at its own
+     *  then-current 12-TSA roster (row 43: amount÷12÷24, e.g.
+     *  Communication Allowance 500.42 ÷ 12 ÷ 24 = 1.74, matching to the
+     *  cent — the app's own real roster will produce different figures
+     *  once it differs from 12). Returns the same
+     *  ['pool_key' => value, ..., 'total' => sum] shape as rowForShare(),
+     *  so the view renders it with identical markup.
+     *
+     *  $tsaCount: the app's own real TsaShift::count() — 0 renders every
+     *  figure as 0 (division-by-zero guarded here, since unlike
+     *  tsaDailyRatePerProduct()'s $productCount this divisor sits INSIDE
+     *  the same expression as the ÷24). */
+    public static function dailyCostRow(array $pools, int $tsaCount): array
+    {
+        $row = [];
+        $total = 0.0;
+        $divisor = $tsaCount * 24;
+
+        foreach ($pools as $key => $amount) {
+            $value = $divisor > 0 ? $amount / $divisor : 0.0;
+            $row[$key] = $value;
+            $total += $value;
+        }
+
+        $row['total'] = $total;
+
+        return $row;
+    }
+
+    /** Same "Daily Cost" row from dailyCostRow() above, each figure split
+     *  further across every FLAGGED product (same tsaDailyRatePerProduct()
+     *  formula, applied per pool instead of to one TSA's own total) —
+     *  confirmed exact against the real sheet's own xlsx (row 42: e.g.
+     *  Communication Allowance 1.74 ÷ 7 = 0.25, matching to the cent). */
+    public static function dailyCostPerProductRow(array $dailyCostRow, int $productCount): array
+    {
+        $row = [];
+
+        foreach ($dailyCostRow as $key => $value) {
+            $row[$key] = self::tsaDailyRatePerProduct($value, $productCount);
+        }
+
+        return $row;
+    }
+
     /** A real TSA's own daily rate — her own TOTAL (see tsaTotal() below,
      *  NOT her own raw base_salary alone) ÷ 24 working days — confirmed
      *  exact against the sheet's own real numbers (e.g. Julie Francisco:

@@ -8,6 +8,7 @@ use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
+use App\Support\CostBreakdownCalculator;
 use App\Support\TsaDailyRateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -357,6 +358,28 @@ class CostBreakdownSmokeTest extends TestCase
         // own column stays blank instead).
         preg_match_all('/data-out="product"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/', $rowHtml, $matches);
         $this->assertCount(1, $matches[0]);
+    }
+
+    /** "Daily Cost per product" / "Daily Cost" mini-table (explicit
+     *  request, 2026-09-30, real sheet screenshot) renders above the
+     *  per-TSA rows, using the app's own REAL TSA count as the divisor
+     *  (explicit correction, 2026-09-30: "the 12 is number of the tsa"). */
+    public function test_the_daily_cost_mini_table_renders_with_the_real_tsa_count(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        $pool = CostBreakdownPool::where('key', 'communication_allowance')->firstOrFail();
+        $tsaCount = TsaShift::count();
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $response->assertSee('Daily Cost per product');
+        $response->assertSee('Daily Cost');
+
+        $expected = CostBreakdownCalculator::dailyCostRow([$pool->key => $pool->amount], $tsaCount)[$pool->key];
+        $this->assertGreaterThan(0, $expected);
+        $response->assertSee(number_format($expected, 2));
     }
 
     /** An unflagged product's own column shows a genuinely BLANK cell
