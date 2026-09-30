@@ -199,16 +199,22 @@ class ExpectedIncomeController extends Controller
         // cards) — reverses the earlier 2026-09-26 "no per-team cards"
         // decision recorded in the view; this is a newer, explicit,
         // screenshot-confirmed request superseding it. Each team's row is
-        // built the exact same way as the main one above, just scoped to
-        // that team's own products and restricted to that team's own real
-        // TSAs (plus the shared product-level entries — explicit decision,
-        // 2026-09-30: "team's TSAs plus the shared product-level entries").
+        // restricted to that team's own real TSAs (plus the shared
+        // product-level entries — explicit decision, 2026-09-30: "team's
+        // TSAs plus the shared product-level entries"), but uses the FULL
+        // product list, not Product.team-scoped (explicit correction,
+        // 2026-09-30: "it should have all products per team ... all tsa
+        // they handle all products" — a Product's own team assignment in
+        // Product Management is unrelated to which products a TSA
+        // actually enters numbers for; buildTeamDailyRows()'s per-TSA
+        // cards below already use the unfiltered $products for exactly
+        // this reason, so this row now matches them instead of silently
+        // dropping every product NOT assigned to this team).
         $teamSummaryRows = collect(Teams::config())->map(function (array $teamConfig, string $teamSlug) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys) {
-            $teamProducts = $products->where('team', $teamConfig['order_team'])->values();
             $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->pluck('id')->all();
 
             ['cards' => $cards, 'overallTotal' => $overallTotal] =
-                $this->buildSummaryRow($teamProducts, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds);
+                $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds);
 
             return [
                 'label'        => $teamConfig['name'],

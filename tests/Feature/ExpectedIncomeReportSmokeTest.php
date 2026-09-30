@@ -676,6 +676,39 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringNotContainsString('7,000.00', $eyecareRow);
     }
 
+    /** A team's own summary row shows a card for EVERY product, not just
+     *  products whose own Product.team assignment matches that team
+     *  (explicit correction, 2026-09-30: "it should have all products per
+     *  team ... all tsa they handle all products" — a product's Team field
+     *  in Product Management is unrelated to which products a TSA actually
+     *  enters numbers for; this row must match buildTeamDailyRows()'s own
+     *  per-TSA cards below, which already use the full unfiltered product
+     *  list). Before this fix, an Eyecare-team product's card was silently
+     *  missing from the SH NATURALS row and vice versa. */
+    public function test_a_teams_own_summary_row_shows_every_product_not_just_its_own_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $eyecareProduct = Product::where('team', 'Eyecare Team')->first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $afterMainSummary = strpos($content, 'id="eiSummaryScroller"');
+        $shStart = strpos($content, 'SH NATURALS', $afterMainSummary);
+        $this->assertNotFalse($shStart, 'expected to find the SH NATURALS summary row');
+        $eyeStart = strpos($content, 'EYECARE', $shStart);
+        $this->assertNotFalse($eyeStart, 'expected to find the EYECARE summary row');
+
+        $shNaturalsRow = substr($content, $shStart, $eyeStart - $shStart);
+        // An Eyecare-team product's own card label must still appear in the
+        // SH NATURALS row's product cards.
+        $this->assertStringContainsString(strtoupper($eyecareProduct->display_name), $shNaturalsRow);
+    }
+
     /** Confirmed live via screenshot, 2026-09-30: picking a real team
      *  swaps the daily "TELESALES" overall card for one block PER REAL TSA
      *  on that team, her own name as the card title, followed by her own
