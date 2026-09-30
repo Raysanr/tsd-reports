@@ -57,11 +57,13 @@
                              column next to Daily Rate (÷24) is like divided
                              be all product ... how many product in the
                              cards" — her own Daily Rate split evenly across
-                             every product CARD Expected Income shows (a
-                             grouped pair counts as ONE card there, so it
-                             does here too — see $productCount's own doc
-                             comment in the controller). --}}
-                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate / Product</th>
+                             every FLAGGED product only (explicit follow-up,
+                             2026-09-30: "user only can identify what
+                             product that has cost" — see TsaDailyRateService
+                             ::productCount()'s own doc comment). Header
+                             text renamed, 2026-09-30, to make that explicit
+                             rather than implying every product participates. --}}
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate (÷24) / product that has check</th>
                     </tr>
                 </thead>
                 <tbody>

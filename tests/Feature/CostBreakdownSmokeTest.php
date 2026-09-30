@@ -302,7 +302,10 @@ class CostBreakdownSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
         $response->assertOk();
-        $response->assertSee('Daily Rate / Product');
+        // Header renamed, 2026-09-30, to make explicit that only CHECKED
+        // products divide the cost (explicit follow-up: "user only can
+        // identify what product that has cost").
+        $response->assertSee('Daily Rate (÷24) / product that has check');
 
         // Its own source is the pool-share total (see
         // TsaDailyRateService's own doc comment), not base_salary + her
