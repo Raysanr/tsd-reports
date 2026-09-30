@@ -460,18 +460,21 @@ class ExpectedIncomeReportSmokeTest extends TestCase
      *  Performance" + product cards) is UNCHANGED by the team filter — it
      *  keeps showing the exact same product-level total, tsa_id NULL,
      *  regardless of which team pill is selected. */
-    public function test_the_range_summary_row_is_unchanged_by_the_team_filter(): void
+    /** Confirmed live via screenshot, 2026-09-30: "why in the top
+     *  LUMIEYES/CLEAR SIGHT is not reflecting, it is per team" — the top
+     *  summary card now pools EVERY tsa_id for a product (the product-level
+     *  row, if any, plus every real TSA's own entry), not just the
+     *  product-level row, so typing into any TSA's card actually moves the
+     *  top total. The team FILTER SELECTION itself still doesn't change
+     *  this row (always every TSA regardless of which pill is picked) —
+     *  that part of the original design is unchanged, only the
+     *  tsa_id-NULL-only pool was. */
+    public function test_the_range_summary_row_pools_every_tsas_entry_regardless_of_team_filter(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
         $tsa = TsaShift::first();
         ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 1000]);
-        // A real per-TSA entry for the SAME product+day must NOT bleed into
-        // the product-level summary — confirmed via its own tsa_id column.
-        // Her own 99,999 legitimately DOES appear further down the page (in
-        // her own daily card, which is real per-TSA data) — this test only
-        // checks the TOP summary section's own slice of the page, not the
-        // whole response, so it isn't a false positive off her own card.
         ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 99999]);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -482,15 +485,45 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('Telesales Expected Performance');
         $content = $response->getContent();
-        // Only the summary scroller's own slice of the page — everything
-        // from "eiSummaryScroller" up to the date heading that starts the
-        // daily section below it (where her own real 99,999 legitimately
-        // does appear, on her own per-TSA card).
+        // Only the summary scroller's own slice of the page.
         $summaryStart = strpos($content, 'id="eiSummaryScroller"');
         $dailySectionStart = strpos($content, today()->format('F j, Y'), $summaryStart);
         $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
-        $this->assertStringContainsString('1,000.00', $summaryHtml);
-        $this->assertStringNotContainsString('99,999.00', $summaryHtml);
+        // 1,000 (product-level) + 99,999 (her own) = 100,999.00 combined.
+        $this->assertStringContainsString('100,999.00', $summaryHtml);
+    }
+
+    /** The team filter PILL itself is still orthogonal to the top summary
+     *  — switching teams must not change which TSAs' entries get pooled
+     *  into it (always every TSA on every team, not just the selected
+     *  one's). */
+    public function test_the_range_summary_row_is_identical_no_matter_which_team_is_selected(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::first();
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 42000]);
+
+        $viewingHerOwnTeam = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $viewingTheOtherTeam = $viewingHerOwnTeam === 'sh-naturals' ? 'eyecare' : 'sh-naturals';
+
+        $extractSummaryHtml = function (string $content) {
+            $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+            $dailySectionStart = strpos($content, today()->format('F j, Y'), $summaryStart);
+            return substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+        };
+
+        $responseA = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => $viewingHerOwnTeam,
+        ]));
+        $responseB = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => $viewingTheOtherTeam,
+        ]));
+
+        $summaryA = $extractSummaryHtml($responseA->getContent());
+        $summaryB = $extractSummaryHtml($responseB->getContent());
+        $this->assertStringContainsString('42,000.00', $summaryA);
+        $this->assertSame($summaryA, $summaryB);
     }
 
     /** Confirmed live via screenshot, 2026-09-30: picking a real team

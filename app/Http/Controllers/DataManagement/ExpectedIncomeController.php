@@ -115,7 +115,7 @@ class ExpectedIncomeController extends Controller
         // name where "TELESALES — [date]" used to be, each followed by her
         // own product cards.
         $dailyData = $selectedTeam === 'all'
-            ? $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamsConfig)
+            ? $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys)
             : $this->buildTeamDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamsConfig[$selectedTeam]);
 
         return view('data.expected-income', array_merge($summaryData, $dailyData, [
@@ -130,15 +130,20 @@ class ExpectedIncomeController extends Controller
 
     /** The top range-summary row's own data — one overall rollup card
      *  ("TELESALES EXPECTED PERFORMANCE") plus every product's own card,
-     *  summed across the WHOLE selected range. Always product-level
-     *  (tsa_id NULL), regardless of the team filter — confirmed live,
-     *  2026-09-30, from a screenshot showing this row unchanged after
-     *  picking a team ("the top is still like that"). Read-only (this row
-     *  has never been an editable-inputs card, even before per-TSA rows
-     *  existed). */
+     *  summed across the WHOLE selected range. Pools EVERY tsa_id for each
+     *  product/day — the product-level (tsa_id NULL) row, if any, plus
+     *  every real TSA's own entry — so typing a number into any TSA's card
+     *  actually moves this total. Changed 2026-09-30 (explicit request,
+     *  screenshot: "why in the top LUMIEYES/CLEAR SIGHT is not reflecting,
+     *  it is per team") from an earlier tsa_id-NULL-only design that made
+     *  the top card look broken once TSAs started entering their own
+     *  numbers under their own tsa_id instead. Still unaffected by the
+     *  team filter itself (always every TSA across every team, regardless
+     *  of which team pill is selected) — a real behavior change from
+     *  "team-independent" to "TSA-inclusive", not the same thing. */
     private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys): array
     {
-        ['raw' => $rawByProductAndDate] = $this->rawByProductAndDate($products, null, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
 
         // One row (or product GROUP row — explicit request, 2026-09-26:
         // "it will reflect it to the expected income") per product, summed
@@ -149,7 +154,7 @@ class ExpectedIncomeController extends Controller
         // pools every member product's own entries together before
         // summing, same as DSPPR's own identical grouping call.
         $summaryCards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys) {
-            $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->values());
+            $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate));
             return ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
         });
         // Every product/day's own RAW row (not $summaryCards's already-
@@ -164,7 +169,7 @@ class ExpectedIncomeController extends Controller
         // Cancelled, etc.) escaped this bug only because derive() also
         // returns those as top-level keys, purely by coincidence of which
         // keys happen to be duplicated at both levels.
-        $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->values())->all();
+        $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->flatMap(fn ($rowsForDate) => $rowsForDate))->all();
         $summaryOverallTotal = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
 
         return [
@@ -329,6 +334,53 @@ class ExpectedIncomeController extends Controller
         });
 
         return ['raw' => $raw, 'entriesByKey' => $entries];
+    }
+
+    /** Same idea as rawByProductAndDate(), but for the top summary's own
+     *  "pool every tsa_id together" need — returns one LIST of raw rows per
+     *  (product, day), one entry per distinct tsa_id that has a row (the
+     *  product-level tsa_id-NULL row, if any, plus every real TSA's own
+     *  row), so the caller can sum() across all of them rather than merge
+     *  a single one. A product/day with no rows at all still gets an empty
+     *  list, never a missing key — every SUM caller downstream expects
+     *  every (product, day) pair to be present. */
+    private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys)
+    {
+        $entries = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->groupBy(fn (ExpectedIncomeEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
+
+        $customValuesByEntryKey = ExpectedIncomeCustomValue::whereIn('product_id', $products->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->groupBy(fn (ExpectedIncomeCustomValue $v) => $v->product_id . ':' . $v->entry_date->toDateString() . ':' . ($v->tsa_id ?? 'null'));
+
+        $customValuesFor = function (int $productId, string $dateStr, ?int $tsaId) use ($customValuesByEntryKey) {
+            $values = $customValuesByEntryKey->get("{$productId}:{$dateStr}:" . ($tsaId ?? 'null'), collect())->keyBy('custom_row_key');
+            $row = [];
+            foreach (ExpectedIncomeCalculator::customRowKeys() as $key) {
+                $row[$key] = (float) ($values->get($key)?->value ?? 0);
+            }
+            return $row;
+        };
+
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor) {
+                $dateStr = $date->toDateString();
+                $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
+
+                if ($rowsForThisCell->isEmpty()) {
+                    return [$dateStr => collect([array_merge([], $customValuesFor($p->id, $dateStr, null))])];
+                }
+
+                $rows = $rowsForThisCell->map(fn (ExpectedIncomeEntry $entry) => array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id)));
+
+                return [$dateStr => $rows];
+            })];
+        });
     }
 
     /** Auto-save (same debounced-PATCH-per-field convention as Projections'
