@@ -64,17 +64,13 @@ class TsaDailyRateService
     }
 
     /** Every shared pool's own "Daily Cost" figure — pool amount ÷ real TSA
-     *  count ÷ 24, NOT divided further by product count (explicit
-     *  correction, 2026-09-30: "it should be DAILY COST ROW will reflect
-     *  no change of label" — Expected Income's own locked Operating Costs
-     *  rows source THIS row, not dailyCostPerProductRow() below, which
-     *  Salaries alone still uses via perProductByTsaId() above). NOT
-     *  scoped to any specific TSA (same figure on every TSA's own card,
-     *  confirmed live via screenshot: two different TSAs' cards both
-     *  showed identical figures) — see CostBreakdownCalculator::
-     *  dailyCostRow()'s own doc comment for the confirmed-exact formula.
-     *  Keyed by pool key (e.g. 'communication_allowance'), same keys
-     *  ExpectedIncomeCalculator::OPERATING_COST_ROWS uses. */
+     *  count ÷ 24. NOT scoped to any specific TSA — see
+     *  CostBreakdownCalculator::dailyCostRow()'s own doc comment for the
+     *  confirmed-exact formula. Keyed by pool key (e.g.
+     *  'communication_allowance'). Used by dailyCostPerProductRow() below
+     *  as its own starting row — Expected Income's own locked Operating
+     *  Costs rows source THAT method, not this one directly (see its doc
+     *  comment). */
     public static function dailyCostRow(): array
     {
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
@@ -83,11 +79,17 @@ class TsaDailyRateService
     }
 
     /** Same "Daily Cost" row from dailyCostRow() above, split further
-     *  across every CHECKED product — used by Cost Breakdown's own "Daily
-     *  Cost per product" table row, NOT by Expected Income's locked
-     *  Operating Costs rows (those use dailyCostRow() above instead, per
-     *  the same explicit correction). Kept as a separate method so the
-     *  two call sites can never accidentally source the wrong row. */
+     *  across every CHECKED (has_cost_allocation) product — used by Cost
+     *  Breakdown's own "Daily Cost per product" table row AND by Expected
+     *  Income's own locked Operating Costs rows (explicit correction,
+     *  2026-09-30: "for example this / 13th Month Allowance / it should
+     *  divided by number of product" — reverses a same-day earlier
+     *  correction that had those rows source plain dailyCostRow() above
+     *  instead, with no product division at all; that reading is now
+     *  superseded). Salaries alone separately divides by product count
+     *  too, via perProductByTsaId() above — the two rows share the same
+     *  divisor by coincidence (both use productCount() below), not
+     *  because either sources the other. */
     public static function dailyCostPerProductRow(): array
     {
         return CostBreakdownCalculator::dailyCostPerProductRow(self::dailyCostRow(), self::productCount());

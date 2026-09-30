@@ -339,29 +339,33 @@ class ExpectedIncomeController extends Controller
         // Every OTHER Operating Costs row (Communication Allowance, 13th
         // Month Allowance, SIL, ... every shared pool except Salaries —
         // explicit follow-up, 2026-09-30: "the daily cost is it is this
-        // [pool list]") sources Cost Breakdown's own "Daily Cost" row —
-        // pool amount ÷ real TSA count ÷ 24, NOT divided further by
-        // checked-product count (explicit correction, 2026-09-30: "it
-        // should be DAILY COST ROW will reflect no change of label" —
-        // Salaries alone still divides by product count, via
-        // $dailyRatePerProductByTsaId above). NOT scoped to any specific
-        // TSA (same figure on every card, confirmed live via screenshot:
-        // two different TSAs' cards both showed the same figures), so
-        // computed once for the whole request rather than per TSA.
+        // [pool list]") sources Cost Breakdown's own "Daily Cost per
+        // product" row on each PRODUCT card — pool amount ÷ real TSA count
+        // ÷ 24 ÷ checked-product count (explicit correction, 2026-09-30:
+        // "13th Month Allowance / it should divided by number of
+        // product"). Her own "[TSA NAME]" overview card does NOT divide by
+        // product count (explicit follow-up, same day: "in the product
+        // cards only okay? ... not in tsa name card") — it sources the
+        // plain "Daily Cost" row instead, one level up the chain. Neither
+        // is scoped to any specific TSA (same figure on every card,
+        // confirmed live via screenshot: two different TSAs' cards both
+        // showed the same figures), so both are computed once for the
+        // whole request rather than per TSA.
+        $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyCostRow) {
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyCostPerProductRow, $dailyCostRow) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
-            $operatingCostOverrides = array_merge($dailyCostRow, [
-                'salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0,
-            ]);
+            $salariesOverride = ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0];
+            $productCardOverrides = array_merge($dailyCostPerProductRow, $salariesOverride);
+            $overviewCardOverrides = array_merge($dailyCostRow, $salariesOverride);
 
-            $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $operatingCostOverrides) {
+            $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $productCardOverrides) {
                 $dateStr = $date->toDateString();
-                $rows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dateStr, $sellingKeys, $operatingKeys, $operatingCostOverrides) {
+                $rows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dateStr, $sellingKeys, $operatingKeys, $productCardOverrides) {
                     $pooled = $groupProducts->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr));
                     $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
-                    return ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $operatingCostOverrides);
+                    return ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverrides);
                 });
                 return [$dateStr => $rows];
             });
@@ -374,12 +378,14 @@ class ExpectedIncomeController extends Controller
             // editable") — summed from her own RAW rows for that day
             // (ungrouped, all her own products flattened), NOT from
             // $dailyRows' own already-derived output, same root cause/fix
-            // as buildAllDailyRows()'s own $dailyOverallTotals.
-            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $operatingCostOverrides) {
+            // as buildAllDailyRows()'s own $dailyOverallTotals. Uses
+            // $overviewCardOverrides, NOT $productCardOverrides — see this
+            // method's own doc comment above on why the two diverge.
+            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverrides) {
                 $dateStr = $date->toDateString();
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
-                return [$dateStr => ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $operatingCostOverrides)];
+                return [$dateStr => ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides)];
             });
 
             return [
@@ -684,7 +690,7 @@ class ExpectedIncomeController extends Controller
         }
 
         $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostRow(), [
+        $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostPerProductRow(), [
             'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
         ]);
 

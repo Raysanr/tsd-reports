@@ -871,10 +871,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        // Sources the plain "Daily Cost" row (pool ÷ real TSA count ÷ 24),
-        // NOT dailyCostPerProductRow() — explicit correction, 2026-09-30:
-        // "it should be DAILY COST ROW will reflect no change of label".
-        $expected = TsaDailyRateService::dailyCostRow()['communication_allowance'];
+        // Sources the "Daily Cost per product" row (pool ÷ real TSA count
+        // ÷ 24 ÷ checked-product count) — explicit correction, 2026-09-30:
+        // "13th Month Allowance / it should divided by number of product".
+        $expected = TsaDailyRateService::dailyCostPerProductRow()['communication_allowance'];
         $this->assertGreaterThan(0, $expected);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -890,6 +890,46 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression(
             '/data-out="communication_allowance"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
             $dailyHtml
+        );
+    }
+
+    /** Her own "[TSA NAME]" overview card does NOT divide the locked
+     *  Operating Costs rows by product count, unlike every PRODUCT card
+     *  beneath it (explicit follow-up, 2026-09-30, right after the above
+     *  correction: "in the product cards only okay? ... not in tsa name
+     *  card") — flag 2 products so dailyCostPerProductRow() and
+     *  dailyCostRow() provably diverge, then confirm the overview card
+     *  shows the UNDIVIDED figure while a product card shows the divided
+     *  one. */
+    public function test_the_tsa_overview_card_does_not_divide_operating_costs_by_product_count(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        Product::orderBy('id')->take(2)->get()->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $undivided = TsaDailyRateService::dailyCostRow()['communication_allowance'];
+        $dividedByProduct = TsaDailyRateService::dailyCostPerProductRow()['communication_allowance'];
+        $this->assertGreaterThan($dividedByProduct, $undivided, 'test setup: dividing by 2 products should shrink the figure');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $tsa->display_name);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+        $productCardsHtml = substr($content, $firstFieldPos);
+
+        $this->assertStringContainsString(number_format($undivided, 2), $overviewHtml);
+        $this->assertStringNotContainsString(number_format($dividedByProduct, 2), $overviewHtml);
+        $this->assertMatchesRegularExpression(
+            '/data-out="communication_allowance"[^>]*>\s*' . preg_quote(number_format($dividedByProduct, 2), '/') . '/',
+            $productCardsHtml
         );
     }
 
