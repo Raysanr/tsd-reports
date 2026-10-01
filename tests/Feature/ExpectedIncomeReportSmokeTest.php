@@ -968,15 +968,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Same divide-only-on-product-cards rule applies to Salaries too
-     *  (explicit correction, 2026-10-01, from a screenshot showing 243.31
-     *  wrongly on her own overview card: "tsa card should be only 243.31
-     *  in salaries and the products should be divided" — her overview
-     *  card's own Salaries shows the plain undivided Daily Rate, matching
-     *  the scale every other Operating Costs row already shows undivided
-     *  on that same card; only each individual product card divides by
-     *  product count). */
-    public function test_the_tsa_overview_card_does_not_divide_salaries_by_product_count(): void
+    /** Salaries goes through the SAME two-tier division the pool rows
+     *  already follow (explicit correction, 2026-10-01: "the 243.31 is
+     *  the TSA card and in the products, it should be 243.31 / 7 like the
+     *  other costs") — her overview card shows Daily Rate / Product
+     *  (e.g. 243.31), and each individual product card divides THAT
+     *  figure again by product count (e.g. 243.31 ÷ 7 ≈ 34.76), same
+     *  shape as dailyCostRow() → dailyCostPerProductRow(). */
+    public function test_product_cards_divide_salaries_a_second_time_past_the_tsa_overview_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -985,9 +984,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        $undivided = TsaDailyRateService::dailyRateByTsaId()[$tsa->id];
-        $dividedByProduct = TsaDailyRateService::perProductByTsaId()[$tsa->id];
-        $this->assertGreaterThan($dividedByProduct, $undivided, 'test setup: dividing by 2 products should shrink the figure');
+        $overviewFigure = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $productCardFigure = TsaDailyRateService::perProductByTsaIdTwice()[$tsa->id];
+        $this->assertGreaterThan($productCardFigure, $overviewFigure, 'test setup: dividing a second time by 2 products should shrink the figure');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
@@ -1001,10 +1000,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
         $productCardsHtml = substr($content, $firstFieldPos);
 
-        $this->assertStringContainsString(number_format($undivided, 2), $overviewHtml);
-        $this->assertStringNotContainsString(number_format($dividedByProduct, 2), $overviewHtml);
+        $this->assertStringContainsString(number_format($overviewFigure, 2), $overviewHtml);
+        $this->assertStringNotContainsString(number_format($productCardFigure, 2), $overviewHtml);
         $this->assertMatchesRegularExpression(
-            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dividedByProduct, 2), '/') . '/',
+            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($productCardFigure, 2), '/') . '/',
             $productCardsHtml
         );
     }

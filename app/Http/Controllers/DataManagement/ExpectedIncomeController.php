@@ -350,23 +350,17 @@ class ExpectedIncomeController extends Controller
         // Every real TSA's own Daily Rate / Product (explicit request,
         // 2026-09-30: "the salaries row is based to the Daily Rate /
         // Product") — the SAME figure Cost Breakdown's own salary table
-        // shows, computed once per request via the shared service rather
-        // than a second independently-derived number. Looked up once here
-        // (not per card) since it's identical for every one of a TSA's own
-        // product cards on a given day. Her own "[TSA NAME]" overview
-        // card's own Salaries does NOT use this divided figure (explicit
-        // correction, 2026-10-01, from a screenshot showing 243.31
-        // wrongly on her own overview card: "tsa card should be only
-        // 243.31 in salaries and the products should be divided" — her
-        // overview card's own Salaries should instead show her full
-        // UNDIVIDED daily rate, matching the scale every other Operating
-        // Costs row already shows undivided on that same card; only each
-        // individual PRODUCT card divides by product count. This reverses
-        // an earlier same-day change that had mistakenly also applied the
-        // divided figure to the overview card) — it sources
-        // $dailyRateByTsaId below instead.
-        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        // shows, used for her own "[TSA NAME]" overview card's own
+        // Salaries. Each individual PRODUCT card instead divides that
+        // SAME figure a second time by product count (explicit
+        // correction, 2026-10-01: "the 243.31 is the TSA card and in the
+        // products, it should be 243.31 / 7 like the other costs" — same
+        // two-tier pattern as the pool rows below, dailyCostRow() →
+        // dailyCostPerProductRow()). Both computed once per request (not
+        // per card) since they're identical for every one of a TSA's own
+        // cards on a given day.
+        $dailyRateByTsaId = TsaDailyRateService::perProductByTsaId();
+        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
 
         // Every OTHER Operating Costs row (Communication Allowance, 13th
         // Month Allowance, SIL, ... every shared pool except Salaries —
@@ -720,7 +714,7 @@ class ExpectedIncomeController extends Controller
             return $derived;
         }
 
-        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
+        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
         $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostPerProductRow(), [
             'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
         ]);
