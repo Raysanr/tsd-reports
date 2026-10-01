@@ -212,11 +212,22 @@ an unclear codebase area, or when explicitly asked to "search" or
 function pointers with line ranges for the project's largest files
 (calls.js, app.js, LeadController.php, InsightsGenerator.php,
 SyncTodayOrders.php, TsaPerformanceController.php, DashboardController.php,
-Order.php, PancakeOrderTagApi.php). Before reading one of these files in
-full, check the map first and read only the relevant range, or `grep` for
-the named function — unless the task genuinely needs the whole file (e.g.
+Order.php, PancakeOrderTagApi.php, and the whole Data Management module —
+ExpectedIncomeController.php, CostBreakdownController.php,
+TsaDailyRateService.php, CostBreakdownCalculator.php,
+ExpectedIncomeCalculator.php). Before reading one of these files in full,
+check the map first and read only the relevant range, or `grep` for the
+named function — unless the task genuinely needs the whole file (e.g.
 you're unfamiliar with it and need a first-pass overview, or doing a full
 refactor).
+
+**Working in Data Management (Cost Breakdown / Expected Income)
+specifically**: read `Code Map.md`'s "Data Management module" section
+FIRST, before opening any of its 5 files — it also explains the shared
+`TsaDailyRateService` data flow and the product-card-vs-overview-card
+override split, so you don't have to re-derive that from scratch by
+reading all 5 files top to bottom. Jump straight to the named
+function's line range instead of reading a whole controller.
 
 If you edit a mapped file in a way that adds, removes, or moves a
 function, update that file's entry in Code Map.md as part of finishing
