@@ -668,6 +668,62 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-out="total_operating_costs"[^>]*>\s*[1-9][\d,]*\.\d{2}/', $summaryHtml);
     }
 
+    /** Tighter regression test, 2026-10-01 (live screenshot): "this card
+     *  should be the totals of the per-tsa cards" — the TELESALES rollup's
+     *  own Salaries must equal the TSA's OVERVIEW-card figure (her TOTAL ÷
+     *  24 ÷ flagged-product-count, undivided a second time), not the
+     *  smaller per-PRODUCT-card figure (that same number divided AGAIN by
+     *  flagged-product-count) multiplied by however many of her flagged
+     *  products happen to have a saved entry. Flags 2 products but gives
+     *  her an entry on only ONE of them — confirmed live with Mariel
+     *  Entanto: her overview card showed Salaries 243.31 (7 flagged
+     *  products) but the rollup only showed 69.52 (≈2 products' worth),
+     *  since rawByProductAndDateAllTsas()'s own per-product-divided
+     *  override was being summed once per EXISTING entry row rather than
+     *  added once per TSA. */
+    public function test_the_range_summary_cards_salaries_equals_the_tsas_overview_figure_even_with_a_missing_product_entry(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+
+        // Flag 2 products so her own per-product-divided figure (what the
+        // bug summed once per EXISTING row) differs from her undivided
+        // overview figure (what the rollup must show instead).
+        $products = Product::take(2)->get();
+        $products->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
+
+        // An entry on only ONE of her 2 flagged products — the bug's own
+        // "once per existing row" sum would pool her Salaries override
+        // exactly once here (her overview total ÷ 2), half her real figure.
+        ExpectedIncomeEntry::create([
+            'product_id' => $products->first()->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 10000,
+        ]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
+        $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+
+        $expectedSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaId()[$tsa->id], 2);
+        $this->assertMatchesRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedSalaries, '/') . '/',
+            $summaryHtml,
+            "expected the TELESALES rollup's own Salaries to equal her full overview figure ({$expectedSalaries}), not a fraction of it"
+        );
+    }
+
     /** The team filter PILL now scopes the top summary too (explicit
      *  correction, 2026-09-30: "when per team filter the Telesales
      *  Expected Performance is per team only" — reverses the SAME DAY's
