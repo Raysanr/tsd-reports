@@ -624,6 +624,50 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringContainsString('100,999.00', $summaryHtml);
     }
 
+    /** Regression test, 2026-10-01: "why is it, it did not reflecting the
+     *  total in TELESALES card all of the costs in the tsa's" — a TSA's
+     *  own Operating Costs (Salaries + the 20 shared pools) are LOCKED to
+     *  Cost Breakdown's own figures at render/response time only, never
+     *  written back to ExpectedIncomeEntry's own stored columns. Pooling
+     *  raw DB rows for the top summary without reapplying that same lock
+     *  meant every TSA's own locked Operating Costs silently read 0 in the
+     *  TELESALES card's own Total Operating Costs / Net Income, even
+     *  though her individual product card correctly showed the real
+     *  locked figure. Fixed in rawByProductAndDateAllTsas() by applying
+     *  the same override used for her own card. */
+    public function test_the_range_summary_card_includes_a_tsas_locked_operating_costs(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        Product::first()->update(['has_cost_allocation' => true]);
+        ExpectedIncomeEntry::create([
+            'product_id' => Product::first()->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 50000,
+        ]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
+        $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+
+        // The TELESALES card's own Total Operating Costs must be non-zero
+        // (would read 0.00 under the bug, since the TSA's locked salary/
+        // pool figures were pooled from raw stored columns rather than
+        // through the same override her own card applies).
+        $this->assertMatchesRegularExpression('/data-out="total_operating_costs"[^>]*>\s*[1-9][\d,]*\.\d{2}/', $summaryHtml);
+    }
+
     /** The team filter PILL now scopes the top summary too (explicit
      *  correction, 2026-09-30: "when per team filter the Telesales
      *  Expected Performance is per team only" — reverses the SAME DAY's

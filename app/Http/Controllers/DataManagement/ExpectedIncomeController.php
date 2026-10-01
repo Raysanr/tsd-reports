@@ -536,8 +536,27 @@ class ExpectedIncomeController extends Controller
             return $row;
         };
 
-        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor) {
+        // Every TSA-owned row's own Operating Costs columns (Salaries +
+        // the 20 shared pools) are LOCKED to Cost Breakdown's own figures
+        // on her own product card (explicit request, 2026-09-30) — never
+        // actually written back to ExpectedIncomeEntry's own stored
+        // columns, which stay whatever they last were (usually 0) since
+        // the lock is applied at render/response time only. Pooling raw
+        // DB rows here without ALSO applying that same lock meant the top
+        // "Telesales Expected Performance" summary silently read 0 for
+        // every TSA's own locked Operating Costs, even though each of her
+        // own individual cards correctly showed real figures (root-caused
+        // live, 2026-10-01: "why is it, it did not reflecting the total in
+        // TELESALES card all of the costs in the tsa's"). Computed ONCE
+        // here (not per row) since every TSA's own Salaries figure is the
+        // same across every one of her own product/day rows, and the 20
+        // pools are the same for every TSA company-wide.
+        $salariesByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
+        $poolsOverride = TsaDailyRateService::dailyCostPerProductRow();
+        $operatingOverridesFor = fn (int $tsaId) => array_merge($poolsOverride, ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]);
+
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor) {
                 $dateStr = $date->toDateString();
                 $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
 
@@ -545,7 +564,10 @@ class ExpectedIncomeController extends Controller
                     return [$dateStr => collect([array_merge([], $customValuesFor($p->id, $dateStr, null))])];
                 }
 
-                $rows = $rowsForThisCell->map(fn (ExpectedIncomeEntry $entry) => array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id)));
+                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor) {
+                    $row = array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id));
+                    return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id));
+                });
 
                 return [$dateStr => $rows];
             })];
