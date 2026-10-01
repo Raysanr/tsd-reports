@@ -284,10 +284,24 @@
                             // (same "a cross-team combo order only counts
                             // once" reasoning as the controller's own doc
                             // comment).
+                            // $real merged in AFTER sum()/derive() below,
+                            // NOT alongside each member's own entry before
+                            // summing — merging it onto every member first
+                            // would sum N identical copies of the same
+                            // pooled figure for an N-member group,
+                            // inflating Total Orders/Leads/rates by a
+                            // factor of N (root-caused live, 2026-10-01 —
+                            // see the TOTAL footer row's own identical fix
+                            // further down this file for the full
+                            // writeup).
                             $real = $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? [];
-                            $pooled = $row['products']->map(fn ($p) => array_merge($dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow, $real));
-                            $raw = array_merge($pooled->first() ?: $emptyRow, $real);
-                            $d = $isGroup ? \App\Support\DsPprCalculator::sum($pooled->all()) : \App\Support\DsPprCalculator::derive($raw);
+                            $pooled = $row['products']->map(fn ($p) => $dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow);
+                            $raw = $pooled->first() ?: $emptyRow;
+                            $d = array_merge(
+                                $isGroup ? \App\Support\DsPprCalculator::sum($pooled->all()) : \App\Support\DsPprCalculator::derive($raw),
+                                $real
+                            );
+                            $d['aov'] = $d['total_orders'] > 0 ? $d['gross_sales'] / $d['total_orders'] : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
@@ -333,17 +347,33 @@
                                 $entry = $dailyByKey->get($product->id . ':' . $dateStr);
                                 return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
                             })->all();
-                            // Total Orders/Leads/Catered/Excess/rates come
-                            // from ONE real-data row across every real
-                            // product at once, NOT summed per-product —
-                            // summing already-deduped per-product counts
-                            // would double-count a single real order
-                            // matched to more than one product (same "a
-                            // cross-team combo order only counts once"
-                            // reasoning as the controller's own doc
-                            // comment on $realByRowKeyAndDate).
-                            $realTotal = \App\Support\ProductPerformance::dsPprRow($allProducts, $ordersByDate[$dateStr] ?? collect());
-                            $dayTotal = \App\Support\DsPprCalculator::sum(array_map(fn ($r) => array_merge($r, $realTotal), $perProductRows ?: [$realTotal]));
+                            // Gross Sales/Net Income sum normally across
+                            // every real product's own entry. Total Orders/
+                            // Leads/Catered/Excess/rates do NOT — they come
+                            // from exactly ONE real-data row pooled across
+                            // every real product at once (merged in AFTER
+                            // summing, not summed alongside Gross Sales),
+                            // since every product's own entry would
+                            // otherwise carry an IDENTICAL copy of that same
+                            // pooled figure and summing N identical copies
+                            // inflates it by a factor of N (root-caused
+                            // live, 2026-10-01: a 9-product day showed
+                            // 4,172 Total Orders and 116% rates — a real
+                            // order matched once per product still counts
+                            // once, period, same "a cross-team combo order
+                            // only counts once" reasoning as the
+                            // controller's own doc comment on
+                            // $realByRowKeyAndDate).
+                            $dayTotal = array_merge(
+                                \App\Support\DsPprCalculator::sum($perProductRows ?: [['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0]]),
+                                \App\Support\ProductPerformance::dsPprRow($allProducts, $ordersByDate[$dateStr] ?? collect())
+                            );
+                            // AOV depends on total_orders, which the merge
+                            // above just overwrote AFTER DsPprCalculator::
+                            // sum() already computed its own (wrong, 0-
+                            // total_orders) aov — recompute it fresh now
+                            // that the real total_orders is in place.
+                            $dayTotal['aov'] = $dayTotal['total_orders'] > 0 ? $dayTotal['gross_sales'] / $dayTotal['total_orders'] : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' ? ($dayTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400') : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"

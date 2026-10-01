@@ -125,6 +125,48 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertEquals(1, $productRow['derived']['catered_leads']);
     }
 
+    /** Root-caused live, 2026-10-01: the daily chunk table's own bottom
+     *  TOTAL row was merging the SAME pooled real-data row onto every
+     *  individual product's own entry before summing them — with N real
+     *  products on the page, Total Orders/Leads/rates all inflated by a
+     *  factor of N (confirmed live: 4,172 Total Orders and 116% rates on
+     *  a single real day with ~9 products, when the real underlying data
+     *  was nowhere near that large). With 2 real products and ONE real
+     *  matched order total across both, the TOTAL row must show exactly
+     *  1, not 2 (or more, with every other seeded product in the catalog
+     *  counted as a phantom "0 orders" row that still got the pooled
+     *  figure merged in). */
+    public function test_the_daily_total_row_does_not_inflate_total_orders_per_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-total-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
+            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $totalRowStart = strpos($content, 'dsppr-day-total-row');
+        $this->assertNotFalse($totalRowStart);
+        $totalRowHtml = substr($content, $totalRowStart, 3000);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="total_orders"[^>]*>\s*1\s*</',
+            $totalRowHtml,
+            'Total Orders on the TOTAL row should be exactly 1 (one real matched order), not inflated by the product catalog size'
+        );
+        $this->assertStringNotContainsString('116.4', $totalRowHtml);
+    }
+
     public function test_updating_an_existing_entry_does_not_create_a_duplicate(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
