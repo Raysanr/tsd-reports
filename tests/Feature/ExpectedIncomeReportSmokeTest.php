@@ -85,6 +85,41 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $laterResponse->assertViewHas('dateTo', '2026-02-10');
     }
 
+    /** Same "remembered across a bare sidebar-link revisit" behavior as
+     *  the date range above, now for the team filter too (explicit
+     *  request, 2026-10-01: "the expected income team filter is when i
+     *  wilck other page in sidebar is when i go back to the expected
+     *  income it is staying to that what i filter" — a sidebar link is a
+     *  completely fresh request with no ?team= of its own, so without
+     *  session persistence the filter silently reset to ALL every time). */
+    public function test_a_picked_team_is_remembered_on_a_later_bare_visit(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('data.expected-income', ['team' => 'sh-naturals']))->assertOk();
+
+        $laterResponse = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $laterResponse->assertOk();
+        $laterResponse->assertViewHas('selectedTeam', 'sh-naturals');
+    }
+
+    /** An invalid/stale team slug saved to session (e.g. a team renamed or
+     *  removed since it was picked) falls back to ALL rather than a
+     *  broken filter. */
+    public function test_an_invalid_remembered_team_falls_back_to_all(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('data.expected-income', ['team' => 'sh-naturals']))->assertOk();
+        session(['expected-income.team' => 'no-longer-real-team']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertViewHas('selectedTeam', 'all');
+    }
+
     public function test_a_non_admin_cannot_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);

@@ -82,11 +82,8 @@ class ExpectedIncomeController extends Controller
         $dateFrom = $range['from'];
         $dateTo   = $range['to'];
 
-        $selectedTeam = $request->input('team', 'all');
         $teamsConfig = Teams::config();
-        if ($selectedTeam !== 'all' && !isset($teamsConfig[$selectedTeam])) {
-            $selectedTeam = 'all';
-        }
+        $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
         $teams = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
 
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
@@ -137,6 +134,32 @@ class ExpectedIncomeController extends Controller
         ]));
     }
 
+    /** Remembers the last team filter picked on this page across separate
+     *  visits, same "session, keyed per page" convention as
+     *  DateRangeFilter::resolve() (explicit request, 2026-10-01: "the
+     *  expected income team filter is when i wilck other page in sidebar
+     *  is when i go back to the expected income it is staying to that
+     *  what i filter" — a fresh sidebar-link navigation has no query
+     *  string of its own, so without this the filter silently reset to
+     *  ALL every time). Resolution order: the URL's own ?team= (the user
+     *  just picked a pill, or followed a link/bookmark) always wins and
+     *  gets saved to session; otherwise whatever was last saved; otherwise
+     *  'all' on a brand-new session. An invalid/stale team slug (a team
+     *  renamed or removed since it was saved) falls back to 'all' rather
+     *  than a broken filter. */
+    private function resolveSelectedTeam(Request $request, array $teamsConfig): string
+    {
+        $team = $request->input('team');
+
+        if ($team !== null) {
+            session(['expected-income.team' => $team]);
+        } else {
+            $team = session('expected-income.team', 'all');
+        }
+
+        return $team === 'all' || isset($teamsConfig[$team]) ? $team : 'all';
+    }
+
     /** Live refresh for the top "Telesales Expected Performance" row
      *  (explicit request, 2026-09-30: "why should i fully reload the page
      *  to reflect that" — typing into any TSA's card saves via
@@ -155,11 +178,8 @@ class ExpectedIncomeController extends Controller
         $dateFrom = $range['from'];
         $dateTo   = $range['to'];
 
-        $selectedTeam = $request->input('team', 'all');
         $teamsConfig = Teams::config();
-        if ($selectedTeam !== 'all' && !isset($teamsConfig[$selectedTeam])) {
-            $selectedTeam = 'all';
-        }
+        $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
 
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
