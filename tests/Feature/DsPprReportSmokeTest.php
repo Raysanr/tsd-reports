@@ -505,4 +505,33 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('text-red-600');
     }
+
+    /** The EDITABLE Net Income <input> itself carries red/green coloring,
+     *  not just the read-only derived spans elsewhere on the page
+     *  (explicit request, 2026-10-01: "in the net income column i want to
+     *  have like can input negative number and if negative is color red
+     *  and if positive it is green" — the input previously always
+     *  rendered in plain ink color regardless of its saved value, and
+     *  silently stripped a leading '-' client-side if the user tried to
+     *  type one). */
+    public function test_the_net_income_input_itself_is_colored_by_its_saved_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        DsPprEntry::create([
+            'product_id' => $product->id, 'entry_date' => today(),
+            'gross_sales' => 3800, 'net_income' => -500,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
+            $content
+        );
+    }
 }
