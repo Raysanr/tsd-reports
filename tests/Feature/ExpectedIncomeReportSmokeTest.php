@@ -50,6 +50,51 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('Telesales Expected Performance');
     }
 
+    /** Only Gross Sales/Cancelled stay editable inputs — Projected Returns
+     *  and Projected Delivered are derived again (explicit correction,
+     *  2026-10-01: "the only auto is Projected Returns / Projected
+     *  Delivered"), so neither has a data-field input anywhere, even on
+     *  an otherwise-editable product card. */
+    public function test_projected_returns_and_delivered_have_no_editable_input(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-field="gross_sales"', $content);
+        $this->assertStringContainsString('data-field="cancelled"', $content);
+        $this->assertStringNotContainsString('data-field="returns"', $content);
+        $this->assertStringNotContainsString('data-field="delivered"', $content);
+    }
+
+    /** End-to-end: saving Gross Sales/Cancelled on a real product card
+     *  returns Projected Returns/Delivered computed from THOSE values, not
+     *  whatever (if anything) was previously stored in the returns/
+     *  delivered DB columns — confirmed exact against the real sheet's own
+     *  rate (90,100 × 25% = 22,525; 90,100 − 4,505 − 22,525 = 63,070). */
+    public function test_saving_gross_sales_recomputes_returns_and_delivered(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
+            ['gross_sales' => 90100.00, 'cancelled' => 4505.00]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.returns', fn ($v) => abs($v - 22525.00) < 1.0);
+        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - 63070.00) < 1.0);
+    }
+
     /** Explicit request, 2026-09-30: "why is it when i am clicking other
      *  page and then go back why is it resetting ... i want to make it it
      *  is first like today only when first open." A bare visit with no

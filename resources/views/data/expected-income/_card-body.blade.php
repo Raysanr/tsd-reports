@@ -77,16 +77,19 @@
 </div>
 
 <div class="px-5 py-4 font-mono text-[13px] space-y-0.5">
-    {{-- Gross Sales/Cancelled/Projected Returns/Projected Delivered: plain
-         manual inputs (explicit request, 2026-09-28: "in the expected i
-         want you to make all is manually input") — used to be Orders × AOV
-         and fixed 5%/25%/70% rates of that, see ExpectedIncomeCalculator's
-         own doc comment for the confirmed-exact numbers this replaced. --}}
+    {{-- Gross Sales/Cancelled: plain manual inputs (explicit request,
+         2026-09-28: "in the expected i want you to make all is manually
+         input"). Projected Returns/Projected Delivered: DERIVED from
+         Gross Sales again (explicit correction, 2026-10-01: "the only
+         auto is Projected Returns / Projected Delivered" — confirmed
+         against the real sheet's own formulas, Returns = Gross Sales ×
+         25%, Delivered = Gross Sales − Cancelled − Returns), so no input
+         for either even on an otherwise-editable card — see
+         ExpectedIncomeCalculator's own doc comment for the confirmed-
+         exact rate. --}}
     @foreach([
         ['key' => 'gross_sales', 'label' => 'Gross Sales'],
         ['key' => 'cancelled', 'label' => 'Cancelled', 'red' => true],
-        ['key' => 'returns', 'label' => 'Projected Returns', 'red' => true],
-        ['key' => 'delivered', 'label' => 'Projected Delivered', 'red' => true],
     ] as $col)
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="{{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
@@ -97,6 +100,17 @@
         @else
             <span data-out="{{ $col['key'] }}" class="text-right font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
         @endif
+        <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
+    </div>
+    @endforeach
+
+    @foreach([
+        ['key' => 'returns', 'label' => 'Projected Returns'],
+        ['key' => 'delivered', 'label' => 'Projected Delivered'],
+    ] as $col)
+    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
+        <span class="text-red-600 dark:text-red-400">{{ $col['label'] }}</span>
+        <span data-out="{{ $col['key'] }}" class="text-right font-semibold text-red-600 dark:text-red-400">{{ $fmtMoney($d[$col['key']]) }}</span>
         <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
     </div>
     @endforeach

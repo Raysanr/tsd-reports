@@ -6,21 +6,24 @@ use App\Support\ExpectedIncomeCalculator;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Gross Sales, Cancelled, Projected Returns, and Projected Delivered used
- * to be derived (Orders × AOV, then fixed 5%/25%/70% rates of that) but are
- * now plain manual inputs (explicit request, 2026-09-28: "in the expected i
- * want you to make all is manually input") — same convention as Tax
- * Allocation/Product Cost, which were never derived either (verified during
- * development that Tax Allocation repeats the identical peso figure
- * (7,465.28) across unrelated products — a fixed pool, not a rate — and
- * Product Cost varies uniquely per product with no common rate at all).
- * Clearsight's own real "EXPECTED INCOME 2026" sheet numbers (Number of
- * Leads 647, Conversion Rate 17.31%, Number of Orders 112, Gross Sales
- * 90,100.00, Cancelled 4,505.00, Projected Returns 22,525.00, Projected
- * Delivered 63,070.00) are kept as fixtures here, just passed in directly
- * now instead of re-derived from AOV/fixed rates. Team Eyecare's own sum
- * (Gross Sales 518,795.00 = Clearsight 90,100 + Pterygium 377,497 + Taguro
- * Oil 51,198, confirmed exact) verifies sum()'s own dollar-summing.
+ * Gross Sales and Cancelled are plain manual inputs (explicit request,
+ * 2026-09-28: "in the expected i want you to make all is manually input")
+ * — same convention as Tax Allocation/Product Cost, which were never
+ * derived either (verified during development that Tax Allocation repeats
+ * the identical peso figure (7,465.28) across unrelated products — a fixed
+ * pool, not a rate — and Product Cost varies uniquely per product with no
+ * common rate at all). Projected Returns and Projected Delivered are
+ * DERIVED again (explicit correction, 2026-10-01, confirmed against the
+ * real sheet's own live cell formulas: "the only auto is Projected Returns
+ * / Projected Delivered") — Returns = Gross Sales × 25%, Delivered = Gross
+ * Sales − Cancelled − Returns. CLEARSIGHT's own fixture numbers below
+ * (Gross Sales 90,100.00, Cancelled 4,505.00) happen to produce EXACTLY
+ * the real sheet's own Returns 22,525.00/Delivered 63,070.00 through this
+ * formula — not a coincidence, since both sets of numbers came from the
+ * same real "EXPECTED INCOME 2026" tab, confirming the formula is right.
+ * Team Eyecare's own sum (Gross Sales 518,795.00 = Clearsight 90,100 +
+ * Pterygium 377,497 + Taguro Oil 51,198, confirmed exact) verifies sum()'s
+ * own dollar-summing.
  */
 class ExpectedIncomeCalculatorTest extends TestCase
 {
@@ -30,8 +33,6 @@ class ExpectedIncomeCalculatorTest extends TestCase
         'average_order_value' => 804.46,
         'gross_sales' => 90100.00,
         'cancelled' => 4505.00,
-        'returns' => 22525.00,
-        'delivered' => 63070.00,
         'tax_allocation' => 7465.28,
         'product_cost' => 7454.00,
     ];
@@ -43,18 +44,32 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.1731, $d['conversion_rate'], 0.001);
     }
 
-    public function test_gross_sales_cancelled_returns_delivered_are_passed_through_as_manual_inputs(): void
+    public function test_gross_sales_and_cancelled_are_passed_through_as_manual_inputs(): void
     {
         $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
 
         $this->assertEqualsWithDelta(90100.00, $d['gross_sales'], 1.0);
         $this->assertEqualsWithDelta(4505.00, $d['cancelled'], 1.0);
+    }
+
+    /** Returns = Gross Sales × 25%, Delivered = Gross Sales − Cancelled −
+     *  Returns — confirmed exact against the real sheet's own numbers
+     *  (even though a 'returns'/'delivered' key is present in the
+     *  CLEARSIGHT fixture, derive() no longer reads it at all — these
+     *  assertions would hold identically with those two keys removed from
+     *  the fixture entirely). */
+    public function test_returns_and_delivered_are_derived_from_gross_sales(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
+
         $this->assertEqualsWithDelta(22525.00, $d['returns'], 1.0);
         $this->assertEqualsWithDelta(63070.00, $d['delivered'], 1.0);
     }
 
-    /** A row with nothing typed into Gross Sales/Cancelled/Returns/Delivered
-     *  yet shows plain zeroes — no fallback formula kicks in. */
+    /** A row with nothing typed into Gross Sales/Cancelled yet shows plain
+     *  zeroes for Gross Sales/Cancelled AND for the derived Returns/
+     *  Delivered (0 × 25% = 0, 0 − 0 − 0 = 0) — no fallback formula reads
+     *  anything else. */
     public function test_a_row_with_no_manual_sales_breakdown_yet_shows_zeroes(): void
     {
         $d = ExpectedIncomeCalculator::derive(['number_of_orders' => 112, 'average_order_value' => 804.46]);

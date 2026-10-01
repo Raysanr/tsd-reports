@@ -570,8 +570,11 @@ class ExpectedIncomeController extends Controller
             'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
             'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
             'cancelled'            => ['sometimes', 'numeric', 'min:0'],
-            'returns'              => ['sometimes', 'numeric', 'min:0'],
-            'delivered'            => ['sometimes', 'numeric', 'min:0'],
+            // returns/delivered are no longer manual inputs — derived from
+            // gross_sales/cancelled instead (explicit correction,
+            // 2026-10-01: "the only auto is Projected Returns / Projected
+            // Delivered") — deliberately not accepted here so a stray POST
+            // can't write a stale value the view no longer reflects.
             'tax_allocation'       => ['sometimes', 'numeric', 'min:0'],
             'product_cost'         => ['sometimes', 'numeric', 'min:0'],
             'advertising_cost'     => ['sometimes', 'numeric', 'min:0'],

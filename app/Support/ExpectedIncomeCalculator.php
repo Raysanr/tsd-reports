@@ -12,16 +12,19 @@ use App\Models\ProjectionCustomRow;
  * sheet-specific numbers.
  *
  * Gross Sales, Cancelled, Projected Returns, and Projected Delivered used
- * to be derived — Gross Sales = Orders × AOV, then Cancelled/Returns/
- * Delivered as fixed 5%/25%/70% rates of that, confirmed exact against the
- * real "EXPECTED INCOME 2026" tab's own Clearsight row (Leads 647, Orders
- * 112, AOV 804.46 → Gross Sales 90,100, Cancelled 4,505, Returns 22,525,
- * Delivered 63,070) at the time. Changed to plain manual inputs (explicit
- * request, 2026-09-28: "in the expected i want you to make all is manually
- * input") — same convention as Tax Allocation/Product Cost/ROAS/Actual
- * Cost Per Lead/every Selling & Marketing & Operating Costs row below,
- * none of which were ever derived either. Average Order Value is now a
- * plain display-only stat with nothing downstream reading it.
+ * to all be derived — Gross Sales = Orders × AOV, then Cancelled/Returns/
+ * Delivered as fixed 5%/25%/70% rates of that. Changed to plain manual
+ * inputs (explicit request, 2026-09-28: "in the expected i want you to
+ * make all is manually input"), then PARTIALLY reverted (explicit
+ * correction, 2026-10-01, confirmed against the real sheet's own live
+ * formulas: "the only auto is Projected Returns / Projected Delivered") —
+ * Gross Sales and Cancelled stay plain manual inputs, but Projected
+ * Returns (Gross Sales × 25%) and Projected Delivered (Gross Sales −
+ * Cancelled − Returns) are derived again, same rates as before. Tax
+ * Allocation/Product Cost/ROAS/Actual Cost Per Lead/every Selling &
+ * Marketing & Operating Costs row stay manual — only Returns/Delivered
+ * came back. Average Order Value is still a plain display-only stat with
+ * nothing downstream reading it.
  *
  * Takes a plain array of raw fields (not an ExpectedIncomeEntry model
  * directly) so the same math works for a single product row AND a summed
@@ -75,6 +78,12 @@ class ExpectedIncomeCalculator
      *  fees, not product-specific costs, so unlikely to differ per page). */
     public const COD_FEE_RATE_OF_DELIVERED = 0.0224;
     public const FULFILLMENT_FEE_PER_ORDER = 25.0;
+
+    /** Projected Returns' own confirmed-exact rate — the real sheet's own
+     *  J306 formula ('=J304*K306', K306=0.25). Projected Delivered has no
+     *  rate of its own; it's Gross Sales − Cancelled − Returns (a plain
+     *  subtraction, confirmed J307='=J304-J305-J306'). */
+    public const PROJECTED_RETURNS_RATE = 0.25;
 
     /** Every row added via the + icon on Projections (projection_custom_rows
      *  — a SHARED definition table, not scoped to that page) — explicit
@@ -163,16 +172,24 @@ class ExpectedIncomeCalculator
         $taxAllocation      = (float) ($row['tax_allocation'] ?? 0);
         $productCost        = (float) ($row['product_cost'] ?? 0);
 
-        // Gross Sales, Cancelled, Projected Returns, and Projected Delivered
-        // are all plain manual inputs (explicit request, 2026-09-28: "in the
-        // expected i want you to make all is manually input") — no longer
-        // Orders × AOV / fixed 5%/25%/70% rates. See this class's own doc
-        // comment for the confirmed-exact rates this replaced.
+        // Gross Sales and Cancelled are plain manual inputs (explicit
+        // request, 2026-09-28: "in the expected i want you to make all is
+        // manually input"). Projected Returns and Projected Delivered are
+        // back to being DERIVED from Gross Sales (explicit correction,
+        // 2026-10-01, confirmed against the real sheet's own formulas:
+        // "the only auto is Projected Returns / Projected Delivered") —
+        // Returns = Gross Sales × 25%, Delivered = Gross Sales − Cancelled
+        // − Returns (= Gross Sales × 70% when Cancelled is also at its own
+        // 5%-of-Gross-Sales rate, but Delivered's own formula is a plain
+        // subtraction, not its own independent rate — confirmed exact
+        // against the real "TEAM CLOSING SHIFT" tab's own cell formulas,
+        // J306='=J304*K306' (25%), J307='=J304-J305-J306'). See this
+        // class's own doc comment for the confirmed-exact 5%/25% rates.
         $conversionRate = $leads > 0 ? $orders / $leads : 0.0;
         $grossSales     = (float) ($row['gross_sales'] ?? 0);
         $cancelled      = (float) ($row['cancelled'] ?? 0);
-        $returns        = (float) ($row['returns'] ?? 0);
-        $delivered      = (float) ($row['delivered'] ?? 0);
+        $returns        = $grossSales * self::PROJECTED_RETURNS_RATE;
+        $delivered      = $grossSales - $cancelled - $returns;
         $grossProfit    = $grossSales - $cancelled - $returns - $taxAllocation - $productCost;
 
         $sellingLines = collect($sellingKeys)
