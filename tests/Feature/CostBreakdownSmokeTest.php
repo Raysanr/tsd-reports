@@ -105,7 +105,9 @@ class CostBreakdownSmokeTest extends TestCase
 
         $response->assertOk();
         $this->assertSame(7, CostBreakdownRole::count());
-        $this->assertSame(21, CostBreakdownPool::count());
+        // 22, not 21 — the "Tax" pool added 2026-10-01 (see
+        // CostBreakdownPool::SEED_POOLS's own doc comment).
+        $this->assertSame(22, CostBreakdownPool::count());
     }
 
     /** Regression test, 2026-09-29: a dev database that already had these
