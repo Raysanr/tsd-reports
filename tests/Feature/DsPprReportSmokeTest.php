@@ -99,6 +99,11 @@ class DsPprReportSmokeTest extends TestCase
      *  confirming the whole chain (controller's day-loop → ProductPerformance
      *  ::dsPprRow() → view) is actually wired, not just the calculator
      *  formulas in isolation. */
+    /** Total Orders = 'upsell_confirmation' specifically (explicit
+     *  correction, 2026-10-01: "the orders is the upsell w confirmation")
+     *  — a plain confirmed-call lead with NO upsell counts toward Total
+     *  Leads/Catered Leads but NOT Total Orders; only a genuine upsell
+     *  order does. */
     public function test_real_order_data_drives_total_orders_and_leads(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -107,8 +112,14 @@ class DsPprReportSmokeTest extends TestCase
 
         Order::create([
             'pancake_order_id' => 'dsppr-test-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
-            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-test-2', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 11:00:00', 'pancake_inserted_at' => $date . ' 11:00:00',
             'synced_at' => now(),
         ]);
 
@@ -120,9 +131,11 @@ class DsPprReportSmokeTest extends TestCase
         $rows = $response->viewData('rows');
         $productRow = $rows->first(fn ($row) => $row['products']->first()->id === $product->id);
 
+        // Only the genuine upsell order counts toward Total Orders.
         $this->assertEquals(1, $productRow['derived']['total_orders']);
-        $this->assertEquals(1, $productRow['derived']['total_leads']);
-        $this->assertEquals(1, $productRow['derived']['catered_leads']);
+        // Both leads count toward Total Leads/Catered Leads.
+        $this->assertEquals(2, $productRow['derived']['total_leads']);
+        $this->assertEquals(2, $productRow['derived']['catered_leads']);
     }
 
     /** Root-caused live, 2026-10-01: the daily chunk table's own bottom
@@ -144,7 +157,7 @@ class DsPprReportSmokeTest extends TestCase
 
         Order::create([
             'pancake_order_id' => 'dsppr-total-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
-            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
             'synced_at' => now(),
         ]);
@@ -286,7 +299,7 @@ class DsPprReportSmokeTest extends TestCase
 
         Order::create([
             'pancake_order_id' => 'dsppr-group-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
-            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
             'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
             'synced_at' => now(),
         ]);

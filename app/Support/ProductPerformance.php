@@ -508,15 +508,16 @@ class ProductPerformance
      *  LeadsReportController::indexAll() already uses for an identical
      *  reason).
      *
-     *  Total Orders = countedOrdersFor()'s own real matched/deduped Order
-     *  count (not a lead/disposition count at all — Leads Report has no
-     *  such concept, so this reuses the SAME distinct-order definition
-     *  InsightsGenerator's own Lead Capacity section already relies on,
-     *  rather than inventing a second one). Total Leads/Catered/Excess and
-     *  the 3 rates come straight from ProductPerformance::tally(), pooling
-     *  every member product's own matching orders into ONE tally (not
-     *  summed per-product — same "a cross-team combo order only counts
-     *  once" reasoning as countedOrdersFor()'s own doc comment).
+     *  Total Orders = tally()'s own 'upsell_confirmation' count (explicit
+     *  correction, 2026-10-01: "the orders is the upsell w confirmation" —
+     *  reverses an earlier, wrong reading that used countedOrdersFor()'s
+     *  own distinct-matched-order count instead; that's a different real
+     *  concept — InsightsGenerator's Lead Capacity bucket — not what
+     *  "Total Orders" means on this page). Total Leads/Catered/Excess and
+     *  the 3 rates come straight from the SAME tally() call, pooling every
+     *  member product's own matching orders into ONE tally (not summed
+     *  per-product — same "a cross-team combo order only counts once"
+     *  reasoning as countedOrdersFor()'s own doc comment).
      *
      *  Rates divided by 100 here — Leads Report's own rates() returns a
      *  0–100 number (e.g. 55.6), DSPPR's own $fmtPct expects a 0–1
@@ -524,15 +525,13 @@ class ProductPerformance
      *  app (ExpectedIncomeCalculator, DsPprCalculator). */
     public static function dsPprRow(Collection $products, Collection $dayOrders): array
     {
-        $totalOrders = self::countedOrdersFor($products, $dayOrders)->count();
-
         $pooledMatching = $products->flatMap(fn (Product $p) => self::matchingOrders($p, $dayOrders, $products))
             ->unique('id')
             ->values();
         $tally = self::tally($pooledMatching);
 
         return [
-            'total_orders'    => $totalOrders,
+            'total_orders'    => $tally['upsell_confirmation'],
             'total_leads'     => $tally['total'],
             'catered_leads'   => $tally['catered'],
             'excess_leads'    => $tally['excess'],
