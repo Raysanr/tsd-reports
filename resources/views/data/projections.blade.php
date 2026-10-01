@@ -7,7 +7,13 @@
 {{-- Intro paragraph removed (explicit request, 2026-09-23: "i want you te
      remove this") — the OPENING TEAM / CLOSING TEAM row labels below now
      carry that context instead. --}}
-<div class="mb-6 flex items-start justify-end gap-4 flex-wrap">
+<div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+    {{-- Month picker (explicit request, 2026-10-01: "add date picker like
+         in the other tabs" then "like month only the selection") — UI
+         only for now, no backend wiring (explicit follow-up: "add date
+         picker but no functions for now"); Projections has no per-month
+         data model yet. Defaults to the current month. --}}
+    @include('data._month-picker', ['name' => 'month', 'value' => now()->format('Y-m')])
     <span id="pjSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
 </div>
 
