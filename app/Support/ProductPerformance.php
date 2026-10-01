@@ -496,6 +496,52 @@ class ProductPerformance
         return array_merge($summed, self::rates($summed));
     }
 
+    /** DSPPR - TSM Report's own Total Orders/Total Leads/Catered Leads/
+     *  Excess Leads/Pick-up/Conversion/Upselling Rate, computed from real
+     *  Order data instead of manual entry (explicit request, 2026-10-01:
+     *  "i want to make it automated based on the leads report page in TSD
+     *  LEADS REPORT"). $products is every member of the row (just one
+     *  product, or every product in a merged/combined DSPPR row — same
+     *  "collab" pooling its Gross Sales/Net Income already get) — matched
+     *  against $dayOrders (already date+team scoped by the caller, one
+     *  calendar day at a time, same memory-safety pattern
+     *  LeadsReportController::indexAll() already uses for an identical
+     *  reason).
+     *
+     *  Total Orders = countedOrdersFor()'s own real matched/deduped Order
+     *  count (not a lead/disposition count at all — Leads Report has no
+     *  such concept, so this reuses the SAME distinct-order definition
+     *  InsightsGenerator's own Lead Capacity section already relies on,
+     *  rather than inventing a second one). Total Leads/Catered/Excess and
+     *  the 3 rates come straight from ProductPerformance::tally(), pooling
+     *  every member product's own matching orders into ONE tally (not
+     *  summed per-product — same "a cross-team combo order only counts
+     *  once" reasoning as countedOrdersFor()'s own doc comment).
+     *
+     *  Rates divided by 100 here — Leads Report's own rates() returns a
+     *  0–100 number (e.g. 55.6), DSPPR's own $fmtPct expects a 0–1
+     *  fraction (0.556), same convention as every other %-field in this
+     *  app (ExpectedIncomeCalculator, DsPprCalculator). */
+    public static function dsPprRow(Collection $products, Collection $dayOrders): array
+    {
+        $totalOrders = self::countedOrdersFor($products, $dayOrders)->count();
+
+        $pooledMatching = $products->flatMap(fn (Product $p) => self::matchingOrders($p, $dayOrders, $products))
+            ->unique('id')
+            ->values();
+        $tally = self::tally($pooledMatching);
+
+        return [
+            'total_orders'    => $totalOrders,
+            'total_leads'     => $tally['total'],
+            'catered_leads'   => $tally['catered'],
+            'excess_leads'    => $tally['excess'],
+            'pickup_rate'     => $tally['pick_up_rate'] !== null ? $tally['pick_up_rate'] / 100 : 0.0,
+            'conversion_rate' => $tally['conversion_rate'] !== null ? $tally['conversion_rate'] / 100 : 0.0,
+            'upselling_rate'  => $tally['upselling_rate'] !== null ? $tally['upselling_rate'] / 100 : 0.0,
+        ];
+    }
+
     /** One tally() row per TSA (keyed by tsa_key), matching by tsa_name ACROSS
      *  EVERY TEAM, not scoped to the TSA's own configured team. Extracted
      *  2026-09-02 so any other page needing a per-TSA breakdown (the

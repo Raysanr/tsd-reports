@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\DsPprEntry;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\User;
@@ -70,6 +71,58 @@ class DsPprReportSmokeTest extends TestCase
             'product_id' => $product->id,
             'gross_sales' => 3800,
         ]);
+    }
+
+    /** Total Orders/Total Leads/Catered Leads are no longer manual inputs
+     *  (explicit request, 2026-10-01: "i want to make it automated based
+     *  on the leads report page in TSD LEADS REPORT") — no editable
+     *  <input> for any of the 3 anywhere on the page, even though Gross
+     *  Sales/Net Income/Ads Spent stay editable. */
+    public function test_total_orders_leads_and_catered_have_no_editable_input(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-field="gross_sales"', $content);
+        $this->assertStringNotContainsString('data-field="total_orders"', $content);
+        $this->assertStringNotContainsString('data-field="total_leads"', $content);
+        $this->assertStringNotContainsString('data-field="catered_leads"', $content);
+    }
+
+    /** End-to-end: a real matched Order moves Total Leads/Catered Leads/
+     *  Total Orders on BOTH the daily cell and the range summary row,
+     *  confirming the whole chain (controller's day-loop → ProductPerformance
+     *  ::dsPprRow() → view) is actually wired, not just the calculator
+     *  formulas in isolation. */
+    public function test_real_order_data_drives_total_orders_and_leads(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-test-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
+            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $rows = $response->viewData('rows');
+        $productRow = $rows->first(fn ($row) => $row['products']->first()->id === $product->id);
+
+        $this->assertEquals(1, $productRow['derived']['total_orders']);
+        $this->assertEquals(1, $productRow['derived']['total_leads']);
+        $this->assertEquals(1, $productRow['derived']['catered_leads']);
     }
 
     public function test_updating_an_existing_entry_does_not_create_a_duplicate(): void
@@ -174,6 +227,43 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertDontSee(strtoupper($productB->display_name));
         $response->assertSee('TO');
         $response->assertSee('1,500.00'); // 1,000 + 500 summed into the one combined row.
+    }
+
+    /** A combined/merged row's own real-data figures pool every member's
+     *  own matched orders into ONE tally — same "collab" idea as its
+     *  Gross Sales (explicit request, 2026-10-01: "if there are combined/
+     *  merged in the dsppr products it will collab like that"). A real
+     *  order matched to only ONE of the two members still counts exactly
+     *  once (not zero, not twice). */
+    public function test_a_combined_rows_total_orders_pools_every_members_matched_orders(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $otherProduct = Product::where('team', 'SH Naturals')->where('id', '!=', $sinuxyl->id)->firstOrFail();
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-group-1', 'team' => 'SH Naturals', 'raw_tags' => ['SINUXYL'],
+            'disposition' => 'CONFIRMED VIA CALL', 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
+            'label' => 'COMBO',
+            'product_ids' => [$sinuxyl->id, $otherProduct->id],
+        ])->assertOk();
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $rows = $response->viewData('rows');
+        $comboRow = $rows->first(fn ($row) => $row['label'] === 'COMBO');
+
+        $this->assertEquals(1, $comboRow['derived']['total_orders']);
+        $this->assertEquals(1, $comboRow['derived']['total_leads']);
     }
 
     /** Explicit follow-up, 2026-09-29: "make it editable because in the

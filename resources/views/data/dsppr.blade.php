@@ -57,14 +57,20 @@
     // 2026-09-24: "colors must be like in the sheets"): pale yellow for
     // the plain $ columns, blue-gray for NI%, dusty rose for every
     // lead/rate column from Total Leads onward.
+    // Total Orders/Total Leads/Catered Leads are no longer manual inputs
+    // (explicit request, 2026-10-01: "i want to make it automated based
+    // on the leads report page in TSD LEADS REPORT") — locked read-only
+    // same as Excess Leads/Pick-up/Conversion/Upselling Rate already
+    // were, computed from real Order data via
+    // ProductPerformance::dsPprRow().
     $dayColumns = [
         ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -251,7 +257,7 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $emptyRow = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
+                            $emptyRow = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
                             // A group's own DISPLAYED total ($d) still pools
                             // EVERY member product's own entry before
                             // summing — same reasoning as the controller's
@@ -265,8 +271,22 @@
                             // one product is always the first member (same
                             // $row['products']->first() the row's own
                             // data-product-id above already commits to).
-                            $pooled = $row['products']->map(fn ($p) => $dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow);
-                            $raw = $pooled->first() ?: $emptyRow;
+                            //
+                            // Total Orders/Total Leads/Catered Leads/Excess
+                            // Leads/rates no longer come from $dailyByKey at
+                            // all (explicit request, 2026-10-01: automated
+                            // from real Order data) — precomputed by the
+                            // controller, keyed by THIS ROW's own key (same
+                            // 'g{id}'/'p{id}' as $rowKey above), so a
+                            // grouped row's own figures are the group's
+                            // single dedup'd real-data row (every member
+                            // pooled at once), never per-member-then-summed
+                            // (same "a cross-team combo order only counts
+                            // once" reasoning as the controller's own doc
+                            // comment).
+                            $real = $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? [];
+                            $pooled = $row['products']->map(fn ($p) => array_merge($dailyByKey->get($p->id . ':' . $dateStr)?->toArray() ?? $emptyRow, $real));
+                            $raw = array_merge($pooled->first() ?: $emptyRow, $real);
                             $d = $isGroup ? \App\Support\DsPprCalculator::sum($pooled->all()) : \App\Support\DsPprCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
@@ -304,13 +324,26 @@
                             $dateStr = $date->toDateString();
                             // Every REAL product across every display row
                             // (a group row's own $row['products'] lists
-                            // more than one) — flatten first so the total
-                            // sums each real product exactly once, whether
-                            // it's shown standalone or inside a group.
-                            $dayTotal = \App\Support\DsPprCalculator::sum($rows->flatMap(fn ($row) => $row['products'])->map(function ($product) use ($dailyByKey, $dateStr) {
+                            // more than one) — flatten first so Gross
+                            // Sales/Net Income sum each real product
+                            // exactly once, whether it's shown standalone
+                            // or inside a group.
+                            $allProducts = $rows->flatMap(fn ($row) => $row['products']);
+                            $perProductRows = $allProducts->map(function ($product) use ($dailyByKey, $dateStr) {
                                 $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-                                return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
-                            })->all());
+                                return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
+                            })->all();
+                            // Total Orders/Leads/Catered/Excess/rates come
+                            // from ONE real-data row across every real
+                            // product at once, NOT summed per-product —
+                            // summing already-deduped per-product counts
+                            // would double-count a single real order
+                            // matched to more than one product (same "a
+                            // cross-team combo order only counts once"
+                            // reasoning as the controller's own doc
+                            // comment on $realByRowKeyAndDate).
+                            $realTotal = \App\Support\ProductPerformance::dsPprRow($allProducts, $ordersByDate[$dateStr] ?? collect());
+                            $dayTotal = \App\Support\DsPprCalculator::sum(array_map(fn ($r) => array_merge($r, $realTotal), $perProductRows ?: [$realTotal]));
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }} {{ $col['key'] === 'net_income' ? ($dayTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400') : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
@@ -435,9 +468,15 @@
         rows.forEach((row) => {
             const grossSales = parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
             const netIncome = parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            const totalOrders = Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
-            const totalLeads = Number(row.querySelector(`[data-field="total_leads"][data-date="${date}"]`).value) || 0;
-            const cateredLeads = Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
+            // Total Orders/Total Leads/Catered Leads are no longer <input>s
+            // (explicit request, 2026-10-01: automated from real Order
+            // data) — read from their own [data-out] span instead, kept
+            // current by applyDerived()'s own server-returned figures
+            // after every save, never re-derived purely client-side (this
+            // page has no way to re-match real Orders in the browser).
+            const totalOrders = Number(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+            const totalLeads = Number(row.querySelector(`[data-out="total_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+            const cateredLeads = Number(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
 
             totals.gross_sales += grossSales;
             totals.net_income += netIncome;
@@ -484,9 +523,11 @@
                 const date = el.dataset.date;
                 const grossSales = parseMoney(el.value);
                 const netIncome = parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-                const totalOrders = Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
-                const totalLeads = Number(row.querySelector(`[data-field="total_leads"][data-date="${date}"]`).value) || 0;
-                const cateredLeads = Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
+                // Same [data-out] read as refreshDayTotal() above — Total
+                // Orders/Leads/Catered are read-only now, never <input>s.
+                const totalOrders = Number(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+                const totalLeads = Number(row.querySelector(`[data-out="total_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+                const cateredLeads = Number(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
 
                 totals.gross_sales += grossSales;
                 totals.net_income += netIncome;

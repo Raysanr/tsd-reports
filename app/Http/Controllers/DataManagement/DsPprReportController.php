@@ -4,11 +4,13 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Support\DateRangeFilter;
 use App\Support\DsPprCalculator;
 use App\Support\ProductGrouping;
+use App\Support\ProductPerformance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -63,6 +65,31 @@ class DsPprReportController extends Controller
             ->get()
             ->groupBy('product_id');
 
+        // daysUntil() is already INCLUSIVE of its own end date (confirmed
+        // directly, 2026-09-27: 21→25 yields 5 days including the 25th) —
+        // the ->addDay() here was based on the opposite (wrong) assumption
+        // that it excludes the end date, so picking "To: Sep 30" was
+        // silently rendering an extra Oct 1 column that was never part of
+        // the selected range at all.
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        // Every real Order for the selected range/team, fetched ONE
+        // CALENDAR DAY AT A TIME (not the whole range in one query) and
+        // grouped by date — same memory-safety pattern
+        // LeadsReportController::indexAll() already uses for an identical
+        // reason (a wide date range × every team's own orders is too
+        // large to hold in memory at once). Total Orders/Total Leads/
+        // Catered Leads/Excess Leads/Pick-up/Conversion/Upselling Rate are
+        // no longer manual inputs — computed from this real data instead
+        // (explicit request, 2026-10-01: "i want to make it automated
+        // based on the leads report page in TSD LEADS REPORT").
+        $ordersByDate = $dates->mapWithKeys(function ($date) use ($teamSlug, $teams) {
+            $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
+                ->when($teamSlug && $teams->has($teamSlug), fn ($q) => $q->where('team', $teams[$teamSlug]['order_team'] ?? '__none__'))
+                ->get();
+            return [$date->toDateString() => $dayOrders];
+        });
+
         // One row per product (or per product GROUP — explicit request,
         // 2026-09-26: "drag the TO-01 to TO-02 ... it is only combine"),
         // summed across the whole selected range — "Monthly Running Sales
@@ -71,12 +98,52 @@ class DsPprReportController extends Controller
         // lets any range be picked. See ProductGrouping::rows()'s own doc
         // comment for why a grouped row's $sumFn gets every member
         // product's own entries pooled together, not summed twice.
-        $rows = ProductGrouping::rows($products, function ($groupProducts) use ($entries) {
-            $pooledEntries = $groupProducts->flatMap(fn (Product $p) => $entries->get($p->id, collect()));
-            return DsPprCalculator::sum($pooledEntries->map(fn (DsPprEntry $e) => $e->toArray())->all());
+        //
+        // Iterates $dates (not $entries) so every day in the range
+        // contributes a real-data row even on a day nobody ever typed
+        // Gross Sales/Net Income for — Total Orders/Leads no longer
+        // depend on a DsPprEntry existing at all. A grouped row's own
+        // real-data figures are recomputed FRESH per day from every
+        // member at once (not summed per-member from
+        // $realByProductIdAndDate above) — same "a cross-team combo order
+        // only counts once" reasoning ProductPerformance::
+        // countedOrdersFor()'s own doc comment gives; summing two
+        // members' already-deduped counts could double-count one real
+        // order matched to both.
+        $rows = ProductGrouping::rows($products, function ($groupProducts) use ($entries, $dates, $ordersByDate) {
+            $entriesByDate = $groupProducts->flatMap(fn (Product $p) => $entries->get($p->id, collect()))
+                ->keyBy(fn (DsPprEntry $e) => $e->entry_date->toDateString());
+
+            $merged = $dates->map(function ($date) use ($entriesByDate, $groupProducts, $ordersByDate) {
+                $dateStr = $date->toDateString();
+                $base = $entriesByDate->get($dateStr)?->toArray() ?? [];
+                $real = ProductPerformance::dsPprRow($groupProducts, $ordersByDate[$dateStr]);
+                return array_merge($base, $real);
+            })->all();
+
+            return DsPprCalculator::sum($merged);
         });
 
         $overallTotal = DsPprCalculator::sum($rows->pluck('derived')->all());
+
+        // Same real-data computation as $realByProductIdAndDate above, but
+        // keyed by DISPLAY ROW (matches dsppr.blade.php's own $rowKey:
+        // 'g{groupId}' or 'p{productId}') × date — a merged/grouped row's
+        // own per-day Total Orders/Leads/Catered/Excess/rates must be the
+        // GROUP's own single dedup'd figure (every member pooled at once),
+        // never summed from each member's own already-computed row in
+        // $realByProductIdAndDate, same "a cross-team combo order only
+        // counts once" reasoning given above. The view has no DB access of
+        // its own (same "controller computes, view renders" convention as
+        // every other page in this app), so this has to be precomputed
+        // here rather than re-derived per row inside the Blade loop.
+        $realByRowKeyAndDate = [];
+        foreach ($rows as $row) {
+            $rowKey = $row['group'] ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
+            foreach ($dates as $date) {
+                $realByRowKeyAndDate[$rowKey . ':' . $date->toDateString()] = ProductPerformance::dsPprRow($row['products'], $ordersByDate[$date->toDateString()]);
+            }
+        }
 
         // Per-day entries for the currently selected products, keyed
         // "productId:date" — the view's own inline-editable inputs need
@@ -89,14 +156,6 @@ class DsPprReportController extends Controller
             ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->keyBy(fn (DsPprEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
-
-        // daysUntil() is already INCLUSIVE of its own end date (confirmed
-        // directly, 2026-09-27: 21→25 yields 5 days including the 25th) —
-        // the ->addDay() here was based on the opposite (wrong) assumption
-        // that it excludes the end date, so picking "To: Sep 30" was
-        // silently rendering an extra Oct 1 column that was never part of
-        // the selected range at all.
-        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
         // Chunked into groups of 7 (explicit request, 2026-09-24: "make it
         // too only 7 days that is like can be drag to right and after
@@ -115,6 +174,8 @@ class DsPprReportController extends Controller
             'selectedTeam' => $teamSlug,
             'dateChunks'   => $dateChunks,
             'dailyByKey'   => $dailyByKey,
+            'realByRowKeyAndDate' => $realByRowKeyAndDate,
+            'ordersByDate' => $ordersByDate,
         ]);
     }
 
@@ -124,13 +185,16 @@ class DsPprReportController extends Controller
      *  into it yet has no row to PATCH onto. */
     public function update(Request $request, Product $product, string $date)
     {
+        // total_orders/total_leads/catered_leads deliberately NOT accepted
+        // here any more — no longer manual inputs (explicit request,
+        // 2026-10-01: "i want to make it automated based on the leads
+        // report page in TSD LEADS REPORT"), computed fresh below from
+        // real Order data instead. A stray POST carrying one of these
+        // can't write a stale value the view no longer reflects.
         $data = $request->validate([
             'gross_sales'   => ['sometimes', 'numeric'],
             'net_income'    => ['sometimes', 'numeric'],
             'ads_spent'     => ['sometimes', 'numeric', 'min:0'],
-            'total_orders'  => ['sometimes', 'integer', 'min:0'],
-            'total_leads'   => ['sometimes', 'integer', 'min:0'],
-            'catered_leads' => ['sometimes', 'integer', 'min:0'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
@@ -156,24 +220,31 @@ class DsPprReportController extends Controller
         // data-product-id, always $row['products']->first()->id), so a
         // typed edit lands on that one product's own DsPprEntry same as
         // any ungrouped product. But this row's own READ-ONLY cells (NI %,
-        // AOV, Excess Leads, Pick-up/Conversion/Upselling Rate) must still
-        // reflect the FULL group total, not just this one member — the
-        // frontend has no way to know the other member(s)' own stored
-        // numbers (they're never rendered in the DOM at all once grouped),
-        // so the server has to resolve and return the true summed figures
-        // here instead.
+        // AOV, Total Orders/Leads/Catered/Excess/rates) must still reflect
+        // the FULL group total, not just this one member — the frontend
+        // has no way to know the other member(s)' own stored numbers (they
+        // never rendered in the DOM at all once grouped), so the server
+        // has to resolve and return the true combined figures here
+        // instead.
         $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
+        $groupProducts = $group ? $group->products : collect([$product]);
+
+        $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [
+            Carbon::parse($entryDate)->startOfDay(), Carbon::parse($entryDate)->endOfDay(),
+        ])->get();
+        $real = ProductPerformance::dsPprRow($groupProducts, $dayOrders);
+
         if ($group) {
             $memberEntries = DsPprEntry::whereIn('product_id', $group->products->pluck('id'))
                 ->whereDate('entry_date', $entryDate)
                 ->get()
                 ->keyBy('product_id');
             $pooled = $group->products->map(
-                fn (Product $p) => $memberEntries->get($p->id)?->toArray() ?? ['product_id' => $p->id, 'entry_date' => $entryDate]
+                fn (Product $p) => array_merge($memberEntries->get($p->id)?->toArray() ?? ['product_id' => $p->id, 'entry_date' => $entryDate], $real)
             );
             $derived = DsPprCalculator::sum($pooled->all());
         } else {
-            $derived = DsPprCalculator::derive($entry->toArray());
+            $derived = DsPprCalculator::derive(array_merge($entry->toArray(), $real));
         }
 
         return response()->json([
