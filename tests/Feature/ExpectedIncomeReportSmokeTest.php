@@ -968,14 +968,15 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Unlike the other 20 Operating Costs rows, Salaries divides by
-     *  product count on BOTH her own overview card AND every product card
-     *  underneath it (explicit correction, 2026-09-30, from a screenshot:
-     *  "for example gemma in the cost break down is this / 240.41 / so it
-     *  will be her salaries in the EXPECTED INCOME" — reverses an earlier
-     *  same-day "same in the salaries" instruction that had wrongly made
-     *  the overview card show the UNDIVIDED rate instead). */
-    public function test_the_tsa_overview_card_also_divides_salaries_by_product_count(): void
+    /** Same divide-only-on-product-cards rule applies to Salaries too
+     *  (explicit correction, 2026-10-01, from a screenshot showing 243.31
+     *  wrongly on her own overview card: "tsa card should be only 243.31
+     *  in salaries and the products should be divided" — her overview
+     *  card's own Salaries shows the plain undivided Daily Rate, matching
+     *  the scale every other Operating Costs row already shows undivided
+     *  on that same card; only each individual product card divides by
+     *  product count). */
+    public function test_the_tsa_overview_card_does_not_divide_salaries_by_product_count(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -1000,8 +1001,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
         $productCardsHtml = substr($content, $firstFieldPos);
 
-        $this->assertStringNotContainsString(number_format($undivided, 2), $overviewHtml);
-        $this->assertStringContainsString(number_format($dividedByProduct, 2), $overviewHtml);
+        $this->assertStringContainsString(number_format($undivided, 2), $overviewHtml);
+        $this->assertStringNotContainsString(number_format($dividedByProduct, 2), $overviewHtml);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dividedByProduct, 2), '/') . '/',
             $productCardsHtml

@@ -38,17 +38,17 @@ use App\Models\TsaShift;
 class TsaDailyRateService
 {
     /** Every real TSA's own Daily Rate / Product, keyed by tsa_id — used
-     *  for Salaries on BOTH a TSA's own individual product cards AND her
-     *  own "[TSA NAME]" overview card (explicit correction, 2026-09-30,
-     *  from a screenshot: "for example gemma in the cost break down is
-     *  this / 240.41 / so it will be her salaries in the EXPECTED INCOME"
-     *  — reverses an earlier same-day "same in the salaries" instruction
-     *  that had wrongly read as "the overview card should show the
-     *  UNDIVIDED rate, matching the other 20 rows' own product-cards-only
-     *  behavior"; the user actually meant Salaries specifically should
-     *  divide by product count everywhere, unlike those other 20 rows).
-     *  Computed once per request (not per card) since it's the same
-     *  figure for every one of a TSA's own cards on a given day. */
+     *  for Salaries on each TSA's own individual PRODUCT cards only
+     *  (explicit request, 2026-09-30: "the salaries row is based to the
+     *  Daily Rate / Product"). Her own "[TSA NAME]" overview card does
+     *  NOT use this — see dailyRateByTsaId() below (explicit correction,
+     *  2026-10-01, from a screenshot showing this divided figure wrongly
+     *  on her overview card: "tsa card should be only 243.31 in salaries
+     *  and the products should be divided" — same divide-only-on-
+     *  product-cards rule the other 20 Operating Costs rows already
+     *  follow). Computed once per request (not per card) since it's the
+     *  same figure for every one of a TSA's own product cards on a given
+     *  day. */
     public static function perProductByTsaId(): array
     {
         $dailyRateByTsaId = self::dailyRateByTsaId();
@@ -60,11 +60,15 @@ class TsaDailyRateService
     }
 
     /** Every real TSA's own plain Daily Rate (her own TOTAL ÷ 24), keyed
-     *  by tsa_id — NOT divided by product count. Building block for
-     *  perProductByTsaId() above (Salaries) and dailyCostRow()'s own
-     *  divisor chain isn't related to this — kept as a separate method
-     *  purely so perProductByTsaId() doesn't repeat its own base-salary +
-     *  overhead lookup logic inline. */
+     *  by tsa_id — NOT divided by product count. Used by her own "[TSA
+     *  NAME]" overview card's own Salaries figure (explicit correction,
+     *  2026-10-01: "tsa card should be only 243.31 in salaries and the
+     *  products should be divided" — her overview card shows the plain
+     *  undivided rate, matching the scale every other Operating Costs row
+     *  already shows undivided there; only product cards divide, via
+     *  perProductByTsaId() above). Also the building block
+     *  perProductByTsaId() itself divides to get the product-card
+     *  figure. */
     public static function dailyRateByTsaId(): array
     {
         $roles = CostBreakdownRole::all();
