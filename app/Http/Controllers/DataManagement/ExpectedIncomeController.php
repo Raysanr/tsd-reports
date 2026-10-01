@@ -274,9 +274,24 @@ class ExpectedIncomeController extends Controller
     {
         $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys) {
-            $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate));
-            return ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
+        // Every TSA-owned row's own per-product-DIVIDED Operating Costs
+        // override is stripped back to 0 here, then added back via
+        // addActiveTsasOverviewOperatingCosts() scoped to THIS card's own
+        // product group — same "active anywhere in the WHOLE range ⇒
+        // multiply by the full range day-count" rule as the overall
+        // rollup, now applied per product card too (explicit correction,
+        // 2026-10-01: "it should be all cards will be multiplied" — Mariel
+        // had only 1 entry out of 4 filtered days on a product; summing her
+        // divided override only for days an entry row happened to exist
+        // left this card's own Salaries flat at one day's worth instead of
+        // ×4). Scoped per group (not the whole page) since each product
+        // card's own divided share only involves the TSAs who actually
+        // touched ONE OF THIS GROUP'S OWN products somewhere in the range.
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds) {
+            $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
+                ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
+            $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
+            return $this->addActiveTsasOverviewOperatingCosts($derived, $groupProducts, $dates, $dateFrom, $dateTo, $onlyTsaIds, divideByProductCount: true);
         });
 
         // Every product/day's own RAW row (not $cards's own already-derived
@@ -318,39 +333,60 @@ class ExpectedIncomeController extends Controller
     }
 
     /** See buildSummaryRow()'s own doc comment above for the bug this
-     *  fixes. Adds each active TSA's own daily overview Operating Costs
-     *  (Salaries via dailyRateByTsaId... see perProductByTsaId()'s own doc
-     *  comment — the SAME figure her "[TSA NAME]" card shows, NOT divided a
-     *  second time by product count) on top of $derived's own already-
-     *  summed operating costs, once per (TSA, calendar day) pair she has
-     *  at least one ExpectedIncomeEntry that day — same "once per day,
-     *  regardless of which/how many products" rule the daily per-TSA view
-     *  already follows for her own overview card. $onlyTsaIds restricts
-     *  which real TSAs count as "active" the same way it already restricts
-     *  rawByProductAndDateAllTsas() — null (site-wide) or one team's own
-     *  TSA ids. */
-    private function addActiveTsasOverviewOperatingCosts(array $derived, $products, $dates, string $dateFrom, string $dateTo, ?array $onlyTsaIds): array
+     *  fixes. Adds each active TSA's own daily Operating Costs (Salaries +
+     *  the 20 shared pools) on top of $derived's own already-summed
+     *  operating costs, ONCE PER DAY IN THE WHOLE SELECTED RANGE for every
+     *  TSA who has AT LEAST ONE entry ANYWHERE in that range (explicit
+     *  correction, 2026-10-01: "every day is different gross sell right?
+     *  ... it should be all cards will be multiplied" / confirmed
+     *  explicitly: a TSA active on even ONE day of a picked range is
+     *  assumed staffed for the WHOLE range, same as Gross Sales genuinely
+     *  varying per day while her daily rate doesn't — reverses this
+     *  method's own earlier "only days she actually has a row" design,
+     *  which under-multiplied her cost whenever she hadn't logged a sale on
+     *  every single day in the range).
+     *
+     *  $divideByProductCount: false (default, the overall "TELESALES"
+     *  rollup) uses her UNDIVIDED overview-card figure (perProductByTsaId()
+     *  / dailyCostRow()) — the rollup's own role is "the totals of the
+     *  per-TSA cards" (explicit confirmation, 2026-10-01). true (each
+     *  individual product card, called with $products already narrowed to
+     *  just that card's own group — explicit correction, same day: "it
+     *  should be all cards will be multiplied") uses her PRODUCT-card
+     *  figure instead (perProductByTsaIdTwice() / dailyCostPerProductRow()
+     *  — divided a second time by the page's own flagged-product count,
+     *  same figure every one of her product cards already shows), scoped
+     *  to only the TSAs who touched ONE OF THIS GROUP'S OWN products
+     *  somewhere in the range (the $products passed in IS the group's own
+     *  member list in that case, not the whole page's).
+     *
+     *  $onlyTsaIds restricts which real TSAs count as "active" the same way
+     *  it already restricts rawByProductAndDateAllTsas() — null (site-wide)
+     *  or one team's own TSA ids. */
+    private function addActiveTsasOverviewOperatingCosts(array $derived, $products, $dates, string $dateFrom, string $dateTo, ?array $onlyTsaIds, bool $divideByProductCount = false): array
     {
-        $activeTsaDaysByTsaId = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
+        $activeTsaIds = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
             ->whereNotNull('tsa_id')
             ->whereDate('entry_date', '>=', $dateFrom)
             ->whereDate('entry_date', '<=', $dateTo)
             ->when($onlyTsaIds !== null, fn ($q) => $q->whereIn('tsa_id', $onlyTsaIds))
-            ->get()
-            ->groupBy('tsa_id')
-            ->map(fn ($entries) => $entries->map(fn (ExpectedIncomeEntry $e) => $e->entry_date->toDateString())->unique()->count());
+            ->distinct()
+            ->pluck('tsa_id');
 
-        if ($activeTsaDaysByTsaId->isEmpty()) {
+        if ($activeTsaIds->isEmpty()) {
             return $derived;
         }
 
-        $dailyRateByTsaId = TsaDailyRateService::perProductByTsaId();
+        $dayCount = $dates->count();
+        $dailyRateByTsaId = $divideByProductCount ? TsaDailyRateService::perProductByTsaIdTwice() : TsaDailyRateService::perProductByTsaId();
         // dailyCostRow()'s own ['total' => ...] key is dropped here — not a
         // real operating-cost row, see its own doc comment.
-        $dailyCostRow = collect(TsaDailyRateService::dailyCostRow())->except('total')->all();
+        $dailyCostRow = $divideByProductCount
+            ? collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all()
+            : collect(TsaDailyRateService::dailyCostRow())->except('total')->all();
 
         $addedOperatingCosts = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
-        foreach ($activeTsaDaysByTsaId as $tsaId => $dayCount) {
+        foreach ($activeTsaIds as $tsaId) {
             $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
             foreach ($dailyCostRow as $key => $amount) {
                 $addedOperatingCosts[$key] += $amount * $dayCount;

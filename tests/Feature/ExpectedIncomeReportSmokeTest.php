@@ -724,6 +724,77 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, 2026-10-01 (live screenshot, Sept 27-30 filter): "it
+     *  should be all cards will be multiplied" — a TSA active on even ONE
+     *  day of a MULTI-day filtered range is assumed staffed for the WHOLE
+     *  range ("every day is different gross sell right? ... it will be all
+     *  sum"), so her daily Salaries/pools must be multiplied by the FULL
+     *  range day-count, not just the number of days she happens to have a
+     *  saved entry. Confirmed live: Mariel had exactly 1 entry inside a
+     *  4-day filter and the rollup's own Salaries stayed flat at her
+     *  SINGLE-day figure (243.31) instead of ×4 (973.24). Covers BOTH the
+     *  overall rollup AND an individual product card in the same row
+     *  (explicit confirmation, same day: the ×N rule applies to "all
+     *  cards", not just the rollup). */
+    public function test_a_tsas_costs_multiply_by_the_full_range_day_count_even_with_only_one_entry(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+
+        // Flag 2 products so her own per-product-card figure is an actual
+        // FRACTION of her overview figure (dividing by 1 flagged product is
+        // a no-op and wouldn't distinguish the two cards' own expected
+        // values from each other).
+        $products = Product::take(2)->get();
+        $products->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
+        $product = $products->first();
+
+        // Only ONE entry, on ONE day, inside a 4-day filtered range.
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 10000,
+        ]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->subDays(3)->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
+        $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+
+        // The rollup's own Salaries = her UNDIVIDED overview figure × 4 days.
+        $expectedRollupSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaId()[$tsa->id] * 4, 2);
+        $this->assertMatchesRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedRollupSalaries, '/') . '/',
+            $summaryHtml,
+            "expected the TELESALES rollup's own Salaries to be her daily figure × 4 days ({$expectedRollupSalaries})"
+        );
+
+        // Her own product card's own Salaries = her per-product figure × 4
+        // days — same rule, scoped to this one product's own card instead
+        // of the rollup. Sliced to just THIS product's own card (bounded by
+        // its own label through the next card's) since every other
+        // product's card also renders its own "data-out=salaries" row (at
+        // 0.00, since she never touched any of them).
+        $productCardStart = strpos($summaryHtml, $product->display_name);
+        $productCardHtml = substr($summaryHtml, $productCardStart, 20000);
+        $expectedProductCardSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaIdTwice()[$tsa->id] * 4, 2);
+        $this->assertMatchesRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedProductCardSalaries, '/') . '/',
+            $productCardHtml,
+            "expected {$product->display_name}'s own card Salaries to be her per-product figure × 4 days ({$expectedProductCardSalaries})"
+        );
+    }
+
     /** The team filter PILL now scopes the top summary too (explicit
      *  correction, 2026-09-30: "when per team filter the Telesales
      *  Expected Performance is per team only" — reverses the SAME DAY's
