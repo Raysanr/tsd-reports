@@ -158,11 +158,26 @@
     </div>
 
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Selling And Marketing</div>
+    <div data-row-dropzone="selling">
     @foreach($sellingRows as $key => $label)
     @php($isCustom = in_array($key, $customRowKeys ?? [], true))
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
-        @if($editable ?? false)
+    @php($isNonEditable = in_array($key, \App\Support\ExpectedIncomeCalculator::nonEditableRows(), true))
+    {{-- Row order shared with Projections (RowOrder::rows()) — explicit
+         decision, 2026-10-02: dragging stays Projections-only ("why is it
+         even expected income has drag to change position? it is only in
+         the projection"), so NOT draggable=true / no handle icon here,
+         even though data-row-key/data-row-section are kept so a drag on
+         Projections still correctly reorders this same element here too.
+         cod_fee/fulfillment_fee (now inside this same loop, see
+         SELLING_COST_ROWS' own doc comment) share the same order, just
+         never editable — their own VALUE is still always the computed
+         formula, $isNonEditable only affects whether it renders an
+         <input> or a <span>. --}}
+    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 ei-row" data-row-key="{{ $key }}" data-row-section="selling">
+        <span class="text-ink-muted dark:text-slate-400 flex items-center gap-1">
+            {{ $label }}
+        </span>
+        @if(($editable ?? false) && !$isNonEditable)
             <input type="text" inputmode="decimal" value="{{ number_format($d['selling_lines'][$key] ?? 0, 2) }}"
                    data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif @if($locked ?? false) disabled @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
@@ -172,18 +187,6 @@
         <span data-out-pct="{{ $key }}" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $d['gross_sales'] > 0 ? $fmtPct(($d['selling_lines'][$key] ?? 0) / $d['gross_sales']) : '0.00%' }}</span>
     </div>
     @endforeach
-    {{-- COD Fee/Fulfillment Fee: computed formulas, never editable, even
-         on a product card — same convention as Projections' own $editable
-         P&L rows for these two (Delivered × 2.24%, Orders × ₱25 flat). --}}
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">COD Fee</span>
-        <span data-out="cod_fee" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['selling_lines']['cod_fee']) }}</span>
-        <span data-out-pct="cod_fee" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $d['gross_sales'] > 0 ? $fmtPct($d['selling_lines']['cod_fee'] / $d['gross_sales']) : '0.00%' }}</span>
-    </div>
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-ink-muted dark:text-slate-400">Fulfillment Fee</span>
-        <span data-out="fulfillment_fee" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['selling_lines']['fulfillment_fee']) }}</span>
-        <span data-out-pct="fulfillment_fee" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $d['gross_sales'] > 0 ? $fmtPct($d['selling_lines']['fulfillment_fee'] / $d['gross_sales']) : '0.00%' }}</span>
     </div>
     <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
         <span class="text-ink dark:text-slate-100">Total Selling Costs</span>
@@ -201,6 +204,7 @@
     </div>
 
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Operating Costs</div>
+    <div data-row-dropzone="operating">
     @foreach($operatingRows as $key => $label)
     @php($isCustom = in_array($key, $customRowKeys ?? [], true))
     @php($isBlue = in_array($key, ['geniusmakers_management_fee', 'hmo_expense'], true))
@@ -217,8 +221,10 @@
          TSA to compute anything from, so every row there is unaffected,
          still a plain manual input). --}}
     @php($isOperatingCostLocked = !$isCustom && ($tsaScoped ?? false))
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $label }}</span>
+    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 ei-row" data-row-key="{{ $key }}" data-row-section="operating">
+        <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }} flex items-center gap-1">
+            {{ $label }}
+        </span>
         @if(($editable ?? false) && !$isOperatingCostLocked)
             <input type="text" inputmode="decimal" value="{{ number_format($d['operating_lines'][$key] ?? 0, 2) }}"
                    data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif @if($locked ?? false) disabled @endif
@@ -229,6 +235,7 @@
         <span data-out-pct="{{ $key }}" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $d['gross_sales'] > 0 ? $fmtPct(($d['operating_lines'][$key] ?? 0) / $d['gross_sales']) : '0.00%' }}</span>
     </div>
     @endforeach
+    </div>
     <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
         <span class="text-ink dark:text-slate-100">Total Operating Costs</span>
         <span data-out="total_operating_costs" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['total_operating_costs']) }}</span>

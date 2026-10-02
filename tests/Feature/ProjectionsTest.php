@@ -31,6 +31,22 @@ class ProjectionsTest extends TestCase
         $response->assertSee('NET INCOME');
     }
 
+    /** Companion to ExpectedIncomeReportSmokeTest's own
+     *  test_rows_are_not_draggable_on_expected_income() — Projections is
+     *  the ONE page that should actually show the drag handle/draggable
+     *  rows (explicit decision, 2026-10-02: drag UI stays Projections-only
+     *  even though the underlying order is shared with Expected Income). */
+    public function test_rows_are_draggable_on_projections(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $response->assertSee('draggable="true"', false);
+        $response->assertSee('pj-row-handle', false);
+    }
+
     /** Regression: the page rendered with zero columns and no error when
      *  the table was migrated but empty (a real dev-environment failure —
      *  a DB reset after the seeding migration already ran, so it never
@@ -238,6 +254,47 @@ class ProjectionsTest extends TestCase
         $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
 
         $this->assertStringContainsString('data-pnl-input="tax_allocation"', $cardHtml);
+    }
+
+    /** Explicit follow-up, 2026-10-02: "and when it is locked it cant
+     *  dragged too" — a locked Opening/Closing Shift card's own rows lose
+     *  BOTH the input (confirmed above) AND the drag handle/draggable
+     *  attribute, same "fully frozen" meaning as the lock elsewhere. */
+    public function test_a_locked_shift_cards_rows_are_not_draggable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $openingShift->update(['is_locked' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $cardStart = strpos($content, 'data-key="opening_shift"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringNotContainsString('draggable="true"', $cardHtml);
+        $this->assertStringNotContainsString('pj-row-handle', $cardHtml);
+    }
+
+    /** An UNLOCKED Opening Shift's own rows stay draggable — confirms the
+     *  lock flag, not something else, is what disabled dragging above. */
+    public function test_an_unlocked_shift_cards_rows_stay_draggable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->assertFalse(ProjectionColumn::where('key', 'opening_shift')->firstOrFail()->is_locked);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $cardStart = strpos($content, 'data-key="opening_shift"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringContainsString('draggable="true"', $cardHtml);
+        $this->assertStringContainsString('pj-row-handle', $cardHtml);
     }
 
     /** The lock icon only appears on the 2 lockable base cards (Opening/

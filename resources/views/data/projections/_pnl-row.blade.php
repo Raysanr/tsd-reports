@@ -35,6 +35,26 @@
     Delivered in red, Tax Allocation/Geniusmakers Management Fee/HMO
     Expense in blue. Applies to both the label and the value (input or
     span), leaving the %-column always the same muted color.
+
+    $rowKey/$section (optional — only passed for a row that participates
+    in the shared drag-reorder, i.e. every Selling/Operating row from
+    _column.blade.php's own 2 @foreach loops below, NOT the top-level pnl.*
+    rows like Gross Sales/Cancelled that have a fixed position in the P&L
+    chain): explicit request, 2026-10-02 ("can you make the row can be
+    draggable and can change the position by other row") — every row here
+    shares ONE order with Expected Income's own identical rows
+    (App\Support\RowOrder), so dragging here reorders both pages.
+
+    $locked (optional, passed by _column.blade.php as $isLockable &&
+    $column->is_locked): explicit follow-up, 2026-10-02 ("and when it is
+    locked it cant dragged too") — a locked card's own rows can't be
+    reordered either, same "fully frozen, not just the dollar figures"
+    meaning as $editable already applying to the <input>s above. Checked
+    SEPARATELY from $editable (not reused as the drag gate) since a
+    derived/non-lockable card (Telesales Department, every Individual TSA
+    card — $editable already false there, $column->is_locked meaningless)
+    stays draggable; only an EXPLICITLY locked Opening/Closing Shift card
+    loses it.
 --}}
 @php
     $rowColorClass = match ($rowColor ?? null) {
@@ -42,9 +62,14 @@
         'blue' => 'text-blue-600 dark:text-blue-400',
         default => null,
     };
+    $isDraggable = isset($rowKey, $section) && !($locked ?? false);
 @endphp
-<div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
+<div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 {{ $isDraggable ? 'pj-row' : '' }}"
+     @if($isDraggable) data-row-key="{{ $rowKey }}" data-row-section="{{ $section }}" draggable="true" @endif>
     <span class="{{ $rowColorClass ?? 'text-ink-muted dark:text-slate-400' }} inline-flex items-center gap-1">
+        @if($isDraggable)
+            <svg class="pj-row-handle w-3 h-3 shrink-0 cursor-grab text-ink-muted/40 hover:text-ink-muted/70" fill="currentColor" viewBox="0 0 16 16"><circle cx="5" cy="3" r="1.3"/><circle cx="11" cy="3" r="1.3"/><circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/><circle cx="5" cy="13" r="1.3"/><circle cx="11" cy="13" r="1.3"/></svg>
+        @endif
         {{ $label }}
         @isset($customRowId)
             <button type="button" data-remove-custom-row="{{ $customRowId }}" title="Remove this row"

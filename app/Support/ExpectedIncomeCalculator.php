@@ -34,16 +34,33 @@ use App\Models\ProjectionCustomRow;
  */
 class ExpectedIncomeCalculator
 {
-    /** Same two row lists as ProjectionCalculator, minus cod_fee/
-     *  fulfillment_fee (computed here, not stored — see this class's own
-     *  doc comment) — shared display order for the view to render without
-     *  hand-typing the list twice. */
+    /** Same row list as ProjectionCalculator — cod_fee/fulfillment_fee
+     *  INCLUDED here too as of 2026-10-02 (explicit request: "can you make
+     *  the row can be draggable" — confirmed to cover every row including
+     *  these 2, so they needed to join the same orderable list instead of
+     *  rendering as 2 permanently-last hardcoded rows outside it). Their
+     *  own VALUE is still always computed (Delivered × 2.24%, Orders ×
+     *  ₱25 flat — see COD_FEE_RATE_OF_DELIVERED/FULFILLMENT_FEE_PER_ORDER
+     *  below), never a manual entry — nonEditableRows() below is what
+     *  keeps them non-editable now that they're inside the same loop as
+     *  every real manual-rate row. */
     public const SELLING_COST_ROWS = [
         'advertising_cost'      => 'Advertising Cost',
         'ads_vat'                => 'Ads VAT',
         'ai_expense'             => 'Projected Botcake AI Expense',
         'shipping_fee'           => 'Shipping Fee',
+        'cod_fee'                => 'COD Fee',
+        'fulfillment_fee'        => 'Fulfillment Fee',
     ];
+
+    /** cod_fee/fulfillment_fee are computed formulas, never a manual $
+     *  input — same meaning as ProjectionCalculator::NON_EDITABLE_SELLING_ROWS,
+     *  duplicated here rather than shared since the two classes' own
+     *  $d['selling_lines'] are independently computed (see this class's
+     *  own doc comment on why COD_FEE_RATE_OF_DELIVERED/
+     *  FULFILLMENT_FEE_PER_ORDER are reused as CONSTANTS but not as a
+     *  shared code path). */
+    public const NON_EDITABLE_SELLING_ROWS = ['cod_fee', 'fulfillment_fee'];
 
     public const OPERATING_COST_ROWS = [
         'salaries'                    => 'Salaries',
@@ -110,28 +127,36 @@ class ExpectedIncomeCalculator
         return ProjectionCustomRow::orderBy('sort_order')->get();
     }
 
-    private static function customRowsFor(string $section): array
-    {
-        return self::customRows()->where('section', $section)
-            ->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])
-            ->all();
-    }
-
     /** SELLING_COST_ROWS plus every custom row from Projections, in the
      *  same key => label shape — the view and every derive()/sum() call
      *  below use this instead of the bare constant so a custom row
      *  automatically participates in Total Selling Costs / Net Income,
      *  with zero other code changes (same "one definition, every consumer
      *  reads it fresh" reasoning as ProjectionCalculator's own
-     *  sellingCostRows()). */
+     *  sellingCostRows()).
+     *
+     *  Ordering delegated to RowOrder (explicit request, 2026-10-02: "can
+     *  you make the row can be draggable and can change the position by
+     *  other row") — the SAME shared order ProjectionCalculator's own
+     *  sellingCostRows() reads, so dragging a row on either page reorders
+     *  both. */
     public static function sellingCostRows(): array
     {
-        return array_merge(self::SELLING_COST_ROWS, self::customRowsFor('selling'));
+        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling');
     }
 
     public static function operatingCostRows(): array
     {
-        return array_merge(self::OPERATING_COST_ROWS, self::customRowsFor('operating'));
+        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating');
+    }
+
+    /** NON_EDITABLE_SELLING_ROWS plus every custom row marked is_fixed —
+     *  same meaning/shape as ProjectionCalculator::nonEditableRows(). */
+    public static function nonEditableRows(): array
+    {
+        $fixedCustom = self::customRows()->where('is_fixed', true)->pluck('key')->all();
+
+        return array_merge(self::NON_EDITABLE_SELLING_ROWS, $fixedCustom);
     }
 
     /** Every custom row's own key, both sections combined — used by

@@ -7,6 +7,7 @@ use App\Models\ProjectionColumn;
 use App\Models\ProjectionCustomRow;
 use App\Models\Setting;
 use App\Support\ProjectionCalculator;
+use App\Support\RowOrder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -297,5 +298,29 @@ class ProjectionController extends Controller
             'rates'    => $rates,
             'computed' => array_values(ProjectionCalculator::forAllColumns($columns, $rates)),
         ]);
+    }
+
+    /** Shared row drag-reorder (explicit request, 2026-10-02: "can you make
+     *  the row can be draggable and can change the position by other row")
+     *  — persists a row's new position within its own section via
+     *  RowOrder::moveAfter(), the SAME ordering both this page's own
+     *  sellingCostRows()/operatingCostRows() and Expected Income's
+     *  identically-named methods read, so a drag on EITHER page reorders
+     *  both (explicit decision, same day: "one shared order everywhere").
+     *  No full-page reload needed on success — the frontend already moved
+     *  the dragged row's own DOM element optimistically on drop; this call
+     *  only needs to persist that same move, not describe a new state for
+     *  the page to re-render. */
+    public function reorderRows(Request $request)
+    {
+        $data = $request->validate([
+            'row_key'        => ['required', 'string'],
+            'after_row_key'  => ['nullable', 'string'],
+            'section'        => ['required', 'string', 'in:selling,operating'],
+        ]);
+
+        RowOrder::moveAfter($data['row_key'], $data['after_row_key'] ?? null, $data['section']);
+
+        return response()->json(['success' => true]);
     }
 }

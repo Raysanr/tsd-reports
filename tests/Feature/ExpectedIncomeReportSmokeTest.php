@@ -409,6 +409,31 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('data-locked="0"', false);
     }
 
+    /** Regression, 2026-10-02: row drag-reorder was built shared across
+     *  both pages (RowOrder, see RowOrderTest), but the drag HANDLE/UI was
+     *  only ever meant for Projections — Expected Income's own rows should
+     *  never show a grab handle or be directly draggable, even though
+     *  they still carry data-row-key/data-row-section so a drag that
+     *  happens on PROJECTIONS still correctly reorders them too ("why is
+     *  it even expected income has drag to change position? it is only
+     *  in the projection"). */
+    public function test_rows_are_not_draggable_on_expected_income(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        // The row still carries its own ordering identity...
+        $response->assertSee('data-row-key="salaries"', false);
+        $response->assertSee('data-row-section="operating"', false);
+        // ...but never a draggable attribute or the grab-handle icon.
+        $response->assertDontSee('draggable="true"', false);
+        $response->assertDontSee('ei-row-handle', false);
+    }
+
     /** Locking a product card persists is_locked on its own
      *  ExpectedIncomeEntry (creating one if it never had a saved value at
      *  all, same "every field optional via firstOrNew-style upsert"

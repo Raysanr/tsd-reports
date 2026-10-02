@@ -263,19 +263,6 @@ class ProjectionCalculator
         return ProjectionCustomRow::orderBy('sort_order')->get();
     }
 
-    /** key => label for every custom row in $section ('selling' or
-     *  'operating') — merged onto SELLING_COST_ROWS/OPERATING_COST_ROWS by
-     *  sellingCostRows()/operatingCostRows() below. Split out as its own
-     *  method (rather than inlined there) so allRates()'s own
-     *  customRowKeys() can pull BOTH sections' keys without caring about
-     *  section at all. */
-    private static function customRowsFor(string $section): array
-    {
-        return self::customRows()->where('section', $section)
-            ->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])
-            ->all();
-    }
-
     private static function customRowKeys(): array
     {
         return self::customRows()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all();
@@ -286,15 +273,21 @@ class ProjectionCalculator
      *  below use this instead of the bare constant so a custom row
      *  automatically participates in Total Selling Costs / Net Income on
      *  every column, with zero other code changes (same "one definition,
-     *  every consumer reads it fresh" reasoning as the constant itself). */
+     *  every consumer reads it fresh" reasoning as the constant itself).
+     *
+     *  Ordering delegated to RowOrder (explicit request, 2026-10-02: "can
+     *  you make the row can be draggable and can change the position by
+     *  other row") — the SAME shared order Expected Income's own
+     *  sellingCostRows() reads, instead of built-ins always sorting before
+     *  every custom row via a plain array_merge like before this feature. */
     public static function sellingCostRows(): array
     {
-        return array_merge(self::SELLING_COST_ROWS, self::customRowsFor('selling'));
+        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling');
     }
 
     public static function operatingCostRows(): array
     {
-        return array_merge(self::OPERATING_COST_ROWS, self::customRowsFor('operating'));
+        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating');
     }
 
     /** NON_EDITABLE_SELLING_ROWS plus every custom row marked is_fixed —

@@ -4,6 +4,11 @@
 
 @section('content')
 
+<style>
+    /* Row drag-reorder drop indicator (explicit request, 2026-10-02). */
+    .pj-row-drag-over { border-top: 2px solid var(--color-primary, #CA8A04); }
+</style>
+
 {{-- Intro paragraph removed (explicit request, 2026-09-23: "i want you te
      remove this") — the OPENING TEAM / CLOSING TEAM row labels below now
      carry that context instead. --}}
@@ -768,6 +773,72 @@
         const url = new URL(window.location.href);
         url.searchParams.set('month', ym);
         window.location.href = url.toString();
+    });
+
+    // Row drag-reorder (explicit request, 2026-10-02: "can you make the
+    // row can be draggable and can change the position by other row") —
+    // every Selling/Operating row, built-in or custom, on EVERY card
+    // (dragging reorders them all at once, same as every card already
+    // shows the same rows in the same order) shares ONE order with
+    // Expected Income's own identical rows (App\Support\RowOrder) — the
+    // frontend moves the dragged row's own DOM element in EVERY card
+    // optimistically on drop (data-row-key identifies the same logical
+    // row across cards), then persists it via data.rows.reorder; a failed
+    // save reloads the page rather than leaving the DOM out of sync with
+    // the server.
+    let draggedRowKey = null;
+    document.addEventListener('dragstart', (e) => {
+        const row = e.target.closest('.pj-row');
+        if (!row) return;
+        draggedRowKey = row.dataset.rowKey;
+        row.classList.add('opacity-40');
+        e.dataTransfer.effectAllowed = 'move';
+    });
+    document.addEventListener('dragend', (e) => {
+        const row = e.target.closest('.pj-row');
+        if (row) row.classList.remove('opacity-40');
+        draggedRowKey = null;
+        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over'));
+    });
+    document.addEventListener('dragover', (e) => {
+        if (!draggedRowKey) return;
+        const row = e.target.closest('.pj-row');
+        if (!row || row.dataset.rowKey === draggedRowKey) return;
+        e.preventDefault();
+        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over'));
+        row.classList.add('pj-row-drag-over');
+    });
+    document.addEventListener('drop', (e) => {
+        if (!draggedRowKey) return;
+        const targetRow = e.target.closest('.pj-row');
+        if (!targetRow || targetRow.dataset.rowKey === draggedRowKey) return;
+        e.preventDefault();
+        const section = targetRow.dataset.rowSection;
+        const targetKey = targetRow.dataset.rowKey;
+
+        // Moves the dragged row to sit immediately AFTER the drop target,
+        // in EVERY dropzone sharing this section (every card on the page)
+        // — same row key, same new position, everywhere at once.
+        document.querySelectorAll(`[data-row-dropzone="${section}"]`).forEach((zone) => {
+            const dragged = zone.querySelector(`.pj-row[data-row-key="${draggedRowKey}"]`);
+            const target = zone.querySelector(`.pj-row[data-row-key="${targetKey}"]`);
+            if (dragged && target) target.insertAdjacentElement('afterend', dragged);
+        });
+
+        fetch('{{ route('data.rows.reorder') }}', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: new URLSearchParams({ _method: 'PATCH', row_key: draggedRowKey, after_row_key: targetKey, section }).toString(),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .catch(() => {
+                window.showToast?.('Could not save the new row order — try again.', 'error');
+                window.location.reload();
+            });
     });
 })();
 </script>

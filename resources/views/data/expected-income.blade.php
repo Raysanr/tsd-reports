@@ -558,7 +558,12 @@
             let isDragging = false, dragStartX = 0, dragStartScroll = 0;
 
             scroller.addEventListener('mousedown', (e) => {
-                if (e.target.closest('input')) return;
+                // .ei-row excluded too (explicit request, 2026-10-02: row
+                // drag-reorder) — a mousedown starting on a draggable row
+                // must trigger the NATIVE HTML5 drag (dragstart below),
+                // never this scroller's own manual click-drag-to-scroll,
+                // or the two would fight over the same mouse gesture.
+                if (e.target.closest('input') || e.target.closest('.ei-row')) return;
                 isDragging = true;
                 dragStartX = e.pageX;
                 dragStartScroll = scroller.scrollLeft;

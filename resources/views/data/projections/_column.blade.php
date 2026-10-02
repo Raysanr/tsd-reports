@@ -201,6 +201,7 @@
                 </button>
             @endif
         </div>
+        <div data-row-dropzone="selling">
         @foreach(\App\Support\ProjectionCalculator::sellingCostRows() as $key => $rowLabel)
             {{-- COD Fee/Fulfillment Fee (and any custom row marked "fixed")
                  are never editable, even on Opening Shift — confirmed via
@@ -221,8 +222,9 @@
                     ? ($p['gross_sales'] > 0 ? $rowValue / $p['gross_sales'] * 100 : 0)
                     : ($rates[$key] ?? 0) * 100;
             @endphp
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $rowValue, 'ratePct' => $rowRatePct, 'editable' => $editable && !$isNonEditable, 'customRowId' => $customRowsByKey->get($key)?->id])
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $rowValue, 'ratePct' => $rowRatePct, 'editable' => $editable && !$isNonEditable, 'customRowId' => $customRowsByKey->get($key)?->id, 'rowKey' => $key, 'section' => 'selling', 'locked' => $isLockable && $column->is_locked])
         @endforeach
+        </div>
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Selling Costs</span>
             <span data-pnl="total_selling_costs" class="text-right text-ink dark:text-slate-100">{{ number_format($p['total_selling_costs'], 2) }}</span>
@@ -247,13 +249,15 @@
                 </button>
             @endif
         </div>
+        <div data-row-dropzone="operating">
         @foreach(\App\Support\ProjectionCalculator::operatingCostRows() as $key => $rowLabel)
             @php
                 $isCustomFixed = $customRowsByKey->get($key)?->is_fixed ?? false;
                 $rowColor = in_array($key, ['geniusmakers_management_fee', 'hmo_expense'], true) ? 'blue' : null;
             @endphp
-            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !$isCustomFixed, 'customRowId' => $customRowsByKey->get($key)?->id, 'rowColor' => $rowColor])
+            @include('data.projections._pnl-row', ['label' => $rowLabel, 'pnlKey' => null, 'lineKey' => $key, 'rateKey' => $key, 'value' => $p['operating_lines'][$key] ?? 0, 'ratePct' => ($rates[$key] ?? 0) * 100, 'editable' => $editable && !$isCustomFixed, 'customRowId' => $customRowsByKey->get($key)?->id, 'rowColor' => $rowColor, 'rowKey' => $key, 'section' => 'operating', 'locked' => $isLockable && $column->is_locked])
         @endforeach
+        </div>
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-t border-line dark:border-slate-700 font-bold">
             <span class="text-ink dark:text-slate-100">Total Operating Costs</span>
             <span data-pnl="total_operating_costs" class="text-right text-ink dark:text-slate-100">{{ number_format($p['total_operating_costs'], 2) }}</span>

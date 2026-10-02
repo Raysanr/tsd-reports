@@ -292,6 +292,14 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // the {projectionColumn} wildcard for the same reason /rates is.
         Route::post('/projections/custom-rows', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'storeCustomRow'])->name('projections.custom-rows.store');
         Route::delete('/projections/custom-rows/{projectionCustomRow}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'destroyCustomRow'])->name('projections.custom-rows.destroy');
+        // Shared row drag-reorder (explicit request, 2026-10-02: "can you
+        // make the row can be draggable and can change the position by
+        // other row") — ONE endpoint for every Selling/Operating row,
+        // built-in or custom, on EITHER page (Projections and Expected
+        // Income both read the same shared order, see App\Support\RowOrder)
+        // — registered before the {projectionColumn} wildcard for the same
+        // reason /rates and /custom-rows already are.
+        Route::patch('/rows/reorder', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'reorderRows'])->name('rows.reorder');
         Route::patch('/projections/{projectionColumn}', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'updateColumn'])->name('projections.update-column');
 
         // DSPPR - TSM Report (explicit request, 2026-09-24: "create this
