@@ -226,9 +226,28 @@ class TsaDailyRateService
      *  completely independent of whatever month an admin happens to be
      *  BROWSING on the Projections page itself, so switching that page to
      *  a past/future month never silently changes Expected Income's or
-     *  Cost Breakdown's own live Tax Allocation figures. */
+     *  Cost Breakdown's own live Tax Allocation figures.
+     *
+     *  Memoized per-request via app()->scoped() (NOT a plain static
+     *  property — this app runs Laravel Octane/FrankenPHP, a long-lived
+     *  worker process, so a raw `static` cache would leak this month's
+     *  figure into the NEXT request, including across a real month
+     *  rollover or a same-month Projections edit; Octane automatically
+     *  flushes scoped bindings between requests, a plain static survives
+     *  them). Root-caused live, 2026-10-02: a full-month Expected Income
+     *  request calls this up to 8+ times (once per team row ×
+     *  productCardLookups + rollupLookups in
+     *  ExpectedIncomeController::buildSummaryRow()), and
+     *  ensureSeededForMonth() below runs 7 firstOrCreate queries EVERY call
+     *  even when the month is already seeded — that reintroduced the same
+     *  N+1-shaped 500 the 2026-10-02 N+1 fix had just hoisted this whole
+     *  chain to avoid. */
     public static function departmentTaxAllocationPerShift(): float
     {
+        if (app()->bound('tsa_daily_rate.department_tax_allocation_per_shift')) {
+            return app('tsa_daily_rate.department_tax_allocation_per_shift');
+        }
+
         // Self-heals the current month the same way every other page in
         // this module already does (explicit decision, 2026-10-02) — a
         // brand-new month nobody has opened Projections for YET still
@@ -243,8 +262,11 @@ class TsaDailyRateService
         $all = ProjectionCalculator::forAllColumns($columns, $rates);
 
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'] ?? 0.0;
+        $perShift = $departmentTaxAllocation / 2;
 
-        return $departmentTaxAllocation / 2;
+        app()->scoped('tsa_daily_rate.department_tax_allocation_per_shift', fn () => $perShift);
+
+        return $perShift;
     }
 
     /** Identical to CostBreakdownController::overheadByRoleId(). */

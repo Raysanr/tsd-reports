@@ -1398,6 +1398,62 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, 2026-10-02 (live 500 on Railway): a full-month,
+     *  per-team Expected Income filter errored in production after the
+     *  Projections-per-month change added a DB seed-check
+     *  (ensureSeededForMonth(), 7 firstOrCreate queries) inside
+     *  TsaDailyRateService::departmentTaxAllocationPerShift() — a method
+     *  buildSummaryRow() already calls up to 8+ times per request (once per
+     *  team row × productCardLookups + rollupLookups), reintroducing the
+     *  same N+1-shaped timeout the earlier 2026-10-02 N+1 fix had just
+     *  removed. Asserts ProjectionColumn queries stay flat regardless of
+     *  team-row count, proving departmentTaxAllocationPerShift()'s
+     *  per-request memoization (app()->scoped()) is actually taking effect
+     *  — a query count that scales with team count would mean the cache
+     *  regressed. */
+    public function test_a_full_month_all_teams_filter_does_not_requery_projection_columns_per_team_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+
+        foreach (['SH Naturals', 'Eyecare Team'] as $team) {
+            $existing = TsaShift::where('team', $team)->count();
+            for ($i = $existing; $i < 6; $i++) {
+                TsaShift::create([
+                    'tsa_key' => "{$team}-extra-{$i}", 'display_name' => "{$team} Extra {$i}",
+                    'team' => $team, 'sort_order' => 100 + $i,
+                ]);
+            }
+        }
+
+        $projectionQueries = 0;
+        \Illuminate\Support\Facades\DB::listen(function ($query) use (&$projectionQueries) {
+            if (str_contains($query->sql, 'projection_columns')) {
+                $projectionQueries++;
+            }
+        });
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => now()->startOfMonth()->toDateString(),
+            'date_to' => now()->endOfMonth()->toDateString(),
+            'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        // buildSummary() builds 1 ALL row + 1 row per real team (2 teams
+        // here) = 3 buildSummaryRow() calls; each one's own
+        // departmentTaxAllocationPerShift() call must hit the DB at most
+        // once (the ensureSeededForMonth() firstOrCreate loop + the
+        // columns SELECT), never once per buildSummaryRow() call layered
+        // on top of that, and never once per lookup set within a call.
+        $this->assertLessThanOrEqual(
+            10,
+            $projectionQueries,
+            "expected projection_columns queries to stay flat across all 3 summary rows (ALL + 2 teams), got {$projectionQueries} — ".
+            'departmentTaxAllocationPerShift()\'s per-request cache is not taking effect, reintroducing the full-month 500'
+        );
+    }
+
     /** A product-level save with no tsa_id at all (update()'s own
      *  $tsaShift = null branch — the shared, non-TSA-scoped entry every
      *  page's own tsa_id-NULL row still writes to) has no TSA to compute a
