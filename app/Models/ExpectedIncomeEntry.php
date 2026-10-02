@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ExpectedIncomeEntry extends Model
 {
     protected $fillable = [
-        'product_id', 'tsa_id', 'entry_date',
+        'product_id', 'tsa_id', 'entry_date', 'is_locked',
         'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
         'gross_sales', 'cancelled', 'returns', 'delivered',
         'tax_allocation', 'product_cost',
@@ -31,6 +31,7 @@ class ExpectedIncomeEntry extends Model
 
     protected $casts = [
         'entry_date'           => 'date',
+        'is_locked'            => 'boolean',
         'roas'                 => 'float',
         'standard_cost_per_message' => 'float',
         'actual_cost_per_lead' => 'float',

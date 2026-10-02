@@ -22,7 +22,18 @@
     see its own withCustomRowValues()) is the correct source for BOTH
     built-in and custom rows' current value, used for every editable
     input's seed value now instead of $entry->{$key} directly.
+
+    $locked (explicit request, 2026-10-02: "can you create lock icon too
+    in this, like in the projections" — same "when it is lock it can't
+    edit" behavior Projections' own Opening/Closing Shift cards already
+    have): only meaningful alongside $editable = true (the overall
+    rollup card is already always read-only regardless) — every real
+    <input> below gets the `disabled` attribute plus a locked visual
+    style instead of being swapped for a plain span, so the field stays
+    genuinely non-editable (can't focus or type into it) without this
+    partial needing a third render mode on top of editable/read-only.
 --}}
+@php($lockedInputClass = ($locked ?? false) ? ' opacity-60 cursor-not-allowed' : '')
 <div class="px-5 py-4 font-mono text-[13px] space-y-2 border-b border-line dark:border-slate-700">
     @if($editable ?? false)
         <div class="flex items-center justify-end -mt-1 -mb-1">
@@ -41,8 +52,8 @@
         @if($editable ?? false)
             <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
                    value="{{ ($col['money'] ?? false) ? number_format($entry?->{$col['key']} ?? 0, 2) : ($entry?->{$col['key']} ?? 0) }}"
-                   data-field="{{ $col['key'] }}" @if($col['money'] ?? false) data-money="1" @endif
-                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="{{ $col['key'] }}" @if($col['money'] ?? false) data-money="1" @endif @if($locked ?? false) disabled @endif
+                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="{{ $col['key'] }}" class="font-semibold text-ink dark:text-slate-100 text-right">{{ ($col['money'] ?? false) ? number_format($d[$col['key']], 2) : number_format($d[$col['key']]) }}</span>
         @endif
@@ -58,8 +69,8 @@
         <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
         @if($editable ?? false)
             <input type="text" inputmode="numeric" value="{{ $entry?->number_of_orders ?? 0 }}"
-                   data-field="number_of_orders"
-                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="number_of_orders" @if($locked ?? false) disabled @endif
+                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="number_of_orders" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($d['number_of_orders']) }}</span>
         @endif
@@ -68,8 +79,8 @@
         <span class="text-ink-muted dark:text-slate-400">Average Order Value</span>
         @if($editable ?? false)
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->average_order_value ?? 0, 2) }}"
-                   data-field="average_order_value" data-money="1"
-                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="average_order_value" data-money="1" @if($locked ?? false) disabled @endif
+                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ $fmtMoney($d['average_order_value']) }}</span>
         @endif
@@ -95,8 +106,8 @@
         <span class="{{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
         @if($editable ?? false)
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
-                   data-field="{{ $col['key'] }}" data-money="1"
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="{{ $col['key'] }}" data-money="1" @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="{{ $col['key'] }}" class="text-right font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
         @endif
@@ -131,8 +142,8 @@
         <span class="{{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
         @if(($editable ?? false) && !$isTaxAllocationLocked)
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
-                   data-field="{{ $col['key'] }}" data-money="1"
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="{{ $col['key'] }}" data-money="1" @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="{{ $col['key'] }}" class="text-right {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
         @endif
@@ -153,8 +164,8 @@
         <span class="text-ink-muted dark:text-slate-400">{{ $label }}</span>
         @if($editable ?? false)
             <input type="text" inputmode="decimal" value="{{ number_format($d['selling_lines'][$key] ?? 0, 2) }}"
-                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="{{ $key }}" class="text-right text-ink dark:text-slate-100">{{ $fmtMoney($d['selling_lines'][$key] ?? 0) }}</span>
         @endif
@@ -210,8 +221,8 @@
         <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $label }}</span>
         @if(($editable ?? false) && !$isOperatingCostLocked)
             <input type="text" inputmode="decimal" value="{{ number_format($d['operating_lines'][$key] ?? 0, 2) }}"
-                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                   data-field="{{ $key }}" data-money="1" @if($isCustom) data-custom="1" @endif @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
             <span data-out="{{ $key }}" class="text-right {{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d['operating_lines'][$key] ?? 0) }}</span>
         @endif

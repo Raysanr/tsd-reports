@@ -866,6 +866,16 @@ class ExpectedIncomeController extends Controller
             'geniusmakers_management_fee' => ['sometimes', 'numeric', 'min:0'],
             'business_development_fund'   => ['sometimes', 'numeric', 'min:0'],
             'hmo_expense'                 => ['sometimes', 'numeric', 'min:0'],
+            // Lock toggle (explicit request, 2026-10-02: "can you create
+            // lock icon too in this, like in the projections" — same "when
+            // it is lock it can't edit" behavior Projections' own
+            // Opening/Closing Shift cards already have). Only meaningful
+            // on a TSA-scoped card ($tsaShift present) — the ALL view's own
+            // product-level cards and the overall "TELESALES"/TSA overview
+            // rollup card get no lock button at all, nothing to toggle
+            // there. Freezes every editable field on this ONE product card
+            // without touching its stored values.
+            'is_locked'            => ['sometimes', 'boolean'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
@@ -876,13 +886,75 @@ class ExpectedIncomeController extends Controller
         // DsPprReportController::update().
         $entry = ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsaId)->whereDate('entry_date', $entryDate)->first()
             ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'tsa_id' => $tsaId, 'entry_date' => $entryDate]);
+
+        // A locked entry refuses every OTHER field (never trust the
+        // frontend's own `disabled` attribute alone — that only stops a
+        // real browser from submitting one, not a direct PATCH). Still
+        // allows is_locked itself through, so the unlock action that
+        // restores editing isn't also blocked by the lock it's lifting.
+        if ($entry->is_locked) {
+            $data = array_intersect_key($data, ['is_locked' => true]);
+        }
+
         $entry->fill($data);
         $entry->save();
 
-        return response()->json([
+        $response = [
             'success' => true,
             'derived' => $this->derivedForProductOrGroup($product, $tsaId, $entryDate),
-        ]);
+        ];
+
+        // The lock toggle swaps every field on this card between a real
+        // <input> and the same input, now `disabled` — a structural change
+        // applyComputed() can't express (it only updates an EXISTING
+        // element's own text/value). Rendering the card's own fresh
+        // _product-card partial server-side and returning it here lets the
+        // frontend cross-fade the whole card in place (explicit request,
+        // 2026-10-02: "has smooth transition too like in the projection"),
+        // same convention as ProjectionController::updateColumn()'s own
+        // 'cardHtml' — only rendered when this request actually touched
+        // is_locked, every other per-field save still only needs the
+        // cheap JSON path above.
+        if (array_key_exists('is_locked', $data) && $tsaShift) {
+            $response['cardHtml'] = $this->renderProductCardHtml($product, $tsaShift, $entryDate);
+        }
+
+        return response()->json($response);
+    }
+
+    /** Re-renders ONE TSA-scoped product card's own fresh _product-card
+     *  partial — used by update()'s own lock-toggle response above so the
+     *  frontend can cross-fade the whole card in place instead of a full
+     *  page reload. Rebuilds the same $row shape ProductGrouping::rows()
+     *  produces (a grouped card re-renders with its own group label and
+     *  every member's pooled total, not just $product alone), since the
+     *  card partial needs 'label'/'products' to render its own title and
+     *  data-action correctly. */
+    private function renderProductCardHtml(Product $product, TsaShift $tsaShift, string $entryDate): string
+    {
+        $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
+        $groupProducts = $group ? $group->products()->orderBy('sort_order')->get() : collect([$product]);
+
+        $row = [
+            'label'    => $group->label ?? $product->display_name,
+            'products' => $groupProducts,
+            'group'    => $group,
+            'derived'  => $this->derivedForProductOrGroup($product, $tsaShift->id, $entryDate),
+        ];
+        // The lock button/disabled-input state reads the FIRST member's
+        // own entry — same "writes land on the first member" convention
+        // update()/updateCustomRow() already use, so a grouped card's own
+        // lock state always matches whichever entry a save would touch.
+        $entry = ExpectedIncomeEntry::where('product_id', $groupProducts->first()->id)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first();
+
+        return view('data.expected-income._product-card', [
+            'row' => $row, 'tsa' => $tsaShift, 'dateStr' => $entryDate, 'entry' => $entry,
+            'sellingRows' => ExpectedIncomeCalculator::sellingCostRows(),
+            'operatingRows' => ExpectedIncomeCalculator::operatingCostRows(),
+            'customRowKeys' => ExpectedIncomeCalculator::customRowKeys(),
+            'fmtMoney' => fn ($n) => number_format((float) $n, 2),
+            'fmtPct'   => fn ($n) => number_format(((float) $n) * 100, 2) . '%',
+        ])->render();
     }
 
     /** Separate endpoint for one custom row's own value (explicit request,
@@ -900,6 +972,18 @@ class ExpectedIncomeController extends Controller
 
         $entryDate = Carbon::parse($date)->toDateString();
         $tsaId = $tsaShift?->id;
+
+        // A locked card's own custom row values are frozen too — same
+        // "never trust the frontend's own disabled attribute alone" guard
+        // update() applies to its built-in fields, checked against the
+        // SAME entry a locked product card's lock state lives on.
+        $isLocked = ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsaId)->whereDate('entry_date', $entryDate)->value('is_locked') ?? false;
+        if ($isLocked) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This card is locked.',
+            ], 422);
+        }
 
         // whereDate() lookup, not a plain ['entry_date' => $entryDate]
         // match inside updateOrCreate()'s own conditions — same SQLite

@@ -388,6 +388,203 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertEqualsWithDelta($oneDaySalaries * 2, $twoDaySalaries, 0.02);
     }
 
+    /** Explicit request, 2026-10-02: "can you create lock icon too in
+     *  this, like in the projections" — one lock PER PRODUCT CARD
+     *  (explicit decision, same day), same "when it is lock it can't
+     *  edit" behavior Projections' own Opening/Closing Shift cards
+     *  already have. A fresh (never-saved) product card is unlocked by
+     *  default and shows a real editable input, not disabled. */
+    public function test_a_fresh_product_card_shows_an_unlocked_editable_input(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('data-ei-lock-toggle', false);
+        $response->assertSee('data-locked="0"', false);
+    }
+
+    /** Locking a product card persists is_locked on its own
+     *  ExpectedIncomeEntry (creating one if it never had a saved value at
+     *  all, same "every field optional via firstOrNew-style upsert"
+     *  convention update() already uses for every other field), returns
+     *  the card's own fresh HTML, and that fresh HTML shows every field
+     *  as `disabled` — genuinely non-editable, not just visually dimmed. */
+    public function test_locking_a_product_card_persists_and_disables_its_fields(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']),
+            ['is_locked' => true]
+        );
+
+        $response->assertOk();
+        $response->assertJsonStructure(['success', 'derived', 'cardHtml']);
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'is_locked' => true,
+        ]);
+
+        $cardHtml = $response->json('cardHtml');
+        $this->assertStringContainsString('data-locked="1"', $cardHtml);
+        $this->assertMatchesRegularExpression('/data-field="gross_sales"[^>]*disabled/', $cardHtml);
+    }
+
+    /** Unlocking restores a real, non-disabled editable input — the lock
+     *  is reversible and doesn't silently drop the stored values it was
+     *  freezing. */
+    public function test_unlocking_a_product_card_restores_editable_fields(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
+            'gross_sales' => 500, 'is_locked' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']),
+            ['is_locked' => false]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'is_locked' => false,
+        ]);
+        $cardHtml = $response->json('cardHtml');
+        $this->assertStringContainsString('data-locked="0"', $cardHtml);
+        $this->assertDoesNotMatchRegularExpression('/data-field="gross_sales"[^>]*disabled/', $cardHtml);
+        // The 500 saved before locking must still be there — locking never
+        // touches stored values.
+        $this->assertStringContainsString('500.00', $cardHtml);
+    }
+
+    /** A locked card's own stored value survives an attempted write — the
+     *  frontend disables the input so a real browser can never submit one,
+     *  but the backend must independently refuse a direct PATCH too
+     *  (never trust client-side disabled alone). */
+    public function test_a_locked_cards_value_cannot_be_overwritten_via_direct_patch(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
+            'gross_sales' => 500, 'is_locked' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']),
+            ['gross_sales' => 999999]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'gross_sales' => 500,
+        ]);
+        $this->assertDatabaseMissing('expected_income_entries', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'gross_sales' => 999999,
+        ]);
+    }
+
+    /** Same server-side guard as the built-in fields above, for a custom
+     *  row's own value — it lives on a completely separate table/endpoint
+     *  (ExpectedIncomeCustomValue/updateCustomRow()), so it needed its own
+     *  independent is_locked check rather than inheriting update()'s. */
+    public function test_a_locked_cards_custom_row_cannot_be_overwritten_via_direct_patch(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
+            'is_locked' => true,
+        ]);
+        \App\Models\ProjectionCustomRow::create(['key' => 'custom_fee', 'label' => 'Custom Fee', 'section' => 'selling', 'is_fixed' => false]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-custom-row-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']),
+            ['key' => 'custom_fee', 'value' => 777]
+        );
+
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('expected_income_custom_values', [
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'custom_row_key' => 'custom_fee', 'value' => 777,
+        ]);
+    }
+
+    /** A grouped product card's own lock lives on its FIRST member
+     *  product's entry, same "writes land on the first member" convention
+     *  the existing save tests already confirm — locking the group's card
+     *  (addressed by its first member's own product id, same as a save)
+     *  must not touch the second member's entry at all. */
+    public function test_locking_a_grouped_products_card_locks_its_first_member_only(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::orderBy('id')->first();
+        $productB = Product::orderBy('id')->skip(1)->first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $productA->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']),
+            ['is_locked' => true]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_entries', [
+            'product_id' => $productA->id, 'tsa_id' => $tsa->id, 'is_locked' => true,
+        ]);
+        $this->assertDatabaseMissing('expected_income_entries', [
+            'product_id' => $productB->id, 'tsa_id' => $tsa->id, 'is_locked' => true,
+        ]);
+        // The re-rendered card still shows the GROUP's own label, not just
+        // product A's own name — the lock toggle re-renders the full
+        // group card, not a lone product A card.
+        $this->assertStringContainsString('TO', $response->json('cardHtml'));
+    }
+
+    /** The lock button/toggle must never appear on cards that have no
+     *  single date to lock in the first place — the overall TSA rollup
+     *  card (always read-only regardless) and the multi-day range-summed
+     *  cards (read-only for a different reason, see isRangeSummed). */
+    public function test_the_lock_button_never_appears_on_read_only_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $singleDayResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+        $singleDayContent = $singleDayResponse->getContent();
+        // The overview card's own slice (bounded by data-out-scope="1" up
+        // to the first product card) must carry no lock toggle at all.
+        $overviewStart = strpos($singleDayContent, 'data-out-scope="1"');
+        $firstProductCardStart = strpos($singleDayContent, 'data-ei-lock-toggle');
+        $this->assertNotFalse($firstProductCardStart, 'test setup: expected at least one lock toggle on the page');
+        $this->assertGreaterThan($overviewStart, $firstProductCardStart, 'expected the overview card to render BEFORE the first lock toggle, i.e. carry none of its own');
+
+        $multiDayResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-02', 'team' => 'sh-naturals',
+        ]));
+        $multiDayResponse->assertOk();
+        // The attribute SELECTOR string ('[data-ei-lock-toggle]') lives in
+        // every page's own <script> block regardless of range — assert on
+        // the actual button MARKUP (the attribute as it appears on a real
+        // element, with its own data-locked companion) instead, or this
+        // would always "pass" by matching the JS source text, never the
+        // DOM it's supposedly checking.
+        $multiDayResponse->assertDontSee('data-ei-lock-toggle data-locked=', false);
+    }
+
     /** Explicit request, 2026-09-26: a product group created on DSPPR
      *  "will reflect it to the expected income" — grouped products show as
      *  ONE combined card here too, not two separate ones, on both the

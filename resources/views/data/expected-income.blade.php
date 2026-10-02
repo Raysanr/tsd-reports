@@ -159,19 +159,9 @@
 
             @foreach($tsaDailyRows as $row)
             @php
-                $d = $row['derived'];
-                $product = $row['products']->first();
-                $entry = $tsaDailyByKey->get($product->id . ':' . $dateStr);
+                $entry = $tsaDailyByKey->get($row['products']->first()->id . ':' . $dateStr);
             @endphp
-            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
-                 data-product-id="{{ $product->id }}"
-                 data-action="{{ route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $dateStr]) }}"
-                 data-custom-action="{{ route('data.expected-income.update-custom-row-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $dateStr]) }}">
-                <div class="px-5 py-4" style="background:#d9ead3;">
-                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
-                </div>
-                @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true, 'tsaScoped' => true])
-            </div>
+            @include('data.expected-income._product-card', ['row' => $row, 'tsa' => $tsa, 'dateStr' => $dateStr, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
         </div>
     </div>
@@ -484,7 +474,60 @@
             });
     }
 
+    // Lock toggle (explicit request, 2026-10-02: "can you create lock icon
+    // too in this, like in the projections", then "has smooth transition
+    // too like in the projection") — one lock PER PRODUCT CARD. Locking
+    // swaps every one of this card's own editable <input>s for the same
+    // input, now `disabled` — a structural change applyDerived() can't
+    // express in place, so the server renders the card's own fresh
+    // _product-card partial (update()'s own 'cardHtml', only present on an
+    // is_locked save) and this cross-fades the OLD card out, swaps the
+    // DOM, then fades the NEW one in — same convention as pj.js's own
+    // lock-toggle handler, no page reload at all.
+    function wireLockToggles(scroller) {
+        scroller.addEventListener('click', (e) => {
+            const lockBtn = e.target.closest('[data-ei-lock-toggle]');
+            if (!lockBtn) return;
+            const card = lockBtn.closest('.ei-card');
+            if (!card) return;
+            const nowLocked = lockBtn.dataset.locked !== '1';
+            const body = new URLSearchParams();
+            body.set('is_locked', nowLocked ? '1' : '0');
+            body.set('_method', 'PATCH');
+            lockBtn.disabled = true;
+            card.style.transition = 'opacity 180ms ease';
+            card.style.opacity = '0.25';
+            fetch(card.dataset.action, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': csrfToken,
+                },
+                body: body.toString(),
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => {
+                    if (!data?.cardHtml) { window.location.reload(); return; }
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = data.cardHtml.trim();
+                    const freshCard = wrapper.firstElementChild;
+                    freshCard.style.transition = 'opacity 180ms ease';
+                    freshCard.style.opacity = '0';
+                    card.replaceWith(freshCard);
+                    requestAnimationFrame(() => { freshCard.style.opacity = '1'; });
+                })
+                .catch(() => {
+                    lockBtn.disabled = false;
+                    card.style.opacity = '1';
+                    window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} this card — try again.`, 'error');
+                });
+        });
+    }
+
     document.querySelectorAll('.ei-day-scroller').forEach((scroller) => {
+        wireLockToggles(scroller);
+
         scroller.addEventListener('input', (e) => {
             const input = e.target.closest('.ei-field');
             if (!input) return;
