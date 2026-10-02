@@ -5,8 +5,13 @@
 @section('content')
 
 <style>
-    /* Row drag-reorder drop indicator (explicit request, 2026-10-02). */
-    .pj-row-drag-over { border-top: 2px solid var(--color-primary, #CA8A04); }
+    /* Row drag-reorder drop indicator (explicit request, 2026-10-02) —
+       top border = will drop ABOVE this row, bottom border = will drop
+       BELOW it, so the final position is clear before you release
+       (root-caused live: the drop used to always land one row off from
+       where it visually looked like it would). */
+    .pj-row-drag-over-before { border-top: 2px solid var(--color-primary, #CA8A04); }
+    .pj-row-drag-over:not(.pj-row-drag-over-before) { border-bottom: 2px solid var(--color-primary, #CA8A04); }
 </style>
 
 {{-- Intro paragraph removed (explicit request, 2026-09-23: "i want you te
@@ -786,7 +791,21 @@
     // row across cards), then persists it via data.rows.reorder; a failed
     // save reloads the page rather than leaving the DOM out of sync with
     // the server.
+    // Root-caused live, 2026-10-02 ("why is it so much to drag? ... when
+    // in the down is will drag to the top it is changing the position and
+    // sometimes the drag is will wrong the position"): drop used to
+    // ALWAYS insert the dragged row immediately AFTER whichever row the
+    // cursor last happened to be over, regardless of where in that row
+    // the cursor actually was — dragging upward and releasing on the TOP
+    // half of a target row still dropped it one row too low (after, not
+    // before), which is exactly backwards from what dragging "to the top"
+    // visually suggests. Now tracks whether the cursor is in the top or
+    // bottom half of the hovered row and inserts before/after accordingly
+    // — the pj-row-drag-over indicator (border-top vs border-bottom) shows
+    // which side it'll land on BEFORE you release, so the drop position
+    // is never a surprise.
     let draggedRowKey = null;
+    let dropBefore = false;
     document.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.pj-row');
         if (!row) return;
@@ -798,15 +817,18 @@
         const row = e.target.closest('.pj-row');
         if (row) row.classList.remove('opacity-40');
         draggedRowKey = null;
-        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over'));
+        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over', 'pj-row-drag-over-before'));
     });
     document.addEventListener('dragover', (e) => {
         if (!draggedRowKey) return;
         const row = e.target.closest('.pj-row');
         if (!row || row.dataset.rowKey === draggedRowKey) return;
         e.preventDefault();
-        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over'));
+        const rect = row.getBoundingClientRect();
+        dropBefore = (e.clientY - rect.top) < rect.height / 2;
+        document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over', 'pj-row-drag-over-before'));
         row.classList.add('pj-row-drag-over');
+        if (dropBefore) row.classList.add('pj-row-drag-over-before');
     });
     document.addEventListener('drop', (e) => {
         if (!draggedRowKey) return;
@@ -816,13 +838,31 @@
         const section = targetRow.dataset.rowSection;
         const targetKey = targetRow.dataset.rowKey;
 
-        // Moves the dragged row to sit immediately AFTER the drop target,
+        // after_row_key computed BEFORE the DOM mutation below — reading
+        // targetRow.previousElementSibling AFTER inserting the dragged row
+        // right before it would just find the dragged row itself (it was
+        // only just placed there), not the row that was actually there
+        // first. When dropping BEFORE the target, that previous sibling is
+        // null if the target was already first ("move to the very front"),
+        // and skipped entirely (falls through to the target's OWN
+        // previous-previous sibling) if it's the dragged row itself — e.g.
+        // dropping back onto the top half of the row immediately after it,
+        // a no-op move that would otherwise compute "after itself".
+        let afterRowKey = targetKey;
+        if (dropBefore) {
+            let prev = targetRow.previousElementSibling;
+            if (prev && prev.dataset.rowKey === draggedRowKey) prev = prev.previousElementSibling;
+            afterRowKey = prev?.dataset.rowKey ?? null;
+        }
+
+        // Moves the dragged row to sit immediately before/after the drop
+        // target (per dropBefore, set live by the last dragover above),
         // in EVERY dropzone sharing this section (every card on the page)
         // — same row key, same new position, everywhere at once.
         document.querySelectorAll(`[data-row-dropzone="${section}"]`).forEach((zone) => {
             const dragged = zone.querySelector(`.pj-row[data-row-key="${draggedRowKey}"]`);
             const target = zone.querySelector(`.pj-row[data-row-key="${targetKey}"]`);
-            if (dragged && target) target.insertAdjacentElement('afterend', dragged);
+            if (dragged && target) target.insertAdjacentElement(dropBefore ? 'beforebegin' : 'afterend', dragged);
         });
 
         fetch('{{ route('data.rows.reorder') }}', {
@@ -832,7 +872,7 @@
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRF-TOKEN': csrfToken,
             },
-            body: new URLSearchParams({ _method: 'PATCH', row_key: draggedRowKey, after_row_key: targetKey, section }).toString(),
+            body: new URLSearchParams({ _method: 'PATCH', row_key: draggedRowKey, after_row_key: afterRowKey ?? '', section }).toString(),
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
             .catch(() => {
