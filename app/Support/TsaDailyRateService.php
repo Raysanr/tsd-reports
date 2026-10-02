@@ -188,16 +188,13 @@ class TsaDailyRateService
      *  Salaries/the pool rows already use). */
     public static function taxAllocationByTsaId(): array
     {
-        $tsas = TsaShift::all();
         $perShift = self::departmentTaxAllocationPerShift();
 
-        $tsaCountByTeam = $tsas->groupBy('team')->map->count();
-
-        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($perShift, $tsaCountByTeam) {
-            $teamCount = $tsaCountByTeam->get($tsa->team, 0);
+        return TsaShift::all()->groupBy('team')->flatMap(function ($teamTsas) use ($perShift) {
+            $teamCount = $teamTsas->count();
             $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
-            return [$tsa->id => $monthly / 24];
+            return $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $monthly / 24]);
         })->all();
     }
 

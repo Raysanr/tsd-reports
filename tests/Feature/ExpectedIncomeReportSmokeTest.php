@@ -1289,6 +1289,54 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, 2026-10-02 (live screenshot): the overview card's
+     *  own Tax Allocation rendered 0.00 in production while her product
+     *  cards correctly showed a non-zero figure — production has 12 real
+     *  TSAs (6 per team), not this app's dev-DB default of 6 total (3 per
+     *  team), so this test explicitly pads BOTH teams up to 6 TSAs each to
+     *  reproduce that exact roster shape and guard against any future
+     *  per-team-count regression no smaller fixture would ever catch. */
+    public function test_the_overview_cards_tax_allocation_is_non_zero_with_a_production_sized_roster(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
+
+        // Pad both teams up to 6 real TSAs each (12 total), matching
+        // production's own real roster shape exactly.
+        foreach (['SH Naturals', 'Eyecare Team'] as $team) {
+            $existing = TsaShift::where('team', $team)->count();
+            for ($i = $existing; $i < 6; $i++) {
+                TsaShift::create([
+                    'tsa_key' => "{$team}-extra-{$i}", 'display_name' => "{$team} Extra {$i}",
+                    'team' => $team, 'sort_order' => 100 + $i,
+                ]);
+            }
+        }
+        $this->assertSame(12, TsaShift::count(), 'test setup: expected 12 real TSAs total, matching production');
+
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $expected = TsaDailyRateService::taxAllocationByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $tsa->display_name);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
+            $overviewHtml,
+            'expected the overview card\'s own Tax Allocation to be non-zero and match TsaDailyRateService::taxAllocationByTsaId(), not 0.00'
+        );
+    }
+
     /** A product-level save with no tsa_id at all (update()'s own
      *  $tsaShift = null branch — the shared, non-TSA-scoped entry every
      *  page's own tsa_id-NULL row still writes to) has no TSA to compute a
