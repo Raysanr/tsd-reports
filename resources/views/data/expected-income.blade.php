@@ -88,6 +88,48 @@
      rows above, no per-date card rows) — daily per-date cards now only
      render once a real team is picked. --}}
 @if($selectedTeam !== 'all')
+@if($isRangeSummed)
+    {{-- Multi-day range: ONE read-only block per TSA summing the whole
+         selected range, instead of a stack repeated per calendar day
+         (explicit decision, 2026-10-02: "it should be adding oct 1 and 2
+         data right?" — picking a >1-day range previously still rendered
+         one full per-day stack per date, each showing only that single
+         day's own numbers, which looked like the range filter wasn't
+         doing anything on a mostly-empty day). Read-only because every
+         input below normally autosaves to one specific (product, tsa,
+         DATE) row — summed across days there's no single date left to
+         save an edit into, same reason the top range-summary row has
+         always been read-only. Pick a 1-day range for editable inputs. --}}
+    @foreach($tsaRows as $tsaRow)
+    @php
+        $tsa = $tsaRow['tsa'];
+    @endphp
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller">
+        <div class="flex items-start gap-5 w-max">
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+                <div class="px-5 py-4" style="background:#fde047;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $tsaRow['rangeOverallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            </div>
+
+            @foreach($tsaRow['rangeRows'] as $row)
+            @php
+                $d = $row['derived'];
+                $product = $row['products']->first();
+            @endphp
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
+                 data-product-id="{{ $product->id }}">
+                <div class="px-5 py-4" style="background:#d9ead3;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $row['label'] }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endforeach
+@else
 @foreach($dates as $date)
 @php
     $dateStr = $date->toDateString();
@@ -135,6 +177,7 @@
     </div>
     @endforeach
 @endforeach
+@endif
 @endif
 
 @push('scripts')

@@ -235,17 +235,29 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     /** Same off-by-one root-caused 2026-09-27 in DsPprReportController's
      *  own identical daysUntil()->addDay() call — see that test's own doc
      *  comment for the full root cause (daysUntil() is already inclusive
-     *  of its own end date). */
-    public function test_the_daily_rows_never_show_a_day_past_the_selected_range(): void
+     *  of its own end date). Rewritten 2026-10-02 when a multi-day
+     *  team-scoped range became ONE summed read-only block instead of a
+     *  per-date data-date row each (see isRangeSummed's own doc comment on
+     *  buildTeamDailyRows()) — there's no longer any data-date markup to
+     *  assert against for a >1-day range, so this now proves the
+     *  off-by-one fix via the summed Gross Sales figure instead: a day
+     *  just past the range must never be silently folded into the total. */
+    public function test_the_range_sum_never_includes_a_day_past_the_selected_range(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
 
-        // ALL no longer renders any daily data-date rows at all (explicit
-        // request, 2026-09-30: "it should be only Telesales Expected
-        // Performance, TEAM 1, TEAM 2 and no other rows of cards") — daily
-        // rows now only render once a real team is picked, so this
-        // off-by-one check needs a real team slug to have any data-date
-        // markup to assert against.
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-09-30',
+            'gross_sales' => 1000,
+        ]);
+        // Just past the selected range — must never be folded into the sum.
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
+            'gross_sales' => 999999,
+        ]);
+
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => '2026-09-21',
             'date_to' => '2026-09-30',
@@ -253,12 +265,127 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        // No visible date text anywhere in the daily section any more
-        // (explicit request, 2026-09-30: "there will be no dates in all" /
-        // "the only will be gone is this in the down part") — check the
-        // day-scroller's own data-date attribute instead.
-        $response->assertSee('data-date="2026-09-30"', false);
-        $response->assertDontSee('data-date="2026-10-01"', false);
+        $response->assertSee('1,000.00');
+        $response->assertDontSee('999,999.00');
+        $response->assertDontSee('1,000,999.00');
+    }
+
+    /** Regression test, 2026-10-02 (live screenshot): a multi-day
+     *  team-scoped filter rendered a full per-day stack of cards for EACH
+     *  date, each showing only that single day's own numbers — looked
+     *  like the range filter wasn't summing at all on a mostly-empty day
+     *  ("why is it when i filter multiple dates why the tsa cards and
+     *  products is staying like as per day"). Now a >1-day range renders
+     *  ONE read-only block per TSA, its figures summed across the WHOLE
+     *  range — same role the top range-summary row already plays, just
+     *  per-TSA instead of per-team. A 1-day range is unaffected (still the
+     *  original editable per-day cards, see the next test). */
+    public function test_a_multi_day_team_filter_shows_one_summed_block_not_one_per_day(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
+            'gross_sales' => 1000,
+        ]);
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-02',
+            'gross_sales' => 500,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-02', 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        // 1,000 + 500 summed into one block, not two separate 1,000.00 /
+        // 500.00 per-day cards.
+        $response->assertSee('1,500.00');
+        // No per-CALENDAR-DAY card scroller at all on a multi-day range —
+        // read-only, no save endpoint for a range with no single date to
+        // save into. ei-day-scroller's own data-date attribute (not the
+        // date-range picker widget's own unrelated data-date="..." day
+        // buttons, which are always present) is what distinguishes it.
+        $response->assertDontSee('ei-day-scroller" data-date=', false);
+        $response->assertDontSee(route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']), false);
+    }
+
+    /** A 1-day range is the common case (including every day-to-day
+     *  autosave) and must stay exactly as it always was: one editable
+     *  per-day card stack, not the new multi-day summed read-only block. */
+    public function test_a_single_day_team_filter_stays_editable_not_summed(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('data-date="2026-10-01"', false);
+        $response->assertSee(route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => '2026-10-01']), false);
+    }
+
+    /** Regression test, 2026-10-02 (live screenshot): a 2-day summed TSA
+     *  card showed the SAME locked Salaries/Operating Cost figures as a
+     *  1-day card instead of double ("why is the costs is not doubling
+     *  when i filter the oct 1 to 2?") — $productCardOverrides/
+     *  $overviewCardOverrides/the tax allocation figures are all DAILY
+     *  rates, applied once via withOverriddenOperatingCosts() regardless
+     *  of how many days were actually summed. Fixed by multiplying each
+     *  by $dates->count() before overriding, same "× $dayCount" rule
+     *  addActiveTsasOverviewOperatingCosts() already applies to the top
+     *  summary row. Asserts the 2-day overview card's own locked Salaries
+     *  figure is EXACTLY double the 1-day figure, not equal to it. */
+    public function test_a_multi_day_summed_cards_locked_operating_costs_double_for_two_days(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        Product::first()->update(['has_cost_allocation' => true]);
+
+        // Her own overview card's own locked Salaries — scoped between her
+        // name and her first product card's own title, exactly the same
+        // slice test_a_tsas_product_card_shows_salaries_locked_to_her_daily_rate_per_product()
+        // above already uses, so this never accidentally matches the top
+        // range-summary row's own (differently-scoped, multi-TSA) Salaries
+        // figure elsewhere on the same page.
+        $extractHerOverviewSalaries = function (string $content, string $tsaName): float {
+            $namePos = strpos($content, $tsaName);
+            $this->assertNotFalse($namePos, 'test setup: expected to find the TSA\'s own name on the page');
+            $firstFieldPos = strpos($content, 'data-field=', $namePos);
+            $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+            preg_match('/data-out="salaries"[^>]*>\s*([\d,]+\.\d{2})/', $overviewHtml, $match);
+            $this->assertNotEmpty($match, 'test setup: expected a locked Salaries figure in her own overview card');
+            return (float) str_replace(',', '', $match[1]);
+        };
+
+        $oneDayResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+        $oneDayResponse->assertOk();
+        $oneDaySalaries = $extractHerOverviewSalaries($oneDayResponse->getContent(), $tsa->display_name);
+        $this->assertGreaterThan(0, $oneDaySalaries);
+
+        $twoDayResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-02', 'team' => 'sh-naturals',
+        ]));
+        $twoDayResponse->assertOk();
+        $twoDaySalaries = $extractHerOverviewSalaries($twoDayResponse->getContent(), $tsa->display_name);
+
+        // Within a couple cents of exactly double (0.02 tolerance absorbs
+        // ordinary half-cent display rounding on the already-rounded
+        // 1-day figure × 2, nothing to do with the bug itself) — not
+        // equal to the 1-day figure (the bug this guards against) and not
+        // some other multiple.
+        $this->assertEqualsWithDelta($oneDaySalaries * 2, $twoDaySalaries, 0.02);
     }
 
     /** Explicit request, 2026-09-26: a product group created on DSPPR

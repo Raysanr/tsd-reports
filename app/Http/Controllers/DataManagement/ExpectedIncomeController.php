@@ -444,6 +444,36 @@ class ExpectedIncomeController extends Controller
     {
         ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, null, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
 
+        // A multi-day range sums into ONE read-only block instead of one
+        // editable block per day (explicit decision, 2026-10-02: "it
+        // should be adding oct 1 and 2 data right?" — the per-day stacking
+        // below predates this and was never meant to look like a "the
+        // range isn't applying" dead end on a >1-day filter; see
+        // isRangeSummed's own doc comment on buildTeamDailyRows() for why
+        // this can't just ALSO stay editable). A single-day range (the
+        // common case, including every autosave day-to-day) is completely
+        // unaffected — same per-day editable cards as always.
+        if ($dates->count() > 1) {
+            $rangeRows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dates, $sellingKeys, $operatingKeys) {
+                $pooled = $groupProducts->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())));
+                return ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
+            });
+            $rangeOverallTotal = ExpectedIncomeCalculator::sum(
+                $products->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())))->all(),
+                $sellingKeys, $operatingKeys
+            );
+
+            return [
+                'dailyRows'          => collect(),
+                'dailyOverallTotals' => collect(),
+                'dailyByKey'         => $entriesByKey,
+                'tsaRows'            => null,
+                'isRangeSummed'      => true,
+                'rangeRows'          => $rangeRows,
+                'rangeOverallTotal'  => $rangeOverallTotal,
+            ];
+        }
+
         // Per-day display rows (product OR group) — built once here rather
         // than inside the view's own @foreach so the view never has to
         // know about ProductGrouping at all, same "controller owns the row
@@ -472,6 +502,9 @@ class ExpectedIncomeController extends Controller
             'dailyOverallTotals' => $dailyOverallTotals,
             'dailyByKey'         => $entriesByKey,
             'tsaRows'            => null,
+            'isRangeSummed'      => false,
+            'rangeRows'          => null,
+            'rangeOverallTotal'  => null,
         ];
     }
 
@@ -533,12 +566,60 @@ class ExpectedIncomeController extends Controller
         $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId) {
+        // A multi-day range sums into ONE read-only block per TSA instead
+        // of one editable block per day (explicit decision, 2026-10-02:
+        // "it should be adding oct 1 and 2 data right?"). Can't just ALSO
+        // stay editable here — every input's data-action autosaves to one
+        // specific (product, tsa, DATE) row, so a card summing 2+ days has
+        // no single date left to save an edit into; same reason the top
+        // range-summary row (buildSummary()) has always been read-only.
+        // Pick a 1-day range to get editable inputs back, same as the ALL
+        // view (see buildAllDailyRows()'s own doc comment on this).
+        $isRangeSummed = $dates->count() > 1;
+
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId, $isRangeSummed) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
             $productCardOverrides = array_merge($dailyCostPerProductRow, ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]);
             $overviewCardOverrides = array_merge($dailyCostRow, ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]);
             $productCardTaxAllocation = $taxAllocationPerProductByTsaId[$tsa->id] ?? 0.0;
             $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? 0.0;
+
+            if ($isRangeSummed) {
+                // $productCardOverrides/$overviewCardOverrides/the tax
+                // allocation figures are all DAILY rates (one day's own
+                // Salaries/pool share/Tax Allocation) — correct as-is for
+                // a 1-day card, but a range summing N days needs each one
+                // multiplied by N first, same "× $dayCount" rule
+                // addActiveTsasOverviewOperatingCosts() already applies to
+                // the top summary row (root-caused live, 2026-10-02: "why
+                // is the costs is not doubling when i filter the oct 1 to
+                // 2?" — these were being applied at their flat 1-day rate
+                // no matter how many days were actually summed).
+                $dayCount = $dates->count();
+                $productCardOverridesForRange = array_map(fn ($v) => $v * $dayCount, $productCardOverrides);
+                $overviewCardOverridesForRange = array_map(fn ($v) => $v * $dayCount, $overviewCardOverrides);
+                $productCardTaxAllocationForRange = $productCardTaxAllocation * $dayCount;
+                $overviewCardTaxAllocationForRange = $overviewCardTaxAllocation * $dayCount;
+
+                $rangeRows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dates, $sellingKeys, $operatingKeys, $productCardOverridesForRange, $productCardTaxAllocationForRange) {
+                    $pooled = $groupProducts->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())));
+                    $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
+                    $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverridesForRange);
+                    return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $productCardTaxAllocationForRange);
+                });
+                $rangeOverallTotal = (function () use ($products, $dates, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverridesForRange, $overviewCardTaxAllocationForRange) {
+                    $rangeRaw = $products->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())))->all();
+                    $summed = ExpectedIncomeCalculator::sum($rangeRaw, $sellingKeys, $operatingKeys);
+                    $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverridesForRange);
+                    return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocationForRange);
+                })();
+
+                return [
+                    'tsa' => $tsa,
+                    'rangeRows' => $rangeRows,
+                    'rangeOverallTotal' => $rangeOverallTotal,
+                ];
+            }
 
             $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $productCardOverrides, $productCardTaxAllocation) {
                 $dateStr = $date->toDateString();
@@ -579,10 +660,13 @@ class ExpectedIncomeController extends Controller
         });
 
         return [
+            'isRangeSummed'      => $isRangeSummed,
             'dailyRows'          => collect(),
             'dailyOverallTotals' => collect(),
             'dailyByKey'         => collect(),
             'tsaRows'            => $tsaRows,
+            'rangeRows'          => null,
+            'rangeOverallTotal'  => null,
         ];
     }
 
