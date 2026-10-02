@@ -47,6 +47,34 @@ class ProjectionsTest extends TestCase
         $response->assertSee('pj-row-handle', false);
     }
 
+    /** Explicit follow-up, 2026-10-02: "only the Opening Shift: Monthly
+     *  Target can be draggable and other cards is not" — a derived card
+     *  (Telesales Department, every Individual TSA Monthly/Daily) isn't
+     *  an independent cell at all (same reason it was never editable),
+     *  so its own rows must carry no drag handle/draggable attribute,
+     *  even though they still show the same row order as every other
+     *  card (data-row-key/data-row-section are kept — a drag that
+     *  happens on Opening/Closing Shift still visually updates these
+     *  cards' own row order too). */
+    public function test_only_lockable_cards_rows_are_draggable_not_derived_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $cardStart = strpos($content, 'data-key="telesales_department"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringNotContainsString('draggable="true"', $cardHtml);
+        $this->assertStringNotContainsString('pj-row-handle', $cardHtml);
+        // Still carries its own row-key identity for the shared-order JS.
+        $this->assertStringContainsString('data-row-key="salaries"', $cardHtml);
+    }
+
     /** Regression: the page rendered with zero columns and no error when
      *  the table was migrated but empty (a real dev-environment failure —
      *  a DB reset after the seeding migration already ran, so it never

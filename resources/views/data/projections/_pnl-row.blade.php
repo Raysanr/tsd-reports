@@ -49,12 +49,20 @@
     $column->is_locked): explicit follow-up, 2026-10-02 ("and when it is
     locked it cant dragged too") — a locked card's own rows can't be
     reordered either, same "fully frozen, not just the dollar figures"
-    meaning as $editable already applying to the <input>s above. Checked
-    SEPARATELY from $editable (not reused as the drag gate) since a
-    derived/non-lockable card (Telesales Department, every Individual TSA
-    card — $editable already false there, $column->is_locked meaningless)
-    stays draggable; only an EXPLICITLY locked Opening/Closing Shift card
-    loses it.
+    meaning as $editable already applying to the <input>s above.
+
+    $draggableCard (optional, passed by _column.blade.php as
+    $isLockable): explicit follow-up, 2026-10-02 ("only the Opening Shift:
+    Monthly Target can be draggable and other cards is not" — a derived
+    card like Telesales Department/every Individual TSA Monthly/Daily
+    isn't an independent cell at all, same reason it was never editable;
+    its own rows showing a drag handle implied you could reorder FROM it,
+    which was never the intent). Only Opening/Closing Shift (the 2
+    lockable base cards) get a handle at all — every other card's rows
+    still carry data-row-key/data-row-section (so a drag that happens on
+    one of THOSE 2 cards still visually updates every other card's own
+    row order too, same shared-order behavior as before), just with no
+    handle/draggable attribute of their own to initiate one from.
 --}}
 @php
     $rowColorClass = match ($rowColor ?? null) {
@@ -62,10 +70,19 @@
         'blue' => 'text-blue-600 dark:text-blue-400',
         default => null,
     };
-    $isDraggable = isset($rowKey, $section) && !($locked ?? false);
+    // $isOrderedRow: every card's own row still needs data-row-key/
+    // data-row-section/the pj-row class (the shared-order JS queries
+    // EVERY dropzone, including derived cards', to move the same row
+    // there too when a drag happens elsewhere) — it just doesn't get the
+    // handle/draggable=true UNLESS this specific card can actually
+    // initiate a drag ($draggableCard, only true on Opening/Closing
+    // Shift) and isn't locked.
+    $isOrderedRow = isset($rowKey, $section);
+    $isDraggable = $isOrderedRow && ($draggableCard ?? false) && !($locked ?? false);
 @endphp
-<div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 {{ $isDraggable ? 'pj-row' : '' }}"
-     @if($isDraggable) data-row-key="{{ $rowKey }}" data-row-section="{{ $section }}" draggable="true" @endif>
+<div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 {{ $isOrderedRow ? 'pj-row' : '' }}"
+     @if($isOrderedRow) data-row-key="{{ $rowKey }}" data-row-section="{{ $section }}" @endif
+     @if($isDraggable) draggable="true" @endif>
     <span class="{{ $rowColorClass ?? 'text-ink-muted dark:text-slate-400' }} inline-flex items-center gap-1">
         @if($isDraggable)
             <svg class="pj-row-handle w-3 h-3 shrink-0 cursor-grab text-ink-muted/40 hover:text-ink-muted/70" fill="currentColor" viewBox="0 0 16 16"><circle cx="5" cy="3" r="1.3"/><circle cx="11" cy="3" r="1.3"/><circle cx="5" cy="8" r="1.3"/><circle cx="11" cy="8" r="1.3"/><circle cx="5" cy="13" r="1.3"/><circle cx="11" cy="13" r="1.3"/></svg>
