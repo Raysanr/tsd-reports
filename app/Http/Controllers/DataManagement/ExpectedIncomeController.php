@@ -276,22 +276,19 @@ class ExpectedIncomeController extends Controller
 
         // Every TSA-owned row's own per-product-DIVIDED Operating Costs
         // override is stripped back to 0 here, then added back via
-        // addActiveTsasOverviewOperatingCosts() scoped to THIS card's own
-        // product group — same "active anywhere in the WHOLE range ⇒
-        // multiply by the full range day-count" rule as the overall
-        // rollup, now applied per product card too (explicit correction,
-        // 2026-10-01: "it should be all cards will be multiplied" — Mariel
-        // had only 1 entry out of 4 filtered days on a product; summing her
-        // divided override only for days an entry row happened to exist
-        // left this card's own Salaries flat at one day's worth instead of
-        // ×4). Scoped per group (not the whole page) since each product
-        // card's own divided share only involves the TSAs who actually
-        // touched ONE OF THIS GROUP'S OWN products somewhere in the range.
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds) {
+        // addActiveTsasOverviewOperatingCosts() — same "EVERY real TSA
+        // scoped in always counts, multiplied by the full range day-count"
+        // rule as the overall rollup, applied to every product card too
+        // (explicit confirmation, 2026-10-02: "the per product i want it
+        // will total too" — every real TSA on the team contributes her own
+        // per-product share here regardless of whether she has an entry on
+        // THIS specific product, same as the rollup regardless of whether
+        // she has an entry at all).
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
-            return $this->addActiveTsasOverviewOperatingCosts($derived, $groupProducts, $dates, $dateFrom, $dateTo, $onlyTsaIds, divideByProductCount: true);
+            return $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, divideByProductCount: true);
         });
 
         // Every product/day's own RAW row (not $cards's own already-derived
@@ -327,7 +324,7 @@ class ExpectedIncomeController extends Controller
             ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row)
             ->all();
         $derived = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
-        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $products, $dates, $dateFrom, $dateTo, $onlyTsaIds);
+        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds);
 
         return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
@@ -360,18 +357,26 @@ class ExpectedIncomeController extends Controller
      *  somewhere in the range (the $products passed in IS the group's own
      *  member list in that case, not the whole page's).
      *
-     *  $onlyTsaIds restricts which real TSAs count as "active" the same way
-     *  it already restricts rawByProductAndDateAllTsas() — null (site-wide)
-     *  or one team's own TSA ids. */
-    private function addActiveTsasOverviewOperatingCosts(array $derived, $products, $dates, string $dateFrom, string $dateTo, ?array $onlyTsaIds, bool $divideByProductCount = false): array
+     *  $onlyTsaIds restricts which real TSAs get totaled in — null
+     *  (site-wide) means EVERY real TSA company-wide, an array means one
+     *  team's own real TSA ids.
+     *
+     *  EVERY real TSA scoped in always counts, for BOTH the rollup AND
+     *  every individual product card alike (explicit confirmation,
+     *  2026-10-02, after briefly trying "product cards keep the old
+     *  'only TSAs who touched this product' scoping" — reversed again,
+     *  same day: "the per product i want it will total too") — NOT just
+     *  whoever happens to have a saved ExpectedIncomeEntry row (confirmed
+     *  live via screenshot: 6 real TSAs, every one of them showing 0.00
+     *  Gross Sales/no saved entry at all, yet each one's own Salaries/Tax
+     *  Allocation is a real STAFFING cost that applies regardless of
+     *  whether she's typed in any sales numbers yet — this now holds
+     *  whether $products is the whole page's own list (the rollup) or one
+     *  product group's own narrower list (a single product card), since
+     *  $onlyTsaIds already carries the real team-scoping either way). */
+    private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, bool $divideByProductCount = false): array
     {
-        $activeTsaIds = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
-            ->whereNotNull('tsa_id')
-            ->whereDate('entry_date', '>=', $dateFrom)
-            ->whereDate('entry_date', '<=', $dateTo)
-            ->when($onlyTsaIds !== null, fn ($q) => $q->whereIn('tsa_id', $onlyTsaIds))
-            ->distinct()
-            ->pluck('tsa_id');
+        $activeTsaIds = $onlyTsaIds !== null ? collect($onlyTsaIds) : TsaShift::pluck('id');
 
         if ($activeTsaIds->isEmpty()) {
             return $derived;

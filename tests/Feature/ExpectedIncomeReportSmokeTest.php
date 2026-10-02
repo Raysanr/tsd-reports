@@ -671,27 +671,28 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
     /** Regression test, 2026-10-02 (live screenshot): "it should be total
      *  in this TELESALES right? like others costs" — the rollup's own Tax
-     *  Allocation must total every active TSA's own Daily Tax figure, same
-     *  "once per active TSA per day in the WHOLE range" rule Salaries/the
-     *  shared pools already follow — addActiveTsasOverviewOperatingCosts()
-     *  originally only folded in Salaries/pools (operating_lines' own
-     *  keys), silently leaving Tax Allocation (a TOP-LEVEL field) at
-     *  whatever the raw stored rows summed to (0, since it's never
-     *  actually saved for a TSA-owned row). */
-    public function test_the_range_summary_cards_tax_allocation_totals_every_active_tsas_daily_tax(): void
+     *  Allocation must total EVERY real TSA on the team's own Daily Tax
+     *  figure, once each, regardless of whether she has a saved entry at
+     *  all (explicit correction, same day, confirmed live: "each has
+     *  Operating Costs and it should be all total in the TELESALES card"
+     *  — 6 real TSAs with zero saved entries between them still each
+     *  contribute their own real staffing cost; reverses an earlier
+     *  "active = has an ExpectedIncomeEntry row" reading that left the
+     *  rollup reading 0, or some unrelated stray TSA's own row, whenever
+     *  none of the real TSAs shown had typed anything in yet). */
+    public function test_the_range_summary_cards_tax_allocation_totals_every_real_tsas_daily_tax(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         ProjectionColumn::ensureSeeded();
         ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
         $tsa = TsaShift::first();
-        Product::first()->update(['has_cost_allocation' => true]);
-        ExpectedIncomeEntry::create([
-            'product_id' => Product::first()->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
-            'gross_sales' => 50000,
-        ]);
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        $expected = TsaDailyRateService::taxAllocationByTsaId()[$tsa->id];
+        // No ExpectedIncomeEntry saved anywhere — every real TSA on this
+        // team must still contribute her own Daily Tax figure.
+        $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
+        $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
+        $expected = $teamTsaIds->sum(fn ($id) => $taxAllocationByTsaId[$id] ?? 0.0);
         $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure to meaningfully verify the fix');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -708,24 +709,23 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression(
             '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
             $summaryHtml,
-            "expected the TELESALES rollup's own Tax Allocation to total her Daily Tax figure ({$expected})"
+            "expected the TELESALES rollup's own Tax Allocation to total every real TSA's own Daily Tax figure ({$expected})"
         );
     }
 
-    /** Tighter regression test, 2026-10-01 (live screenshot): "this card
-     *  should be the totals of the per-tsa cards" — the TELESALES rollup's
-     *  own Salaries must equal the TSA's OVERVIEW-card figure (her TOTAL ÷
-     *  24 ÷ flagged-product-count, undivided a second time), not the
-     *  smaller per-PRODUCT-card figure (that same number divided AGAIN by
-     *  flagged-product-count) multiplied by however many of her flagged
-     *  products happen to have a saved entry. Flags 2 products but gives
-     *  her an entry on only ONE of them — confirmed live with Mariel
-     *  Entanto: her overview card showed Salaries 243.31 (7 flagged
-     *  products) but the rollup only showed 69.52 (≈2 products' worth),
-     *  since rawByProductAndDateAllTsas()'s own per-product-divided
-     *  override was being summed once per EXISTING entry row rather than
-     *  added once per TSA. */
-    public function test_the_range_summary_cards_salaries_equals_the_tsas_overview_figure_even_with_a_missing_product_entry(): void
+    /** Tighter regression test, 2026-10-01/2026-10-02 (live screenshots):
+     *  "this card should be the totals of the per-tsa cards" then "each has
+     *  Operating Costs and it should be all total in the TELESALES card" —
+     *  the TELESALES rollup's own Salaries must total EVERY real TSA on the
+     *  team's own OVERVIEW-card figure (her TOTAL ÷ 24 ÷ flagged-product-
+     *  count, undivided a second time), once each, REGARDLESS of whether
+     *  she has any saved entry at all (explicit correction, 2026-10-02 —
+     *  reverses this test's own earlier "active = has an entry" premise:
+     *  confirmed live, 6 real TSAs with ZERO saved entries between them
+     *  still each contribute their own real staffing cost). Flags 2
+     *  products but gives only ONE TSA an entry on only ONE of them — the
+     *  rollup must still total ALL of the team's real TSAs regardless. */
+    public function test_the_range_summary_cards_salaries_totals_every_real_tsas_overview_figure(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -734,20 +734,24 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
 
-        // Flag 2 products so her own per-product-divided figure (what the
-        // bug summed once per EXISTING row) differs from her undivided
-        // overview figure (what the rollup must show instead).
+        // Flag 2 products so a per-product-divided figure would differ
+        // from the undivided overview figure the rollup must show.
         $products = Product::take(2)->get();
         $products->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
 
-        // An entry on only ONE of her 2 flagged products — the bug's own
-        // "once per existing row" sum would pool her Salaries override
-        // exactly once here (her overview total ÷ 2), half her real figure.
+        // An entry on only ONE of her 2 flagged products — every OTHER
+        // real TSA on the team has NO saved entry anywhere at all, yet
+        // must still contribute her own full Salaries figure.
         ExpectedIncomeEntry::create([
             'product_id' => $products->first()->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
             'gross_sales' => 10000,
         ]);
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
+        $perProductByTsaId = TsaDailyRateService::perProductByTsaId();
+        $expectedSalaries = $teamTsaIds->sum(fn ($id) => $perProductByTsaId[$id] ?? 0.0);
+        $this->assertGreaterThan(0, $expectedSalaries, 'test setup: expected a non-zero Salaries total');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
@@ -760,11 +764,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
         $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
 
-        $expectedSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaId()[$tsa->id], 2);
         $this->assertMatchesRegularExpression(
-            '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedSalaries, '/') . '/',
+            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($expectedSalaries, 2), '/') . '/',
             $summaryHtml,
-            "expected the TELESALES rollup's own Salaries to equal her full overview figure ({$expectedSalaries}), not a fraction of it"
+            "expected the TELESALES rollup's own Salaries to total every real TSA's own overview figure ({$expectedSalaries})"
         );
     }
 
@@ -803,6 +806,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'gross_sales' => 10000,
         ]);
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->subDays(3)->toDateString(), 'date_to' => today()->toDateString(),
@@ -815,23 +819,30 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
         $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
 
-        // The rollup's own Salaries = her UNDIVIDED overview figure × 4 days.
-        $expectedRollupSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaId()[$tsa->id] * 4, 2);
+        // The rollup's own Salaries = EVERY real TSA on the team's own
+        // UNDIVIDED overview figure, each × 4 days (explicit correction,
+        // 2026-10-02: the rollup totals every real TSA regardless of
+        // whether she has an entry, not just whoever happens to have one).
+        $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
+        $perProductByTsaId = \App\Support\TsaDailyRateService::perProductByTsaId();
+        $expectedRollupSalaries = number_format($teamTsaIds->sum(fn ($id) => ($perProductByTsaId[$id] ?? 0.0) * 4), 2);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedRollupSalaries, '/') . '/',
             $summaryHtml,
-            "expected the TELESALES rollup's own Salaries to be her daily figure × 4 days ({$expectedRollupSalaries})"
+            "expected the TELESALES rollup's own Salaries to total every real TSA's own daily figure × 4 days ({$expectedRollupSalaries})"
         );
 
-        // Her own product card's own Salaries = her per-product figure × 4
-        // days — same rule, scoped to this one product's own card instead
-        // of the rollup. Sliced to just THIS product's own card (bounded by
-        // its own label through the next card's) since every other
-        // product's card also renders its own "data-out=salaries" row (at
-        // 0.00, since she never touched any of them).
+        // This product card's own Salaries = EVERY real TSA on the team's
+        // own per-product figure, each × 4 days (explicit confirmation,
+        // 2026-10-02: "the per product i want it will total too" — every
+        // product card totals every real TSA the same way the rollup does,
+        // regardless of whether she has an entry on THIS specific
+        // product). Sliced to just THIS product's own card (bounded by its
+        // own label through the next card's).
         $productCardStart = strpos($summaryHtml, $product->display_name);
         $productCardHtml = substr($summaryHtml, $productCardStart, 20000);
-        $expectedProductCardSalaries = number_format(\App\Support\TsaDailyRateService::perProductByTsaIdTwice()[$tsa->id] * 4, 2);
+        $perProductByTsaIdTwice = \App\Support\TsaDailyRateService::perProductByTsaIdTwice();
+        $expectedProductCardSalaries = number_format($teamTsaIds->sum(fn ($id) => ($perProductByTsaIdTwice[$id] ?? 0.0) * 4), 2);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedProductCardSalaries, '/') . '/',
             $productCardHtml,
