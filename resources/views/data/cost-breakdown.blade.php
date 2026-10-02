@@ -62,6 +62,16 @@
                              product that has cost" — see TsaDailyRateService
                              ::productCount()'s own doc comment). --}}
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Rate / Product</th>
+                        {{-- Explicit request, 2026-10-02, confirmed against
+                             2 real sheet screenshots (Opening/Closing shift
+                             tabs) — sourced from Projections' own
+                             "Telesales Department" Tax Allocation line, NOT
+                             a fresh manual figure here. See
+                             CostBreakdownController::taxFigures()'s own doc
+                             comment for the confirmed split formula
+                             (department total ÷ 2 shifts ÷ 6 real TSAs). --}}
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Monthly Tax</th>
+                        <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Daily Tax</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -115,6 +125,20 @@
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            {{-- Monthly Tax / Daily Tax — only the 2
+                                 Telesales Supervisor rows (overhead_divisor
+                                 'team', same marker that already singles
+                                 them out from the other 5 role rows) show
+                                 the raw per-shift figure; every other role
+                                 (CEO, Sales Director, ...) stays blank, same
+                                 as Total/Daily Rate already are for them. --}}
+                            @if($role->overhead_divisor === 'team')
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift) }}</td>
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift / 24) }}</td>
+                            @else
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            @endif
                         </tr>
                     @else
                         @php
@@ -145,6 +169,13 @@
                             <td data-out="total" class="px-4 py-2 text-right font-mono font-bold text-ink dark:text-slate-100 {{ $groupEndClass }}">{{ $fmtMoney($total) }}</td>
                             <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                             <td data-out="daily_rate_per_product" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRatePerProduct) }}</td>
+                            {{-- Every real TSA row shows the SAME figure
+                                 (the per-shift Monthly Tax ÷ the app's own
+                                 COMPANY-WIDE real TSA count, not just this
+                                 shift's own smaller headcount — confirmed
+                                 explicitly against the real sheet). --}}
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
                         </tr>
                     @endif
                     @endforeach

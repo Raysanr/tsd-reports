@@ -94,6 +94,71 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertForbidden();
     }
 
+    /** Monthly Tax / Daily Tax columns (explicit request, 2026-10-02,
+     *  confirmed against 2 real sheet screenshots) — sourced from
+     *  Projections' own "Telesales Department" Tax Allocation line, split
+     *  ÷ 2 shifts (both Supervisor rows show the SAME per-shift figure),
+     *  then ÷ the app's own COMPANY-WIDE real TSA count for every TSA row
+     *  (NOT that shift's own smaller headcount — confirmed explicitly:
+     *  50,000 ÷ 8,333.33 = 6 real TSAs company-wide, not 3 per shift).
+     *  Daily Tax is that same figure ÷ 24, same shape as the existing
+     *  Daily Rate (÷24) column. */
+    public function test_monthly_and_daily_tax_columns_match_the_confirmed_formula(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \App\Models\ProjectionColumn::ensureSeeded();
+
+        $columns = \App\Models\ProjectionColumn::orderBy('sort_order')->get();
+        $rates = \App\Support\ProjectionCalculator::allRates();
+        $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
+        $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
+        $perShift = $departmentTaxAllocation / 2;
+        $perTsa = $perShift / TsaShift::count();
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // Both Supervisor rows show the SAME per-shift figure (not two
+        // different ones) — appears at least twice (Monthly Tax column)
+        // plus twice more for Daily Tax.
+        $this->assertSame(2, substr_count($content, number_format($perShift, 2)), 'expected the per-shift Monthly Tax figure on both Supervisor rows');
+        $this->assertSame(2, substr_count($content, number_format($perShift / 24, 2)), 'expected the per-shift Daily Tax figure on both Supervisor rows');
+
+        // Every real TSA row shows the per-TSA figure, divided by the
+        // COMPANY-WIDE TSA count, not a per-shift headcount.
+        $this->assertStringContainsString(number_format($perTsa, 2), $content);
+        $this->assertStringContainsString(number_format($perTsa / 24, 2), $content);
+    }
+
+    /** CEO/Sales Director/Telesales Manager/QA Specialist/Junior AI
+     *  Engineer rows are NOT tied to either shift — they stay blank on
+     *  Monthly Tax/Daily Tax, same as Total/Daily Rate already are for
+     *  them (explicit confirmation, 2026-10-02: only the 2 Supervisor rows
+     *  get a figure). */
+    public function test_non_supervisor_role_rows_have_no_tax_figure(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \App\Models\ProjectionColumn::ensureSeeded();
+
+        $columns = \App\Models\ProjectionColumn::orderBy('sort_order')->get();
+        $rates = \App\Support\ProjectionCalculator::allRates();
+        $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
+        $perShift = $all['telesales_department']['pnl']['tax_allocation'] / 2;
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $ceoRowStart = strpos($content, 'CEO');
+        $nextRowStart = strpos($content, 'Sales Director', $ceoRowStart);
+        $ceoRowHtml = substr($content, $ceoRowStart, $nextRowStart - $ceoRowStart);
+
+        $this->assertStringNotContainsString(number_format($perShift, 2), $ceoRowHtml);
+    }
+
     public function test_page_self_heals_when_tables_are_empty(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -105,9 +170,7 @@ class CostBreakdownSmokeTest extends TestCase
 
         $response->assertOk();
         $this->assertSame(7, CostBreakdownRole::count());
-        // 22, not 21 — the "Tax" pool added 2026-10-01 (see
-        // CostBreakdownPool::SEED_POOLS's own doc comment).
-        $this->assertSame(22, CostBreakdownPool::count());
+        $this->assertSame(21, CostBreakdownPool::count());
     }
 
     /** Regression test, 2026-09-29: a dev database that already had these
