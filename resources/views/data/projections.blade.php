@@ -8,13 +8,53 @@
      remove this") — the OPENING TEAM / CLOSING TEAM row labels below now
      carry that context instead. --}}
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
-    {{-- Month picker (explicit request, 2026-10-01: "add date picker like
-         in the other tabs" then "like month only the selection") — UI
-         only for now, no backend wiring (explicit follow-up: "add date
-         picker but no functions for now"); Projections has no per-month
-         data model yet. Defaults to the current month. --}}
-    @include('data._month-picker', ['name' => 'month', 'value' => now()->format('Y-m')])
+    <div class="flex items-end gap-3 flex-wrap">
+        {{-- Month picker (explicit request, 2026-10-01: "add date picker
+             like in the other tabs" then "like month only the
+             selection"; wired up for real, 2026-10-02, once Projections
+             became per-month — "it will be one date picker and one add
+             projection button") — picking a month here navigates
+             straight to it (same "pick it, see it immediately" pattern
+             Expected Income's own date-range filter uses), reading
+             whichever month already has data or seeding a blank new one. --}}
+        @include('data._month-picker', ['name' => 'month', 'value' => $month, 'navigate' => true])
+
+        {{-- Add Projection (explicit request, 2026-10-02: "add (add
+             projection) button and then when user click that it will pop
+             up modal that can select month that can be select") — opens
+             its own modal with a SEPARATE copy of the same month-grid
+             widget (navigate: false, so picking a cell there only updates
+             that modal's own display/hidden field, waiting for the
+             explicit "Add" button below instead of navigating
+             immediately the way the top filter does). Picking a month
+             that already has data just switches to viewing it (explicit
+             decision, same day) — ensureSeededForMonth() makes creating
+             a brand-new month and opening an existing one the exact same
+             server-side action. --}}
+        <button type="button" id="pjAddProjectionBtn"
+                class="inline-flex items-center gap-1.5 text-sm font-mono font-semibold px-3 py-2 rounded-lg border border-line dark:border-slate-600 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 hover:text-primary transition-colors cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+            Add Projection
+        </button>
+    </div>
     <span id="pjSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+</div>
+
+{{-- Add Projection modal — same shared/visual shell as the existing
+     "Add Row" modal further down this page, just with a month-grid
+     instead of a name/type form. --}}
+<div id="pjAddProjectionModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" data-close-add-projection-modal></div>
+    <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add Projection</h3>
+        <p class="text-xs text-ink-muted dark:text-slate-400 mb-4">Pick a month — a month with no data yet starts blank; one that already has data just opens it.</p>
+        @include('data._month-picker', ['name' => 'add_projection_month', 'value' => now()->format('Y-m'), 'navigate' => false])
+        <p id="pjAddProjectionError" class="text-xs text-red-600 dark:text-red-400 hidden mt-3"></p>
+        <div class="flex justify-end gap-2 pt-5">
+            <button type="button" data-close-add-projection-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+            <button type="button" id="pjAddProjectionConfirm" class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">Add</button>
+        </div>
+    </div>
 </div>
 
 @php
@@ -30,21 +70,29 @@
     $telesalesEntry = $computed->firstWhere('column.key', 'telesales_department');
 @endphp
 
-{{-- Left: a real 3-column x 2-row CSS grid (not two separate scrolling
-     rows anymore) so Opening Shift sits directly above Closing Shift,
-     Individual Monthly above Individual Monthly, etc. Right: Telesales
-     Department alone, centered vertically against that whole grid via
-     the flex row's own items-center (explicit request, 2026-09-24: "the
-     Telesales Department should be the one in the right side," after a
-     hand-drawn diagram showing 6 cards in a 2x3 block plus one card
-     floated right and vertically centered). Each side keeps its own
-     independent horizontal scroll on narrow screens instead of
-     squeezing together. #pjColumns wraps everything — the JS only ever
-     looks up a specific card by its own data-key, so it doesn't care
-     where a card visually sits. --}}
-<div id="pjColumns" class="flex flex-col lg:flex-row items-stretch lg:items-center gap-6">
-    <div class="flex-1 min-w-0 isolate overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:w-max">
+{{-- Telesales Department (left) + the 3-column x 2-row Opening/Closing
+     grid (right) now share ONE SINGLE horizontal scroll container
+     (explicit correction, 2026-10-02: "i want make it fix and the only
+     scrollable is the whole including Telesales Department" — reverses
+     the earlier 2026-09-24 "each side keeps its own independent
+     horizontal scroll" decision, which cut the grid off mid-card on
+     narrow screens with no way to scroll Telesales Department back into
+     view at the same time). Telesales Department no longer centers
+     vertically against the grid (items-center dropped) since both now
+     sit inside the SAME flex row and must scroll together, not float
+     independently. --}}
+<div id="pjColumns" class="overflow-x-auto -mx-4 md:-mx-8 px-4 md:px-8 pb-2">
+    <div class="flex items-start gap-5 w-max">
+        {{-- Same natural card width as the other 6 (no more hardcoded
+             300px, explicit request 2026-09-24: "the card of Telesales
+             Department is same as other cards"). --}}
+        @if($telesalesEntry)
+        <div class="shrink-0 w-[22rem]">
+            @include('data.projections._column', ['entry' => $telesalesEntry])
+        </div>
+        @endif
+
+        <div class="grid grid-cols-3 gap-5">
             @foreach($openingRow as $entry)
                 @include('data.projections._column', ['entry' => $entry])
             @endforeach
@@ -53,18 +101,6 @@
             @endforeach
         </div>
     </div>
-
-    {{-- Same natural card width as the other 6 (no more hardcoded 300px,
-         explicit request 2026-09-24: "the card of Telesales Department is
-         same as other cards") — shrink-0 keeps it from being squeezed by
-         the left grid's own flex-1, so it never overlaps that grid's
-         independent horizontal scroll (its own explicit follow-up:
-         "Telesales Department is fixed like other cards" while scrolling). --}}
-    @if($telesalesEntry)
-    <div class="shrink-0 w-full lg:w-[22rem]">
-        @include('data.projections._column', ['entry' => $telesalesEntry])
-    </div>
-    @endif
 </div>
 
 {{-- Add-custom-row modal (explicit request, 2026-09-26: "add like + icon
@@ -577,6 +613,56 @@
     }
 
     columnsEl.addEventListener('click', async (e) => {
+        // Lock toggle (explicit request, 2026-10-02: "add lock icon ...
+        // when it is lock it can't edit", then "make a smooth transition
+        // of lock ... like animation") — locking swaps every one of this
+        // card's own fields between a real <input> and a read-only <span>,
+        // a structural change applyComputed() can't express in place, so
+        // the server renders the card's own fresh partial (updateColumn()'s
+        // own 'cardHtml', only present on an is_locked save) and this
+        // cross-fades the OLD card out, swaps the DOM, then fades the NEW
+        // one in — no page reload at all.
+        const lockBtn = e.target.closest('[data-pj-lock-toggle]');
+        if (lockBtn) {
+            const card = lockBtn.closest('.pj-card');
+            const nowLocked = lockBtn.dataset.locked !== '1';
+            const body = new URLSearchParams();
+            body.set('is_locked', nowLocked ? '1' : '0');
+            body.set('_method', 'PATCH');
+            lockBtn.disabled = true;
+            card.style.transition = 'opacity 180ms ease';
+            card.style.opacity = '0.25';
+            fetch(card.dataset.action, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': csrfToken,
+                },
+                body: body.toString(),
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => {
+                    if (!data?.cardHtml) { window.location.reload(); return; }
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = data.cardHtml.trim();
+                    const freshCard = wrapper.firstElementChild;
+                    // Starts invisible, same transition as the old card's
+                    // own fade-out, so the swap reads as one continuous
+                    // cross-fade rather than an instant cut mid-animation.
+                    freshCard.style.transition = 'opacity 180ms ease';
+                    freshCard.style.opacity = '0';
+                    card.replaceWith(freshCard);
+                    requestAnimationFrame(() => { freshCard.style.opacity = '1'; });
+                })
+                .catch(() => {
+                    lockBtn.disabled = false;
+                    card.style.opacity = '1';
+                    window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} this card — try again.`, 'error');
+                });
+            return;
+        }
+
         const addBtn = e.target.closest('[data-add-custom-row]');
         if (addBtn) {
             openAddRowModal(addBtn.dataset.addCustomRow, addBtn.closest('.pj-card'));
@@ -641,6 +727,47 @@
                 addRowError.textContent = data?.message || 'Could not add this row — try again.';
                 addRowError.classList.remove('hidden');
             });
+    });
+
+    // Add Projection modal (explicit request, 2026-10-02: "add (add
+    // projection) button and then when user click that it will pop up
+    // modal that can select month that can be select") — its own copy of
+    // the month-picker widget (navigate: false) just updates the hidden
+    // field; the explicit Add button below navigates to ?month= itself,
+    // the same mechanism the top filter uses, so an existing month just
+    // switches to it and a new one gets seeded blank server-side.
+    const addProjectionModal = document.getElementById('pjAddProjectionModal');
+    const addProjectionBtn = document.getElementById('pjAddProjectionBtn');
+    const addProjectionConfirm = document.getElementById('pjAddProjectionConfirm');
+    const addProjectionError = document.getElementById('pjAddProjectionError');
+
+    function openAddProjectionModal() {
+        addProjectionError.classList.add('hidden');
+        addProjectionModal.hidden = false;
+    }
+    function closeAddProjectionModal() {
+        addProjectionModal.hidden = true;
+    }
+
+    addProjectionBtn.addEventListener('click', openAddProjectionModal);
+    addProjectionModal.querySelectorAll('[data-close-add-projection-modal]').forEach((el) => {
+        el.addEventListener('click', closeAddProjectionModal);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !addProjectionModal.hidden) closeAddProjectionModal();
+    });
+
+    addProjectionConfirm.addEventListener('click', () => {
+        const hidden = addProjectionModal.querySelector('[data-role="month-hidden"]');
+        const ym = hidden ? hidden.value : '';
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) {
+            addProjectionError.textContent = 'Pick a month first.';
+            addProjectionError.classList.remove('hidden');
+            return;
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set('month', ym);
+        window.location.href = url.toString();
     });
 })();
 </script>

@@ -111,7 +111,7 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_monthly_and_daily_tax_columns_divide_by_each_teams_own_tsa_count(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        \App\Models\ProjectionColumn::ensureSeeded();
+        \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
 
         // Give the 2 teams DIFFERENT real TSA counts (SH Naturals keeps its
         // 3 seeded TSAs; Eyecare Team gets just 2 by removing one) so a
@@ -119,7 +119,7 @@ class CostBreakdownSmokeTest extends TestCase
         // same number as the correct per-team divisor.
         TsaShift::where('team', 'Eyecare Team')->first()->delete();
 
-        $columns = \App\Models\ProjectionColumn::orderBy('sort_order')->get();
+        $columns = \App\Models\ProjectionColumn::where('month', now()->format('Y-m'))->orderBy('sort_order')->get();
         $rates = \App\Support\ProjectionCalculator::allRates();
         $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
@@ -155,9 +155,9 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_non_supervisor_role_rows_have_no_tax_figure(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        \App\Models\ProjectionColumn::ensureSeeded();
+        \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
 
-        $columns = \App\Models\ProjectionColumn::orderBy('sort_order')->get();
+        $columns = \App\Models\ProjectionColumn::where('month', now()->format('Y-m'))->orderBy('sort_order')->get();
         $rates = \App\Support\ProjectionCalculator::allRates();
         $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
         $perShift = $all['telesales_department']['pnl']['tax_allocation'] / 2;

@@ -636,7 +636,12 @@ class ProjectionCalculator
      *  requested one. */
     public static function forColumn(ProjectionColumn $column, array $rates, ?\Illuminate\Support\Collection $allColumns = null): array
     {
-        $columns = $allColumns ?? ProjectionColumn::orderBy('sort_order')->get();
+        // Scoped to $column's OWN month (explicit request, 2026-10-02:
+        // Projections became per-month) — querying every month's rows
+        // together here would mix two different months' own "opening_shift"
+        // etc. rows into the same forAllColumns() call, which keys purely
+        // by $key and would silently collide across months.
+        $columns = $allColumns ?? ProjectionColumn::where('month', $column->month)->orderBy('sort_order')->get();
         $all = self::forAllColumns($columns, $rates);
 
         return $all[$column->key] ?? [

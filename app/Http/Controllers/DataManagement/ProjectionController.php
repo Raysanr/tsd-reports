@@ -20,17 +20,29 @@ use Illuminate\Support\Str;
  */
 class ProjectionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        // Self-heals an empty table (seen in practice: a dev DB reset
-        // after this migration already ran, so it never re-inserts its
-        // seed rows) — otherwise this page silently renders with zero
-        // columns and no error, which is exactly what happened before
-        // this call was added. See ProjectionColumn::ensureSeeded()'s own
-        // doc comment.
-        ProjectionColumn::ensureSeeded();
+        // Same "session, keyed per page" remembered-filter convention as
+        // DateRangeFilter/ExpectedIncomeController::resolveSelectedTeam()
+        // (explicit request, 2026-10-02: "add (add projection) button ...
+        // pop up modal that can select month") — a fresh sidebar-link
+        // navigation has no query string of its own, so without this the
+        // month filter would silently reset to the current month every
+        // time, same bug those two already got fixed for.
+        $month = $this->resolveSelectedMonth($request);
 
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        // Self-heals this month's own 7 rows (seen in practice for the
+        // single-month version of this table: a dev DB reset after a
+        // migration already ran, so it never re-inserts its seed rows —
+        // same failure mode, now per-month) — otherwise this page
+        // silently renders with zero columns and no error. Also doubles
+        // as "Add Projection"'s own real create path: a month with no
+        // existing rows gets its blank/default 7 here, a month that
+        // already has data is a safe no-op (explicit decisions,
+        // 2026-10-02) — see ensureSeededForMonth()'s own doc comment.
+        ProjectionColumn::ensureSeededForMonth($month);
+
+        $columns = ProjectionColumn::where('month', $month)->orderBy('sort_order')->get();
         $rates   = ProjectionCalculator::allRates();
 
         // forAllColumns(), not a per-column map() — Telesales Department /
@@ -45,7 +57,43 @@ class ProjectionController extends Controller
         return view('data.projections', [
             'computed' => $computed,
             'rates'    => $rates,
+            'month'    => $month,
+            'existingMonths' => ProjectionColumn::existingMonths(),
         ]);
+    }
+
+    /** Resolution order: the URL's own ?month= (the user just picked a
+     *  month in the picker, submitted "Add Projection", or followed a
+     *  link/bookmark) always wins and gets saved to session; otherwise
+     *  whatever was last saved; otherwise the current real calendar month
+     *  on a brand-new session. An invalid month string falls back to the
+     *  current month rather than a broken filter, same defensive pattern
+     *  ExpectedIncomeController::resolveSelectedTeam() already uses for an
+     *  invalid/stale team slug. */
+    private function resolveSelectedMonth(Request $request): string
+    {
+        $month = $request->input('month');
+
+        if ($month !== null) {
+            session(['projections.month' => $month]);
+        } else {
+            $month = session('projections.month', now()->format('Y-m'));
+        }
+
+        return preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month) === 1 ? $month : now()->format('Y-m');
+    }
+
+    /** The same session-remembered month index() itself reads/writes, for
+     *  the 3 AJAX endpoints below (updateRates/storeCustomRow/
+     *  destroyCustomRow) — none of them receive a fresh ?month= of their
+     *  own (they're field-level saves triggered from whichever month's
+     *  page is already open, not a full page navigation), so this is the
+     *  only month they can correctly scope their own 'computed' response
+     *  to. Never writes to the session (only index()'s own
+     *  resolveSelectedMonth() does that) — purely a read. */
+    private function currentSessionMonth(): string
+    {
+        return session('projections.month', now()->format('Y-m'));
     }
 
     /** Auto-save (explicit request, 2026-09-23: "auto-save as you type") —
@@ -86,6 +134,15 @@ class ProjectionController extends Controller
             'upselling_rate_override' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'tsa_count'            => ['sometimes', 'integer', 'min:1'],
             'label'                => ['sometimes', 'string', 'max:255'],
+            // Lock toggle (explicit request, 2026-10-02: "add lock icon ...
+            // when it is lock it can't edit") — freezes every one of this
+            // card's own editable fields as read-only, same as a derived
+            // card already renders, without touching stored values. Only
+            // meaningful on Opening/Closing Shift (the only 2 cards with
+            // any real editable input in the first place — see
+            // _column.blade.php's own $editable), but not restricted here
+            // since locking an already-read-only derived card is harmless.
+            'is_locked'            => ['sometimes', 'boolean'],
         ]);
 
         $column->update($data);
@@ -99,11 +156,31 @@ class ProjectionController extends Controller
         $columns = ProjectionColumn::orderBy('sort_order')->get();
         $all     = ProjectionCalculator::forAllColumns($columns, $rates);
 
-        return response()->json([
+        $response = [
             'success'  => true,
             'computed' => $all[$column->key] ?? null,
             'all'      => array_values($all),
-        ]);
+        ];
+
+        // The lock toggle swaps every field on this card between a real
+        // <input> and a read-only <span> — a structural change applyComputed()
+        // can't express (it only ever updates an EXISTING element's own
+        // text/value, never swaps an element's tag). Rendering the card's
+        // own partial server-side and returning it here lets the frontend
+        // cross-fade the whole card in place (explicit request, 2026-10-02:
+        // "make a smooth transition of lock ... like animation") instead of
+        // a full page reload — only rendered when this request actually
+        // touched is_locked, since every other per-field save still only
+        // needs the cheap JSON path above.
+        if (array_key_exists('is_locked', $data)) {
+            // $rates isn't part of $entry — _column.blade.php reads it as
+            // its own top-level view variable (implicitly inherited from
+            // the parent data.projections view's own @include() calls on a
+            // full page render), so it has to be passed explicitly here too.
+            $response['cardHtml'] = view('data.projections._column', ['entry' => $response['computed'], 'rates' => $rates])->render();
+        }
+
+        return response()->json($response);
     }
 
     /** Same auto-save convention as updateColumn() above, for the shared
@@ -127,7 +204,14 @@ class ProjectionController extends Controller
         Setting::set("projection_rate.{$data['key']}", (float) $data['value']);
 
         $rates   = ProjectionCalculator::allRates();
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        // Scoped to the session-remembered month (explicit decision,
+        // 2026-10-02: rates stay GLOBAL across every month, but a live
+        // rate-edit's own recomputed 'computed' payload still has to match
+        // whichever month's own column INPUTS the page currently has
+        // open, same session key index() itself reads/writes) — this is
+        // an AJAX call, not a full page load, so there's no fresh ?month=
+        // on this request to resolve from directly.
+        $columns = ProjectionColumn::where('month', $this->currentSessionMonth())->orderBy('sort_order')->get();
 
         return response()->json([
             'success'  => true,
@@ -180,7 +264,11 @@ class ProjectionController extends Controller
         }
 
         $rates   = ProjectionCalculator::allRates();
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        // Scoped to the session-remembered month — see updateRates()'s own
+        // doc comment; the frontend reloads the page on success anyway
+        // (window.location.reload()), so this 'computed' payload is
+        // currently unused, but kept correct regardless.
+        $columns = ProjectionColumn::where('month', $this->currentSessionMonth())->orderBy('sort_order')->get();
 
         return response()->json([
             'success'  => true,
@@ -200,7 +288,9 @@ class ProjectionController extends Controller
         $projectionCustomRow->delete();
 
         $rates   = ProjectionCalculator::allRates();
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        // Scoped to the session-remembered month — see updateRates()'s own
+        // doc comment; same "frontend reloads on success anyway" caveat.
+        $columns = ProjectionColumn::where('month', $this->currentSessionMonth())->orderBy('sort_order')->get();
 
         return response()->json([
             'success'  => true,

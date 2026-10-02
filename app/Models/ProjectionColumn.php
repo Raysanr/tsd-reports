@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
  *  ProjectionCalculator from these inputs plus the shared rate Settings. */
 class ProjectionColumn extends Model
 {
-    protected $fillable = ['key', 'label', 'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'net_income_target', 'average_order_value', 'orders_override', 'leads_override', 'conversion_rate_override', 'upselling_rate_override', 'tsa_count', 'sort_order'];
+    protected $fillable = ['key', 'month', 'label', 'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'net_income_target', 'average_order_value', 'orders_override', 'leads_override', 'conversion_rate_override', 'upselling_rate_override', 'tsa_count', 'sort_order', 'is_locked'];
 
     protected $casts = [
         'roas'                      => 'float',
@@ -26,6 +26,7 @@ class ProjectionColumn extends Model
         'upselling_rate_override'   => 'float',
         'tsa_count'                 => 'integer',
         'sort_order'                => 'integer',
+        'is_locked'                 => 'boolean',
     ];
 
     /** The 7 real columns and their seed inputs — the same values the
@@ -55,14 +56,34 @@ class ProjectionColumn extends Model
         ['key' => 'closing_individual_tsa_daily', 'label' => 'Closing — Individual TSA: Daily Target', 'net_income_target' => 4200, 'average_order_value' => 800, 'tsa_count' => 1, 'sort_order' => 6],
     ];
 
-    public static function ensureSeeded(): void
+    /** Self-heals the 7 real columns for ONE SPECIFIC month (explicit
+     *  request, 2026-10-02: "add (add projection) button ... pop up modal
+     *  that can select month" — each real month now gets its own
+     *  independently-saved set of column inputs, see the
+     *  add_month_to_projection_columns_table migration's own doc comment
+     *  for the full per-month design and what deliberately stays global
+     *  instead). firstOrCreate per key+month keeps this idempotent — safe
+     *  to call on every page load the same way it always was, AND it's
+     *  exactly how "Add Projection" creates a brand-new month: calling
+     *  this for a month with zero existing rows creates all 7 at their
+     *  blank/default seed values (explicit decision, same day: a new
+     *  month starts blank, no carryover from any other month). Calling it
+     *  for a month that already has data is a safe no-op — "Add
+     *  Projection" on an existing month just switches to viewing it
+     *  (explicit decision, same day), never duplicates or errors. */
+    public static function ensureSeededForMonth(string $month): void
     {
-        if (static::query()->exists()) {
-            return;
-        }
-
         foreach (self::SEED_COLUMNS as $seed) {
-            static::firstOrCreate(['key' => $seed['key']], $seed);
+            static::firstOrCreate(['key' => $seed['key'], 'month' => $month], array_merge($seed, ['month' => $month]));
         }
+    }
+
+    /** Every distinct month that has at least one saved column, most
+     *  recent first — the month-picker's own "already has data" dot/list
+     *  and the "Add Projection" modal's own duplicate-month check both
+     *  read this rather than guessing from today's date alone. */
+    public static function existingMonths(): \Illuminate\Support\Collection
+    {
+        return static::query()->distinct()->orderByDesc('month')->pluck('month');
     }
 }

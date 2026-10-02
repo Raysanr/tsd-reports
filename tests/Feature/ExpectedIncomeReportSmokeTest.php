@@ -683,7 +683,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     public function test_the_range_summary_cards_tax_allocation_totals_every_real_tsas_daily_tax(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
         ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
@@ -1287,7 +1287,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     public function test_tax_allocation_is_locked_on_a_tsas_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
@@ -1319,7 +1319,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     public function test_product_cards_divide_tax_allocation_a_second_time_past_the_tsa_overview_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
         Product::orderBy('id')->take(2)->get()->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
@@ -1360,7 +1360,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     public function test_the_overview_cards_tax_allocation_is_non_zero_with_a_production_sized_roster(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
         ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
 
         // Pad both teams up to 6 real TSAs each (12 total), matching
@@ -1455,7 +1455,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     public function test_updating_a_tsas_product_card_returns_tax_allocation_from_cost_breakdown(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
         // Opening Shift needs a real Gross Sales target for Tax Allocation
         // to compute to anything non-zero (orders_override × average_order_
         // value, same inputs ProjectionCalculator::basePnl() reads).

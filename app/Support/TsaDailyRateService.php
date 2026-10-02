@@ -219,10 +219,26 @@ class TsaDailyRateService
      *  screenshots). Building block for taxAllocationByTsaId() above AND
      *  for CostBreakdownController's own Monthly Tax column (the 2
      *  Supervisor rows show this SAME raw per-shift figure, undivided by
-     *  any TSA count at all). */
+     *  any TSA count at all).
+     *
+     *  Always reads the CURRENT real calendar month's own Projections data
+     *  (explicit decision, 2026-10-02, once Projections became per-month) —
+     *  completely independent of whatever month an admin happens to be
+     *  BROWSING on the Projections page itself, so switching that page to
+     *  a past/future month never silently changes Expected Income's or
+     *  Cost Breakdown's own live Tax Allocation figures. */
     public static function departmentTaxAllocationPerShift(): float
     {
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        // Self-heals the current month the same way every other page in
+        // this module already does (explicit decision, 2026-10-02) — a
+        // brand-new month nobody has opened Projections for YET still
+        // needs its own 7 blank-default rows to exist here, or this would
+        // silently read 0 for every TSA's own Tax Allocation on Expected
+        // Income/Cost Breakdown until someone happens to visit Projections
+        // first.
+        $currentMonth = now()->format('Y-m');
+        ProjectionColumn::ensureSeededForMonth($currentMonth);
+        $columns = ProjectionColumn::where('month', $currentMonth)->orderBy('sort_order')->get();
         $rates = ProjectionCalculator::allRates();
         $all = ProjectionCalculator::forAllColumns($columns, $rates);
 

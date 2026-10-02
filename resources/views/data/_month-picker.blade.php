@@ -3,17 +3,20 @@
     date picker like in the other tabs" then "like month only the
     selection" — same visual "DATE RANGE" box + calendar-icon style as
     _date-range-filter.blade.php, but picks ONE MONTH instead of a day
-    range, and has NO backend wiring yet (explicit follow-up: "add date
-    picker but no functions for now") — Projections has no per-month data
-    model at all today, so this is UI only until that's built.
+    range. Wired up for real, 2026-10-02 — Projections became per-month
+    (see ProjectionColumn's own doc comment) — picking a month here now
+    NAVIGATES straight to it (same "pick it, see it immediately" pattern
+    Expected Income's own date-range filter already uses), reading
+    whatever month already has data there or a blank new one otherwise.
 
-    $name (hidden field name), $value ('Y-m' string, e.g. "2026-10")
-    required. Renders a text display box that opens a 12-month grid for
-    the current year (with prev/next YEAR navigation, not month-by-month
-    like the day picker, since there's no day grid here) — picking a month
-    just updates the display and the hidden field for now.
---}}
-<div class="month-picker-field relative" data-value="{{ $value }}">
+    $name (hidden field name), $value ('Y-m' string, e.g. "2026-10"),
+    $navigate (bool — true for this top filter, false for the separate
+    "Add Projection" modal's own copy of this same widget, which instead
+    waits for an explicit confirm button) required. Renders a text display
+    box that opens a 12-month grid for the current year (with prev/next
+    YEAR navigation, not month-by-month like the day picker, since there's
+    no day grid here). --}}
+<div class="month-picker-field relative" data-value="{{ $value }}" data-navigate="{{ $navigate ? '1' : '0' }}">
     <label class="block text-[11px] font-mono font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Month</label>
     <div class="relative">
         <svg class="pointer-events-none absolute z-10 left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-primary" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -118,9 +121,19 @@
             const [y, m] = ym.split('-').map(Number);
             display.value = toDisplay(y, m - 1);
             close();
-            // No auto-submit / no backend call yet (explicit request,
-            // 2026-10-01: "add date picker but no functions for now") —
-            // picking a month only updates this field's own display.
+            // The top filter navigates immediately on pick (explicit
+            // decision, 2026-10-02: "it will be one date picker and one
+            // add projection button" — this top box is the plain "switch
+            // to this month" filter, same "pick it, see it immediately"
+            // pattern Expected Income's own date-range filter already
+            // uses). The separate "Add Projection" modal's own copy of
+            // this widget instead waits for its own explicit confirm
+            // button — see field.dataset.navigate.
+            if (field.dataset.navigate === '1') {
+                const url = new URL(window.location.href);
+                url.searchParams.set('month', ym);
+                window.location.href = url.toString();
+            }
         }
 
         field.addEventListener('click', (e) => {

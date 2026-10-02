@@ -16,7 +16,14 @@
     // below (Net Income Target/AOV/TSA Count) is a SEPARATE concern and
     // stays editable on every column regardless — see
     // ProjectionCalculator's own doc comment for the full chain.
-    $editable = in_array($column->key, ['opening_shift', 'closing_shift'], true);
+    //
+    // Lockable (explicit request, 2026-10-02: "add lock icon ... when it
+    // is lock it can't edit") only on these same 2 base cards — a derived
+    // card's own P&L is already always read-only, so a lock icon on it
+    // would toggle nothing. is_locked freezes every field exactly like a
+    // derived card already renders, without touching stored values.
+    $isLockable = in_array($column->key, ['opening_shift', 'closing_shift'], true);
+    $editable = $isLockable && !$column->is_locked;
 
     $headerColors = [
         'telesales_department'            => ['bg' => '#f1f1f1', 'text' => '#111827'],
@@ -35,10 +42,32 @@
      data-action="{{ route('data.projections.update-column', $column) }}">
 
     <div class="px-5 py-4 flex items-center gap-2" style="background:{{ $hc['bg'] }};">
-        <input type="text" value="{{ $column->label }}" data-field="label"
+        <input type="text" value="{{ $column->label }}" data-field="label" {{ $isLockable && $column->is_locked ? 'readonly' : '' }}
                class="pj-field flex-1 min-w-0 bg-transparent border-none focus:ring-2 focus:ring-primary/40 rounded-md px-1.5 py-1 -mx-1.5 font-mono font-bold text-sm uppercase tracking-wide truncate"
                style="color:{{ $hc['text'] }};">
         <span class="pj-card-status text-[11px] font-mono shrink-0 min-w-[3.5rem] text-right" style="color:{{ $hc['text'] }};opacity:.7;"></span>
+        {{-- Lock toggle (explicit request, 2026-10-02: "add lock icon on
+             this in the right side") — only on the 2 lockable base cards;
+             a derived card's own fields are already always read-only, so
+             it gets no toggle at all. Locking freezes every editable
+             field on this card (handled by $editable above) without
+             touching any stored value. --}}
+        @if($isLockable)
+        <button type="button" data-pj-lock-toggle data-locked="{{ $column->is_locked ? '1' : '0' }}"
+                title="{{ $column->is_locked ? 'Unlock this card' : 'Lock this card' }}"
+                aria-label="{{ $column->is_locked ? 'Unlock this card' : 'Lock this card' }}"
+                class="shrink-0 p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
+            @if($column->is_locked)
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" style="color:{{ $hc['text'] }};">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            @else
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24" style="color:{{ $hc['text'] }};">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            @endif
+        </button>
+        @endif
     </div>
 
     {{-- ROAS/Standard Cost Per Message/Actual Cost Per Message/Number of

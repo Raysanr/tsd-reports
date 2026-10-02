@@ -49,6 +49,50 @@ class ProjectionsTest extends TestCase
         $this->assertSame(7, ProjectionColumn::count());
     }
 
+    /** Add Projection / top month filter (explicit request, 2026-10-02:
+     *  "it will be one date picker and one add projection button") —
+     *  picking a month that has never been seeded creates its own blank
+     *  7 rows rather than reusing or bleeding into another month's. */
+    public function test_visiting_a_new_month_seeds_its_own_blank_columns(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->assertSame(0, ProjectionColumn::where('month', '2027-03')->count());
+
+        $response = $this->actingAs($admin)->get(route('data.projections', ['month' => '2027-03']));
+
+        $response->assertOk();
+        $this->assertSame(7, ProjectionColumn::where('month', '2027-03')->count());
+    }
+
+    /** Picking a month that already has data (an existing month re-opened
+     *  via "Add Projection") just switches to viewing it — explicit
+     *  decision, 2026-10-02 — never duplicates or errors. */
+    public function test_visiting_an_existing_month_does_not_duplicate_its_columns(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeededForMonth('2027-04');
+        $this->assertSame(7, ProjectionColumn::where('month', '2027-04')->count());
+
+        $response = $this->actingAs($admin)->get(route('data.projections', ['month' => '2027-04']));
+
+        $response->assertOk();
+        $this->assertSame(7, ProjectionColumn::where('month', '2027-04')->count());
+    }
+
+    /** The month filter is remembered across a fresh sidebar navigation
+     *  with no query string, same pattern as DateRangeFilter/
+     *  ExpectedIncomeController::resolveSelectedTeam(). */
+    public function test_the_selected_month_persists_across_requests_with_no_query_string(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->get(route('data.projections', ['month' => '2027-05']))->assertOk();
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $response->assertViewHas('month', '2027-05');
+    }
+
     public function test_normal_user_is_blocked(): void
     {
         $user = User::factory()->create(['role' => 'normal']);
@@ -108,6 +152,111 @@ class ProjectionsTest extends TestCase
 
         // Orders Needed = Net Income Target / (AOV * target_margin) = 2,400,000 / (800 * 0.3125) = 9600
         $response->assertJsonPath('computed.target_card.orders_needed', 9600);
+    }
+
+    /** Lock toggle (explicit request, 2026-10-02: "add lock icon ... when
+     *  it is lock it can't edit") — persists via the same updateColumn()
+     *  endpoint every other field already uses, no separate route. */
+    public function test_locking_a_column_persists(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $this->assertFalse($column->is_locked);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $column),
+            ['is_locked' => true]
+        );
+
+        $response->assertOk();
+        $this->assertTrue($column->fresh()->is_locked);
+    }
+
+    /** Locking returns the card's own fresh rendered HTML (explicit
+     *  request, 2026-10-02: "make a smooth transition of lock ... like
+     *  animation") — the frontend cross-fades this in place instead of
+     *  reloading the page; a per-field save that ISN'T a lock toggle must
+     *  NOT pay this extra render cost. */
+    public function test_locking_a_column_returns_rendered_card_html(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+
+        $lockResponse = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $column),
+            ['is_locked' => true]
+        );
+        $lockResponse->assertOk();
+        $lockResponse->assertJsonStructure(['cardHtml']);
+        $this->assertStringContainsString('data-key="opening_shift"', $lockResponse->json('cardHtml'));
+        $this->assertStringNotContainsString('data-pnl-input="tax_allocation"', $lockResponse->json('cardHtml'));
+
+        $plainResponse = $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $column),
+            ['roas' => 1.5]
+        );
+        $plainResponse->assertOk();
+        $this->assertArrayNotHasKey('cardHtml', $plainResponse->json());
+    }
+
+    /** A locked Opening/Closing Shift card's own P&L rows render read-only
+     *  (no data-field input), same as a derived card already always does —
+     *  confirmed via the rendered page, not just the stored flag, since
+     *  _column.blade.php's own $editable is what actually drives this. */
+    public function test_a_locked_shift_cards_pnl_rows_are_not_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $openingShift = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $openingShift->update(['is_locked' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $cardStart = strpos($content, 'data-key="opening_shift"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringNotContainsString('data-field="orders_override"', $cardHtml, 'Gross Sales should be locked read-only');
+        $this->assertStringNotContainsString('data-pnl-input="tax_allocation"', $cardHtml, 'Tax Allocation should be locked read-only');
+    }
+
+    /** An UNLOCKED Opening Shift still renders its own P&L rows as real
+     *  inputs — confirms the lock flag, not something else, is what
+     *  flipped $editable in the test above. */
+    public function test_an_unlocked_shift_cards_pnl_rows_stay_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->assertFalse(ProjectionColumn::where('key', 'opening_shift')->firstOrFail()->is_locked);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $cardStart = strpos($content, 'data-key="opening_shift"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringContainsString('data-pnl-input="tax_allocation"', $cardHtml);
+    }
+
+    /** The lock icon only appears on the 2 lockable base cards (Opening/
+     *  Closing Shift) — a derived card (e.g. Telesales Department) has no
+     *  real editable input to lock in the first place, so it gets no
+     *  toggle at all. */
+    public function test_the_lock_icon_does_not_appear_on_a_derived_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $cardStart = strpos($content, 'data-key="telesales_department"');
+        $nextCardStart = strpos($content, 'data-key="', $cardStart + 1);
+        $cardHtml = substr($content, $cardStart, $nextCardStart - $cardStart);
+
+        $this->assertStringNotContainsString('data-pj-lock-toggle', $cardHtml);
     }
 
     /** Explicit request, 2026-09-28: "in the projection page i want to have
