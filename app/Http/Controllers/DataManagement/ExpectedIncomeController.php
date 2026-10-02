@@ -319,16 +319,10 @@ class ExpectedIncomeController extends Controller
         // her otherwise (1 entry out of 7 flagged products pooled only
         // ~2 products' worth). $cards above is built from the UNSTRIPPED
         // $rawByProductAndDate on purpose — only the rollup's own role
-        // ("the total of every real TSA's own overview card" — explicit
-        // confirmation, 2026-10-02: "for example there's 6 tsa cards so it
-        // will total in the top" — reconfirms the 2026-10-01 "totals of
-        // the per-tsa cards" reading after a brief detour into summing
-        // $cards' own PRODUCT-level figures instead, which was wrong: a
-        // product card's own figure is one TSA's share of ONE product,
-        // never meant to be summed across products at all) requires her
-        // UNDIVIDED daily total added back once per TSA per day instead,
-        // via addActiveTsasOverviewOperatingCosts() below — completely
-        // independent of how many product rows exist.
+        // ("the totals of the per-TSA cards", explicit confirmation,
+        // 2026-10-01) requires her UNDIVIDED daily total added back once
+        // per TSA per day instead, via addActiveTsasOverviewOperatingCosts()
+        // below — completely independent of how many product rows exist.
         $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->flatMap(fn ($rowsForDate) => $rowsForDate))
             ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row)
             ->all();
