@@ -274,6 +274,22 @@ class ExpectedIncomeController extends Controller
     {
         $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
+        // Computed ONCE per request (not once per product card/group) —
+        // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
+        // the N+1 performance bug this fixes (root-caused live, 2026-10-02:
+        // a full-month per-team filter 500'd on Railway, timing out from
+        // re-running this whole lookup chain once per product card).
+        $productCardLookups = [
+            TsaDailyRateService::perProductByTsaIdTwice(),
+            collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all(),
+            TsaDailyRateService::perProductTaxAllocationByTsaId(),
+        ];
+        $rollupLookups = [
+            TsaDailyRateService::perProductByTsaId(),
+            collect(TsaDailyRateService::dailyCostRow())->except('total')->all(),
+            TsaDailyRateService::taxAllocationByTsaId(),
+        ];
+
         // Every TSA-owned row's own per-product-DIVIDED Operating Costs
         // override is stripped back to 0 here, then added back via
         // addActiveTsasOverviewOperatingCosts() — same "EVERY real TSA
@@ -284,11 +300,11 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $productCardLookups) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
-            return $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, divideByProductCount: true);
+            return $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$productCardLookups);
         });
 
         // Every product/day's own RAW row (not $cards's own already-derived
@@ -324,7 +340,7 @@ class ExpectedIncomeController extends Controller
             ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row)
             ->all();
         $derived = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
-        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds);
+        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$rollupLookups);
 
         return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
@@ -373,8 +389,20 @@ class ExpectedIncomeController extends Controller
      *  whether she's typed in any sales numbers yet — this now holds
      *  whether $products is the whole page's own list (the rollup) or one
      *  product group's own narrower list (a single product card), since
-     *  $onlyTsaIds already carries the real team-scoping either way). */
-    private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, bool $divideByProductCount = false): array
+     *  $onlyTsaIds already carries the real team-scoping either way).
+     *
+     *  $dailyRateByTsaId/$dailyCostRow/$taxAllocationByTsaId are computed
+     *  ONCE by the caller (buildSummaryRow()), not per call here — this is
+     *  called once per product CARD (every product group, via
+     *  ProductGrouping::rows()) plus once more for the overall rollup, and
+     *  each of TsaDailyRateService's own lookups queries CostBreakdownRole/
+     *  CostBreakdownPool/CostBreakdownTsaEntry/ProjectionColumn/Setting
+     *  itself — recomputing them inside this method made a page with N
+     *  product cards re-run that whole chain N+1 times per request
+     *  (root-caused live, 2026-10-02: a full-month, per-team filter 500'd
+     *  on Railway's real roster/product count, timing out under that
+     *  N+1 cost — a 1-day/few-product local test never surfaced it). */
+    private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, array $dailyRateByTsaId, array $dailyCostRow, array $taxAllocationByTsaId): array
     {
         $activeTsaIds = $onlyTsaIds !== null ? collect($onlyTsaIds) : TsaShift::pluck('id');
 
@@ -383,22 +411,6 @@ class ExpectedIncomeController extends Controller
         }
 
         $dayCount = $dates->count();
-        $dailyRateByTsaId = $divideByProductCount ? TsaDailyRateService::perProductByTsaIdTwice() : TsaDailyRateService::perProductByTsaId();
-        // dailyCostRow()'s own ['total' => ...] key is dropped here — not a
-        // real operating-cost row, see its own doc comment.
-        $dailyCostRow = $divideByProductCount
-            ? collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all()
-            : collect(TsaDailyRateService::dailyCostRow())->except('total')->all();
-        // Tax Allocation (explicit request, 2026-10-02: "it should be total
-        // in this TELESALES right? like other costs") — same "once per
-        // active TSA per day in the WHOLE range" rule as Salaries/the
-        // pools above, but it's a TOP-LEVEL field, not one of
-        // operating_lines' own keys, so it's accumulated separately and
-        // folded in via withOverriddenTaxAllocation() below (which walks
-        // Gross Profit → Income Before OPEX → Net Income, since Tax
-        // Allocation sits upstream, unlike Operating Costs).
-        $taxAllocationByTsaId = $divideByProductCount ? TsaDailyRateService::perProductTaxAllocationByTsaId() : TsaDailyRateService::taxAllocationByTsaId();
-
         $addedOperatingCosts = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
         $addedTaxAllocation = 0.0;
         foreach ($activeTsaIds as $tsaId) {
