@@ -6,6 +6,7 @@ use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
+use App\Models\ProjectionColumn;
 use App\Models\TsaShift;
 
 /**
@@ -164,6 +165,73 @@ class TsaDailyRateService
         return ProductGrouping::rows($products, fn () => null)
             ->filter(fn ($row) => $row['products']->first()->has_cost_allocation)
             ->values();
+    }
+
+    /** Every real TSA's own Daily Tax figure, keyed by tsa_id — used by her
+     *  own "[TSA NAME]" overview card's own LOCKED Tax Allocation line
+     *  (explicit request, 2026-10-02: "the tax allocation in tsa cards is
+     *  should be not editable" — same lock Salaries/the 20 shared pools
+     *  already have on a TSA-scoped Expected Income card). Extracted from
+     *  CostBreakdownController::taxFigures() so both pages read the exact
+     *  same figure Cost Breakdown's own Salary Breakdown table shows in its
+     *  "Monthly Tax"/"Daily Tax" columns, never a second independently-
+     *  computed number.
+     *
+     *  Confirmed DIRECTLY against the real sheet's own formula bar,
+     *  2026-10-02 — "Telesales Department"'s own Tax Allocation (Projections)
+     *  splits evenly across the 2 shifts first, then each shift's own
+     *  figure splits across THAT TEAM'S OWN real TSA count (dynamic — "when
+     *  they add new tsa it will be 7"), ÷ 24 for the daily figure. Each
+     *  individual PRODUCT card does NOT use this directly — see
+     *  perProductTaxAllocationByTsaId() below (same two-tier "overview
+     *  undivided, product divided again by product count" pattern
+     *  Salaries/the pool rows already use). */
+    public static function taxAllocationByTsaId(): array
+    {
+        $tsas = TsaShift::all();
+        $perShift = self::departmentTaxAllocationPerShift();
+
+        $tsaCountByTeam = $tsas->groupBy('team')->map->count();
+
+        return $tsas->mapWithKeys(function (TsaShift $tsa) use ($perShift, $tsaCountByTeam) {
+            $teamCount = $tsaCountByTeam->get($tsa->team, 0);
+            $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
+
+            return [$tsa->id => $monthly / 24];
+        })->all();
+    }
+
+    /** Same taxAllocationByTsaId() figure above, split a SECOND time across
+     *  every CHECKED product — used by each individual PRODUCT card's own
+     *  Tax Allocation figure, same two-tier division the Salaries/pool rows
+     *  already go through. */
+    public static function perProductTaxAllocationByTsaId(): array
+    {
+        $productCount = self::productCount();
+
+        return collect(self::taxAllocationByTsaId())
+            ->map(fn (float $daily) => CostBreakdownCalculator::tsaDailyRatePerProduct($daily, $productCount))
+            ->all();
+    }
+
+    /** Projections' own "Telesales Department" card's Tax Allocation line
+     *  (Gross Sales × the shared tax_allocation rate, same figure the
+     *  Expected Income P&L already calls "Tax Allocation"), split evenly
+     *  across the 2 shifts (Opening Shift's own tab and Closing Shift's own
+     *  tab both show the SAME figure — confirmed against 2 real sheet
+     *  screenshots). Building block for taxAllocationByTsaId() above AND
+     *  for CostBreakdownController's own Monthly Tax column (the 2
+     *  Supervisor rows show this SAME raw per-shift figure, undivided by
+     *  any TSA count at all). */
+    public static function departmentTaxAllocationPerShift(): float
+    {
+        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        $rates = ProjectionCalculator::allRates();
+        $all = ProjectionCalculator::forAllColumns($columns, $rates);
+
+        $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'] ?? 0.0;
+
+        return $departmentTaxAllocation / 2;
     }
 
     /** Identical to CostBreakdownController::overheadByRoleId(). */

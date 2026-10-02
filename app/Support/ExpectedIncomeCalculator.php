@@ -288,6 +288,39 @@ class ExpectedIncomeCalculator
         ]);
     }
 
+    /** Overrides an already-derived row's own Tax Allocation with a figure
+     *  computed elsewhere (Cost Breakdown's own per-TSA Daily Tax —
+     *  explicit request, 2026-10-02: "the tax allocation in tsa cards is
+     *  should be not editable" — same lock Salaries/the 20 shared pools
+     *  already have on a TSA-scoped card), then recomputes every figure
+     *  that cascades from it: Gross Profit, Income Before OPEX, Net Income,
+     *  and each one's own _pct (unlike Operating Costs, which sits
+     *  downstream of Income Before OPEX and never touches it, Tax
+     *  Allocation sits UPSTREAM, inside Gross Profit itself, so overriding
+     *  it has to walk the WHOLE rest of the chain, not just Net Income).
+     *  Total Selling Costs/Operating Costs themselves are unaffected (both
+     *  are independent of Tax Allocation). Same "controller overrides,
+     *  calculator only recomputes the cascade" separation as
+     *  withOverriddenOperatingCosts() above. */
+    public static function withOverriddenTaxAllocation(array $derived, float $taxAllocation): array
+    {
+        $grossSales = $derived['gross_sales'];
+        $grossProfit = $grossSales - $derived['cancelled'] - $derived['returns'] - $taxAllocation - $derived['product_cost'];
+        $incomeBeforeOpex = $grossProfit - $derived['total_selling_costs'];
+        $netIncome = $incomeBeforeOpex - $derived['total_operating_costs'];
+
+        return array_merge($derived, [
+            'tax_allocation' => $taxAllocation,
+            'tax_allocation_pct' => $grossSales > 0 ? $taxAllocation / $grossSales : 0.0,
+            'gross_profit' => $grossProfit,
+            'gross_profit_pct' => $grossSales > 0 ? $grossProfit / $grossSales : 0.0,
+            'income_before_opex' => $incomeBeforeOpex,
+            'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
+            'net_income' => $netIncome,
+            'net_income_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
+        ]);
+    }
+
     /** Sums N raw rows' own inputs, then derives the summed row's own
      *  figures fresh from those totals — confirmed-exact "recompute the
      *  ratio from summed dollars" convention, same as

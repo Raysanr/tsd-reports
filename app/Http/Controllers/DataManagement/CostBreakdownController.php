@@ -7,11 +7,9 @@ use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
-use App\Models\ProjectionColumn;
 use App\Models\TsaShift;
 use App\Support\CostBreakdownCalculator;
 use App\Support\ProductGrouping;
-use App\Support\ProjectionCalculator;
 use App\Support\TsaDailyRateService;
 use Illuminate\Http\Request;
 
@@ -293,15 +291,19 @@ class CostBreakdownController extends Controller
      *  'perTsaByTeam' => [order_team => that team's own per-TSA figure]].
      *  Daily Tax (either figure ÷ 24) is derived in the view itself, same
      *  "controller returns the monthly figure, view divides by 24 inline"
-     *  split the existing Daily Rate (÷24) column already uses. */
+     *  split the existing Daily Rate (÷24) column already uses.
+     *
+     *  $perShift sources TsaDailyRateService::departmentTaxAllocationPerShift()
+     *  — shared with Expected Income's own locked Tax Allocation line
+     *  (explicit request, 2026-10-02), so both pages can never drift apart
+     *  on this figure. $perTsaByTeam is computed locally here (not also
+     *  extracted) since only this page needs a BY-TEAM breakdown for the
+     *  Salary Breakdown table's own interleaved rows — Expected Income's
+     *  own TsaDailyRateService::taxAllocationByTsaId() already resolves
+     *  straight to one tsa_id, no by-team grouping needed there. */
     private function taxFigures($tsas): array
     {
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
-        $rates = ProjectionCalculator::allRates();
-        $all = ProjectionCalculator::forAllColumns($columns, $rates);
-
-        $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'] ?? 0.0;
-        $perShift = $departmentTaxAllocation / 2;
+        $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
 
         $perTsaByTeam = $tsas->groupBy('team')->map(
             fn ($teamTsas) => $teamTsas->count() > 0 ? $perShift / $teamTsas->count() : 0.0

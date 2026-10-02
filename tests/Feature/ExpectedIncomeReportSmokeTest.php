@@ -8,6 +8,7 @@ use App\Models\CostBreakdownTsaEntry;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
+use App\Models\ProjectionColumn;
 use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\ProductGrouping;
@@ -1224,6 +1225,70 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Tax Allocation on a TSA-scoped card is locked (explicit request,
+     *  2026-10-02: "the tax allocation in tsa cards is should be not
+     *  editable") — no editable input on any of her product cards, same
+     *  "computed, never editable" convention as every built-in Operating
+     *  Costs row. */
+    public function test_tax_allocation_is_locked_on_a_tsas_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeeded();
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $dailySectionStart = strpos($content, 'ei-day-scroller');
+        $dailyHtml = substr($content, $dailySectionStart);
+
+        $this->assertStringNotContainsString('data-field="tax_allocation"', $dailyHtml);
+    }
+
+    /** Tax Allocation goes through the SAME two-tier division Salaries
+     *  already follows — her overview card shows the undivided per-team
+     *  Daily Tax figure, and each individual product card divides THAT
+     *  figure again by product count, same shape as
+     *  TsaDailyRateService::perProductByTsaId() → perProductByTsaIdTwice(). */
+    public function test_product_cards_divide_tax_allocation_a_second_time_past_the_tsa_overview_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeeded();
+        Product::orderBy('id')->take(2)->get()->each(fn (Product $p) => $p->update(['has_cost_allocation' => true]));
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $overviewFigure = TsaDailyRateService::taxAllocationByTsaId()[$tsa->id];
+        $productCardFigure = TsaDailyRateService::perProductTaxAllocationByTsaId()[$tsa->id];
+        $this->assertGreaterThan($productCardFigure, $overviewFigure, 'test setup: dividing a second time by 2 products should shrink the figure');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $tsa->display_name);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+        $productCardsHtml = substr($content, $firstFieldPos);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($overviewFigure, 2), '/') . '/',
+            $overviewHtml
+        );
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($productCardFigure, 2), '/') . '/',
+            $productCardsHtml
+        );
+    }
+
     /** A product-level save with no tsa_id at all (update()'s own
      *  $tsaShift = null branch — the shared, non-TSA-scoped entry every
      *  page's own tsa_id-NULL row still writes to) has no TSA to compute a
@@ -1272,6 +1337,37 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('derived.operating_lines.salaries', fn ($v) => $v > 0);
+    }
+
+    /** A live autosave's returned 'derived' payload reflects the LOCKED Tax
+     *  Allocation figure too, not a stale manually-saved value — same
+     *  reasoning as the Salaries test above, via
+     *  withOperatingCostOverridesIfTsaScoped()'s own doc comment. */
+    public function test_updating_a_tsas_product_card_returns_tax_allocation_from_cost_breakdown(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeeded();
+        // Opening Shift needs a real Gross Sales target for Tax Allocation
+        // to compute to anything non-zero (orders_override × average_order_
+        // value, same inputs ProjectionCalculator::basePnl() reads).
+        ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
+        $product = Product::first();
+        // Only FLAGGED products divide the cost (explicit follow-up,
+        // 2026-09-30) — flag it so the per-product figure computes to a
+        // non-zero value instead of the "no flagged products" 0.0 default.
+        $product->update(['has_cost_allocation' => true]);
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 5000]
+        );
+
+        $response->assertOk();
+        $expected = TsaDailyRateService::perProductTaxAllocationByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure to meaningfully verify the lock');
+        $this->assertEquals($expected, $response->json('derived.tax_allocation'));
     }
 
     /** Her own numbers are completely independent of the "ALL" view's own

@@ -472,6 +472,19 @@ class ExpectedIncomeController extends Controller
         $dailyRateByTsaId = TsaDailyRateService::perProductByTsaId();
         $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
 
+        // Her own Tax Allocation (explicit request, 2026-10-02: "the tax
+        // allocation in tsa cards is should be not editable") — same
+        // two-tier "overview undivided, product divided again by product
+        // count" pattern as Salaries above, sourced from Cost Breakdown's
+        // own Monthly Tax/Daily Tax columns via TsaDailyRateService (see
+        // its own doc comment for the confirmed formula). Unlike Operating
+        // Costs, this isn't merged into $productCardOverrides/
+        // $overviewCardOverrides below — it's a top-level field, not one of
+        // operating_lines' own keys, so it needs its own override call
+        // (withOverriddenTaxAllocation(), not withOverriddenOperatingCosts()).
+        $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
+        $taxAllocationPerProductByTsaId = TsaDailyRateService::perProductTaxAllocationByTsaId();
+
         // Every OTHER Operating Costs row (Communication Allowance, 13th
         // Month Allowance, SIL, ... every shared pool except Salaries —
         // explicit follow-up, 2026-09-30: "the daily cost is it is this
@@ -490,17 +503,20 @@ class ExpectedIncomeController extends Controller
         $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow) {
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
             $productCardOverrides = array_merge($dailyCostPerProductRow, ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]);
             $overviewCardOverrides = array_merge($dailyCostRow, ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]);
+            $productCardTaxAllocation = $taxAllocationPerProductByTsaId[$tsa->id] ?? 0.0;
+            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? 0.0;
 
-            $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $productCardOverrides) {
+            $dailyRows = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $productCardOverrides, $productCardTaxAllocation) {
                 $dateStr = $date->toDateString();
-                $rows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dateStr, $sellingKeys, $operatingKeys, $productCardOverrides) {
+                $rows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dateStr, $sellingKeys, $operatingKeys, $productCardOverrides, $productCardTaxAllocation) {
                     $pooled = $groupProducts->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr));
                     $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
-                    return ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverrides);
+                    $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverrides);
+                    return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $productCardTaxAllocation);
                 });
                 return [$dateStr => $rows];
             });
@@ -516,11 +532,12 @@ class ExpectedIncomeController extends Controller
             // as buildAllDailyRows()'s own $dailyOverallTotals. Uses
             // $overviewCardOverrides, NOT $productCardOverrides — see this
             // method's own doc comment above on why the two diverge.
-            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverrides) {
+            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverrides, $overviewCardTaxAllocation) {
                 $dateStr = $date->toDateString();
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
-                return [$dateStr => ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides)];
+                $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
+                return [$dateStr => ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocation)];
             });
 
             return [
@@ -834,15 +851,21 @@ class ExpectedIncomeController extends Controller
         return $this->withOperatingCostOverridesIfTsaScoped($summed, $tsaId);
     }
 
-    /** Every Operating Costs row on a TSA-scoped card is locked to Cost
-     *  Breakdown's own figures (explicit request, 2026-09-30: "the
-     *  salaries row is based to the Daily Rate / Product", then "the
-     *  daily cost is it is this [Communication Allowance, 13th Month
-     *  Allowance, SIL, ...]") — same override buildTeamDailyRows()'s own
-     *  initial page render already applies, reapplied here so a live
+    /** Every Operating Costs row AND Tax Allocation on a TSA-scoped card are
+     *  locked to Cost Breakdown's own figures (explicit requests,
+     *  2026-09-30 for Operating Costs: "the salaries row is based to the
+     *  Daily Rate / Product", then "the daily cost is it is this
+     *  [Communication Allowance, 13th Month Allowance, SIL, ...]"; 2026-10-02
+     *  for Tax Allocation: "the tax allocation in tsa cards is should be
+     *  not editable") — same overrides buildTeamDailyRows()'s own initial
+     *  page render already applies (via $productCardOverrides/
+     *  $productCardTaxAllocation there), reapplied here so a live
      *  autosave's returned 'derived' payload never shows a stale figure.
-     *  A null $tsaId (the ALL view's own product-level cards) is
-     *  unaffected. */
+     *  Both use the PRODUCT-divided figure (perProductByTsaIdTwice() /
+     *  perProductTaxAllocationByTsaId()), matching this call site's own
+     *  per-product-card scope — see derivedForProductOrGroup()'s own doc
+     *  comment. A null $tsaId (the ALL view's own product-level cards) is
+     *  unaffected by either lock. */
     private function withOperatingCostOverridesIfTsaScoped(array $derived, ?int $tsaId): array
     {
         if ($tsaId === null) {
@@ -854,7 +877,10 @@ class ExpectedIncomeController extends Controller
             'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
         ]);
 
-        return ExpectedIncomeCalculator::withOverriddenOperatingCosts($derived, $operatingCostOverrides);
+        $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts($derived, $operatingCostOverrides);
+
+        $taxAllocationPerProductByTsaId = TsaDailyRateService::perProductTaxAllocationByTsaId();
+        return ExpectedIncomeCalculator::withOverriddenTaxAllocation($derived, $taxAllocationPerProductByTsaId[$tsaId] ?? 0.0);
     }
 
     /** Merges every custom row's own currently-saved value onto $entry's
