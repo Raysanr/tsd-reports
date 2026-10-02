@@ -169,11 +169,15 @@
                             <td data-out="total" class="px-4 py-2 text-right font-mono font-bold text-ink dark:text-slate-100 {{ $groupEndClass }}">{{ $fmtMoney($total) }}</td>
                             <td data-out="daily_rate" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRate) }}</td>
                             <td data-out="daily_rate_per_product" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($dailyRatePerProduct) }}</td>
-                            {{-- Every real TSA row shows the SAME figure
-                                 (the per-shift Monthly Tax ÷ the app's own
-                                 COMPANY-WIDE real TSA count, not just this
-                                 shift's own smaller headcount — confirmed
-                                 explicitly against the real sheet). --}}
+                            {{-- Every real TSA row shows the per-shift
+                                 Monthly Tax ÷ HER OWN TEAM'S real TSA count
+                                 (confirmed DIRECTLY against the sheet's own
+                                 formula bar, 2026-10-02: "50,000 is divided
+                                 by 6 (6 tsa per team) so when they add new
+                                 tsa it will be 7" — dynamic per team, not a
+                                 fixed sheet headcount and not the
+                                 company-wide total). --}}
+                            @php $monthlyTaxPerTsa = $monthlyTaxPerTsaByTeam[$tsa->team] ?? 0.0; @endphp
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
                         </tr>

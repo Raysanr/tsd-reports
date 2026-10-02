@@ -95,25 +95,37 @@ class CostBreakdownSmokeTest extends TestCase
     }
 
     /** Monthly Tax / Daily Tax columns (explicit request, 2026-10-02,
-     *  confirmed against 2 real sheet screenshots) — sourced from
-     *  Projections' own "Telesales Department" Tax Allocation line, split
-     *  ÷ 2 shifts (both Supervisor rows show the SAME per-shift figure),
-     *  then ÷ the app's own COMPANY-WIDE real TSA count for every TSA row
-     *  (NOT that shift's own smaller headcount — confirmed explicitly:
-     *  50,000 ÷ 8,333.33 = 6 real TSAs company-wide, not 3 per shift).
-     *  Daily Tax is that same figure ÷ 24, same shape as the existing
-     *  Daily Rate (÷24) column. */
-    public function test_monthly_and_daily_tax_columns_match_the_confirmed_formula(): void
+     *  CONFIRMED DIRECTLY against the real sheet's own formula bar: "50,000
+     *  is divided by 6 (6 tsa per team) so when they add new tsa it will be
+     *  7" / "the DAILY TAX 50,000 is divided by 24") — sourced from
+     *  Projections' own "Telesales Department" Tax Allocation line, split ÷
+     *  2 shifts (both Supervisor rows show the SAME per-shift figure), then
+     *  ÷ THAT TEAM'S OWN real TSA count for every TSA row on that team.
+     *  Root-caused live, 2026-10-02: an earlier wrong reading divided by
+     *  the COMPANY-WIDE TSA count instead (6 in this fixture's own 2-team,
+     *  3-per-team roster is coincidentally == company-wide here too in a
+     *  single-team test, which is why this test seeds BOTH teams with
+     *  DIFFERENT TSA counts — 3 vs 2 — so a company-wide-divisor regression
+     *  can never again slip through unnoticed). Daily Tax is that same
+     *  figure ÷ 24, same shape as the existing Daily Rate (÷24) column. */
+    public function test_monthly_and_daily_tax_columns_divide_by_each_teams_own_tsa_count(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         \App\Models\ProjectionColumn::ensureSeeded();
+
+        // Give the 2 teams DIFFERENT real TSA counts (SH Naturals keeps its
+        // 3 seeded TSAs; Eyecare Team gets just 2 by removing one) so a
+        // company-wide-divisor bug can never coincidentally produce the
+        // same number as the correct per-team divisor.
+        TsaShift::where('team', 'Eyecare Team')->first()->delete();
 
         $columns = \App\Models\ProjectionColumn::orderBy('sort_order')->get();
         $rates = \App\Support\ProjectionCalculator::allRates();
         $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
         $perShift = $departmentTaxAllocation / 2;
-        $perTsa = $perShift / TsaShift::count();
+        $perTsaShNaturals = $perShift / TsaShift::where('team', 'SH Naturals')->count();
+        $perTsaEyecare = $perShift / TsaShift::where('team', 'Eyecare Team')->count();
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
@@ -126,10 +138,13 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertSame(2, substr_count($content, number_format($perShift, 2)), 'expected the per-shift Monthly Tax figure on both Supervisor rows');
         $this->assertSame(2, substr_count($content, number_format($perShift / 24, 2)), 'expected the per-shift Daily Tax figure on both Supervisor rows');
 
-        // Every real TSA row shows the per-TSA figure, divided by the
-        // COMPANY-WIDE TSA count, not a per-shift headcount.
-        $this->assertStringContainsString(number_format($perTsa, 2), $content);
-        $this->assertStringContainsString(number_format($perTsa / 24, 2), $content);
+        // Each team's own real TSAs show THEIR OWN team's divisor, not the
+        // other team's or a company-wide blend of both.
+        $this->assertStringContainsString(number_format($perTsaShNaturals, 2), $content);
+        $this->assertStringContainsString(number_format($perTsaShNaturals / 24, 2), $content);
+        $this->assertStringContainsString(number_format($perTsaEyecare, 2), $content);
+        $this->assertStringContainsString(number_format($perTsaEyecare / 24, 2), $content);
+        $this->assertNotEquals($perTsaShNaturals, $perTsaEyecare, 'test fixture sanity check — the 2 teams must have different TSA counts for this test to be meaningful');
     }
 
     /** CEO/Sales Director/Telesales Manager/QA Specialist/Junior AI

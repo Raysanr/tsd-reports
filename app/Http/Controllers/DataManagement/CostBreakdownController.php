@@ -238,7 +238,7 @@ class CostBreakdownController extends Controller
         }, []);
         $grandTotal = array_sum($poolTotalsRow);
 
-        ['perShift' => $monthlyTaxPerShift, 'perTsa' => $monthlyTaxPerTsa] = $this->taxFigures($tsas->count());
+        ['perShift' => $monthlyTaxPerShift, 'perTsaByTeam' => $monthlyTaxPerTsaByTeam] = $this->taxFigures($tsas);
 
         return view('data.cost-breakdown', [
             'roles' => $roles,
@@ -256,40 +256,45 @@ class CostBreakdownController extends Controller
             'dailyCostRow' => $dailyCostRow,
             'dailyCostPerProductRow' => $dailyCostPerProductRow,
             'monthlyTaxPerShift' => $monthlyTaxPerShift,
-            'monthlyTaxPerTsa' => $monthlyTaxPerTsa,
+            'monthlyTaxPerTsaByTeam' => $monthlyTaxPerTsaByTeam,
         ]);
     }
 
     /** "Monthly Tax" / "Daily Tax" columns on the Salary Breakdown table
-     *  (explicit request, 2026-10-02, confirmed against 2 real sheet
-     *  screenshots of the Opening/Closing shift tabs) — sourced from
-     *  Projections' own "Telesales Department" card's Tax Allocation line
-     *  (Gross Sales × the shared tax_allocation rate, same figure the
-     *  Expected Income P&L already calls "Tax Allocation"), NOT a fresh
-     *  manually-typed amount here. Cost Breakdown ONLY (explicit scope
-     *  confirmation, same as the Tax pool this replaces) — reads
-     *  Projections' own already-computed figure but writes nothing back to
-     *  it or to Expected Income.
+     *  (explicit request, 2026-10-02, confirmed DIRECTLY against the real
+     *  sheet's own formula bar — "50,000 is divided by 6 (6 tsa per team)
+     *  so when they add new tsa it will be 7" / "the DAILY TAX 50,000 is
+     *  divided by 24") — sourced from Projections' own "Telesales
+     *  Department" card's Tax Allocation line (Gross Sales × the shared
+     *  tax_allocation rate, same figure the Expected Income P&L already
+     *  calls "Tax Allocation"), NOT a fresh manually-typed amount here.
+     *  Cost Breakdown ONLY (explicit scope confirmation, same as the Tax
+     *  pool this replaces) — reads Projections' own already-computed
+     *  figure but writes nothing back to it or to Expected Income.
      *
-     *  Confirmed formula, from the real sheet: the department-wide Tax
-     *  Allocation (e.g. 100,000) splits evenly ACROSS THE 2 SHIFTS first
-     *  (50,000 each — Opening Shift's own tab and Closing Shift's own tab
-     *  both show the SAME 50,000, not two different figures), then each
-     *  shift's own 50,000 splits evenly across the COMPANY-WIDE real TSA
-     *  count (6, not that shift's own smaller headcount — confirmed
-     *  explicitly: 50,000 ÷ 8,333.33 = 6, not 3, even though each shift
-     *  only has 3 real TSAs of its own). Returns:
-     *    'perShift' — the raw 50,000-style figure, shown on the 2
-     *                 Supervisor rows only (their own overhead_divisor is
-     *                 'team', same marker CostBreakdownRole::SEED_ROLES
-     *                 already uses to single them out from the other 5
-     *                 role rows).
-     *    'perTsa'   — that same figure ÷ $tsaCount, shown on every real
-     *                 TSA row.
+     *  Confirmed formula: the department-wide Tax Allocation (e.g.
+     *  100,000) splits evenly ACROSS THE 2 SHIFTS first (50,000 each —
+     *  Opening Shift's own tab and Closing Shift's own tab both show the
+     *  SAME 50,000, not two different figures), then each shift's own
+     *  50,000 splits across THAT TEAM'S OWN real TSA count (confirmed
+     *  live, 2026-10-02 — production showed 4,166.67 = 50,000 ÷ 12
+     *  company-wide instead of the sheet's own 8,333.33 = 50,000 ÷ 6,
+     *  since production has 6 real TSAs PER TEAM, 12 total — the earlier
+     *  "company-wide" reading was wrong, root-caused by this app's dev DB
+     *  coincidentally having only 6 TSAs TOTAL at the time). Dynamic, not
+     *  a fixed sheet headcount — "when they add new tsa it will be 7"
+     *  means a team's own real TsaShift count, recounted fresh, same
+     *  "real roster, not the sheet's static snapshot" convention every
+     *  other Cost Breakdown figure already follows (explicit exception:
+     *  this is NOT the same as CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS,
+     *  which deliberately stays fixed at the sheet's own 12/6 to match ITS
+     *  own numbers exactly — that one was never meant to track the real
+     *  roster). Returns ['perShift' => 50,000-style figure,
+     *  'perTsaByTeam' => [order_team => that team's own per-TSA figure]].
      *  Daily Tax (either figure ÷ 24) is derived in the view itself, same
      *  "controller returns the monthly figure, view divides by 24 inline"
      *  split the existing Daily Rate (÷24) column already uses. */
-    private function taxFigures(int $tsaCount): array
+    private function taxFigures($tsas): array
     {
         $columns = ProjectionColumn::orderBy('sort_order')->get();
         $rates = ProjectionCalculator::allRates();
@@ -297,9 +302,12 @@ class CostBreakdownController extends Controller
 
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'] ?? 0.0;
         $perShift = $departmentTaxAllocation / 2;
-        $perTsa = $tsaCount > 0 ? $perShift / $tsaCount : 0.0;
 
-        return ['perShift' => $perShift, 'perTsa' => $perTsa];
+        $perTsaByTeam = $tsas->groupBy('team')->map(
+            fn ($teamTsas) => $teamTsas->count() > 0 ? $perShift / $teamTsas->count() : 0.0
+        )->all();
+
+        return ['perShift' => $perShift, 'perTsaByTeam' => $perTsaByTeam];
     }
 
     /** TOTAL SALARY OF TSD — sum of every real TSA's own freshly-computed
