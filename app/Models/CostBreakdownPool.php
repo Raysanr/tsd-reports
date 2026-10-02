@@ -51,16 +51,6 @@ class CostBreakdownPool extends Model
         ['key' => 'business_development_fund', 'label' => 'Business Development Fund', 'amount' => 2083.33, 'sort_order' => 18],
         ['key' => 'geniusmakers_management_fee', 'label' => 'Geniusmakers Management Fee', 'amount' => 4166.67, 'sort_order' => 19],
         ['key' => 'hmo_expense', 'label' => 'HMO Expense', 'amount' => 4642.75, 'sort_order' => 20],
-        // Explicit request, 2026-10-01: "add new column ... TAX?" — Cost
-        // Breakdown only (explicit scope confirmation, same day), NOT
-        // wired into Expected Income's Operating Costs or Projections'
-        // rates — those two read from their own separate hardcoded key
-        // lists (ExpectedIncomeCalculator::OPERATING_COST_ROWS /
-        // ProjectionCalculator::DEFAULT_RATES), not this table directly,
-        // so a new pool row here shows up ONLY on Cost Breakdown's own two
-        // sections without touching either of those. Starts at 0 — no
-        // real sheet figure to seed from, typed in directly afterward.
-        ['key' => 'tax', 'label' => 'Tax', 'amount' => 0.00, 'sort_order' => 21],
     ];
 
     /** Creates any missing pool (with its full seed values, amount
