@@ -1245,7 +1245,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertOk();
         $content = $response->getContent();
         $dailySectionStart = strpos($content, 'ei-day-scroller');
-        $dailyHtml = substr($content, $dailySectionStart);
+        // Bounded to end before the page's own <script> block (pushed via
+        // @push('scripts')) — that script legitimately contains the literal
+        // string 'data-field="tax_allocation"' inside a querySelector() call
+        // (reading the locked figure's own read-only fallback), which would
+        // otherwise false-positive this assertion despite no such DOM
+        // attribute actually being rendered anywhere.
+        $scriptStart = strpos($content, '<script>', $dailySectionStart);
+        $dailyHtml = substr($content, $dailySectionStart, $scriptStart - $dailySectionStart);
 
         $this->assertStringNotContainsString('data-field="tax_allocation"', $dailyHtml);
     }

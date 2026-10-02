@@ -280,11 +280,27 @@
 
         productCards.forEach((card) => {
             const raw = {};
-            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'returns', 'delivered', 'tax_allocation', 'product_cost']
+            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'returns', 'delivered', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
                 });
+            // Tax Allocation on a TSA-scoped card is LOCKED (explicit
+            // request, 2026-10-02: "the tax allocation in tsa cards is
+            // should be not editable") — no data-field input at all there,
+            // same "read the server-rendered read-only span instead of
+            // silently treating it as 0" fallback the locked Operating
+            // Costs rows below already use. Root-caused live, 2026-10-02:
+            // this card's own overview rollup kept resetting Tax Allocation
+            // to 0.00 after ANY field on the page was edited, since this
+            // used to ALWAYS read data-field (never present once locked)
+            // with no fallback, unlike every other locked row.
+            (() => {
+                const el = card.querySelector('[data-field="tax_allocation"]');
+                if (el) { raw.tax_allocation = parseMoney(el.value); return; }
+                const out = card.querySelector('[data-out="tax_allocation"]');
+                raw.tax_allocation = out ? parseMoney(out.textContent) : 0;
+            })();
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => {
                 const el = card.querySelector(`[data-field="${key}"]`);
                 if (el) { raw[key] = parseMoney(el.value); return; }
