@@ -384,13 +384,24 @@ class ExpectedIncomeController extends Controller
         $dailyCostRow = $divideByProductCount
             ? collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all()
             : collect(TsaDailyRateService::dailyCostRow())->except('total')->all();
+        // Tax Allocation (explicit request, 2026-10-02: "it should be total
+        // in this TELESALES right? like other costs") — same "once per
+        // active TSA per day in the WHOLE range" rule as Salaries/the
+        // pools above, but it's a TOP-LEVEL field, not one of
+        // operating_lines' own keys, so it's accumulated separately and
+        // folded in via withOverriddenTaxAllocation() below (which walks
+        // Gross Profit → Income Before OPEX → Net Income, since Tax
+        // Allocation sits upstream, unlike Operating Costs).
+        $taxAllocationByTsaId = $divideByProductCount ? TsaDailyRateService::perProductTaxAllocationByTsaId() : TsaDailyRateService::taxAllocationByTsaId();
 
         $addedOperatingCosts = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
+        $addedTaxAllocation = 0.0;
         foreach ($activeTsaIds as $tsaId) {
             $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
             foreach ($dailyCostRow as $key => $amount) {
                 $addedOperatingCosts[$key] += $amount * $dayCount;
             }
+            $addedTaxAllocation += ($taxAllocationByTsaId[$tsaId] ?? 0.0) * $dayCount;
         }
 
         $operatingLines = collect($derived['operating_lines'])->map(fn ($value, $key) => $value + ($addedOperatingCosts[$key] ?? 0.0));
@@ -398,13 +409,15 @@ class ExpectedIncomeController extends Controller
         $grossSales = $derived['gross_sales'];
         $netIncome = $derived['income_before_opex'] - $totalOperatingCosts;
 
-        return array_merge($derived, [
+        $derived = array_merge($derived, [
             'operating_lines' => $operatingLines,
             'total_operating_costs' => $totalOperatingCosts,
             'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
             'net_income' => $netIncome,
             'net_income_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
         ]);
+
+        return ExpectedIncomeCalculator::withOverriddenTaxAllocation($derived, $derived['tax_allocation'] + $addedTaxAllocation);
     }
 
     /** The ALL view's own daily rows — one row of cards PER calendar day,

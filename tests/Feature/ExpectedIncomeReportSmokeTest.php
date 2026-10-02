@@ -669,6 +669,49 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-out="total_operating_costs"[^>]*>\s*[1-9][\d,]*\.\d{2}/', $summaryHtml);
     }
 
+    /** Regression test, 2026-10-02 (live screenshot): "it should be total
+     *  in this TELESALES right? like others costs" — the rollup's own Tax
+     *  Allocation must total every active TSA's own Daily Tax figure, same
+     *  "once per active TSA per day in the WHOLE range" rule Salaries/the
+     *  shared pools already follow — addActiveTsasOverviewOperatingCosts()
+     *  originally only folded in Salaries/pools (operating_lines' own
+     *  keys), silently leaving Tax Allocation (a TOP-LEVEL field) at
+     *  whatever the raw stored rows summed to (0, since it's never
+     *  actually saved for a TSA-owned row). */
+    public function test_the_range_summary_cards_tax_allocation_totals_every_active_tsas_daily_tax(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeeded();
+        ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
+        $tsa = TsaShift::first();
+        Product::first()->update(['has_cost_allocation' => true]);
+        ExpectedIncomeEntry::create([
+            'product_id' => Product::first()->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 50000,
+        ]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $expected = TsaDailyRateService::taxAllocationByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure to meaningfully verify the fix');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $summaryStart = strpos($content, 'id="eiSummaryScroller"');
+        $dailySectionStart = strpos($content, 'ei-day-scroller', $summaryStart);
+        $summaryHtml = substr($content, $summaryStart, $dailySectionStart - $summaryStart);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
+            $summaryHtml,
+            "expected the TELESALES rollup's own Tax Allocation to total her Daily Tax figure ({$expected})"
+        );
+    }
+
     /** Tighter regression test, 2026-10-01 (live screenshot): "this card
      *  should be the totals of the per-tsa cards" — the TELESALES rollup's
      *  own Salaries must equal the TSA's OVERVIEW-card figure (her TOTAL ÷
