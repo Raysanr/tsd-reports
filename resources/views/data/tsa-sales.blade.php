@@ -68,7 +68,7 @@
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
     ];
     $lastColIndex = count($dayColumns) - 1;
-    $emptyRaw = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
+    $emptyRaw = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0, 'upsell_sales' => 0, 'upsell_confirmation' => 0];
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -199,6 +199,19 @@
                             $dateStr = $date->toDateString();
                             $raw = $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
                             $d = \App\Support\TsaSalesCalculator::derive($raw);
+                            // AOV automated — explicit request, 2026-10-03:
+                            // "also automate AOV like TSA Performance's" —
+                            // upsell_sales ÷ upsell_confirmation (real
+                            // tracked upsell revenue), overriding derive()'s
+                            // own Gross Sales ÷ Total Orders for every OTHER
+                            // caller of TsaSalesCalculator (see
+                            // TsaSalesReportController::withAutomatedAov()'s
+                            // own doc comment for why this stays an
+                            // override here instead of a change to
+                            // TsaSalesCalculator itself).
+                            $d['aov'] = ($raw['upsell_confirmation'] ?? 0) > 0
+                                ? $raw['upsell_sales'] / $raw['upsell_confirmation']
+                                : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === $lastColIndex ? 'tsr-day-end' : ''; @endphp
@@ -264,9 +277,15 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $dayTotal = \App\Support\TsaSalesCalculator::sum($gs['tsas']->map(function ($tsa) use ($dailyByKey, $dateStr, $emptyRaw) {
+                            $dayRawRows = $gs['tsas']->map(function ($tsa) use ($dailyByKey, $dateStr, $emptyRaw) {
                                 return $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
-                            })->all());
+                            })->all();
+                            $dayTotal = \App\Support\TsaSalesCalculator::sum($dayRawRows);
+                            // AOV automated — see the per-row $d['aov']
+                            // override above for the full reasoning.
+                            $dayUpsellSales = array_sum(array_column($dayRawRows, 'upsell_sales'));
+                            $dayUpsellConfirmation = array_sum(array_column($dayRawRows, 'upsell_confirmation'));
+                            $dayTotal['aov'] = $dayUpsellConfirmation > 0 ? $dayUpsellSales / $dayUpsellConfirmation : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($dayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
@@ -407,11 +426,17 @@
             upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
             rowCount += 1;
         });
+        // No 'aov' key here — it's automated now (upsell_sales ÷
+        // upsell_confirmation, not Gross Sales ÷ Total Orders — see
+        // TsaSalesReportController::withAutomatedAov()'s own doc
+        // comment) and never changes from a Gross Sales/Net Income
+        // edit, so applyDerived()'s own `if (!(key in derived)) return`
+        // guard leaves the existing [data-out="aov"] cell untouched
+        // instead of recomputing it from stale client-side totals.
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
             upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
         };
@@ -442,11 +467,12 @@
             });
         });
 
+        // No 'aov' key — automated now, untouched by a Gross Sales/Net
+        // Income edit; see refreshDayTotal()'s own comment above.
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: dayCount > 0 ? pickupSum / dayCount : 0,
             upselling_rate: dayCount > 0 ? upsellSum / dayCount : 0,
         };
@@ -490,11 +516,12 @@
             rowCount += 1;
         });
 
+        // No 'aov' key — automated now; see refreshDayTotal()'s own
+        // comment above.
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
             upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
         };
@@ -527,11 +554,12 @@
             rowCount += 1;
         });
 
+        // No 'aov' key — automated now; see refreshDayTotal()'s own
+        // comment above.
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
             upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
         };

@@ -402,6 +402,16 @@ class TsaSalesReportSmokeTest extends TestCase
             $response->getContent(),
             'Pick-up Rate should be the real 75.00% (3 answered / 4 called), not the stale saved 99.00%'
         );
+        // AOV automated too (explicit follow-up, 2026-10-03: "also
+        // automate AOV like TSA Performance's") — upsell_sales ÷
+        // upsell_confirmation = (500+500) ÷ 2 = 500.00, NOT Gross Sales
+        // ÷ Total Orders (Gross Sales here is 0, unsaved, which would
+        // give 0.00 under the old formula).
+        $this->assertMatchesRegularExpression(
+            '/<td[^>]*data-out="aov"[^>]*>\s*500\.00\s*<\/td>/',
+            $response->getContent(),
+            'AOV should be the real upsell_sales/upsell_confirmation average (500.00), not Gross Sales / Total Orders'
+        );
     }
 
     /** These 4 fields no longer have an <input> at all — only AOV/NI%

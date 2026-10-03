@@ -46,6 +46,13 @@ use Illuminate\Support\Collection;
  */
 class TsaSalesReportController extends Controller
 {
+    /** Default shape for a TSA/date with no real orders at all — used
+     *  anywhere $performanceByKey might miss a key. */
+    private const EMPTY_AUTO_FIELDS = [
+        'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0,
+        'upsell_sales' => 0, 'upsell_confirmation' => 0,
+    ];
+
     /** Every TSA's per-day Total Orders/Catered Leads/Pick-up Rate/
      *  Upselling Rate for $dateFrom..$dateTo, keyed "tsaId:date" — same
      *  shape TsaPerformanceController's own $ordersByTsaNameAcrossTeams
@@ -97,8 +104,45 @@ class TsaSalesReportController extends Controller
                 // so divide by 100 here, once, at the source.
                 'pickup_rate'    => ($tally['pick_up_rate'] ?? 0) / 100,
                 'upselling_rate' => ($tally['upselling_rate'] ?? 0) / 100,
+                // AOV override inputs — see index()'s own $withAov,
+                // 2026-10-03: "also automate AOV like TSA Performance's"
+                // (explicit follow-up after noticing AOV stayed 0.00
+                // while Total Orders was already real — AOV was still
+                // Gross Sales ÷ Total Orders, and Gross Sales is still
+                // manual entry). Same formula as
+                // TsaPerformanceController::buildRow()'s own AOV:
+                // upsell_sales ÷ upsell_confirmation, real tracked
+                // upsell revenue per upsell order, nothing to do with
+                // the manually-typed Gross Sales figure.
+                'upsell_sales'        => $tally['upsell_sales'],
+                'upsell_confirmation' => $tally['upsell_confirmation'],
             ]];
         });
+    }
+
+    /** AOV = upsell_sales ÷ upsell_confirmation — same formula as
+     *  TsaPerformanceController::buildRow()'s own AOV, fully automated
+     *  (explicit request, 2026-10-03). Overrides whatever
+     *  TsaSalesCalculator::derive()/sum() computed for 'aov' from
+     *  Gross Sales ÷ Total Orders — that formula stays correct and
+     *  unit-tested against the real source sheet for every OTHER
+     *  caller of TsaSalesCalculator, so it's overridden here at the
+     *  call site instead of changed at its source. */
+    private function withAutomatedAov(array $derived, array $rawRows): array
+    {
+        $upsellSales = array_sum(array_column($rawRows, 'upsell_sales'));
+        $upsellConfirmation = array_sum(array_column($rawRows, 'upsell_confirmation'));
+        $derived['aov'] = $upsellConfirmation > 0 ? $upsellSales / $upsellConfirmation : 0.0;
+        // Carried forward (not just consumed) so a CALLER one level up
+        // (group total summing several TSAs' own 'derived' rows, or the
+        // overall total summing every group) can re-sum these two and
+        // recompute ITS OWN aov fresh from the totals, same "recompute
+        // the ratio from summed raw numbers, never average a ratio"
+        // convention TsaSalesCalculator::sum() already uses for
+        // ni_pct/aov.
+        $derived['upsell_sales'] = $upsellSales;
+        $derived['upsell_confirmation'] = $upsellConfirmation;
+        return $derived;
     }
 
     public function index(Request $request)
@@ -171,7 +215,7 @@ class TsaSalesReportController extends Controller
             foreach ($dates as $date) {
                 $key = $tsa->id . ':' . $date->toDateString();
                 $manual = $rawEntriesByKey->has($key) ? $rawEntriesByKey->get($key)->toArray() : $emptyManualFields;
-                $auto = $performanceByKey->get($key, ['total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0]);
+                $auto = $performanceByKey->get($key, self::EMPTY_AUTO_FIELDS);
                 $dailyByKey->put($key, array_merge($manual, $auto));
             }
         }
@@ -186,10 +230,10 @@ class TsaSalesReportController extends Controller
             $teamTsas = $tsas->where('team', $team['order_team'] ?? '__none__')->values();
 
             $rowSummaries = $teamTsas->map(function (TsaShift $tsa) use ($dates, $dailyByKey) {
-                $tsaRows = $dates->map(fn ($date) => $dailyByKey->get($tsa->id . ':' . $date->toDateString()));
+                $tsaRows = $dates->map(fn ($date) => $dailyByKey->get($tsa->id . ':' . $date->toDateString()))->all();
                 return [
                     'tsa'     => $tsa,
-                    'derived' => TsaSalesCalculator::sum($tsaRows->all()),
+                    'derived' => $this->withAutomatedAov(TsaSalesCalculator::sum($tsaRows), $tsaRows),
                 ];
             });
 
@@ -197,11 +241,15 @@ class TsaSalesReportController extends Controller
                 'label'      => $team['name'] ?? $slug,
                 'tsas'       => $teamTsas,
                 'rows'       => $rowSummaries,
-                'groupTotal' => TsaSalesCalculator::sum($rowSummaries->pluck('derived')->all()),
+                'groupTotal' => $this->withAutomatedAov(
+                    TsaSalesCalculator::sum($rowSummaries->pluck('derived')->all()),
+                    $rowSummaries->pluck('derived')->all()
+                ),
             ];
         })->values();
 
-        $overallTotal = TsaSalesCalculator::sum($groupSummaries->pluck('rows')->flatten(1)->pluck('derived')->all());
+        $overallRows = $groupSummaries->pluck('rows')->flatten(1)->pluck('derived')->all();
+        $overallTotal = $this->withAutomatedAov(TsaSalesCalculator::sum($overallRows), $overallRows);
 
         return view('data.tsa-sales', [
             'groupSummaries' => $groupSummaries,
@@ -237,11 +285,14 @@ class TsaSalesReportController extends Controller
         $entry->save();
 
         $performance = $this->perTsaPerDayPerformance(collect([$tsaShift]), $entryDate, $entryDate)
-            ->get($tsaShift->id . ':' . $entryDate, ['total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0]);
+            ->get($tsaShift->id . ':' . $entryDate, self::EMPTY_AUTO_FIELDS);
+
+        $raw = array_merge($entry->toArray(), $performance);
+        $derived = $this->withAutomatedAov(TsaSalesCalculator::derive($raw), [$raw]);
 
         return response()->json([
             'success' => true,
-            'derived' => TsaSalesCalculator::derive(array_merge($entry->toArray(), $performance)),
+            'derived' => $derived,
         ]);
     }
 }
