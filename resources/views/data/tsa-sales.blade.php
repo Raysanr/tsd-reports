@@ -58,11 +58,14 @@
         ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        // Total Orders, Catered Leads, Pick-up Rate, Upselling Rate: all 4
+        // auto-computed from TSA Performance's own data now, not manual
+        // entry — see TsaSalesReportController's own doc comment, 2026-10-03.
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
     ];
     $lastColIndex = count($dayColumns) - 1;
     $emptyRaw = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
@@ -194,8 +197,7 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $entry = $dailyByKey->get($tsa->id . ':' . $dateStr);
-                            $raw = $entry ? $entry->toArray() : $emptyRaw;
+                            $raw = $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
                             $d = \App\Support\TsaSalesCalculator::derive($raw);
                         @endphp
                         @foreach($dayColumns as $i => $col)
@@ -263,8 +265,7 @@
                         @php
                             $dateStr = $date->toDateString();
                             $dayTotal = \App\Support\TsaSalesCalculator::sum($gs['tsas']->map(function ($tsa) use ($dailyByKey, $dateStr, $emptyRaw) {
-                                $entry = $dailyByKey->get($tsa->id . ':' . $dateStr);
-                                return $entry ? $entry->toArray() : $emptyRaw;
+                                return $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
                             })->all());
                         @endphp
                         @foreach($dayColumns as $i => $col)
@@ -396,10 +397,14 @@
         rows.forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
             totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
-            totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
-            pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
-            upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
+            // Total Orders/Catered Leads/Pick-up/Upselling Rate are
+            // read-only [data-out] cells now, not [data-field] inputs
+            // (auto-computed — see TsaSalesReportController's own doc
+            // comment) — read their rendered text instead.
+            totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
+            totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
+            pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
+            upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
             rowCount += 1;
         });
         const derived = {
@@ -429,10 +434,10 @@
                 const date = el.dataset.date;
                 totals.gross_sales += parseMoney(el.value);
                 totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-                totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
-                totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
-                pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
-                upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
+                totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
+                totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
+                pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
+                upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
                 dayCount += 1;
             });
         });

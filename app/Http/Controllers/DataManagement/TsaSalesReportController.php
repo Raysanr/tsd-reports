@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
 use App\Support\DateRangeFilter;
+use App\Support\ProductPerformance;
 use App\Support\TsaSalesCalculator;
 use App\Support\Teams;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * TSD Data Management — Summary Sales Report (explicit request, 2026-09-24:
@@ -26,9 +29,78 @@ use Illuminate\Support\Carbon;
  * Same single-filterable-date-range + 7-day-chunked-tables shape as
  * DsPprReportController, for the same reasons (see that controller's own
  * doc comment).
+ *
+ * Total Orders, Catered Leads, Pick-up Rate and Upselling Rate are NOT
+ * manual entry (explicit request, 2026-10-03: "i want to make this
+ * automated that is the data is from TSD LEADS REPORT - TSA PERFORMANCE
+ * PAGE", confirmed read-only/fully-automated, then "the total orders is
+ * confirmation w/ upsell data" — Total Orders = upsell_confirmation, not
+ * a plain order count) — all 4 are computed fresh per TSA per day from
+ * the exact same ProductPerformance::tally() the TSA Performance page
+ * itself uses, via perTsaPerDayPerformance() below, and OVERRIDE
+ * whatever is stored on TsaSalesEntry for these columns (those columns
+ * stay on the model/migration for now — not worth a destructive migration
+ * for a report page — but are no longer written to or read from). Gross
+ * Sales/Net Income/Ads Spent remain manual entry; AOV stays derived from
+ * the now-automated Total Orders via TsaSalesCalculator::derive().
  */
 class TsaSalesReportController extends Controller
 {
+    /** Every TSA's per-day Total Orders/Catered Leads/Pick-up Rate/
+     *  Upselling Rate for $dateFrom..$dateTo, keyed "tsaId:date" — same
+     *  shape TsaPerformanceController's own $ordersByTsaNameAcrossTeams
+     *  produces (credit a TSA by tsa_name across EVERY team's orders, not
+     *  just her own team's Order.team column, since a TSA can close a
+     *  lead that landed under a different team — see that controller's
+     *  own doc comment, 2026-09-07, for the full reasoning this reuses
+     *  verbatim). Scoped here to one day at a time (DATE(), not BETWEEN)
+     *  so each day's own entry row gets that day's own tally, not the
+     *  whole range's.
+     */
+    private function perTsaPerDayPerformance(Collection $tsas, string $dateFrom, string $dateTo): Collection
+    {
+        // whereDate() twice (>= and <=) rather than a single BETWEEN —
+        // same lexicographic-string-comparison SQLite bug called out
+        // throughout this codebase (see index()'s own whereDate() calls
+        // below) applies here too once COALESCE is involved.
+        $orders = Order::whereRaw(
+            "DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?",
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsas->pluck('tsa_key'))->get();
+
+        $byTsaAndDate = $orders->groupBy(fn (Order $o) => $o->tsa_name . ':' . Carbon::parse(
+            $o->pancake_inserted_at ?? $o->pancake_created_at
+        )->toDateString());
+
+        $tsaKeyToId = $tsas->pluck('id', 'tsa_key');
+
+        return $byTsaAndDate->mapWithKeys(function (Collection $dayOrders, string $groupKey) use ($tsaKeyToId) {
+            [$tsaKey, $date] = explode(':', $groupKey, 2);
+            $tsaId = $tsaKeyToId->get($tsaKey);
+            if ($tsaId === null) return [];
+
+            $tally = ProductPerformance::tally($dayOrders);
+
+            return [$tsaId . ':' . $date => [
+                // Explicit confirmation, 2026-10-03: "the total orders is
+                // confirmation w/ upsell data" — upsell_confirmation, not
+                // $tally['total'] (which would include every non-upsell
+                // disposition too, overcounting what this column means
+                // on this sheet).
+                'total_orders'   => $tally['upsell_confirmation'],
+                'catered_leads'  => $tally['catered'],
+                // tally()/rates() returns these as a 0-100 percentage (or
+                // null when there were no calls) — TsaSalesEntry's own
+                // pickup_rate/upselling_rate columns and this page's
+                // $fmtPct/parsePercentInput convention both store a 0-1
+                // fraction (see updateEntry()'s own validation, 'max:1'),
+                // so divide by 100 here, once, at the source.
+                'pickup_rate'    => ($tally['pick_up_rate'] ?? 0) / 100,
+                'upselling_rate' => ($tally['upselling_rate'] ?? 0) / 100,
+            ]];
+        });
+    }
+
     public function index(Request $request)
     {
         // See DateRangeFilter's own doc comment — remembers the last range
@@ -64,24 +136,60 @@ class TsaSalesReportController extends Controller
         // selected range, since '2026-09-26 00:00:00' sorts after the bare
         // '2026-09-26' bound). whereDate() correctly extracts just the
         // date part on every driver (SQLite included).
-        $entries = TsaSalesEntry::whereIn('tsa_shift_id', $tsas->pluck('id'))
+        // daysUntil() is already INCLUSIVE of its own end date — see the
+        // identical fix in DsPprReportController's own doc comment for the
+        // full root cause (confirmed 2026-09-27: picking "To: Sep 30" was
+        // silently rendering an extra Oct 1 column). Needed here (moved
+        // up from its old spot below $overallTotal) to build $dailyByKey
+        // for every date in the range, not just dates with a saved entry.
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+        $dateChunks = $dates->chunk(7)->values();
+
+        $rawEntriesByKey = TsaSalesEntry::whereIn('tsa_shift_id', $tsas->pluck('id'))
             ->whereDate('entry_date', '>=', $dateFrom)
             ->whereDate('entry_date', '<=', $dateTo)
             ->get()
-            ->groupBy('tsa_shift_id');
+            ->keyBy(fn (TsaSalesEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
+
+        // "tsaId:date" -> ['total_orders' => ..., 'catered_leads' => ...,
+        // 'pickup_rate' => ..., 'upselling_rate' => ...], overriding
+        // whatever TsaSalesEntry itself has stored for these 4 columns —
+        // see perTsaPerDayPerformance()'s own doc comment.
+        $performanceByKey = $this->perTsaPerDayPerformance($tsas, $dateFrom, $dateTo);
+
+        // Per-day entries, keyed "tsaId:date" — same convention as
+        // DsPprReportController's own $dailyByKey, built for EVERY
+        // TSA/date in the selected range (not just dates with a saved
+        // TsaSalesEntry row) so a TSA with real orders but no manual
+        // entry ever typed in for that day still shows her real
+        // automated figures instead of silently falling through to all-
+        // zeros — this exact gap was caught live via Playwright,
+        // 2026-10-03, after the entries-only version first shipped.
+        $emptyManualFields = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
+        $dailyByKey = collect();
+        foreach ($tsas as $tsa) {
+            foreach ($dates as $date) {
+                $key = $tsa->id . ':' . $date->toDateString();
+                $manual = $rawEntriesByKey->has($key) ? $rawEntriesByKey->get($key)->toArray() : $emptyManualFields;
+                $auto = $performanceByKey->get($key, ['total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0]);
+                $dailyByKey->put($key, array_merge($manual, $auto));
+            }
+        }
 
         // One row per TSA, summed across the whole selected range,
         // grouped by their real team — the sheet's own MTD running
         // total is the same idea, just always MTD there where this page
-        // lets any range be picked.
-        $groupSummaries = $teams->map(function (array $team, string $slug) use ($tsas, $entries) {
+        // lets any range be picked. Sums every date in range via
+        // $dailyByKey (built above), not just dates with a saved entry —
+        // same reasoning as $dailyByKey's own doc comment.
+        $groupSummaries = $teams->map(function (array $team, string $slug) use ($tsas, $dates, $dailyByKey) {
             $teamTsas = $tsas->where('team', $team['order_team'] ?? '__none__')->values();
 
-            $rowSummaries = $teamTsas->map(function (TsaShift $tsa) use ($entries) {
-                $tsaEntries = $entries->get($tsa->id, collect());
+            $rowSummaries = $teamTsas->map(function (TsaShift $tsa) use ($dates, $dailyByKey) {
+                $tsaRows = $dates->map(fn ($date) => $dailyByKey->get($tsa->id . ':' . $date->toDateString()));
                 return [
                     'tsa'     => $tsa,
-                    'derived' => TsaSalesCalculator::sum($tsaEntries->map(fn (TsaSalesEntry $e) => $e->toArray())->all()),
+                    'derived' => TsaSalesCalculator::sum($tsaRows->all()),
                 ];
             });
 
@@ -94,21 +202,6 @@ class TsaSalesReportController extends Controller
         })->values();
 
         $overallTotal = TsaSalesCalculator::sum($groupSummaries->pluck('rows')->flatten(1)->pluck('derived')->all());
-
-        // Per-day entries, keyed "tsaId:date" — same convention as
-        // DsPprReportController's own $dailyByKey.
-        $dailyByKey = TsaSalesEntry::whereIn('tsa_shift_id', $tsas->pluck('id'))
-            ->whereDate('entry_date', '>=', $dateFrom)
-            ->whereDate('entry_date', '<=', $dateTo)
-            ->get()
-            ->keyBy(fn (TsaSalesEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
-
-        // daysUntil() is already INCLUSIVE of its own end date — see the
-        // identical fix in DsPprReportController's own doc comment for the
-        // full root cause (confirmed 2026-09-27: picking "To: Sep 30" was
-        // silently rendering an extra Oct 1 column).
-        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
-        $dateChunks = $dates->chunk(7)->values();
 
         return view('data.tsa-sales', [
             'groupSummaries' => $groupSummaries,
@@ -126,14 +219,14 @@ class TsaSalesReportController extends Controller
      *  attribute match, is required on SQLite). */
     public function updateEntry(Request $request, TsaShift $tsaShift, string $date)
     {
+        // Total Orders/Catered Leads/Pick-up Rate/Upselling Rate are no
+        // longer accepted here — see this class's own doc comment, 2026-
+        // 10-03: they're fully automated from TSA Performance's own data
+        // now, not manual entry.
         $data = $request->validate([
-            'gross_sales'    => ['sometimes', 'numeric'],
-            'net_income'     => ['sometimes', 'numeric'],
-            'ads_spent'      => ['sometimes', 'numeric', 'min:0'],
-            'total_orders'   => ['sometimes', 'integer', 'min:0'],
-            'catered_leads'  => ['sometimes', 'integer', 'min:0'],
-            'pickup_rate'    => ['sometimes', 'numeric', 'min:0', 'max:1'],
-            'upselling_rate' => ['sometimes', 'numeric', 'min:0', 'max:1'],
+            'gross_sales' => ['sometimes', 'numeric'],
+            'net_income'  => ['sometimes', 'numeric'],
+            'ads_spent'   => ['sometimes', 'numeric', 'min:0'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
@@ -143,9 +236,12 @@ class TsaSalesReportController extends Controller
         $entry->fill($data);
         $entry->save();
 
+        $performance = $this->perTsaPerDayPerformance(collect([$tsaShift]), $entryDate, $entryDate)
+            ->get($tsaShift->id . ':' . $entryDate, ['total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0]);
+
         return response()->json([
             'success' => true,
-            'derived' => TsaSalesCalculator::derive($entry->toArray()),
+            'derived' => TsaSalesCalculator::derive(array_merge($entry->toArray(), $performance)),
         ]);
     }
 }

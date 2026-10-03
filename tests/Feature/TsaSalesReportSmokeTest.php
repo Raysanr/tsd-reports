@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
 use App\Models\User;
@@ -332,5 +333,179 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertDatabaseHas('tsa_sales_entries', [
             'tsa_shift_id' => $tsa->id, 'gross_sales' => -1500, 'net_income' => -300,
         ]);
+    }
+
+    /** Explicit request, 2026-10-03: "i want to make this automated that
+     *  is the data is from TSD LEADS REPORT - TSA PERFORMANCE PAGE,"
+     *  confirmed read-only/fully-automated, then "the total orders is
+     *  confirmation w/ upsell data." Total Orders/Catered Leads/Pick-up
+     *  Rate/Upselling Rate must now come from real Order data (the same
+     *  ProductPerformance::tally() TSA Performance itself uses), not a
+     *  manually-saved TsaSalesEntry value — this creates real orders with
+     *  a known disposition shape and checks the rendered page reflects
+     *  them, ignoring whatever (if anything) was saved on the entry. */
+    public function test_total_orders_catered_leads_and_rates_are_computed_from_real_orders_not_manual_entry(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        // A stale manually-saved value that the automation must now ignore
+        // entirely — if the view were still reading TsaSalesEntry's own
+        // columns for these 4 fields, this test would see 999/0.99 instead
+        // of the real tally below.
+        TsaSalesEntry::create([
+            'tsa_shift_id' => $tsa->id, 'entry_date' => $date,
+            'total_orders' => 999, 'catered_leads' => 999, 'pickup_rate' => 0.99, 'upselling_rate' => 0.99,
+        ]);
+
+        // 2 real upsell confirmations (Total Orders = upsell_confirmation).
+        foreach (range(1, 2) as $i) {
+            Order::create([
+                'pancake_order_id' => "auto-upsell-{$i}", 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+                'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+                'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+            ]);
+        }
+        // 1 answered (Confirmed via Call) non-upsell lead.
+        Order::create([
+            'pancake_order_id' => 'auto-answered-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => false, 'amount' => 300.0, 'status_code' => 2,
+            'disposition' => 'CONFIRMED VIA CALL',
+            'pancake_created_at' => "{$date} 11:00:00", 'synced_at' => now(),
+        ]);
+        // 1 unanswered (Not Answering) non-upsell lead.
+        Order::create([
+            'pancake_order_id' => 'auto-unanswered-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => false, 'amount' => 300.0, 'status_code' => 2,
+            'disposition' => 'NOT ANSWERING',
+            'pancake_created_at' => "{$date} 12:00:00", 'synced_at' => now(),
+        ]);
+
+        // Catered = answered + unanswered = (confirmed_via_call + upsell_confirmation) + not_answering = 3 + 1 = 4.
+        // Pick-up Rate = answered / (answered + unanswered) = 3 / 4 = 75%.
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+        $response->assertOk();
+
+        $this->assertMatchesRegularExpression(
+            '/<td[^>]*data-out="total_orders"[^>]*>\s*2\s*<\/td>/',
+            $response->getContent(),
+            'Total Orders should be the real upsell_confirmation count (2), not the stale saved 999'
+        );
+        $this->assertMatchesRegularExpression(
+            '/<td[^>]*data-out="catered_leads"[^>]*>\s*4\s*<\/td>/',
+            $response->getContent(),
+            'Catered Leads should be the real answered+unanswered count (4), not the stale saved 999'
+        );
+        $this->assertMatchesRegularExpression(
+            '/<td[^>]*data-out="pickup_rate"[^>]*>\s*75\.00%\s*<\/td>/',
+            $response->getContent(),
+            'Pick-up Rate should be the real 75.00% (3 answered / 4 called), not the stale saved 99.00%'
+        );
+    }
+
+    /** These 4 fields no longer have an <input> at all — only AOV/NI%
+     *  (already read-only) and these 4 should render as plain [data-out]
+     *  cells on the daily entry table. */
+    public function test_the_automated_fields_render_as_read_only_cells_not_inputs(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        foreach (['total_orders', 'catered_leads', 'pickup_rate', 'upselling_rate'] as $field) {
+            $this->assertDoesNotMatchRegularExpression(
+                '/<input[^>]*data-field="' . $field . '"/',
+                $response->getContent(),
+                "{$field} should no longer render as an editable <input>"
+            );
+        }
+    }
+
+    /** updateEntry() must reject these 4 fields now (even if a caller
+     *  still sends them) — they're no longer writable at all. */
+    public function test_updating_the_automated_fields_is_silently_ignored(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 1000, 'total_orders' => 777, 'catered_leads' => 777, 'pickup_rate' => 0.77, 'upselling_rate' => 0.77]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 1000]);
+        $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'total_orders' => 777]);
+    }
+
+    /** Real gap caught live via Playwright, 2026-10-03: a TSA who has
+     *  real orders today but has NEVER had Gross Sales/Net Income typed
+     *  in for that day has NO TsaSalesEntry row at all — the daily
+     *  table's own $dailyByKey lookup used to fall straight through to
+     *  $emptyRaw (all zeros) for her, silently skipping the automated
+     *  fields entirely since there was no entry row to merge them onto.
+     *  A TSA's auto-computed figures must show up even with zero manual
+     *  entries ever saved for her. */
+    public function test_a_tsa_with_no_saved_entry_at_all_still_shows_her_real_automated_figures(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        // Deliberately NO TsaSalesEntry::create() call here — she has
+        // never had a single figure typed in for today.
+        foreach (range(1, 3) as $i) {
+            Order::create([
+                'pancake_order_id' => "auto-noentry-upsell-{$i}", 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+                'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+                'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+        $response->assertOk();
+
+        $this->assertMatchesRegularExpression(
+            '/<td[^>]*data-out="total_orders"[^>]*>\s*3\s*<\/td>/',
+            $response->getContent(),
+            'A TSA with real orders but no ever-saved entry row should still show her real Total Orders (3), not fall through to 0'
+        );
+    }
+
+    /** Real gap caught live via Playwright immediately after the daily-
+     *  table fix above, 2026-10-03: the TOP "TSA's Running Sales
+     *  Performance" MTD summary table sums over $entries (grouped from
+     *  real TsaSalesEntry ROWS only) completely separately from the
+     *  daily table's own $dailyByKey — fixing the daily table's fallback
+     *  left the summary table still silently at 0 for a TSA with no
+     *  ever-saved entry, even though her daily-table cell for the same
+     *  day was now correct. Both tables must agree. */
+    public function test_the_mtd_summary_table_also_shows_a_no_entry_tsas_real_automated_figures(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+
+        foreach (range(1, 3) as $i) {
+            Order::create([
+                'pancake_order_id' => "auto-summary-upsell-{$i}", 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+                'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+                'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+            ]);
+        }
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+        $response->assertOk();
+
+        preg_match('/<tr class="tsr-summary-row[^"]*" data-tsa-id="' . $tsa->id . '">.*?<\/tr>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find the MTD summary row for this TSA');
+        $this->assertMatchesRegularExpression(
+            '/data-out="total_orders">\s*3\s*</',
+            $matches[0],
+            'The MTD summary table row should show her real Total Orders (3) too, not just the daily table'
+        );
     }
 }
