@@ -471,10 +471,16 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertDatabaseMissing('product_group_members', ['product_group_id' => $groupB->id, 'product_id' => $products[0]->id]);
     }
 
-    /** Explicit request, 2026-09-28: "the net income it should be green if
-     *  positive ... and if negative it should be red." Applied to every
-     *  Net Income figure on the page (per-product row and OVERALL TOTAL). */
-    public function test_a_positive_net_income_is_rendered_green(): void
+    /** Superseded 2026-10-03 (explicit request: "in the dsppr too make it
+     *  all black," confirmed "always black but if negative it is red") —
+     *  the 2026-09-28 green-if-positive rule is gone; a positive Net
+     *  Income now stays plain ink (black), same as every other number on
+     *  this page, with no green tier at all (unlike Summary Sales
+     *  Report's own 3-tier black/red/green rule, which this page
+     *  deliberately does NOT get). Scoped to the specific Net Income
+     *  cell via regex, not a bare assertSee(), since 'text-ink' appears
+     *  elsewhere on the page regardless. */
+    public function test_a_positive_net_income_stays_black_not_green(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
@@ -483,10 +489,18 @@ class DsPprReportSmokeTest extends TestCase
             'gross_sales' => 3800, 'net_income' => 500,
         ]);
 
-        $response = $this->actingAs($admin)->get(route('data.dsppr'));
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
 
         $response->assertOk();
-        $response->assertSee('text-green-600');
+        $this->assertStringNotContainsString('text-green-600', $response->getContent());
+        $this->assertStringNotContainsString('text-green-400', $response->getContent());
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-ink[^"]*"/',
+            $response->getContent(),
+            'a positive Net Income input should render in plain ink color, not green'
+        );
     }
 
     /** Same feature, the negative case — already-existing red-on-negative
