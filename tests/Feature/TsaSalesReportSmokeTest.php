@@ -151,7 +151,37 @@ class TsaSalesReportSmokeTest extends TestCase
 
     /** Explicit request, 2026-09-28: "the net income it should be green if
      *  positive ... and if negative it should be red." */
-    public function test_a_positive_net_income_is_rendered_green(): void
+    /** Explicit request, 2026-10-03: "lahat ng number kapag nilagay ay
+     *  black tapos sa net income mag green lang yung color niya kapag
+     *  nakahit siya ng 4.2K and above then stay mo sa negative kapag red
+     *  tapos kapag 1 - 4,199 yung net income stay lang siya sa black" —
+     *  3 tiers, not the old plain negative=red/positive=green: negative
+     *  stays red, 0–4,199.99 is now BLACK (not green), and green only
+     *  starts at 4,200 itself (confirmed inclusive: >= 4200). Scoped to
+     *  the real <input data-field="net_income"> element (not a bare
+     *  assertSee of a color class, which could pass just because that
+     *  class string happens to appear ANYWHERE else on the page). */
+    public function test_a_net_income_of_4200_or_above_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 10000, 'net_income' => 4200]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            $response->getContent(),
+            'expected exactly 4,200.00 to be green (inclusive threshold)'
+        );
+    }
+
+    /** The real regression this feedback was about: a net income BELOW
+     *  4,200 (but still positive) used to render green under the old
+     *  plain rule — it must now stay black (text-ink), same as every
+     *  other non-Net-Income number on this page. */
+    public function test_a_net_income_below_4200_but_positive_stays_black(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -160,7 +190,35 @@ class TsaSalesReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
-        $response->assertSee('text-green-600');
+        $content = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-ink[^"]*"/',
+            $content,
+            'expected 500.00 (below the 4,200 threshold) to be plain black (text-ink), not green'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            $content,
+            '500.00 must NOT be green — only 4,200 and above should be'
+        );
+    }
+
+    /** 4,199.99 — one cent below the threshold — must still be black, not
+     *  green; confirms the boundary is exact, not off-by-a-dollar. */
+    public function test_a_net_income_just_below_the_4200_threshold_stays_black(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 10000, 'net_income' => 4199.99]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $this->assertDoesNotMatchRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            $response->getContent(),
+            '4,199.99 must NOT be green — the threshold is 4,200 exactly'
+        );
     }
 
     public function test_a_negative_net_income_is_rendered_red(): void
@@ -172,7 +230,10 @@ class TsaSalesReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
-        $response->assertSee('text-red-600');
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
+            $response->getContent()
+        );
     }
 
     /** Explicit request, 2026-10-03: "i want to make it can input negative
@@ -209,6 +270,49 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression(
             '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-red-600[^"]*"/',
             $response->getContent()
+        );
+    }
+
+    /** Explicit follow-up, 2026-10-03: "the gross sales too is black" —
+     *  Gross Sales now shares Net Income's own 3-tier rule (negative=red,
+     *  0–4,199.99=black, 4,200+=green), not the older plain
+     *  negative=red/positive=green rule it was still stuck on right
+     *  after Net Income alone was switched over. */
+    public function test_a_gross_sales_below_4200_but_positive_stays_black(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 500, 'net_income' => 0]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-ink[^"]*"/',
+            $content,
+            'expected 500.00 Gross Sales (below the 4,200 threshold) to be plain black (text-ink), not green'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-green-600[^"]*"/',
+            $content,
+            '500.00 Gross Sales must NOT be green — only 4,200 and above should be'
+        );
+    }
+
+    public function test_a_gross_sales_of_4200_or_above_is_rendered_green(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 4200, 'net_income' => 0]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-green-600[^"]*"/',
+            $response->getContent(),
+            'expected exactly 4,200.00 Gross Sales to be green (inclusive threshold)'
         );
     }
 

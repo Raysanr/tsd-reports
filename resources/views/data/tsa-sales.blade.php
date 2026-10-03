@@ -30,6 +30,22 @@
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
 
+    // Net Income color tiers (explicit request, 2026-10-03: "lahat ng
+    // number kapag nilagay ay black tapos sa net income mag green lang
+    // yung color niya kapag nakahit siya ng 4.2K and above then stay mo
+    // sa negative kapag red tapos kapag 1 - 4,199 yung net income stay
+    // lang siya sa black") — three tiers, not the old plain "negative=red,
+    // everything else=green": NEGATIVE stays red, 0–4,199.99 is now BLACK
+    // (not green), and green only starts at the 4,200 threshold itself
+    // (explicit confirmation: >= 4200, inclusive). $darkMode true reads the
+    // dark-theme class variant (text-red-400/text-green-400, no explicit
+    // black — the theme's own default ink color already covers that tier).
+    $niColorClass = function (float $netIncome, bool $darkMode = false) {
+        if ($netIncome < 0) return $darkMode ? 'text-red-400' : 'text-red-600 dark:text-red-400';
+        if ($netIncome >= 4200) return $darkMode ? 'text-green-400' : 'text-green-600 dark:text-green-400';
+        return $darkMode ? '' : 'text-ink dark:text-slate-100';
+    };
+
     // One repeating 8-column set per day (confirmed exact against the
     // real sheet's own Summary - Sales Report tab, 2026-09-24, Ads Spent
     // removed 2026-09-26 per explicit request) — a smaller set than DSPPR
@@ -100,7 +116,7 @@
                 <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
-                    <td class="px-3 py-2 text-right {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $niColorClass($d['net_income']) }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
                     <td class="px-3 py-2 text-right {{ $d['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="ni_pct">{{ $fmtPct($d['ni_pct']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="total_orders">{{ number_format($d['total_orders']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="aov">{{ $fmtMoney($d['aov']) }}</td>
@@ -113,7 +129,7 @@
                 <tr class="tsr-group-total-row bg-slate-800 text-white font-bold" data-group-label="{{ $gs['label'] }}">
                     <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($gs['label']) }} TOTAL:</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($gt['gross_sales']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $gt['net_income'] < 0 ? 'text-red-400' : 'text-green-400' }}" data-out="net_income">{{ $fmtMoney($gt['net_income']) }}</td>
+                    <td class="px-3 py-2.5 text-right {{ $niColorClass($gt['net_income'], true) }}" data-out="net_income">{{ $fmtMoney($gt['net_income']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $gt['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($gt['ni_pct']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($gt['total_orders']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($gt['aov']) }}</td>
@@ -127,7 +143,7 @@
                 <tr class="bg-black text-white font-bold tsr-overall-total-row">
                     <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($overallTotal['gross_sales']) }}</td>
-                    <td class="px-3 py-2.5 text-right {{ $overallTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400' }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
+                    <td class="px-3 py-2.5 text-right {{ $niColorClass($overallTotal['net_income'], true) }}" data-out="net_income">{{ $fmtMoney($overallTotal['net_income']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $overallTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}" data-out="ni_pct">{{ $fmtPct($overallTotal['ni_pct']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="total_orders">{{ number_format($overallTotal['total_orders']) }}</td>
                     <td class="px-3 py-2.5 text-right" data-out="aov">{{ $fmtMoney($overallTotal['aov']) }}</td>
@@ -196,8 +212,16 @@
                                  $raw and kept live as the user types via
                                  liveFormatMoney()'s own JS below. --}}
                             @php
+                                // Same 3-tier rule ($niColorClass) applies
+                                // to EVERY money input, not just Net
+                                // Income — explicit follow-up, 2026-10-03:
+                                // "the gross sales too is black" (i.e.
+                                // Gross Sales was still stuck on the OLD
+                                // plain negative=red/positive=green rule
+                                // after this feedback, since only Net
+                                // Income had been switched over).
                                 $inputColor = ($col['money'] ?? false)
-                                    ? ($raw[$col['key']] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400')
+                                    ? $niColorClass($raw[$col['key']])
                                     : 'text-ink dark:text-slate-100';
                             @endphp
                             <td class="px-2 py-1.5 {{ $borderClass }}">
@@ -211,7 +235,7 @@
                             @else
                             @php
                                 $cellColor = match (true) {
-                                    $col['key'] === 'net_income' => $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400',
+                                    $col['key'] === 'net_income' => $niColorClass($d['net_income']),
                                     $col['key'] === 'ni_pct' && $d['ni_pct'] < 0 => 'text-red-600 dark:text-red-400',
                                     default => 'text-ink dark:text-slate-100',
                                 };
@@ -244,7 +268,7 @@
                             })->all());
                         @endphp
                         @foreach($dayColumns as $i => $col)
-                        <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? ($dayTotal['net_income'] < 0 ? 'text-red-400' : 'text-green-400') : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
+                        <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($dayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
                             data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
                             {{ ($col['pct'] ?? false) ? $fmtPct($dayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($dayTotal[$col['key']]) : $fmtMoney($dayTotal[$col['key']])) }}
                         </td>
@@ -293,18 +317,35 @@
         if (input.dataset.money === '1') updateMoneyInputColor(input);
     }
 
+    // Net Income's own 3-tier color rule (explicit request, 2026-10-03:
+    // "lahat ng number kapag nilagay ay black tapos sa net income mag
+    // green lang yung color niya kapag nakahit siya ng 4.2K and above
+    // then stay mo sa negative kapag red tapos kapag 1 - 4,199 yung net
+    // income stay lang siya sa black") — negative stays red, 0–4,199.99
+    // is now BLACK (not green), green only starts at 4,200 itself
+    // (explicit confirmation: inclusive). Mirrors the PHP-side
+    // $niColorClass in tsa-sales.blade.php's own top @php block — keep
+    // both in sync if this threshold ever changes.
+    function applyNiColorClasses(el, netIncome) {
+        const isNegative = netIncome < 0;
+        const isHighPositive = netIncome >= 4200;
+        el.classList.toggle('text-red-600', isNegative);
+        el.classList.toggle('dark:text-red-400', isNegative);
+        el.classList.toggle('text-green-600', isHighPositive);
+        el.classList.toggle('dark:text-green-400', isHighPositive);
+        el.classList.toggle('text-ink', !isNegative && !isHighPositive);
+        el.classList.toggle('dark:text-slate-100', !isNegative && !isHighPositive);
+    }
+
     // Live red/negative green/positive coloring on a money INPUT itself as
     // the user types (explicit request, 2026-10-03, matching DSPPR's own
-    // Net Income behavior — applied here to BOTH Gross Sales and Net
-    // Income per explicit confirmation) — separate from applyDerived()'s
-    // own coloring of the read-only [data-out] spans, since this targets
-    // the <input> element's own text color instead.
+    // Net Income behavior) — separate from applyDerived()'s own coloring
+    // of the read-only [data-out] spans, since this targets the <input>
+    // element's own text color instead. Same 3-tier rule for EVERY money
+    // field (explicit follow-up, same day: "the gross sales too is
+    // black" — Gross Sales was still stuck on the old plain rule here).
     function updateMoneyInputColor(input) {
-        const isNegative = parseMoney(input.value) < 0;
-        input.classList.toggle('text-red-600', isNegative);
-        input.classList.toggle('dark:text-red-400', isNegative);
-        input.classList.toggle('text-green-600', !isNegative);
-        input.classList.toggle('dark:text-green-400', !isNegative);
+        applyNiColorClasses(input, parseMoney(input.value));
     }
 
     function flashStatus(text, isError) {
@@ -317,18 +358,33 @@
     }
 
     function applyDerived(row, date, derived) {
+        // tsr-day-total-row has a dark (bg-black) background — its own
+        // Net Income cell uses the dark-mode-only class variant (no
+        // explicit text-ink, same as every other total/footer row on this
+        // page), same distinction $niColorClass's own $darkMode param
+        // makes server-side.
+        const isDarkRow = row.classList.contains('tsr-day-total-row');
         row.querySelectorAll(`[data-out][data-date="${date}"]`).forEach((el) => {
             const key = el.dataset.out;
             if (!(key in derived)) return;
             const isPct = ['ni_pct', 'pickup_rate', 'upselling_rate'].includes(key);
             const isInt = ['total_orders', 'catered_leads'].includes(key);
             el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
-            const isLoss = (key === 'ni_pct' || key === 'net_income') && derived[key] < 0;
-            el.classList.toggle('text-red-600', isLoss);
-            el.classList.toggle('dark:text-red-400', isLoss);
+            if (key === 'ni_pct') {
+                const isLoss = derived[key] < 0;
+                el.classList.toggle('text-red-600', isLoss && !isDarkRow);
+                el.classList.toggle('dark:text-red-400', isLoss);
+                el.classList.toggle('text-red-400', isLoss && isDarkRow);
+            }
             if (key === 'net_income') {
-                el.classList.toggle('text-green-600', derived[key] >= 0);
-                el.classList.toggle('dark:text-green-400', derived[key] >= 0);
+                if (isDarkRow) {
+                    const isNegative = derived[key] < 0;
+                    const isHighPositive = derived[key] >= 4200;
+                    el.classList.toggle('text-red-400', isNegative);
+                    el.classList.toggle('text-green-400', isHighPositive);
+                } else {
+                    applyNiColorClasses(el, derived[key]);
+                }
             }
         });
     }
@@ -398,13 +454,12 @@
                 const isPct = ['ni_pct', 'pickup_rate', 'upselling_rate'].includes(key);
                 const isInt = ['total_orders', 'catered_leads'].includes(key);
                 el.textContent = isPct ? fmtPct(derived[key]) : (isInt ? fmtInt(derived[key]) : fmtMoney(derived[key]));
-                const isLoss = (key === 'ni_pct' || key === 'net_income') && derived[key] < 0;
-                el.classList.toggle('text-red-600', isLoss);
-                el.classList.toggle('dark:text-red-400', isLoss);
-                if (key === 'net_income') {
-                    el.classList.toggle('text-green-600', derived[key] >= 0);
-                    el.classList.toggle('dark:text-green-400', derived[key] >= 0);
+                if (key === 'ni_pct') {
+                    const isLoss = derived[key] < 0;
+                    el.classList.toggle('text-red-600', isLoss);
+                    el.classList.toggle('dark:text-red-400', isLoss);
                 }
+                if (key === 'net_income') applyNiColorClasses(el, derived[key]);
             });
 
             const groupTotalRow = summaryRow.closest('tbody').querySelector('.tsr-group-total-row');
@@ -448,7 +503,7 @@
             el.classList.toggle('text-red-400', key === 'ni_pct' && derived[key] < 0);
             if (key === 'net_income') {
                 el.classList.toggle('text-red-400', derived[key] < 0);
-                el.classList.toggle('text-green-400', derived[key] >= 0);
+                el.classList.toggle('text-green-400', derived[key] >= 4200);
             }
         });
     }
@@ -487,7 +542,7 @@
             el.classList.toggle('text-red-400', key === 'ni_pct' && derived[key] < 0);
             if (key === 'net_income') {
                 el.classList.toggle('text-red-400', derived[key] < 0);
-                el.classList.toggle('text-green-400', derived[key] >= 0);
+                el.classList.toggle('text-green-400', derived[key] >= 4200);
             }
         });
     }
