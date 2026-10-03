@@ -1747,6 +1747,60 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, 2026-10-03 (live screenshot, "why is it all last
+     *  tsa has no tax?" — a newly-added TSA showed correct Daily Tax on
+     *  Cost Breakdown but 0.00 on Expected Income). Simulates the
+     *  suspected race directly: TsaDailyRateService::allTsas() caches its
+     *  own TsaShift::all() result per-request via app()->scoped() — a TSA
+     *  created AFTER that cache is first primed is, by design, absent
+     *  from the pre-built taxAllocationByTsaId() map for the REST of that
+     *  same request. Confirms her own overview + product cards still show
+     *  a non-zero Tax Allocation anyway, via the direct-compute fallback
+     *  (TsaDailyRateService::taxAllocationForTsa()/
+     *  perProductTaxAllocationForTsa()) added for exactly this case. */
+    public function test_a_tsa_missing_from_the_prebuilt_tax_map_still_shows_her_own_tax_allocation(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+        ProjectionColumn::where('key', 'opening_shift')->update(['orders_override' => 1000, 'average_order_value' => 500]);
+
+        // Prime the per-request allTsas() cache with the roster as it
+        // exists RIGHT NOW (deliberately excluding the TSA created below),
+        // same as would happen if any earlier lookup in this request ran
+        // first — exactly the race this fallback guards against.
+        TsaDailyRateService::taxAllocationByTsaId();
+
+        $lateTsa = TsaShift::create([
+            'tsa_key' => 'late-arrival', 'display_name' => 'Late Arrival',
+            'team' => 'SH Naturals', 'sort_order' => 999,
+        ]);
+
+        // Confirms the race is actually reproduced: the pre-built map
+        // genuinely doesn't have her, same as the live bug.
+        $this->assertArrayNotHasKey($lateTsa->id, TsaDailyRateService::taxAllocationByTsaId());
+
+        $expected = TsaDailyRateService::taxAllocationForTsa($lateTsa);
+        $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure for the fallback to prove');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $lateTsa->display_name);
+        $this->assertNotFalse($namePos, 'expected the late-arriving TSA to still render her own card');
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
+            $overviewHtml,
+            'expected the late-arriving TSA\'s own overview card to fall back to a direct, non-zero Tax Allocation'
+        );
+    }
+
     /** Regression test, 2026-10-02 (live 500 on Railway): a full-month,
      *  per-team Expected Income filter errored in production after the
      *  Projections-per-month change added a DB seed-check

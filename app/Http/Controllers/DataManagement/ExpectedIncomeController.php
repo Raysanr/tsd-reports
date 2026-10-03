@@ -413,12 +413,24 @@ class ExpectedIncomeController extends Controller
         $dayCount = $dates->count();
         $addedOperatingCosts = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
         $addedTaxAllocation = 0.0;
+        // Fallback for any TSA missing from $taxAllocationByTsaId's own
+        // pre-built map (root-caused live, 2026-10-03: "why is it all
+        // last tsa has no tax?" — a newly-added TSA showed 0.00 here
+        // despite Cost Breakdown showing her correct Daily Tax) — only
+        // loaded if at least one id is actually missing, so the common
+        // case (every TSA present) costs nothing extra.
+        $missingTaxTsaIds = $activeTsaIds->reject(fn ($id) => array_key_exists($id, $taxAllocationByTsaId));
+        $fallbackTsasById = $missingTaxTsaIds->isNotEmpty()
+            ? TsaShift::whereIn('id', $missingTaxTsaIds)->get()->keyBy('id')
+            : collect();
         foreach ($activeTsaIds as $tsaId) {
             $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
             foreach ($dailyCostRow as $key => $amount) {
                 $addedOperatingCosts[$key] += $amount * $dayCount;
             }
-            $addedTaxAllocation += ($taxAllocationByTsaId[$tsaId] ?? 0.0) * $dayCount;
+            $tax = $taxAllocationByTsaId[$tsaId]
+                ?? ($fallbackTsasById->get($tsaId) ? TsaDailyRateService::taxAllocationForTsa($fallbackTsasById->get($tsaId)) : 0.0);
+            $addedTaxAllocation += $tax * $dayCount;
         }
 
         $operatingLines = collect($derived['operating_lines'])->map(fn ($value, $key) => $value + ($addedOperatingCosts[$key] ?? 0.0));
@@ -581,8 +593,15 @@ class ExpectedIncomeController extends Controller
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
             $productCardOverrides = array_merge($dailyCostPerProductRow, ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]);
             $overviewCardOverrides = array_merge($dailyCostRow, ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]);
-            $productCardTaxAllocation = $taxAllocationPerProductByTsaId[$tsa->id] ?? 0.0;
-            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? 0.0;
+            // Direct fallback when $tsa is missing from the pre-built maps
+            // (root-caused live, 2026-10-03: "why is it all last tsa has
+            // no tax?" — a newly-added TSA showed 0.00 here despite Cost
+            // Breakdown showing her correct Daily Tax) — computes her own
+            // figure fresh from her own real team, independent of
+            // whatever caused her to be missing from the map in the first
+            // place.
+            $productCardTaxAllocation = $taxAllocationPerProductByTsaId[$tsa->id] ?? TsaDailyRateService::perProductTaxAllocationForTsa($tsa);
+            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
 
             if ($isRangeSummed) {
                 // $productCardOverrides/$overviewCardOverrides/the tax
@@ -1078,7 +1097,15 @@ class ExpectedIncomeController extends Controller
         $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts($derived, $operatingCostOverrides);
 
         $taxAllocationPerProductByTsaId = TsaDailyRateService::perProductTaxAllocationByTsaId();
-        return ExpectedIncomeCalculator::withOverriddenTaxAllocation($derived, $taxAllocationPerProductByTsaId[$tsaId] ?? 0.0);
+        // Fallback for a TSA missing from the pre-built map (root-caused
+        // live, 2026-10-03: "why is it all last tsa has no tax?") — same
+        // direct-compute fallback buildTeamDailyRows() uses for the
+        // initial page render.
+        $tax = $taxAllocationPerProductByTsaId[$tsaId] ?? (function () use ($tsaId) {
+            $tsa = TsaShift::find($tsaId);
+            return $tsa ? TsaDailyRateService::perProductTaxAllocationForTsa($tsa) : 0.0;
+        })();
+        return ExpectedIncomeCalculator::withOverriddenTaxAllocation($derived, $tax);
     }
 
     /** Merges every custom row's own currently-saved value onto $entry's

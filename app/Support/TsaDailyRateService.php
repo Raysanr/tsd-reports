@@ -38,6 +38,32 @@ use App\Models\TsaShift;
  */
 class TsaDailyRateService
 {
+    /** Every real TSA, memoized per-request via app()->scoped() — root-
+     *  caused live, 2026-10-03: a newly-added TSA (Anne Pascua) showed her
+     *  correct Daily Tax on Cost Breakdown (which resolves its own TSA
+     *  list ONCE and passes it through) but 0.00 on Expected Income, whose
+     *  dailyRateByTsaId()/dailyCostRow()/taxAllocationByTsaId() each ran
+     *  their OWN independent TsaShift::all()/count() query — called up to
+     *  8+ times in one request (see departmentTaxAllocationPerShift()'s
+     *  own doc comment on that call volume), with no guarantee every one
+     *  of those separate queries agrees on the exact same roster snapshot.
+     *  One shared, memoized query removes any chance of that — same
+     *  app()->scoped() pattern (not a plain `static`) as
+     *  departmentTaxAllocationPerShift() already uses, since this app runs
+     *  Octane/FrankenPHP long-lived workers where a static would leak one
+     *  request's roster into the next. */
+    private static function allTsas(): \Illuminate\Support\Collection
+    {
+        if (app()->bound('tsa_daily_rate.all_tsas')) {
+            return app('tsa_daily_rate.all_tsas');
+        }
+
+        $tsas = TsaShift::all();
+        app()->scoped('tsa_daily_rate.all_tsas', fn () => $tsas);
+
+        return $tsas;
+    }
+
     /** Every real TSA's own Daily Rate / Product, keyed by tsa_id — her
      *  own TOTAL ÷ 24 ÷ checked-product count (e.g. 243.31). Used by her
      *  own "[TSA NAME]" overview card's own Salaries figure — same role
@@ -88,7 +114,7 @@ class TsaDailyRateService
         $overheadByRoleId = self::overheadByRoleId($roles);
         $overheadRefsByTeam = self::overheadRefsByTeam($roles, $overheadByRoleId);
 
-        $tsas = TsaShift::all();
+        $tsas = self::allTsas();
         $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
 
         return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $overheadRefsByTeam) {
@@ -114,7 +140,7 @@ class TsaDailyRateService
     {
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
 
-        return CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaShift::count());
+        return CostBreakdownCalculator::dailyCostRow($poolAmounts, self::allTsas()->count());
     }
 
     /** Same "Daily Cost" row from dailyCostRow() above, split further
@@ -190,12 +216,40 @@ class TsaDailyRateService
     {
         $perShift = self::departmentTaxAllocationPerShift();
 
-        return TsaShift::all()->groupBy('team')->flatMap(function ($teamTsas) use ($perShift) {
+        return self::allTsas()->groupBy('team')->flatMap(function ($teamTsas) use ($perShift) {
             $teamCount = $teamTsas->count();
             $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
             return $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $monthly / 24]);
         })->all();
+    }
+
+    /** Same formula as taxAllocationByTsaId() above, computed directly for
+     *  ONE TSA by her own real team's current TsaShift::where() count —
+     *  used as a fallback wherever a TSA might be missing from the
+     *  pre-built map (root-caused live, 2026-10-03: a newly-added TSA
+     *  showed correct Daily Tax on Cost Breakdown but 0.00 on Expected
+     *  Income — "why is it all last tsa has no tax?"). Deliberately
+     *  queries her own team fresh (not allTsas(), which is what the
+     *  pre-built map itself already reads from) so this fallback can
+     *  never inherit whatever caused the map to miss her in the first
+     *  place. */
+    public static function taxAllocationForTsa(TsaShift $tsa): float
+    {
+        $perShift = self::departmentTaxAllocationPerShift();
+        $teamCount = TsaShift::where('team', $tsa->team)->count();
+        $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
+
+        return $monthly / 24;
+    }
+
+    /** perProductTaxAllocationByTsaId()'s own per-product-divided figure,
+     *  computed directly for ONE TSA — same fallback role as
+     *  taxAllocationForTsa() above, for the individual PRODUCT card's own
+     *  Tax Allocation. */
+    public static function perProductTaxAllocationForTsa(TsaShift $tsa): float
+    {
+        return CostBreakdownCalculator::tsaDailyRatePerProduct(self::taxAllocationForTsa($tsa), self::productCount());
     }
 
     /** Same taxAllocationByTsaId() figure above, split a SECOND time across
