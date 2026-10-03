@@ -174,4 +174,59 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee('text-red-600');
     }
+
+    /** Explicit request, 2026-10-03: "i want to make it can input negative
+     *  amount ... if negative red and if positive it is green like in the
+     *  dsppr page" — the Net Income INPUT itself (not just the read-only
+     *  summary spans) is colored by its own saved value. */
+    public function test_the_net_income_input_itself_is_colored_by_its_saved_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => -500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
+            $response->getContent()
+        );
+    }
+
+    /** Same coloring applied to Gross Sales too (explicit confirmation —
+     *  unlike DSPPR, which only colors Net Income, BOTH money inputs get
+     *  it here). */
+    public function test_the_gross_sales_input_itself_is_colored_by_its_saved_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => -200, 'net_income' => 500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-red-600[^"]*"/',
+            $response->getContent()
+        );
+    }
+
+    /** gross_sales/net_income accept negative numeric values, not just
+     *  positive — min:0 would silently reject a typed loss/refund. */
+    public function test_negative_gross_sales_and_net_income_save_successfully(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => today()->toDateString()]),
+            ['gross_sales' => -1500, 'net_income' => -300]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('tsa_sales_entries', [
+            'tsa_shift_id' => $tsa->id, 'gross_sales' => -1500, 'net_income' => -300,
+        ]);
+    }
 }

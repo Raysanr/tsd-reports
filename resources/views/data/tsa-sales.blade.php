@@ -185,13 +185,28 @@
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === $lastColIndex ? 'tsr-day-end' : ''; @endphp
                             @if($col['editable'])
+                            {{-- Negative amounts allowed on every money input
+                                 (explicit request, 2026-10-03: "i want to
+                                 make it can input negative amount ... if
+                                 negative red and if positive it is green
+                                 like in the dsppr page") — Gross Sales AND
+                                 Net Income both get live red/green coloring
+                                 (DSPPR only colors Net Income; here BOTH, per
+                                 explicit confirmation), seeded here from
+                                 $raw and kept live as the user types via
+                                 liveFormatMoney()'s own JS below. --}}
+                            @php
+                                $inputColor = ($col['money'] ?? false)
+                                    ? ($raw[$col['key']] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400')
+                                    : 'text-ink dark:text-slate-100';
+                            @endphp
                             <td class="px-2 py-1.5 {{ $borderClass }}">
                                 <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
                                        value="{{ ($col['money'] ?? false) ? number_format($raw[$col['key']], 2) : (($col['pct'] ?? false) ? number_format($raw[$col['key']] * 100, 2) : $raw[$col['key']]) }}"
                                        data-field="{{ $col['key'] }}" data-date="{{ $dateStr }}"
                                        @if($col['money'] ?? false) data-money="1" @endif
                                        @if($col['pct'] ?? false) data-percent="1" @endif
-                                       class="tsr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                                       class="tsr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold {{ $inputColor }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
                             @else
                             @php
@@ -256,19 +271,40 @@
     function parseMoney(str) { return Number(String(str).replace(/,/g, '')) || 0; }
     function parsePercentInput(str) { return (Number(String(str).replace(/,/g, '')) || 0) / 100; }
 
+    // A leading '-' is kept (not stripped) — explicit request, 2026-10-03:
+    // "i want to make it can input negative amount ... if negative red
+    // and if positive it is green like in the dsppr page" — same
+    // negative-money convention DSPPR's own liveFormatMoney() already has.
     function liveFormatMoney(input) {
         const raw = input.value;
         const caretFromEnd = raw.length - (input.selectionStart ?? raw.length);
+        const isNegative = raw.trim().startsWith('-');
         const cleaned = raw.replace(/[^0-9.]/g, '');
         const firstDot = cleaned.indexOf('.');
         const intPart = firstDot === -1 ? cleaned : cleaned.slice(0, firstDot);
         const fracPart = firstDot === -1 ? '' : cleaned.slice(firstDot);
         const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-        const formatted = grouped + fracPart;
-        if (formatted === raw) return;
-        input.value = formatted;
-        const pos = Math.max(0, formatted.length - caretFromEnd);
-        input.setSelectionRange(pos, pos);
+        const formatted = (isNegative ? '-' : '') + grouped + fracPart;
+        if (formatted !== raw) {
+            input.value = formatted;
+            const pos = Math.max(0, formatted.length - caretFromEnd);
+            input.setSelectionRange(pos, pos);
+        }
+        if (input.dataset.money === '1') updateMoneyInputColor(input);
+    }
+
+    // Live red/negative green/positive coloring on a money INPUT itself as
+    // the user types (explicit request, 2026-10-03, matching DSPPR's own
+    // Net Income behavior — applied here to BOTH Gross Sales and Net
+    // Income per explicit confirmation) — separate from applyDerived()'s
+    // own coloring of the read-only [data-out] spans, since this targets
+    // the <input> element's own text color instead.
+    function updateMoneyInputColor(input) {
+        const isNegative = parseMoney(input.value) < 0;
+        input.classList.toggle('text-red-600', isNegative);
+        input.classList.toggle('dark:text-red-400', isNegative);
+        input.classList.toggle('text-green-600', !isNegative);
+        input.classList.toggle('dark:text-green-400', !isNegative);
     }
 
     function flashStatus(text, isError) {
@@ -488,6 +524,7 @@
                     if (input.dataset.money === '1') input.value = fmtMoney(value);
                     else if (input.dataset.percent === '1') input.value = (value * 100).toFixed(2);
                 }
+                if (input.dataset.money === '1') updateMoneyInputColor(input);
                 if (data?.derived) applyDerived(row, date, data.derived);
                 refreshDayTotal(table, date);
                 refreshSummaryRow(row.dataset.tsaId);
