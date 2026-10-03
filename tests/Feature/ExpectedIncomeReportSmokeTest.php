@@ -31,6 +31,24 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** Every seeded product flagged has_cost_allocation = true by default
+     *  (explicit request, 2026-10-03: "the only will display on that is
+     *  has cost products ... the products that has cost is has check in
+     *  cost breakdown page Cost Allocation Per TSA" — ExpectedIncomeController
+     *  now only queries flagged products at all, so an unflagged product
+     *  renders NO card whatsoever). This test file's own tests almost all
+     *  predate that filter and were written assuming "every seeded product
+     *  gets a card" — flagging every product here keeps their own actual
+     *  intent (page rendering/autosave behavior, not the flag itself)
+     *  working unchanged; a test that specifically needs an UNFLAGGED
+     *  product (e.g. confirming it renders no card) un-flags its own
+     *  fixture explicitly instead. */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Product::query()->update(['has_cost_allocation' => true]);
+    }
+
     public function test_admin_can_view_the_report_page(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -49,6 +67,60 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertSee($product->display_name);
         $response->assertSee('Telesales Expected Performance');
+    }
+
+    /** Explicit request, 2026-10-03: "the only will display on that is
+     *  has cost products ... the products that has cost is has check in
+     *  cost breakdown page Cost Allocation Per TSA" — an UNFLAGGED
+     *  product renders no card at all on Expected Income, anywhere on
+     *  the page (top summary row included). */
+    public function test_an_unflagged_product_renders_no_card_at_all(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $flagged = Product::first();
+        $unflagged = Product::orderBy('id')->skip(1)->first();
+        $unflagged->update(['has_cost_allocation' => false]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertSee($flagged->display_name);
+        $response->assertDontSee($unflagged->display_name);
+    }
+
+    /** Companion to the above — re-flagging a product makes its card
+     *  appear again, confirming this reads the flag live on every
+     *  request rather than caching an initial product list. */
+    public function test_a_newly_flagged_product_gets_a_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $product->update(['has_cost_allocation' => false]);
+
+        $before = $this->actingAs($admin)->get(route('data.expected-income'));
+        $before->assertDontSee($product->display_name);
+
+        $product->update(['has_cost_allocation' => true]);
+
+        $after = $this->actingAs($admin)->get(route('data.expected-income'));
+        $after->assertSee($product->display_name);
+    }
+
+    /** The AJAX live-refresh endpoint (summary()) must never show a
+     *  different product list than the page's own initial render —
+     *  same filter applied independently there. */
+    public function test_the_summary_endpoint_also_excludes_unflagged_products(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $unflagged = Product::first();
+        $unflagged->update(['has_cost_allocation' => false]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income.summary', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee($unflagged->display_name);
     }
 
     /** Only Gross Sales/Cancelled stay editable inputs — Projected Returns

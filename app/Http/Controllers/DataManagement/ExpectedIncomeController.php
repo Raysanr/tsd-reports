@@ -86,7 +86,17 @@ class ExpectedIncomeController extends Controller
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
         $teams = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
 
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        // Only FLAGGED products get a card at all (explicit request,
+        // 2026-10-03: "the only will display on that is has cost
+        // products ... the products that has cost is has check in cost
+        // breakdown page Cost Allocation Per TSA") — same
+        // has_cost_allocation flag TsaDailyRateService::flaggedProductRows()
+        // already uses for the divisor/Daily Rate math, now also
+        // narrowing which PRODUCTS actually render a card here. A grouped
+        // product's row only forms once ProductGrouping::rows() sees this
+        // already-filtered list — an unflagged member silently drops out
+        // of its own group instead of rendering its own card.
+        $products = Product::where('has_cost_allocation', true)->orderBy('team')->orderBy('sort_order')->get();
 
         // Computed ONCE here (this controller has DB access) and passed
         // explicitly into every derive()/sum() call below — see
@@ -181,7 +191,10 @@ class ExpectedIncomeController extends Controller
         $teamsConfig = Teams::config();
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
 
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        // Same has_cost_allocation filter as index() above — this AJAX
+        // live-refresh endpoint must never show a different product list
+        // than the page's own initial render.
+        $products = Product::where('has_cost_allocation', true)->orderBy('team')->orderBy('sort_order')->get();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
