@@ -345,7 +345,11 @@ class CostBreakdownController extends Controller
     public function updateRole(Request $request, CostBreakdownRole $costBreakdownRole)
     {
         $data = $request->validate([
-            'label' => ['sometimes', 'string', 'max:255'],
+            // 'filled', not just 'string' (explicit request, 2026-10-03:
+            // "i want to make it roles is editable like role and name") —
+            // label is now a real editable field, so an empty save must be
+            // rejected rather than leaving a role with no name at all.
+            'label' => ['sometimes', 'required', 'string', 'max:255'],
             'person_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
         ]);
@@ -355,6 +359,101 @@ class CostBreakdownController extends Controller
         return response()->json([
             'success' => true,
             'total' => $costBreakdownRole->base_salary,
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
+        ]);
+    }
+
+    /** Adds a new row to the Salary Breakdown table (explicit request,
+     *  2026-10-03: "i want you to add role" — + icon next to the table's
+     *  own header, same "admin-added, deletable" pattern Projections' own
+     *  custom rows already use). seed_key stays null — only the 7 fixed
+     *  SEED_ROLES rows carry one, so CostBreakdownRole::ensureSeeded()
+     *  never touches a custom role's own structural fields on a later
+     *  page load the way it does the 7 fixed ones.
+     *
+     *  overhead_group (explicit decision, same request: "full featured —
+     *  can also join a shared overhead group") lets a new role join an
+     *  EXISTING group (merges its own base_salary into that group's
+     *  shared Ref. figure, same as CEO/Sales Director/Telesales Manager
+     *  already share one) — blank/omitted means standalone, no Shared
+     *  Ref. column at all, same as every role with overhead_group = null
+     *  already renders. overhead_divisor is REQUIRED only when joining a
+     *  group (meaningless otherwise) — 'total' (÷12, company-wide) or
+     *  'team' (÷6, per-team), matching CostBreakdownRole::
+     *  OVERHEAD_DIVISOR_COUNTS exactly; deliberately NOT independently
+     *  settable from the group it joins, since every role already in that
+     *  group shares the identical divisor (picking a different one here
+     *  would silently split one "shared" figure into two disagreeing
+     *  ones). team (TSA-nesting) is explicitly OUT of scope for a custom
+     *  role — never accepted here, so a custom role can never accidentally
+     *  claim a team's real TSA roster out from under its own Supervisor
+     *  row. */
+    public function storeRole(Request $request)
+    {
+        $data = $request->validate([
+            'label' => ['required', 'string', 'max:255'],
+            'person_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'base_salary' => ['sometimes', 'numeric', 'min:0'],
+            'overhead_group' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'overhead_divisor' => ['required_with:overhead_group', 'nullable', 'string', 'in:total,team'],
+        ]);
+
+        $overheadGroup = $data['overhead_group'] ?? null;
+
+        // A role joining an existing group MUST land adjacent to that
+        // group's own other members — root-caused live, 2026-10-03: the
+        // view's own rowspan logic assumes a group's rows are physically
+        // CONTIGUOUS (the first member's own merged cell spans N rows
+        // straight down), so simply appending the new role to the very
+        // end of the whole table (its own far-away sort_order, same
+        // group) silently swallowed the UNRELATED role sitting right
+        // after the group's old last member into that merged region
+        // instead (confirmed live: QA Specialist's own row visually
+        // merged into the executive group's shared cell after adding a
+        // new executive-group role at the end of the table). Inserting
+        // immediately after the group's current last member, and shifting
+        // every role from there on down by one, keeps every group
+        // contiguous regardless of where a new member is added.
+        if ($overheadGroup) {
+            $lastGroupMember = CostBreakdownRole::where('overhead_group', $overheadGroup)->max('sort_order');
+            $insertAt = $lastGroupMember !== null ? $lastGroupMember + 1 : CostBreakdownRole::max('sort_order') + 1;
+            CostBreakdownRole::where('sort_order', '>=', $insertAt)->increment('sort_order');
+        } else {
+            $insertAt = CostBreakdownRole::max('sort_order') + 1;
+        }
+
+        $role = CostBreakdownRole::create([
+            'seed_key' => null,
+            'label' => $data['label'],
+            'person_name' => $data['person_name'] ?? null,
+            'base_salary' => $data['base_salary'] ?? 0,
+            'overhead_group' => $overheadGroup,
+            'overhead_divisor' => $overheadGroup ? $data['overhead_divisor'] : null,
+            'sort_order' => $insertAt,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'role' => $role,
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
+        ]);
+    }
+
+    /** Removes a custom role (explicit request, 2026-10-03, same request as
+     *  storeRole() above) — one of the 7 fixed SEED_ROLES (seed_key set)
+     *  can never be deleted this way, guarded here server-side too, not
+     *  just by the view hiding the × on those rows (never trust the
+     *  frontend alone). */
+    public function destroyRole(CostBreakdownRole $costBreakdownRole)
+    {
+        if ($costBreakdownRole->seed_key !== null) {
+            return response()->json(['success' => false, 'message' => 'A fixed role cannot be removed.'], 422);
+        }
+
+        $costBreakdownRole->delete();
+
+        return response()->json([
+            'success' => true,
             'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
         ]);
     }

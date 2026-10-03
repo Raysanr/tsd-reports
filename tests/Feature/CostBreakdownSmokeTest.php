@@ -237,6 +237,207 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertJsonPath('total', fn ($v) => abs($v - 50000) < 0.01);
     }
 
+    /** Explicit request, 2026-10-03: "i want to make it roles is editable
+     *  like role and name" — label/person_name both now real editable
+     *  fields, and the edit must survive a later ensureSeeded() call
+     *  (i.e. a later page load) instead of being silently overwritten
+     *  back to the seed value. */
+    public function test_updating_a_roles_label_and_person_name_persists(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-role', $ceo),
+            ['label' => 'Chief Executive Officer', 'person_name' => 'Jane Doe']
+        );
+
+        $response->assertOk();
+        $this->assertSame('Chief Executive Officer', $ceo->fresh()->label);
+        $this->assertSame('Jane Doe', $ceo->fresh()->person_name);
+
+        // A later page load (ensureSeeded() running again) must NOT
+        // revert either field back to "CEO"/null — the whole point of
+        // matching by seed_key instead of label from here on.
+        $this->actingAs($admin)->get(route('data.cost-breakdown'));
+        $this->assertSame('Chief Executive Officer', $ceo->fresh()->label);
+        $this->assertSame('Jane Doe', $ceo->fresh()->person_name);
+        // Still exactly 7 roles — renaming never created a duplicate
+        // "CEO" row re-seeded under the original label.
+        $this->assertSame(7, CostBreakdownRole::count());
+    }
+
+    /** An empty label must be rejected, not silently saved — a role with
+     *  no name at all would be confusing and has no real meaning. */
+    public function test_updating_a_roles_label_to_empty_is_rejected(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-role', $ceo),
+            ['label' => '']
+        );
+
+        $response->assertStatus(422);
+        $this->assertSame('CEO', $ceo->fresh()->label);
+    }
+
+    /** Explicit request, 2026-10-03: "i want you to add role" — a new
+     *  standalone (no group) role appears on the page and persists. */
+    public function test_adding_a_standalone_role_persists(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+
+        $response = $this->actingAs($admin)->postJson(route('data.cost-breakdown.roles.store'), [
+            'label' => 'Marketing Lead', 'person_name' => 'Pat Reyes', 'base_salary' => 25000,
+        ]);
+
+        $response->assertOk();
+        $this->assertDatabaseHas('cost_breakdown_roles', [
+            'label' => 'Marketing Lead', 'person_name' => 'Pat Reyes', 'base_salary' => 25000,
+            'seed_key' => null, 'overhead_group' => null,
+        ]);
+
+        $page = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+        $page->assertOk();
+        $page->assertSee('Marketing Lead');
+    }
+
+    /** Explicit confirmation, 2026-10-03: "full featured — can also join a
+     *  shared overhead group" — a new role joining an EXISTING group
+     *  merges its own base_salary into that group's combined overhead
+     *  figure, same as CEO/Sales Director/Telesales Manager already
+     *  share one. */
+    public function test_adding_a_role_to_an_existing_group_changes_that_groups_overhead(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
+        $before = CostBreakdownCalculator::overheadPerTsa(
+            CostBreakdownRole::where('overhead_group', 'executive')->pluck('base_salary')->all(),
+            CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS['total']
+        );
+
+        $response = $this->actingAs($admin)->postJson(route('data.cost-breakdown.roles.store'), [
+            'label' => 'VP of Sales', 'base_salary' => 40000,
+            'overhead_group' => 'executive', 'overhead_divisor' => 'total',
+        ]);
+
+        $response->assertOk();
+        $newRole = CostBreakdownRole::where('label', 'VP of Sales')->firstOrFail();
+        $this->assertSame('executive', $newRole->overhead_group);
+        $this->assertSame('total', $newRole->overhead_divisor);
+
+        $after = CostBreakdownCalculator::overheadPerTsa(
+            CostBreakdownRole::where('overhead_group', 'executive')->pluck('base_salary')->all(),
+            CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS['total']
+        );
+        $this->assertGreaterThan($before, $after, 'adding a role to an existing group should raise its combined overhead figure');
+        // The response's own recomputedOverhead already reflects the new
+        // combined figure for every role in the group, including the CEO.
+        $response->assertJsonPath('recomputedOverhead.' . $ceo->id, fn ($v) => abs($v - $after) < 0.01);
+    }
+
+    /** Regression test, 2026-10-03 (live screenshot): adding a role to an
+     *  existing group appended it to the very END of the whole table's
+     *  own sort_order instead of placing it adjacent to that group's
+     *  other members — the view's own rowspan logic assumes a group's
+     *  rows are physically CONTIGUOUS, so the unrelated role sitting
+     *  right after the group's old last member (QA Specialist, right
+     *  after the "executive" group) visually got swallowed into the new
+     *  merged region instead. A SECOND bug compounded this: the very
+     *  next page load (ensureSeeded() re-running inside index()) was
+     *  silently resetting every shifted seeded role's own sort_order
+     *  straight back to its hardcoded 0-6 position, producing a
+     *  DUPLICATE sort_order and corrupting the table even after the
+     *  insert-adjacent fix. This test exercises the exact live sequence:
+     *  add a role to a group, THEN reload the page (not just check the
+     *  POST response), and confirms every role still has a UNIQUE
+     *  sort_order with the new role landing immediately next to its own
+     *  group, not appended past an unrelated later role. */
+    public function test_a_role_added_to_a_group_stays_adjacent_to_it_after_a_page_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+
+        $this->actingAs($admin)->postJson(route('data.cost-breakdown.roles.store'), [
+            'label' => 'VP of Sales', 'overhead_group' => 'executive', 'overhead_divisor' => 'total',
+        ])->assertOk();
+
+        // The page reload itself (index() -> ensureSeeded() again) is the
+        // exact step that reproduced the live bug — a response assertion
+        // alone on the POST wouldn't catch it.
+        $this->actingAs($admin)->get(route('data.cost-breakdown'))->assertOk();
+
+        $sortOrders = CostBreakdownRole::orderBy('sort_order')->pluck('sort_order', 'label');
+        $this->assertSame($sortOrders->count(), $sortOrders->unique()->count(), 'every role must have a UNIQUE sort_order — a duplicate means two roles are fighting for the same table position');
+
+        $vpOfSales = CostBreakdownRole::where('label', 'VP of Sales')->firstOrFail();
+        $telesalesManager = CostBreakdownRole::where('seed_key', 'telesales_manager')->firstOrFail();
+        $qaSpecialist = CostBreakdownRole::where('seed_key', 'qa_specialist')->firstOrFail();
+        $this->assertSame($telesalesManager->sort_order + 1, $vpOfSales->sort_order, 'VP of Sales should land immediately after the executive group\'s own last member');
+        $this->assertGreaterThan($vpOfSales->sort_order, $qaSpecialist->sort_order, 'QA Specialist (a DIFFERENT group) must stay AFTER the newly-inserted role, not get absorbed before it');
+    }
+
+    /** A role joining a group REQUIRES a divisor — it's meaningless for a
+     *  standalone role, but every role that actually shares a group
+     *  figure must agree on the same divisor or the "shared" number
+     *  would silently mean two different things. */
+    public function test_adding_a_role_to_a_group_without_a_divisor_is_rejected(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+
+        $response = $this->actingAs($admin)->postJson(route('data.cost-breakdown.roles.store'), [
+            'label' => 'VP of Sales', 'overhead_group' => 'executive',
+        ]);
+
+        $response->assertStatus(422);
+    }
+
+    /** Explicit request, 2026-10-03, same request as adding a role —
+     *  removing a custom role actually deletes it. */
+    public function test_removing_a_custom_role_deletes_it(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $custom = CostBreakdownRole::create(['seed_key' => null, 'label' => 'Temp Role', 'base_salary' => 0, 'sort_order' => 99]);
+
+        $response = $this->actingAs($admin)->deleteJson(route('data.cost-breakdown.roles.destroy', $custom));
+
+        $response->assertOk();
+        $this->assertDatabaseMissing('cost_breakdown_roles', ['id' => $custom->id]);
+    }
+
+    /** One of the 7 fixed roles can never be removed — server-guarded,
+     *  not just hidden client-side (the view never shows a × on these,
+     *  but a direct request must still be refused). */
+    public function test_removing_a_fixed_seeded_role_is_rejected(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
+
+        $response = $this->actingAs($admin)->deleteJson(route('data.cost-breakdown.roles.destroy', $ceo));
+
+        $response->assertStatus(422);
+        $this->assertDatabaseHas('cost_breakdown_roles', ['id' => $ceo->id]);
+    }
+
+    public function test_a_non_admin_cannot_add_or_remove_a_role(): void
+    {
+        $normal = User::factory()->create(['role' => 'normal']);
+        CostBreakdownRole::ensureSeeded();
+        $custom = CostBreakdownRole::create(['seed_key' => null, 'label' => 'Temp Role', 'base_salary' => 0, 'sort_order' => 99]);
+
+        $this->actingAs($normal)->postJson(route('data.cost-breakdown.roles.store'), ['label' => 'Nope'])->assertForbidden();
+        $this->actingAs($normal)->deleteJson(route('data.cost-breakdown.roles.destroy', $custom))->assertForbidden();
+    }
+
     /** Explicit follow-up, 2026-09-29: "look at this formula ... it is all
      *  divided of all 12 tsa" — the CEO/Sales Director/Telesales Manager's
      *  own overhead-per-TSA figure is a LIVE FORMULA (their combined

@@ -385,6 +385,14 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // route-model binding works rather than an upsert-by-(product,date)
         // pattern.
         Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
+        // Add/remove a role (explicit request, 2026-10-03: "i want you to
+        // add role") — registered before the {costBreakdownRole} PATCH
+        // below, same "static segment before the wildcard" convention
+        // /rates and /custom-rows already follow on Projections (POST
+        // here is a different HTTP verb than that PATCH anyway, but kept
+        // consistent with that convention regardless).
+        Route::post('/cost-breakdown/roles', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'storeRole'])->name('cost-breakdown.roles.store');
+        Route::delete('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'destroyRole'])->name('cost-breakdown.roles.destroy');
         Route::patch('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateRole'])->name('cost-breakdown.update-role');
         Route::patch('/cost-breakdown/pools/{costBreakdownPool}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updatePool'])->name('cost-breakdown.update-pool');
         // {tsaShift}, not {costBreakdownTsaEntry} — the view keys every

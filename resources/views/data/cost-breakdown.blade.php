@@ -40,9 +40,17 @@
          sheet's own dense spreadsheet grid, per "use tailwind css
          components for the modern design." --}}
     <div class="rounded-2xl border border-line dark:border-slate-700 bg-white dark:bg-slate-900 shadow-panel overflow-hidden">
-        <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between">
+        <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between gap-3">
             <h2 class="font-mono font-bold text-sm uppercase tracking-wide text-white">Telesales Dept — Salary Breakdown</h2>
-            <span id="cbRoleSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+            <div class="flex items-center gap-3">
+                <span id="cbRoleSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+                {{-- + Add Role (explicit request, 2026-10-03: "i want you to
+                     add role") — opens #cbAddRoleModal below. --}}
+                <button type="button" id="cbAddRoleBtn" title="Add a role"
+                        class="shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-full text-sm leading-none font-bold text-slate-300 border border-slate-600 hover:text-white hover:border-white">
+                    +
+                </button>
+            </div>
         </div>
         <div class="overflow-x-auto">
             <table class="w-full text-[13px] cb-table border-separate border-spacing-0">
@@ -89,11 +97,35 @@
                     @if($item['type'] === 'role')
                         @php $role = $item['role']; @endphp
                         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
+                            {{-- Role/name editable (explicit request,
+                                 2026-10-03: "i want to make it roles is
+                                 editable like role and name") — same
+                                 debounced-autosave input convention as
+                                 every other cb-field on this page.
+                                 CostBreakdownRole::ensureSeeded() no longer
+                                 re-syncs either field on an existing row
+                                 (see its own doc comment), so an edit here
+                                 survives every later page load. A custom
+                                 (admin-added, seed_key = null) role also
+                                 gets a × to remove it entirely — none of
+                                 the 7 fixed roles ever show one, server-
+                                 guarded too (CostBreakdownController::
+                                 destroyRole()). --}}
                             <td class="px-4 py-2 whitespace-nowrap {{ $groupEndClass }}">
-                                <p class="font-mono font-bold text-ink dark:text-slate-100">{{ $role->label }}</p>
-                                @if($role->person_name)
-                                    <p class="font-mono text-xs text-ink-muted dark:text-slate-400">{{ $role->person_name }}</p>
-                                @endif
+                                <div class="flex items-start gap-1">
+                                    <div class="flex-1 min-w-0 space-y-1">
+                                        <input type="text" value="{{ $role->label }}" data-field="label" data-text="1"
+                                               class="cb-field w-full bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono font-bold text-ink dark:text-slate-100 outline-none">
+                                        <input type="text" value="{{ $role->person_name }}" data-field="person_name" data-text="1" placeholder="Name (optional)"
+                                               class="cb-field w-full bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono text-xs text-ink-muted dark:text-slate-400 outline-none">
+                                    </div>
+                                    @if($role->seed_key === null)
+                                    <button type="button" data-remove-role="{{ $role->id }}" title="Remove this role"
+                                            class="cb-remove-role shrink-0 mt-0.5 w-3.5 h-3.5 inline-flex items-center justify-center rounded-full text-[10px] leading-none text-ink-muted/60 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400">
+                                        &times;
+                                    </button>
+                                    @endif
+                                </div>
                             </td>
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
@@ -190,6 +222,74 @@
         <div class="px-6 py-4 bg-slate-100 dark:bg-slate-800/60 flex items-center justify-between">
             <span class="font-mono font-bold text-sm text-ink dark:text-slate-100">TOTAL SALARY OF TSD</span>
             <span class="font-mono font-bold text-lg text-primary">{{ $fmtMoney($totalSalaryOfTsd) }}</span>
+        </div>
+    </div>
+
+    {{-- Add Role modal (explicit request, 2026-10-03: "i want you to add
+         role", "full featured — can also join a shared overhead group") —
+         #cbAddRoleBtn above opens this; starts hidden, JS toggles [hidden].
+         Group is picked from every DISTINCT overhead_group already on the
+         page (new role joins it, its own base_salary merges into that
+         group's existing Shared Ref. figure) or left on "No group" for a
+         plain standalone row — same two-state choice Projections' own Add
+         Row modal gives for Editable/Fixed. team (TSA-nesting) is
+         deliberately NOT offered here — out of scope, see
+         CostBreakdownController::storeRole()'s own doc comment. --}}
+    @php
+        $existingOverheadGroups = $roles->pluck('overhead_group')->filter()->unique()->values();
+    @endphp
+    <div id="cbAddRoleModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50" data-close-add-role-modal></div>
+        <div class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+            <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add Role</h3>
+            <form id="cbAddRoleForm" class="space-y-4">
+                <div>
+                    <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Role</label>
+                    <input type="text" name="label" required maxlength="255" placeholder="e.g. Marketing Lead"
+                           class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Name (optional)</label>
+                    <input type="text" name="person_name" maxlength="255"
+                           class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Base Salary</label>
+                    <input type="text" inputmode="decimal" name="base_salary" placeholder="0.00"
+                           class="w-full text-sm text-right border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Shared Ref. Group</label>
+                    <select name="overhead_group" id="cbAddRoleGroup"
+                            class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40">
+                        <option value="">No group (standalone)</option>
+                        @foreach($existingOverheadGroups as $group)
+                        <option value="{{ $group }}">{{ ucwords(str_replace('_', ' ', $group)) }}</option>
+                        @endforeach
+                        <option value="__new__">+ New group…</option>
+                    </select>
+                    <input type="text" name="new_overhead_group" id="cbAddRoleNewGroup" hidden placeholder="New group name"
+                           class="w-full text-sm border border-line dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/40 mt-2">
+                    <div id="cbAddRoleDivisorWrap" hidden class="mt-2">
+                        <label class="block text-[11px] font-semibold tracking-widest text-ink-muted dark:text-slate-400 uppercase mb-1">Divide By</label>
+                        <div class="flex gap-4 text-sm text-ink dark:text-slate-100">
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="radio" name="overhead_divisor" value="total" checked class="text-primary focus:ring-primary/40">
+                                Company-wide (÷12)
+                            </label>
+                            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                                <input type="radio" name="overhead_divisor" value="team" class="text-primary focus:ring-primary/40">
+                                Per team (÷6)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <p id="cbAddRoleError" class="text-xs text-red-600 dark:text-red-400 hidden"></p>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" data-close-add-role-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+                    <button type="submit" class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">Add Role</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -501,7 +601,14 @@
         if (!row) return;
         const status = document.getElementById(statusId);
         const field = input.dataset.field;
-        const value = input.dataset.money === '1' ? parseMoney(input.value) : (input.value === '' ? null : (Number(input.value) || 0));
+        // data-text="1" (explicit request, 2026-10-03: "i want to make it
+        // roles is editable like role and name") — label/person_name are
+        // genuinely free text, not numeric; the Number(input.value) || 0
+        // fallback below would otherwise silently coerce "CEO" or a real
+        // person's name into the literal number 0 the instant this field
+        // saved, since neither is a parseable number.
+        const value = input.dataset.text === '1' ? input.value
+            : (input.dataset.money === '1' ? parseMoney(input.value) : (input.value === '' ? null : (Number(input.value) || 0)));
 
         flashStatus(status, 'Saving…', false);
 
@@ -666,6 +773,117 @@
                 checkbox.checked = !checkbox.checked;
                 flashStatus(status, 'Could not save — try again.', true);
                 window.showToast?.('Could not save — try again.', 'error');
+            });
+    });
+
+    // Add/Remove Role (explicit request, 2026-10-03: "i want you to add
+    // role" + "full featured — can also join a shared overhead group") —
+    // both reload the page on success rather than patching the DOM, same
+    // convention Projections' own custom-row add/remove already uses:
+    // adding or removing a role changes the table's own ROW STRUCTURE
+    // (a new <tr>, every group's own rowspan recalculated), not just a
+    // cell's value, which applyRecomputedOverhead() above has no way to
+    // express in place.
+    const addRoleModal = document.getElementById('cbAddRoleModal');
+    const addRoleBtn = document.getElementById('cbAddRoleBtn');
+    const addRoleForm = document.getElementById('cbAddRoleForm');
+    const addRoleError = document.getElementById('cbAddRoleError');
+    const addRoleGroupSelect = document.getElementById('cbAddRoleGroup');
+    const addRoleNewGroupInput = document.getElementById('cbAddRoleNewGroup');
+    const addRoleDivisorWrap = document.getElementById('cbAddRoleDivisorWrap');
+
+    function openAddRoleModal() {
+        addRoleError.classList.add('hidden');
+        addRoleForm.reset();
+        addRoleNewGroupInput.hidden = true;
+        addRoleDivisorWrap.hidden = true;
+        addRoleModal.hidden = false;
+        addRoleForm.querySelector('[name="label"]').focus();
+    }
+    function closeAddRoleModal() {
+        addRoleModal.hidden = true;
+    }
+
+    addRoleBtn.addEventListener('click', openAddRoleModal);
+    addRoleModal.querySelectorAll('[data-close-add-role-modal]').forEach((el) => {
+        el.addEventListener('click', closeAddRoleModal);
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !addRoleModal.hidden) closeAddRoleModal();
+    });
+
+    // Picking "+ New group…" reveals the new-group-name input; picking
+    // any real group (new or existing) reveals the divisor choice, since
+    // it's meaningless for a standalone (no-group) role.
+    addRoleGroupSelect.addEventListener('change', () => {
+        const isNewGroup = addRoleGroupSelect.value === '__new__';
+        addRoleNewGroupInput.hidden = !isNewGroup;
+        addRoleDivisorWrap.hidden = addRoleGroupSelect.value === '';
+        if (isNewGroup) addRoleNewGroupInput.focus();
+    });
+
+    addRoleForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const label = addRoleForm.querySelector('[name="label"]').value.trim();
+        if (!label) return;
+        const personName = addRoleForm.querySelector('[name="person_name"]').value.trim();
+        const baseSalary = parseMoney(addRoleForm.querySelector('[name="base_salary"]').value || '0');
+        const groupChoice = addRoleGroupSelect.value;
+        const overheadGroup = groupChoice === '__new__'
+            ? addRoleNewGroupInput.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+            : groupChoice;
+
+        if (groupChoice === '__new__' && !overheadGroup) {
+            addRoleError.textContent = 'Enter a name for the new group.';
+            addRoleError.classList.remove('hidden');
+            return;
+        }
+
+        const submitBtn = addRoleForm.querySelector('button[type="submit"]');
+        submitBtn.disabled = true;
+
+        const body = new URLSearchParams();
+        body.set('label', label);
+        if (personName) body.set('person_name', personName);
+        if (baseSalary) body.set('base_salary', baseSalary);
+        if (overheadGroup) {
+            body.set('overhead_group', overheadGroup);
+            body.set('overhead_divisor', addRoleForm.querySelector('[name="overhead_divisor"]:checked').value);
+        }
+
+        fetch('{{ route('data.cost-breakdown.roles.store') }}', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: body.toString(),
+        })
+            .then((res) => (res.ok ? res.json() : res.json().then((data) => Promise.reject(data))))
+            .then(() => window.location.reload())
+            .catch((data) => {
+                submitBtn.disabled = false;
+                addRoleError.textContent = data?.message || 'Could not add this role — try again.';
+                addRoleError.classList.remove('hidden');
+            });
+    });
+
+    document.addEventListener('click', async (e) => {
+        const removeBtn = e.target.closest('[data-remove-role]');
+        if (!removeBtn) return;
+        if (!(await window.confirmDataModal('Remove this role?'))) return;
+
+        const roleId = removeBtn.dataset.removeRole;
+        fetch(`{{ url('/data/cost-breakdown/roles') }}/${roleId}`, {
+            method: 'DELETE',
+            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => window.location.reload())
+            .catch(() => {
+                window.showToast?.('Could not remove this role — try again.', 'error');
             });
     });
 })();
