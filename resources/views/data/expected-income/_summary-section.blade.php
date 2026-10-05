@@ -16,6 +16,11 @@
             @foreach($summaryCards as $card)
             @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
+            {{-- TikTok's own TOTAL — every TikTok-flagged TSA's own 2 fixed
+                 cards, summed together into one card each (explicit
+                 request, 2026-10-05), regardless of team filter, same as
+                 TELESALES above. --}}
+            @include('data.expected-income._card', ['d' => $tiktokOverallTotal, 'label' => 'TIKTOK TOTAL', 'headerBg' => '#c9daf8', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
         </div>
     </div>
 

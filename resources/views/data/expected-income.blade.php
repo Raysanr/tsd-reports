@@ -126,6 +126,15 @@
                 @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
             </div>
             @endforeach
+
+            {{-- TikTok's own 2 fixed cards — only for a TSA flagged
+                 tiktok_upsell (explicit request, 2026-10-05), read-only
+                 here same as every other card in a range-summed block. --}}
+            @if($tiktokTsaRows->has($tsa->id))
+            @foreach($tiktokTsaRows[$tsa->id]['cards'] as $card)
+            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            @endforeach
+            @endif
         </div>
     </div>
     @endforeach
@@ -163,6 +172,15 @@
             @endphp
             @include('data.expected-income._product-card', ['row' => $row, 'tsa' => $tsa, 'dateStr' => $dateStr, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
+
+            {{-- TikTok's own 2 fixed cards — only for a TSA flagged
+                 tiktok_upsell (explicit request, 2026-10-05), editable
+                 here same as every other card on a 1-day selection. --}}
+            @if($tiktokTsaRows->has($tsa->id))
+            @foreach($tiktokTsaRows[$tsa->id]['cards'] as $card)
+            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'dateStr' => $dateStr, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+            @endforeach
+            @endif
         </div>
     </div>
     @endforeach

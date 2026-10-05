@@ -350,6 +350,17 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // id — same reasoning as DSPPR's own route above (a cell with
         // nothing typed into it yet has no row to bind to).
         Route::get('/expected-income', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'index'])->name('expected-income');
+        // TikTok's 2 fixed cards (explicit request, 2026-10-05) — MUST be
+        // registered BEFORE expected-income.update below, same route-
+        // ordering gotcha root-caused in DsPprReportController: Laravel
+        // matches REGISTRATION ORDER, not path specificity, so the generic
+        // {product}/{date} route would otherwise swallow /expected-income/
+        // tiktok/{cardKey}/... as product="tiktok" and 404 on implicit
+        // Product binding before this route is ever reached. Segment order
+        // {cardKey}/{tsaShift}/{date} must also match updateTiktok()'s own
+        // parameter order exactly (same positional-binding pitfall as
+        // expected-income.update-tsa's own doc comment below).
+        Route::patch('/expected-income/tiktok/{cardKey}/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateTiktok'])->name('expected-income.update-tiktok');
         Route::patch('/expected-income/{product}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
         // Separate endpoint for a custom row's own value (explicit request,
         // 2026-09-28: a row added via Projections' + icon "automatically

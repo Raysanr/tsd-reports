@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/** One (card, TSA, day) row for Expected Income's 2 fixed TikTok cards —
+ *  see the create_expected_income_tiktok_entries_table migration's own
+ *  doc comment for why this is a separate table from ExpectedIncomeEntry
+ *  (no real Product/team backs either card, every field is manual). */
+class ExpectedIncomeTiktokEntry extends Model
+{
+    public const CARD_SH_NATURALS = 'sh_naturals';
+    public const CARD_NATUREVA = 'natureva';
+
+    /** Fixed display order/labels — not DB-driven, since there are only
+     *  ever these 2 cards (explicit request, 2026-10-05: just these 2,
+     *  nothing configurable). */
+    public const CARDS = [
+        self::CARD_SH_NATURALS => 'TIKTOK: SH NATURALS',
+        self::CARD_NATUREVA    => 'TIKTOK: NATUREVA',
+    ];
+
+    protected $fillable = [
+        'card_key', 'tsa_id', 'entry_date',
+        'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
+        'gross_sales', 'cancelled', 'returns', 'delivered',
+        'tax_allocation', 'product_cost',
+        'advertising_cost', 'ads_vat', 'ai_expense', 'shipping_fee', 'product_research',
+        'salaries', 'communication_allowance', 'thirteenth_month_allowance', 'sil', 'government_benefits',
+        'miscellaneous_expenses', 'magic_fund', 'company_assets', 'executive_benefits', 'office_miscellaneous',
+        'maintenance_expenses', 'consultants', 'managers_allowance', 'birthday_cake_allowance', 'water_bill',
+        'internet', 'rent', 'electricity', 'geniusmakers_management_fee', 'business_development_fund', 'hmo_expense',
+    ];
+
+    protected $casts = [
+        'entry_date'                 => 'date',
+        'roas'                       => 'float',
+        'standard_cost_per_message'  => 'float',
+        'actual_cost_per_lead'       => 'float',
+        'number_of_leads'            => 'integer',
+        'number_of_orders'           => 'integer',
+        'average_order_value'        => 'float',
+        'gross_sales'                => 'float',
+        'cancelled'                  => 'float',
+        'returns'                    => 'float',
+        'delivered'                  => 'float',
+        'tax_allocation'             => 'float',
+        'product_cost'               => 'float',
+        'advertising_cost'           => 'float',
+        'ads_vat'                    => 'float',
+        'ai_expense'                 => 'float',
+        'shipping_fee'               => 'float',
+        'product_research'           => 'float',
+        'salaries'                    => 'float',
+        'communication_allowance'     => 'float',
+        'thirteenth_month_allowance'  => 'float',
+        'sil'                         => 'float',
+        'government_benefits'         => 'float',
+        'miscellaneous_expenses'      => 'float',
+        'magic_fund'                  => 'float',
+        'company_assets'              => 'float',
+        'executive_benefits'          => 'float',
+        'office_miscellaneous'        => 'float',
+        'maintenance_expenses'        => 'float',
+        'consultants'                 => 'float',
+        'managers_allowance'          => 'float',
+        'birthday_cake_allowance'     => 'float',
+        'water_bill'                  => 'float',
+        'internet'                    => 'float',
+        'rent'                        => 'float',
+        'electricity'                 => 'float',
+        'geniusmakers_management_fee' => 'float',
+        'business_development_fund'   => 'float',
+        'hmo_expense'                 => 'float',
+    ];
+
+    public function tsa(): BelongsTo
+    {
+        return $this->belongsTo(TsaShift::class, 'tsa_id');
+    }
+}

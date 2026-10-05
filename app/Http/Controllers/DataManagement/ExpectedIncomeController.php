@@ -5,6 +5,7 @@ namespace App\Http\Controllers\DataManagement;
 use App\Http\Controllers\Controller;
 use App\Models\ExpectedIncomeCustomValue;
 use App\Models\ExpectedIncomeEntry;
+use App\Models\ExpectedIncomeTiktokEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\TsaShift;
@@ -134,7 +135,14 @@ class ExpectedIncomeController extends Controller
             ? $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys)
             : $this->buildTeamDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamsConfig[$selectedTeam]);
 
-        return view('data.expected-income', array_merge($summaryData, $dailyData, [
+        // TikTok's own 2 fixed cards (explicit request, 2026-10-05) — see
+        // buildTiktokRows()'s own doc comment. Computed unconditionally
+        // (not scoped to $selectedTeam) since $tiktokOverallTotal always
+        // shows in the TOTAL section regardless of team filter, same as
+        // $summaryOverallTotal above.
+        $tiktokData = $this->buildTiktokRows($dates, $dateFrom, $dateTo);
+
+        return view('data.expected-income', array_merge($summaryData, $dailyData, $tiktokData, [
             'products' => $products,
             'dates'    => $dates,
             'dateFrom' => $dateFrom,
@@ -204,7 +212,16 @@ class ExpectedIncomeController extends Controller
             : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all();
         $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $summaryTeamTsaIds);
 
-        return view('data.expected-income._summary-section', array_merge($summaryData, [
+        // TikTok's own TOTAL card (explicit request, 2026-10-05) — this
+        // fragment is re-rendered after every autosave, including a save
+        // on a TikTok card itself, so it needs the same fresh total
+        // index() computes via buildTiktokRows(). Only 'tiktokOverallTotal'
+        // is used by _summary-section.blade.php; 'tiktokTsaRows' is unused
+        // here (this fragment never renders per-TSA cards) but cheap
+        // enough to not bother stripping out.
+        $tiktokData = $this->buildTiktokRows($dates, $dateFrom, $dateTo);
+
+        return view('data.expected-income._summary-section', array_merge($summaryData, $tiktokData, [
             'sellingRows'   => ExpectedIncomeCalculator::sellingCostRows(),
             'operatingRows' => ExpectedIncomeCalculator::operatingCostRows(),
             'customRowKeys' => ExpectedIncomeCalculator::customRowKeys(),
@@ -702,6 +719,89 @@ class ExpectedIncomeController extends Controller
         ];
     }
 
+    /** Expected Income's own 2 fixed TikTok cards — "TIKTOK: SH NATURALS"
+     *  and "TIKTOK: NATUREVA" (explicit request, 2026-10-05, real sheet
+     *  screenshot) — shown ONLY in a TikTok-flagged TSA's own card stack
+     *  (TsaShift.tiktok_upsell) and folded into the page's overall TOTAL.
+     *  Deliberately independent of ProductGrouping/TsaDailyRateService/
+     *  the lock-toggle machinery every real product card goes through —
+     *  no real Product or team backs either card, and every field is
+     *  manual (explicit confirmation: no Cost Breakdown automation here),
+     *  so reusing that machinery would be wiring complexity this doesn't
+     *  need. Returns, per TikTok-flagged TSA: her own per-day raw rows
+     *  (one per card) for the editable 1-day case, or her own range-summed
+     *  derived totals for a >1-day range — same isRangeSummed split as
+     *  buildTeamDailyRows() above, for the same reason (an editable input
+     *  needs exactly one date to save into). Also returns the SITE-WIDE
+     *  total (every flagged TSA, every date in range, both cards summed
+     *  together) for the TOTAL section — see buildTiktokOverallTotal(). */
+    private function buildTiktokRows($dates, string $dateFrom, string $dateTo): array
+    {
+        $flaggedTsas = TsaShift::where('tiktok_upsell', true)->orderBy('sort_order')->get();
+        if ($flaggedTsas->isEmpty()) {
+            return ['tiktokTsaRows' => collect(), 'tiktokOverallTotal' => ExpectedIncomeCalculator::derive([])];
+        }
+
+        $entriesByKey = ExpectedIncomeTiktokEntry::whereIn('tsa_id', $flaggedTsas->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
+
+        $emptyRaw = fn (int $tsaId, string $cardKey, string $dateStr) => ['tsa_id' => $tsaId, 'card_key' => $cardKey, 'entry_date' => $dateStr];
+
+        $isRangeSummed = $dates->count() > 1;
+        $allRawRows = [];
+
+        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $isRangeSummed, &$allRawRows) {
+            // Every (card, date) combo for this one TSA — entriesByKey
+            // misses a (card, date) with nothing ever saved, so $emptyRaw
+            // fills the gap rather than silently skipping that date out
+            // of the sum (same "always one row per cell, real or empty"
+            // convention as rawByProductAndDate()'s own doc comment).
+            $rowsByCard = collect(ExpectedIncomeTiktokEntry::CARDS)->mapWithKeys(function ($label, $cardKey) use ($tsa, $dates, $entriesByKey, $emptyRaw, &$allRawRows) {
+                $rows = $dates->map(function ($date) use ($tsa, $cardKey, $entriesByKey, $emptyRaw, &$allRawRows) {
+                    $dateStr = $date->toDateString();
+                    $entry = $entriesByKey->get("{$tsa->id}:{$cardKey}:{$dateStr}");
+                    $raw = $entry?->toArray() ?? $emptyRaw($tsa->id, $cardKey, $dateStr);
+                    $allRawRows[] = $raw;
+                    return ['raw' => $raw, 'entry' => $entry];
+                });
+                return [$cardKey => $rows];
+            });
+
+            if ($isRangeSummed) {
+                $cards = $rowsByCard->map(fn ($rows, $cardKey) => [
+                    'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
+                    'derived' => ExpectedIncomeCalculator::sum($rows->pluck('raw')->all()),
+                ])->values();
+
+                return ['tsa' => $tsa, 'isRangeSummed' => true, 'cards' => $cards];
+            }
+
+            $dateStr = $dates->first()->toDateString();
+            $cards = $rowsByCard->map(function ($rows, $cardKey) {
+                $only = $rows->first();
+                return [
+                    'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
+                    'derived' => ExpectedIncomeCalculator::derive($only['raw']),
+                    'entry' => $only['entry'],
+                ];
+            })->values();
+
+            return ['tsa' => $tsa, 'isRangeSummed' => false, 'dateStr' => $dateStr, 'cards' => $cards];
+        });
+
+        return [
+            // Keyed by tsa_id (not a plain list) — the view looks this up
+            // once per real TSA it's already iterating ($tsaRows in
+            // buildTeamDailyRows()'s own output), so a flat lookup avoids
+            // a linear search through every flagged TSA per render.
+            'tiktokTsaRows'      => $tiktokTsaRows->keyBy(fn ($row) => $row['tsa']->id),
+            'tiktokOverallTotal' => ExpectedIncomeCalculator::sum($allRawRows),
+        ];
+    }
+
     /** Returns ['raw' => ..., 'entriesByKey' => ...]. 'raw': one raw row
      *  per (product, day) in the selected range, ALWAYS — even a
      *  product/day with no ExpectedIncomeEntry AND no custom value at all
@@ -952,6 +1052,70 @@ class ExpectedIncomeController extends Controller
         }
 
         return response()->json($response);
+    }
+
+    /** Same auto-save shape as update() above, for one of the 2 fixed
+     *  TikTok cards — see buildTiktokRows()'s own doc comment for why
+     *  this is a separate table/endpoint (no real Product, no lock
+     *  toggle, no Cost Breakdown override). Validates $cardKey against
+     *  the fixed CARDS list rather than any dynamic lookup — there are
+     *  only ever these 2 cards. */
+    public function updateTiktok(Request $request, string $cardKey, TsaShift $tsaShift, string $date)
+    {
+        if (!array_key_exists($cardKey, ExpectedIncomeTiktokEntry::CARDS)) {
+            abort(404);
+        }
+
+        $data = $request->validate([
+            'roas'                       => ['sometimes', 'numeric', 'min:0'],
+            'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
+            'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
+            'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
+            'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
+            'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
+            'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
+            'cancelled'            => ['sometimes', 'numeric', 'min:0'],
+            'tax_allocation'       => ['sometimes', 'numeric', 'min:0'],
+            'product_cost'         => ['sometimes', 'numeric', 'min:0'],
+            'advertising_cost'     => ['sometimes', 'numeric', 'min:0'],
+            'ads_vat'              => ['sometimes', 'numeric', 'min:0'],
+            'ai_expense'           => ['sometimes', 'numeric', 'min:0'],
+            'shipping_fee'          => ['sometimes', 'numeric', 'min:0'],
+            'product_research'      => ['sometimes', 'numeric', 'min:0'],
+            'salaries'                    => ['sometimes', 'numeric', 'min:0'],
+            'communication_allowance'     => ['sometimes', 'numeric', 'min:0'],
+            'thirteenth_month_allowance'  => ['sometimes', 'numeric', 'min:0'],
+            'sil'                         => ['sometimes', 'numeric', 'min:0'],
+            'government_benefits'         => ['sometimes', 'numeric', 'min:0'],
+            'miscellaneous_expenses'      => ['sometimes', 'numeric', 'min:0'],
+            'magic_fund'                  => ['sometimes', 'numeric', 'min:0'],
+            'company_assets'              => ['sometimes', 'numeric', 'min:0'],
+            'executive_benefits'          => ['sometimes', 'numeric', 'min:0'],
+            'office_miscellaneous'        => ['sometimes', 'numeric', 'min:0'],
+            'maintenance_expenses'        => ['sometimes', 'numeric', 'min:0'],
+            'consultants'                 => ['sometimes', 'numeric', 'min:0'],
+            'managers_allowance'          => ['sometimes', 'numeric', 'min:0'],
+            'birthday_cake_allowance'     => ['sometimes', 'numeric', 'min:0'],
+            'water_bill'                  => ['sometimes', 'numeric', 'min:0'],
+            'internet'                    => ['sometimes', 'numeric', 'min:0'],
+            'rent'                        => ['sometimes', 'numeric', 'min:0'],
+            'electricity'                 => ['sometimes', 'numeric', 'min:0'],
+            'geniusmakers_management_fee' => ['sometimes', 'numeric', 'min:0'],
+            'business_development_fund'   => ['sometimes', 'numeric', 'min:0'],
+            'hmo_expense'                 => ['sometimes', 'numeric', 'min:0'],
+        ]);
+
+        $entryDate = Carbon::parse($date)->toDateString();
+
+        $entry = ExpectedIncomeTiktokEntry::where('card_key', $cardKey)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
+            ?? new ExpectedIncomeTiktokEntry(['card_key' => $cardKey, 'tsa_id' => $tsaShift->id, 'entry_date' => $entryDate]);
+        $entry->fill($data);
+        $entry->save();
+
+        return response()->json([
+            'success' => true,
+            'derived' => ExpectedIncomeCalculator::derive($entry->toArray()),
+        ]);
     }
 
     /** Re-renders ONE TSA-scoped product card's own fresh _product-card

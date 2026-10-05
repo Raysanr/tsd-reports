@@ -2104,4 +2104,172 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('id="eiSummarySection"', false);
         $response->assertSee('60,000.00');
     }
+
+    /** TikTok's own 2 fixed cards — explicit request, 2026-10-05, real
+     *  sheet screenshot: "TIKTOK: SH NATURALS" / "TIKTOK: NATUREVA", shown
+     *  ONLY in a TikTok-flagged TSA's own card stack (TsaShift.
+     *  tiktok_upsell — same flag Summary Sales Report's own TikTok Upsell
+     *  section uses) and folded into the page's overall TOTAL. Fully
+     *  manual — no real Product/team backs either card. */
+    public function test_a_tiktok_flagged_tsas_own_card_stack_shows_both_fixed_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK: SH NATURALS');
+        $response->assertSee('TIKTOK: NATUREVA');
+    }
+
+    public function test_a_tsa_not_flagged_for_tiktok_shows_neither_fixed_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => false]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee('TIKTOK: SH NATURALS');
+        $response->assertDontSee('TIKTOK: NATUREVA');
+    }
+
+    /** The TOTAL section's own "TIKTOK TOTAL" card shows regardless of
+     *  team filter or whether any TSA is currently flagged — same
+     *  "always renders, even all-zero" convention as TELESALES. */
+    public function test_the_total_section_always_shows_a_tiktok_total_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK TOTAL');
+    }
+
+    public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 10000, 'cancelled' => 500]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - (10000 - 500 - 2500)) < 0.01);
+        $this->assertDatabaseHas('expected_income_tiktok_entries', [
+            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'gross_sales' => 10000,
+        ]);
+    }
+
+    public function test_updating_an_existing_tiktok_card_entry_does_not_create_a_duplicate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 1000]
+        );
+        $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 2000]
+        );
+
+        $this->assertSame(1, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->count());
+        $this->assertSame(2000.0, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
+    }
+
+    /** The 2 fixed cards' own saved numbers must fold into the TOTAL
+     *  section's own "TIKTOK TOTAL" card. */
+    public function test_tiktok_card_entries_are_included_in_the_tiktok_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 3000]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+        $response->assertOk();
+
+        $pos = strpos($response->getContent(), 'TIKTOK TOTAL');
+        $this->assertNotFalse($pos, 'expected to find the TIKTOK TOTAL card');
+        $cardSlice = substr($response->getContent(), $pos, 3000);
+        $this->assertStringContainsString('8,000.00', $cardSlice);
+    }
+
+    /** A TikTok card must NEVER fold into the TSA's own real overview
+     *  rollup ("[TSA NAME]" card, data-out-scope="1") — TikTok's totals
+     *  are tracked completely separately (see
+     *  ExpectedIncomeController::buildTiktokRows()'s own doc comment) and
+     *  must never inflate her real P&L. Confirmed via the absence of
+     *  data-product-id on a TikTok card — see _tiktok-card.blade.php's
+     *  own doc comment for why that's deliberate (refreshDayOverall()'s
+     *  own client-side sum only picks up `.ei-card[data-product-id]`). */
+    public function test_a_tiktok_card_has_no_data_product_id(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        preg_match('/<div class="ei-card[^"]*"[^>]*data-action="[^"]*tiktok[^"]*"[^>]*>/', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find a TikTok card with its own data-action');
+        $this->assertStringNotContainsString('data-product-id', $matches[0]);
+    }
+
+    /** A Projections-added custom row has no column on
+     *  ExpectedIncomeTiktokEntry and no save endpoint of its own — a
+     *  TikTok card must never render one (would otherwise be a silently
+     *  broken input with no data-custom-action, see _tiktok-card.blade.php's
+     *  own doc comment). */
+    public function test_a_tiktok_card_never_shows_a_custom_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        \App\Models\ProjectionCustomRow::create(['key' => 'custom_tiktok_test_row', 'section' => 'selling', 'label' => 'Custom Tiktok Test Row', 'sort_order' => 99]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $pos = strpos($response->getContent(), 'TIKTOK: SH NATURALS');
+        $this->assertNotFalse($pos, 'expected to find the TikTok card');
+        $cardSlice = substr($response->getContent(), $pos, 4000);
+        $this->assertStringNotContainsString('Custom Tiktok Test Row', $cardSlice);
+    }
 }
