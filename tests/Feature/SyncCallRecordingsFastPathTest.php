@@ -191,6 +191,40 @@ class SyncCallRecordingsFastPathTest extends TestCase
     }
 
     /**
+     * Real production gap confirmed 2026-10-05: Team Closing's Drive root
+     * only had 6 TSA folders while several more closing-team TSAs had real
+     * call activity — resolveTsaFolder() returning null for a TSA with no
+     * matching folder (missing entirely, or named something not covered by
+     * display_name/tsa_key/tag_keywords) was a bare `continue` with zero
+     * trace anywhere, indistinguishable from "she made no calls that day."
+     * Now logs a warning so a naming gap doesn't stay invisible.
+     */
+    public function test_a_tsa_with_no_matching_drive_folder_at_all_logs_a_warning_instead_of_vanishing_silently(): void
+    {
+        $this->configureDrive();
+        TsaShift::where('team', 'Eyecare Team')->where('tsa_key', 'Julie')->update(['tsa_key' => 'Julie']);
+
+        \Illuminate\Support\Facades\Log::spy();
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            // No month folder, and the lone folder under team root belongs
+            // to an entirely different TSA — Julie has no folder anywhere.
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
+                $this->folderListResponse([$this->folder('other-root', 'SOMEONE ELSE')])
+            ),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+            ->with('calls:sync-recordings: no matching Drive folder for TSA', \Mockery::on(
+                fn ($context) => $context['tsa_key'] === 'Julie' && $context['date'] === '2026-08-29'
+            ))
+            ->once();
+    }
+
+    /**
      * Real production shape confirmed 2026-09-12: only ONE of eight TSAs had
      * any synced CallRecordingHour data for a given day — every TSA
      * processed after her in iteration order had none, even though their

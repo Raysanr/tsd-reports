@@ -214,7 +214,23 @@ class SyncCallRecordings extends Command
                     // manual re-sync for a past date still finds the right
                     // month even after the calendar has moved on.
                     $tsaFolder = $this->drive->resolveTsaFolder($token, $shift, $date);
-                    if (!$tsaFolder) continue; // no recordings folder for this TSA
+                    if (!$tsaFolder) {
+                        // Silent until 2026-10-05 — a TSA whose Drive folder
+                        // name didn't exactly match her display_name/tsa_key/
+                        // tag_keywords (or who simply has no folder under the
+                        // team root yet) produced zero recordings with no
+                        // visible trace anywhere, indistinguishable from "she
+                        // just didn't make any calls." Logged now so a
+                        // naming mismatch or missing folder shows up instead
+                        // of silently zeroing her AHT/catered-leads data.
+                        $this->warn("No Drive folder found for {$shift->tsa_key} ({$orderTeam}) on {$dateString} — skipped.");
+                        Log::warning('calls:sync-recordings: no matching Drive folder for TSA', [
+                            'tsa_key' => $shift->tsa_key,
+                            'team'    => $orderTeam,
+                            'date'    => $dateString,
+                        ]);
+                        continue;
+                    }
 
                     // Recurses through whatever day-subfolders exist under
                     // the TSA's own folder (real naming is inconsistent per
