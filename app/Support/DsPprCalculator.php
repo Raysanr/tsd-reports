@@ -82,7 +82,21 @@ class DsPprCalculator
      *  table's own 6 raw fields failed to reproduce the sheet's real
      *  per-row numbers — see derive()'s own doc comment) — only HOW the
      *  total aggregates whatever per-row value ends up there is fixed
-     *  here. */
+     *  here.
+     *
+     *  Real bug, root-caused 2026-10-05: this averaged self::derive($row)
+     *  — i.e. it RE-DERIVED each row's rate from raw counts via this
+     *  class's own (wrong/placeholder) formula above, discarding the
+     *  correct Leads-Report-matching rate (Answered÷Total,
+     *  Upsell-Confirmation÷Answered, from ProductPerformance::dsPprRow())
+     *  that's already sitting on each incoming $row once the controller/
+     *  view has merged it in — the exact same correct value the daily
+     *  table already displays per-row. That silent re-derive is why the
+     *  summary table's Pick-up/Conversion/Upselling Rate never matched
+     *  the daily table for the same date despite identical raw counts.
+     *  Now reads each row's own already-present rate (falling back to
+     *  derive() only for a row that never got the real merge, e.g. a
+     *  pure future/manual-only row with no matching orders yet). */
     public static function sum(array $rows): array
     {
         $totals = [
@@ -103,10 +117,13 @@ class DsPprCalculator
 
         $rowCount = count($rows);
         if ($rowCount > 0) {
-            $perRow = array_map(fn ($row) => self::derive($row), $rows);
-            $summed['pickup_rate']      = array_sum(array_column($perRow, 'pickup_rate')) / $rowCount;
-            $summed['conversion_rate']  = array_sum(array_column($perRow, 'conversion_rate')) / $rowCount;
-            $summed['upselling_rate']   = array_sum(array_column($perRow, 'upselling_rate')) / $rowCount;
+            $rateOf = fn (array $row, string $key) => array_key_exists($key, $row)
+                ? (float) $row[$key]
+                : self::derive($row)[$key];
+
+            $summed['pickup_rate']     = array_sum(array_map(fn ($row) => $rateOf($row, 'pickup_rate'), $rows)) / $rowCount;
+            $summed['conversion_rate'] = array_sum(array_map(fn ($row) => $rateOf($row, 'conversion_rate'), $rows)) / $rowCount;
+            $summed['upselling_rate']  = array_sum(array_map(fn ($row) => $rateOf($row, 'upselling_rate'), $rows)) / $rowCount;
         }
 
         return $summed;

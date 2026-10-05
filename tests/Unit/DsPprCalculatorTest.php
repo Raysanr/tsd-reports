@@ -105,4 +105,58 @@ class DsPprCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.60, $summed['conversion_rate'], 0.0001);
         $this->assertEqualsWithDelta(0.60, $summed['upselling_rate'], 0.0001);
     }
+
+    /**
+     * Real bug, root-caused 2026-10-05: the summary table's Pick-up/
+     * Conversion/Upselling Rate never matched the daily table for the
+     * same date and identical raw counts. Cause: every row the
+     * controller/view actually passes into sum() already carries the
+     * REAL, Leads-Report-matching rate (merged in from
+     * ProductPerformance::dsPprRow() — Answered÷Total,
+     * Upsell-Confirmation÷Answered), which the daily table displays
+     * as-is. sum() used to ignore that and silently RE-DERIVE each row's
+     * rate from this class's own placeholder ratio
+     * (catered÷leads/orders÷catered) before averaging — a different
+     * formula than the one already sitting on the row. This row
+     * deliberately sets pickup_rate/conversion_rate/upselling_rate to
+     * values derive() would NOT produce from the same raw counts, so a
+     * silent re-derive fails loudly instead of coincidentally matching.
+     */
+    public function test_sum_averages_each_rows_own_already_present_rate_instead_of_rederiving_it(): void
+    {
+        // derive() would compute pickup 5/10=0.5, conv 2/5=0.4 from these
+        // raw counts — but the REAL (Leads-Report) rate already on the
+        // row is deliberately different, simulating the $real merge.
+        $rowA = [
+            'gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0,
+            'total_orders' => 2, 'total_leads' => 10, 'catered_leads' => 5,
+            'pickup_rate' => 0.90, 'conversion_rate' => 0.70, 'upselling_rate' => 0.70,
+        ];
+        $rowB = [
+            'gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0,
+            'total_orders' => 8, 'total_leads' => 10, 'catered_leads' => 10,
+            'pickup_rate' => 0.30, 'conversion_rate' => 0.20, 'upselling_rate' => 0.20,
+        ];
+
+        $summed = DsPprCalculator::sum([$rowA, $rowB]);
+
+        // Average of the REAL rates (0.90+0.30)/2 and (0.70+0.20)/2 —
+        // NOT the average of derive()'s 0.5/1.0 and 0.4/0.8.
+        $this->assertEqualsWithDelta(0.60, $summed['pickup_rate'], 0.0001);
+        $this->assertEqualsWithDelta(0.45, $summed['conversion_rate'], 0.0001);
+        $this->assertEqualsWithDelta(0.45, $summed['upselling_rate'], 0.0001);
+    }
+
+    /** A row with no real rate merged in (e.g. a pure manual/TikTok row)
+     *  still falls back to deriving it from raw counts, same as before. */
+    public function test_sum_falls_back_to_deriving_the_rate_when_a_row_has_no_real_rate_present(): void
+    {
+        $rowA = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 2, 'total_leads' => 10, 'catered_leads' => 5];
+        $rowB = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 8, 'total_leads' => 10, 'catered_leads' => 10];
+
+        $summed = DsPprCalculator::sum([$rowA, $rowB]);
+
+        $this->assertEqualsWithDelta(0.75, $summed['pickup_rate'], 0.0001);
+        $this->assertEqualsWithDelta(0.60, $summed['conversion_rate'], 0.0001);
+    }
 }
