@@ -50,6 +50,37 @@ class TsaPerformanceProductFilterTest extends TestCase
         });
     }
 
+    public function test_all_view_product_filter_narrows_rows_across_both_teams(): void
+    {
+        // Explicit request, 2026-10-05: the ALL view previously had no product
+        // filter at all, so a dropdown left over from whichever team page you
+        // switched FROM sat stale in the topbar and did nothing when clicked.
+        // Now indexAll() itself filters $orders before building $tsaRows, same
+        // as index() already does for a single team.
+        $date = '2026-10-05';
+
+        Order::factory()->create([
+            'pancake_order_id' => 'all-pterygium-1', 'team' => 'Eyecare Team', 'tsa_name' => 'Joana',
+            'product' => 'Pterygium', 'raw_tags' => ['PTERYGIUM', 'CONFIRMED VIA CALL'],
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+        Order::factory()->create([
+            'pancake_order_id' => 'all-sinuxyl-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'Sinuxyl', 'raw_tags' => ['SINUXYL', 'CONFIRMED VIA CALL'],
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 11:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->get(route('tsa-performance', [
+            'team' => 'all', 'product' => 'PTERYGIUM', 'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('grandTotal', fn ($grandTotal) => $grandTotal['total'] === 1);
+        $response->assertViewHas('selectedProduct', 'PTERYGIUM');
+    }
+
     public function test_product_filter_matches_via_the_products_table_match_keyword(): void
     {
         // CANPRO JUICE DRINK's match_keyword is "CANPRO" — an order tagged with the

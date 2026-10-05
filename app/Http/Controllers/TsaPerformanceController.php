@@ -708,19 +708,31 @@ class TsaPerformanceController extends Controller
         // team=all (explicit request, 2026-09-10: the ALL view's own Grand
         // Total popover shows the actual order list, not a synthetic
         // per-team breakdown) — every order across BOTH teams in range,
-        // matched to $column, no per-team/tsa/product narrowing. Kept as its
-        // own short-circuit branch rather than threaded through every line
-        // below: none of the single-team-specific rules further down (a
-        // named TSA's cross-team roster lookup, the "unassigned" bucket's
-        // orphaned-name exclusion, a product filter scoped to one team's own
-        // catalog) apply to what Grand Total's own popover actually needs —
-        // forcing them to also handle "all teams" would add real complexity
-        // for call shapes nothing on this page ever produces (Grand Total
-        // has no tsa/product/hour filter to begin with).
+        // matched to $column, no per-team/tsa narrowing. Kept as its own
+        // short-circuit branch rather than threaded through every line below:
+        // none of the single-team-specific rules further down (a named TSA's
+        // cross-team roster lookup, the "unassigned" bucket's orphaned-name
+        // exclusion) apply to what this branch needs — forcing them to also
+        // handle "all teams" would add real complexity for call shapes
+        // nothing on this page ever produces (no tsa/hour filter here).
+        //
+        // Product filter DOES apply here now (2026-10-05, same fix as
+        // indexAll() itself gaining one): every row/cell on this page passes
+        // its own data-dd-product (see tsa-performance-all.blade.php), so a
+        // popover opened while CLEAR SIGHT is selected must only show
+        // CLEAR SIGHT's own orders, not every product's.
         if ($team === 'all') {
             $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
                 ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
                 ->get();
+
+            if ($product && $product !== 'all') {
+                $productModel = Product::where('display_name', $product)->first();
+                if ($productModel) {
+                    $orders = $orders->filter(fn ($o) => collect($o->raw_tags ?? [])
+                        ->contains(fn ($t) => $productModel->matchesText($t)))->values();
+                }
+            }
 
             $matching = ProductPerformance::ordersForColumn($orders, (string) $column);
 
@@ -848,6 +860,28 @@ class TsaPerformanceController extends Controller
             ->whereIn('team', $orderTeams)
             ->get();
 
+        // Product filter (explicit request, 2026-10-05: ALL previously had no
+        // product filter at all — picking one on a team page and then
+        // switching to ALL left that team page's dropdown as stale leftover
+        // DOM in the topbar, submitting a `product` param this method never
+        // read). Same dropdown source and matching rule as index()'s own
+        // (not team-scoped — see that method's comment): every non-hidden
+        // product, matched against $orders' raw_tags via matchesText() so
+        // spacing/casing differences between a tag and its keyword don't
+        // silently drop real matches.
+        $availableProducts = Product::where('is_hidden', false)->orderBy('sort_order')->get();
+        $selectedProduct    = request('product', session('filters.tsa_performance.product', 'all'));
+        $selectedProductModel = $availableProducts->firstWhere('display_name', $selectedProduct);
+        if ($selectedProduct !== 'all' && !$selectedProductModel) {
+            $selectedProduct = 'all';
+        }
+        session(['filters.tsa_performance.product' => $selectedProduct]);
+
+        if ($selectedProduct !== 'all') {
+            $orders = $orders->filter(fn ($order) => collect($order->raw_tags ?? [])
+                ->contains(fn ($tag) => $selectedProductModel->matchesText($tag)))->values();
+        }
+
         // Every TSA across every team, sorted team-then-sort_order — same convention
         // as the product ALL view this replaces (orderBy('team') alone would sort
         // alphabetically, wrongly putting Eyecare before SH Naturals).
@@ -947,13 +981,15 @@ class TsaPerformanceController extends Controller
         $teams = $this->teamsMenu($teamsConfig);
 
         return view('tsa-performance-all', [
-            'dateFrom'     => $dateFrom,
-            'dateTo'       => $dateTo,
-            'tsaRows'      => $tsaRows,
-            'grandTotal'   => $grandTotal,
-            'teams'        => $teams,
-            'selectedTeam' => 'all',
-            'metricCols'   => self::METRIC_COLUMNS,
+            'dateFrom'          => $dateFrom,
+            'dateTo'            => $dateTo,
+            'tsaRows'           => $tsaRows,
+            'grandTotal'        => $grandTotal,
+            'teams'             => $teams,
+            'selectedTeam'      => 'all',
+            'metricCols'        => self::METRIC_COLUMNS,
+            'availableProducts' => $availableProducts,
+            'selectedProduct'   => $selectedProduct,
         ]);
     }
 

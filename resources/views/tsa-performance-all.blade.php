@@ -94,7 +94,7 @@
                  indexAll()'s own comment) skip drilldown entirely rather than
                  send an invalid team to the endpoint. --}}
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                @if($row['team_key']) data-dd-team="{{ $row['team_key'] }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}" @endif>
+                @if($row['team_key']) data-dd-team="{{ $row['team_key'] }}" data-dd-product="{{ $selectedProduct }}" data-dd-endpoint="{{ route('tsa-performance.drilldown') }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}" @endif>
                 <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold whitespace-nowrap" data-sort-key="tsa" data-sort-value="{{ $row['display_name'] }}">
                     @if($row['team_key'] && $row['tsa_key'] && $row['tsa_key'] !== 'unassigned')
                     <a href="{{ route('tsa-performance.individual', ['team' => $row['team_key'], 'tsaKey' => $row['tsa_key'], 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
@@ -143,8 +143,13 @@
              cell on this page already opens via [data-drilldown]/data-dd-*,
              see app.js's own delegated click handler). data-dd-team="all"
              (TsaPerformanceController::drilldown()'s own new branch) fetches
-             every matching order across BOTH teams — no tsa/hour/product
-             filter, since Grand Total has none of its own. Only wired on the
+             every matching order across BOTH teams — no tsa/hour filter,
+             since Grand Total has none of its own, but DOES now respect the
+             page's own product filter (2026-10-05, same reasoning as every
+             other drilldown on this page: the popover must match the exact
+             order set the row/cell it opened from was built from — Grand
+             Total's own numbers already reflect $selectedProduct since
+             indexAll() filters $orders before summing). Only wired on the
              count columns ProductPerformance::ordersForColumn() actually
              knows how to resolve to a real order set — the 3 RATE columns
              (Pick-up/Conversion/Upselling) are ratios of two different
@@ -153,7 +158,7 @@
              which would misleadingly read as "no orders" rather than "not
              applicable") — left as plain, non-clickable cells. --}}
         <tfoot>
-            <tr class="bg-slate-900 text-white font-bold" data-dd-team="all" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
+            <tr class="bg-slate-900 text-white font-bold" data-dd-team="all" data-dd-product="{{ $selectedProduct }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}">
                 <td class="sticky-col sticky-col-footer border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Grand Total</td>
                 <td class="border border-slate-700 px-3 py-3 text-center hover:bg-slate-800 transition-colors cursor-pointer" data-drilldown data-dd-column="catered">{{ $grandTotal['catered'] ?: '' }}</td>
                 @foreach($displayCols as $col)
@@ -188,6 +193,10 @@
 <form method="GET" action="{{ route('tsa-performance') }}" class="flex items-center gap-3 flex-wrap">
     <input type="hidden" name="team" value="{{ $selectedTeam }}">
 
+    {{-- Hidden fallback so clicking a product button doesn't drop the currently
+         selected team — same convention as index()'s own topbar form. --}}
+    <input type="hidden" name="product" value="{{ $selectedProduct }}">
+
     <div class="flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
         @foreach($teams as $key => $label)
         <button type="submit" name="team" value="{{ $key }}" data-filter-btn
@@ -197,6 +206,65 @@
         </button>
         @endforeach
     </div>
+
+    {{-- Product filter dropdown (2026-10-05, explicit request: ALL previously had
+         none at all, so a dropdown left over from the team page you switched FROM
+         stayed stale in the topbar — see app.js's own #productPanel sync comment).
+         Identical markup/behavior to index()'s own (tsa-performance.blade.php) —
+         kept in sync with that one if either changes. --}}
+    @if($availableProducts->isNotEmpty())
+    <div class="relative">
+        <button type="button" id="productTrigger" aria-haspopup="listbox" aria-expanded="false"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold font-mono text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+            <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
+            </svg>
+            <span id="productTriggerLabel">{{ $selectedProduct === 'all' ? 'All Products' : $selectedProduct }}</span>
+            <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>
+        </button>
+
+        <div id="productPanel" role="listbox" class="hidden absolute right-0 top-full mt-2 z-50 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1 max-h-80 overflow-y-auto" style="min-width:200px">
+            <button type="submit" name="product" value="all" role="option" aria-selected="{{ $selectedProduct === 'all' ? 'true' : 'false' }}"
+                    class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer
+                           {{ $selectedProduct === 'all' ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+                All Products
+            </button>
+            @foreach($availableProducts as $product)
+            <button type="submit" name="product" value="{{ $product->display_name }}" role="option" aria-selected="{{ $selectedProduct === $product->display_name ? 'true' : 'false' }}"
+                    class="w-full text-left px-4 py-2 text-xs font-mono transition-colors cursor-pointer border-t border-slate-100 dark:border-slate-700
+                           {{ $selectedProduct === $product->display_name ? 'bg-slate-700 text-white font-semibold' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+                {{ $product->display_name }}
+            </button>
+            @endforeach
+        </div>
+    </div>
+    <script>
+    (function () {
+        const trigger = document.getElementById('productTrigger');
+        const panel   = document.getElementById('productPanel');
+        trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isHidden = panel.classList.contains('hidden');
+            panel.classList.toggle('hidden');
+            trigger.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
+        });
+        document.addEventListener('click', (e) => {
+            if (!panel.contains(e.target) && e.target !== trigger) {
+                panel.classList.add('hidden');
+                trigger.setAttribute('aria-expanded', 'false');
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                panel.classList.add('hidden');
+                trigger.setAttribute('aria-expanded', 'false');
+            }
+        });
+    })();
+    </script>
+    @endif
 
     {{-- Trailing cluster, same order on every report page: filters, then the date
          icon, then Sync — never split across the layout differently per page. --}}
