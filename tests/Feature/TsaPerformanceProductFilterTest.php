@@ -64,6 +64,40 @@ class TsaPerformanceProductFilterTest extends TestCase
         $response->assertViewHas('totals', fn($totals) => $totals['total'] === 1);
     }
 
+    public function test_product_filter_normalizes_spacing_and_casing_like_matches_text(): void
+    {
+        // Root cause, confirmed live 2026-10-05: CLEARSIGHT's real tag comes
+        // through as "Clear Sight 3.0" (inconsistent spacing/casing vs the
+        // bare keyword) — Product::matchesText()'s own doc comment names
+        // this exact pair as the reason it normalizes before comparing. The
+        // product filter used to call effective_keyword + a raw stripos()
+        // with no normalization, so this exact real-world tag never matched
+        // and the page showed "No data" despite the lead existing.
+        $product = Product::where('display_name', 'CLEARSIGHT')->first();
+        $shift   = TsaShift::where('team', 'Eyecare Team')->first();
+
+        Order::create([
+            'pancake_order_id'   => 'test-clearsight-1',
+            'team'               => 'Eyecare Team',
+            'tsa_name'           => $shift->tsa_key,
+            'disposition'        => 'CONFIRMED VIA CALL',
+            'raw_tags'           => ['Clear Sight 3.0', strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell'          => false,
+            'status_code'        => 1,
+            'pancake_created_at' => now()->setTime(10, 0),
+            'synced_at'          => now()->setTime(10, 0),
+        ]);
+
+        $response = $this->get(route('tsa-performance', [
+            'team'    => 'eyecare',
+            'product' => $product->display_name,
+            'date'    => now()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $response->assertViewHas('totals', fn($totals) => $totals['total'] === 1);
+    }
+
     public function test_hidden_product_is_excluded_from_the_dropdown_regardless_of_date(): void
     {
         $product = Product::where('display_name', 'SINUXYL')->first();

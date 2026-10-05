@@ -163,13 +163,21 @@ class TsaPerformanceController extends Controller
             ->groupBy('tsa_name');
 
         if ($selectedProduct !== 'all') {
-            $matchKeyword = $selectedProductModel->effective_keyword;
-            $productFilter = function ($order) use ($matchKeyword) {
-                foreach ($order->raw_tags ?? [] as $tag) {
-                    if (stripos($tag, $matchKeyword) !== false) return true;
-                }
-                return false;
-            };
+            // matchesText() (not a hand-rolled stripos loop) — checks every
+            // alias in match_keyword, not just the first, and normalizes
+            // spacing/punctuation/case before comparing. Root-caused
+            // 2026-10-05: this filter used to check only
+            // Product::effective_keyword (explicitly documented on that
+            // accessor as "just the FIRST keyword... matching code should
+            // use matchesText() so every alias is honored") via a raw
+            // stripos() with no normalization — the exact same class of bug
+            // matchesText()'s own doc comment says already cost 114 "Clear
+            // Sight 3.0" leads (inconsistent spacing/casing vs a bare
+            // "CLEARSIGHT" keyword). Confirmed live: filtering TSA
+            // Performance to CLEAR SIGHT over a full month showed "No data"
+            // despite CLEAR SIGHT leads being present under "All Products".
+            $productFilter = fn ($order) => collect($order->raw_tags ?? [])
+                ->contains(fn ($tag) => $selectedProductModel->matchesText($tag));
             $orders = $orders->filter($productFilter)->values();
             $ordersByTsaNameAcrossTeams = $ordersByTsaNameAcrossTeams
                 ->map(fn ($tsaOrders) => $tsaOrders->filter($productFilter)->values());
@@ -750,9 +758,11 @@ class TsaPerformanceController extends Controller
             $productModel = Product::where('team', $teamsConfig[$team]['order_team'])
                 ->where('display_name', $product)->first();
             if ($productModel) {
-                $keyword = $productModel->effective_keyword;
+                // matchesText(), not effective_keyword + raw stripos() — see
+                // index()'s own identical fix and doc comment above for the
+                // full root cause (same bug, duplicated here).
                 $orders = $orders->filter(fn($o) => collect($o->raw_tags ?? [])
-                    ->contains(fn($t) => stripos($t, $keyword) !== false))->values();
+                    ->contains(fn($t) => $productModel->matchesText($t)))->values();
             }
         }
 
