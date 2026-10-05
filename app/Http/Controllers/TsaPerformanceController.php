@@ -84,13 +84,22 @@ class TsaPerformanceController extends Controller
         // Hidden products never appear in this filter dropdown, regardless of date
         // range — it's a picker shortcut, not a data view, and "All Products" (the
         // default) already includes their data correctly either way.
-        $availableProducts = Product::where('team', $teamsConfig[$selectedTeam]['order_team'])
-            ->where('is_hidden', false)
+        // NOT team-scoped (changed 2026-10-05, explicit request): Product
+        // Management's own page dropped its team grouping on 2026-09-06
+        // because every TSA now handles every product, so a team-scoped list
+        // here no longer reflects who actually works a product either — every
+        // team's page now offers the full catalog, matching Product
+        // Management's own "All Products" list. The filter itself still works
+        // correctly against a product outside this team's usual lineup: the
+        // match below runs matchesText() against $orders' own raw_tags, which
+        // is already scoped to this team's real orders by the `team` column,
+        // not by which team the product is assigned to.
+        $availableProducts = Product::where('is_hidden', false)
             ->orderBy('sort_order')->get();
         $selectedProduct   = request('product', session('filters.tsa_performance.product', 'all'));
 
-        // A remembered product from a different team won't match this team's list — reset
-        // to 'all' in that case (same guard already applied to an out-of-team URL param).
+        // A remembered/URL product that's been hidden or deleted since won't match the
+        // current list — reset to 'all' in that case rather than filtering by a ghost name.
         $selectedProductModel = $availableProducts->firstWhere('display_name', $selectedProduct);
         if ($selectedProduct !== 'all' && !$selectedProductModel) {
             $selectedProduct = 'all';
@@ -755,8 +764,14 @@ class TsaPerformanceController extends Controller
             : $teamScopedOrders;
 
         if ($product && $product !== 'all') {
-            $productModel = Product::where('team', $teamsConfig[$team]['order_team'])
-                ->where('display_name', $product)->first();
+            // NOT team-scoped (2026-10-05, same change as index()'s own
+            // $availableProducts above) — the dropdown this product name came
+            // from now lists every product regardless of team, so looking it
+            // up scoped to $team here would silently fail to find a product
+            // that belongs to the OTHER team, leaving $productModel null and
+            // skipping the filter below entirely (showing unfiltered orders
+            // in the drilldown popover instead of correctly-filtered ones).
+            $productModel = Product::where('display_name', $product)->first();
             if ($productModel) {
                 // matchesText(), not effective_keyword + raw stripos() — see
                 // index()'s own identical fix and doc comment above for the

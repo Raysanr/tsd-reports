@@ -31,6 +31,25 @@ class TsaPerformanceProductFilterTest extends TestCase
         });
     }
 
+    public function test_product_dropdown_is_not_scoped_to_the_viewed_team(): void
+    {
+        // Explicit request, 2026-10-05: every TSA now handles every product
+        // (same reasoning Product Management's own page already dropped its
+        // team grouping for, 2026-09-06), so the dropdown should offer the
+        // full catalog on every team's page, not just that team's products.
+        $sshNaturalsProduct = Product::where('team', 'SH Naturals')->first();
+        $eyecareProduct     = Product::where('team', 'Eyecare Team')->first();
+
+        $response = $this->get(route('tsa-performance', ['team' => 'eyecare']));
+
+        $response->assertOk();
+        $response->assertViewHas('availableProducts', function ($products) use ($sshNaturalsProduct, $eyecareProduct) {
+            $names = $products->pluck('display_name');
+            return $names->contains($sshNaturalsProduct->display_name)
+                && $names->contains($eyecareProduct->display_name);
+        });
+    }
+
     public function test_product_filter_matches_via_the_products_table_match_keyword(): void
     {
         // CANPRO JUICE DRINK's match_keyword is "CANPRO" — an order tagged with the
