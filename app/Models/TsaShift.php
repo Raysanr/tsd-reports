@@ -477,6 +477,20 @@ class TsaShift extends Model
      * Calling/Wrap Up. Logging out is a deliberate "I'm done" signal that
      * must never be overridden by a phone event neither side necessarily
      * even intended for the logged-out one.
+     *
+     * A fresh LOGIN is excluded from the recency race the same way, for
+     * the mirror-image reason — explicit report 2026-10-05: an opening/
+     * closing pair sharing one phone, where closing-team calls were
+     * showing up as early as 6am, before that TSA's shift even starts.
+     * Root cause: clicking "Login" alone stamps status_changed_at, same
+     * as any other status change, with no shift-hour check anywhere in
+     * TsaStatusController. So a TSA logging in early — before touching
+     * the phone — immediately out-ranked a partner who was still
+     * genuinely working (e.g. on Break/Ready to Call from their actual
+     * shift) purely because login happened more recently, silently
+     * reattributing the next real call to the wrong side of the pair.
+     * Login is a "I'm here" signal, not a "I'm the one on the phone"
+     * signal — it must not override a partner who isn't logged out.
      */
     public static function resolveActiveOfPair(self $primary, self $partner): self
     {
@@ -490,6 +504,14 @@ class TsaShift extends Model
         if ($partnerLoggedOut && !$primaryLoggedOut) return $primary;
         // Both logged out (or neither) — recency is the only signal left,
         // same as before.
+
+        $primaryJustLoggedIn = $primary->status === self::STATUS_LOGIN;
+        $partnerJustLoggedIn = $partner->status === self::STATUS_LOGIN;
+
+        if ($primaryJustLoggedIn && !$partnerJustLoggedIn) return $partner;
+        if ($partnerJustLoggedIn && !$primaryJustLoggedIn) return $primary;
+        // Both just logged in (or neither) — recency is the only signal
+        // left, same as before.
 
         if ($primary->status_changed_at && $partner->status_changed_at) {
             return $partner->status_changed_at->gt($primary->status_changed_at) ? $partner : $primary;

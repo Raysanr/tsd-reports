@@ -259,4 +259,60 @@ class CallEventControllerTest extends TestCase
 
         $this->assertDatabaseHas('call_events', ['tsa_id' => $gemma->id]);
     }
+
+    /**
+     * Real bug, explicit report 2026-10-05: an opening/closing pair sharing
+     * one phone was showing closing-team calls as early as 6am, before that
+     * TSA's own shift even starts. Root-caused: resolveActiveOfPair() had no
+     * login exclusion, mirroring the logout bug above — clicking "Login"
+     * alone stamps a fresh status_changed_at same as any other status
+     * change, so a TSA logging in early (before touching the phone) could
+     * out-rank a partner who was still genuinely working (older
+     * status_changed_at, but a real in-shift status) purely by being more
+     * recent. A fresh login must never override a partner who isn't logged
+     * out — it's an "I'm here" signal, not a "I'm the one on the phone"
+     * signal.
+     */
+    public function test_a_call_event_never_attributes_to_a_partner_who_just_logged_in_over_one_still_working(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+
+        // Mariel's own last real activity is OLDER…
+        $mariel->applyStatusChange(TsaShift::STATUS_BREAK);
+        // …but Gemma just logged in AFTER that — a more recent
+        // status_changed_at that must NOT win just because it's newer.
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGIN);
+
+        $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $mariel->id]);
+        $this->assertDatabaseMissing('call_events', ['tsa_id' => $gemma->id]);
+        $this->assertSame(TsaShift::STATUS_LOGIN, $gemma->fresh()->status, 'the freshly logged-in side must stay login, not get pulled into wrap up');
+    }
+
+    public function test_a_call_event_falls_back_to_recency_when_both_sides_just_logged_in(): void
+    {
+        $gemma  = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel = TsaShift::where('tsa_key', 'Mariel')->first();
+        $gemma->update(['api_token' => 'shared-token']);
+        $gemma->pairWith($mariel);
+
+        $mariel->applyStatusChange(TsaShift::STATUS_LOGIN);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGIN); // more recent, both just logged in
+
+        $this->postJson('/api/call-events', [
+            'api_token'    => 'shared-token',
+            'phone_number' => '09171234567',
+            'direction'    => 'outgoing',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('call_events', ['tsa_id' => $gemma->id]);
+    }
 }
