@@ -78,20 +78,28 @@ class DsPprReportSmokeTest extends TestCase
      *  on the leads report page in TSD LEADS REPORT") — no editable
      *  <input> for any of the 3 anywhere on the page, even though Gross
      *  Sales/Net Income/Ads Spent stay editable. */
+    /** Scoped to a real product's own row only — the TIKTOK ORDERS row
+     *  added 2026-10-05 is an intentional exception (no real Order data
+     *  backs it, so every field there IS editable, Total Orders/Total
+     *  Leads/Catered Leads included — see DsPprReportController's own
+     *  doc comment on updateTiktok()), so a page-wide "nowhere on the
+     *  page" assertion would now be wrong. */
     public function test_total_orders_leads_and_catered_have_no_editable_input(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
         ]));
 
         $response->assertOk();
-        $content = $response->getContent();
-        $this->assertStringContainsString('data-field="gross_sales"', $content);
-        $this->assertStringNotContainsString('data-field="total_orders"', $content);
-        $this->assertStringNotContainsString('data-field="total_leads"', $content);
-        $this->assertStringNotContainsString('data-field="catered_leads"', $content);
+        preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="p' . $product->id . '".*?<\/tr>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find the real product\'s own daily row');
+        $this->assertStringContainsString('data-field="gross_sales"', $matches[0]);
+        $this->assertStringNotContainsString('data-field="total_orders"', $matches[0]);
+        $this->assertStringNotContainsString('data-field="total_leads"', $matches[0]);
+        $this->assertStringNotContainsString('data-field="catered_leads"', $matches[0]);
     }
 
     /** End-to-end: a real matched Order moves Total Leads/Catered Leads/
@@ -547,5 +555,107 @@ class DsPprReportSmokeTest extends TestCase
             '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
             $content
         );
+    }
+
+    /** TIKTOK ORDERS — explicit request, 2026-10-05: a manual-only row at
+     *  the bottom of the product table, NOT a real Product (no Pancake
+     *  matching backs it). Unlike a real product, every field here is
+     *  editable, Total Orders/Total Leads/Catered Leads included. */
+    public function test_the_tiktok_orders_row_appears_with_every_field_editable(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => today(), 'gross_sales' => 6000, 'net_income' => 500,
+            'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('TIKTOK ORDERS', $content);
+
+        preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="tiktok".*?<\/tr>/s', $content, $matches);
+        $this->assertNotEmpty($matches, 'expected to find the TIKTOK ORDERS daily row');
+        foreach (['gross_sales', 'net_income', 'total_orders', 'total_leads', 'catered_leads'] as $field) {
+            $this->assertStringContainsString(
+                "data-field=\"{$field}\"", $matches[0],
+                "{$field} should be editable on the TIKTOK ORDERS row"
+            );
+        }
+    }
+
+    public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update-tiktok', ['date' => $date]),
+            ['gross_sales' => 6000, 'net_income' => 500, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.ni_pct', fn ($v) => abs($v - (500 / 6000)) < 0.0001);
+        $this->assertDatabaseHas('dsppr_tiktok_entries', [
+            'gross_sales' => 6000, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+        ]);
+    }
+
+    public function test_updating_an_existing_tiktok_entry_does_not_create_a_duplicate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        $this->actingAs($admin)->patchJson(route('data.dsppr.update-tiktok', ['date' => $date]), ['gross_sales' => 1000]);
+        $this->actingAs($admin)->patchJson(route('data.dsppr.update-tiktok', ['date' => $date]), ['gross_sales' => 2000]);
+
+        $this->assertSame(1, \App\Models\DsPprTiktokEntry::whereDate('entry_date', $date)->count());
+        $this->assertSame(2000.0, \App\Models\DsPprTiktokEntry::whereDate('entry_date', $date)->first()->gross_sales);
+    }
+
+    /** TikTok Orders' own totals must fold into OVERALL TOTAL, same as
+     *  every real product already does. */
+    public function test_tiktok_orders_totals_are_included_in_the_overall_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 1000, 'net_income' => 100]);
+        \App\Models\DsPprTiktokEntry::create(['entry_date' => today(), 'gross_sales' => 6000, 'net_income' => 500]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        ]));
+        $response->assertOk();
+
+        preg_match('/<tr class="bg-black text-white font-bold dsppr-overall-total-row">.*?<\/tr>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find the OVERALL TOTAL row');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*7,000\.00\s*</', $matches[0]);
+    }
+
+    /** TikTok Orders' own raw numbers must fold into each day's own
+     *  bottom TOTAL row too, same as every real product's Gross Sales/Net
+     *  Income/Total Orders/Total Leads/Catered Leads already do. */
+    public function test_tiktok_orders_are_included_in_the_daily_total_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'gross_sales' => 6000, 'net_income' => 500,
+            'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+        $response->assertOk();
+
+        preg_match('/<tr class="bg-black text-white font-bold dsppr-day-total-row">.*?<\/tr>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find the daily TOTAL row');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*data-total-row="1">\s*6,000\.00\s*</', $matches[0]);
+        $this->assertMatchesRegularExpression('/data-out="total_orders"[^>]*data-total-row="1">\s*5\s*</', $matches[0]);
     }
 }

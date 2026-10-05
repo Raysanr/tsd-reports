@@ -138,6 +138,7 @@ class TsaManagementController extends Controller
             'seller_keywords'  => !empty($data['pos_user_id']) ? strtolower($data['display_name']) : null,
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
             'sort_order'       => $nextSort,
+            'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ]);
 
         // Teams::nameForOrderTeam(), not the raw $data['team'] string
@@ -171,6 +172,7 @@ class TsaManagementController extends Controller
             'tag_keywords'     => $this->buildTagKeywords($tsaShift->tsa_key, $data['extra_keywords'] ?? ''),
             'seller_keywords'  => $sellerKeywords,
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
+            'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ]);
 
         $message = "Updated \"{$data['display_name']}\".";
@@ -466,6 +468,7 @@ class TsaManagementController extends Controller
             'pos_user_id'      => 'nullable|string|max:100',
             'extra_keywords'   => 'nullable|string|max:255',
             'rest_day_of_week' => 'nullable|string|in:sunday,monday,tuesday,wednesday,thursday,friday,saturday',
+            'tiktok_upsell'    => 'nullable|boolean',
         ]);
     }
 

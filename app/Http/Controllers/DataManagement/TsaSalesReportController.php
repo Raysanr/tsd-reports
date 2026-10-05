@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
+use App\Models\TsaTiktokEntry;
 use App\Support\DateRangeFilter;
 use App\Support\ProductPerformance;
 use App\Support\TsaSalesCalculator;
@@ -248,16 +249,62 @@ class TsaSalesReportController extends Controller
             ];
         })->values();
 
-        $overallRows = $groupSummaries->pluck('rows')->flatten(1)->pluck('derived')->all();
+        // TikTok Upsell — a manually-run section (explicit request,
+        // 2026-10-05), entirely separate from the real team system above:
+        // its own roster (TsaShift.tiktok_upsell flag, managed via TSA
+        // Management, NOT TsaShift.team — see the add_tiktok_upsell_to_
+        // tsa_shifts_table migration's own doc comment) and its own raw
+        // numbers (TsaTiktokEntry, NOT TsaSalesEntry) — every field here
+        // is manual, including Total Orders/Catered Leads/Pick-up Rate/
+        // Upselling Rate, which stay automated everywhere else on this
+        // page. Reuses TsaSalesCalculator::sum()/derive() as-is since the
+        // column shape (gross_sales/net_income/total_orders/
+        // catered_leads/pickup_rate/upselling_rate -> ni_pct/aov) is
+        // identical — just every input is manual instead of some being
+        // derived from Order/ProductPerformance data.
+        $tiktokTsas = $tsas->where('tiktok_upsell', true)->values();
+        $tiktokRawEntriesByKey = TsaTiktokEntry::whereIn('tsa_shift_id', $tiktokTsas->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->keyBy(fn (TsaTiktokEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
+
+        $emptyTiktokFields = ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
+        $tiktokDailyByKey = collect();
+        foreach ($tiktokTsas as $tsa) {
+            foreach ($dates as $date) {
+                $key = $tsa->id . ':' . $date->toDateString();
+                $tiktokDailyByKey->put($key, $tiktokRawEntriesByKey->has($key)
+                    ? $tiktokRawEntriesByKey->get($key)->toArray()
+                    : $emptyTiktokFields);
+            }
+        }
+
+        $tiktokRowSummaries = $tiktokTsas->map(function (TsaShift $tsa) use ($dates, $tiktokDailyByKey) {
+            $tsaRows = $dates->map(fn ($date) => $tiktokDailyByKey->get($tsa->id . ':' . $date->toDateString()))->all();
+            return ['tsa' => $tsa, 'derived' => TsaSalesCalculator::sum($tsaRows)];
+        });
+
+        $tiktokSummary = [
+            'label'      => 'TikTok Upsell',
+            'tsas'       => $tiktokTsas,
+            'rows'       => $tiktokRowSummaries,
+            'groupTotal' => TsaSalesCalculator::sum($tiktokRowSummaries->pluck('derived')->all()),
+        ];
+
+        $overallRows = $groupSummaries->pluck('rows')->flatten(1)->pluck('derived')
+            ->merge($tiktokRowSummaries->pluck('derived'))->all();
         $overallTotal = $this->withAutomatedAov(TsaSalesCalculator::sum($overallRows), $overallRows);
 
         return view('data.tsa-sales', [
             'groupSummaries' => $groupSummaries,
+            'tiktokSummary'  => $tiktokSummary,
             'overallTotal'   => $overallTotal,
             'dateFrom'       => $dateFrom,
             'dateTo'         => $dateTo,
             'dateChunks'     => $dateChunks,
             'dailyByKey'     => $dailyByKey,
+            'tiktokDailyByKey' => $tiktokDailyByKey,
         ]);
     }
 
@@ -289,6 +336,38 @@ class TsaSalesReportController extends Controller
 
         $raw = array_merge($entry->toArray(), $performance);
         $derived = $this->withAutomatedAov(TsaSalesCalculator::derive($raw), [$raw]);
+
+        return response()->json([
+            'success' => true,
+            'derived' => $derived,
+        ]);
+    }
+
+    /** Same auto-save shape as updateEntry() above, for the TikTok Upsell
+     *  section's own TsaTiktokEntry — every field here is manual entry
+     *  (see create_tsa_tiktok_entries_table migration's own doc comment),
+     *  so unlike updateEntry() this accepts Total Orders/Catered Leads/
+     *  Pick-up Rate/Upselling Rate directly instead of deriving them from
+     *  TSA Performance data. */
+    public function updateTiktokEntry(Request $request, TsaShift $tsaShift, string $date)
+    {
+        $data = $request->validate([
+            'gross_sales'    => ['sometimes', 'numeric'],
+            'net_income'     => ['sometimes', 'numeric'],
+            'total_orders'   => ['sometimes', 'integer', 'min:0'],
+            'catered_leads'  => ['sometimes', 'integer', 'min:0'],
+            'pickup_rate'    => ['sometimes', 'numeric', 'min:0', 'max:1'],
+            'upselling_rate' => ['sometimes', 'numeric', 'min:0', 'max:1'],
+        ]);
+
+        $entryDate = Carbon::parse($date)->toDateString();
+
+        $entry = TsaTiktokEntry::where('tsa_shift_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
+            ?? new TsaTiktokEntry(['tsa_shift_id' => $tsaShift->id, 'entry_date' => $entryDate]);
+        $entry->fill($data);
+        $entry->save();
+
+        $derived = TsaSalesCalculator::derive($entry->toArray());
 
         return response()->json([
             'success' => true,

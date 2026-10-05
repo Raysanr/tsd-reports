@@ -307,6 +307,15 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // page") — one row per product per day, auto-saved the same
         // debounced-PATCH-per-field convention as Projections above.
         Route::get('/dsppr', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'index'])->name('dsppr');
+        // TIKTOK ORDERS row (explicit request, 2026-10-05) — manual-only,
+        // no real Product behind it, see DsPprReportController's own doc
+        // comment on updateTiktok(). Keyed by date alone, not product.
+        // MUST be registered BEFORE dsppr.update below — {product}/{date}
+        // would otherwise greedily match /dsppr/tiktok/{date} first (with
+        // product="tiktok"), 404ing on implicit Product route-model
+        // binding before this route is ever reached (route order, not
+        // path specificity, decides the match here).
+        Route::patch('/dsppr/tiktok/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'updateTiktok'])->name('dsppr.update-tiktok');
         // PATCH by (product, date), not a {dsPprEntry} id — a cell with
         // nothing typed into it yet has no row to bind to at all (unlike
         // Projections' fixed, pre-seeded columns), so this upserts via
@@ -329,6 +338,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // anymore (that's TSA Management's job).
         Route::get('/tsa-sales', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'index'])->name('tsa-sales');
         Route::patch('/tsa-sales/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateEntry'])->name('tsa-sales.update-entry');
+        // TikTok Upsell section (explicit request, 2026-10-05) — separate
+        // manual-entry roster/table, see TsaSalesReportController's own
+        // doc comment on updateTiktokEntry().
+        Route::patch('/tsa-sales/tiktok/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateTiktokEntry'])->name('tsa-sales.update-tiktok-entry');
 
         // Expected Income 2026 (explicit request, 2026-09-26: "analyze this
         // expected income and add it to the data management module") — one

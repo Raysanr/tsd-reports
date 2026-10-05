@@ -114,7 +114,8 @@
                             data-team="{{ $shift->team }}"
                             data-extra="{{ $shift->extra_tag_keywords }}"
                             data-pos-user-id="{{ $shift->pos_user_id }}"
-                            data-rest-day="{{ $shift->rest_day_of_week }}">
+                            data-rest-day="{{ $shift->rest_day_of_week }}"
+                            data-tiktok-upsell="{{ $shift->tiktok_upsell ? '1' : '0' }}">
                             <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                             </svg>
@@ -336,6 +337,14 @@
                 </select>
             </div>
 
+            <div class="flex items-center gap-2">
+                <input type="checkbox" name="tiktok_upsell" id="tsaTiktokUpsellCheckbox" value="1"
+                    class="rounded border-slate-300 dark:border-slate-600 text-yellow-700 focus:ring-yellow-500">
+                <label for="tsaTiktokUpsellCheckbox" class="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    Show in TikTok Upsell section
+                </label>
+            </div>
+
             <div class="flex items-center justify-end gap-2 pt-2">
                 <button type="button" id="cancelTsaModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="tsaSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add TSA</button>
@@ -419,6 +428,7 @@
     const submitBtn     = document.getElementById('tsaSubmitBtn');
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
+    const tiktokUpsellCheckbox = document.getElementById('tsaTiktokUpsellCheckbox');
     const storeUrl      = form.action;
 
     let selectedTags  = [];
@@ -489,6 +499,7 @@
         setSelectedTags([]);
         restDaySelect.value = '';
         teamSelect.selectedIndex = 0;
+        tiktokUpsellCheckbox.checked = false;
         currentTsaKey = '';
         linkedHint.classList.add('hidden');
         modalTitle.textContent = 'Add a new TSA';
@@ -513,6 +524,7 @@
             const existingTags = (btn.dataset.extra || '').split(',').map(t => t.trim()).filter(Boolean);
             setSelectedTags(existingTags);
             restDaySelect.value = btn.dataset.restDay || '';
+            tiktokUpsellCheckbox.checked = btn.dataset.tiktokUpsell === '1';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.classList.remove('hidden');
             modalTitle.textContent = 'Edit TSA';

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
+use App\Models\TsaTiktokEntry;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -517,5 +518,109 @@ class TsaSalesReportSmokeTest extends TestCase
             $matches[0],
             'The MTD summary table row should show her real Total Orders (3) too, not just the daily table'
         );
+    }
+
+    /** TikTok Upsell — explicit request, 2026-10-05: a manually-run
+     *  section, separate roster (TsaShift.tiktok_upsell flag) and raw
+     *  numbers (TsaTiktokEntry) from the real teams above. Only a TSA
+     *  flagged tiktok_upsell=true shows up here; every field is manual
+     *  (unlike the real teams' automated Total Orders/Catered Leads/
+     *  Pick-up/Upselling Rate). */
+    public function test_a_tsa_flagged_for_tiktok_upsell_appears_in_that_section(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        TsaTiktokEntry::create([
+            'tsa_shift_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 6000, 'net_income' => 753.94,
+            'total_orders' => 5, 'catered_leads' => 10, 'pickup_rate' => 0.50, 'upselling_rate' => 0.50,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK UPSELL');
+        $response->assertSee('6,000.00');
+    }
+
+    /** A TSA NOT flagged tiktok_upsell should never show up in that
+     *  section, even though she's a normal roster member elsewhere on
+     *  the page. */
+    public function test_a_tsa_not_flagged_for_tiktok_upsell_does_not_appear_in_that_section(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => false]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $response->assertSee('No TSAs in TikTok Upsell yet');
+    }
+
+    /** Unlike updateEntry(), Total Orders/Catered Leads/Pick-up Rate/
+     *  Upselling Rate ARE accepted and persisted here — every field in
+     *  the TikTok Upsell section is manual entry (see
+     *  create_tsa_tiktok_entries_table migration's own doc comment). */
+    public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 6000, 'net_income' => 753.94, 'total_orders' => 5, 'catered_leads' => 10, 'pickup_rate' => 0.5, 'upselling_rate' => 0.5]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.ni_pct', fn ($v) => abs($v - (753.94 / 6000)) < 0.0001);
+        $this->assertDatabaseHas('tsa_tiktok_entries', [
+            'tsa_shift_id' => $tsa->id, 'gross_sales' => 6000, 'total_orders' => 5, 'catered_leads' => 10,
+        ]);
+    }
+
+    public function test_updating_an_existing_tiktok_entry_does_not_create_a_duplicate(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 1000]
+        );
+        $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 2000]
+        );
+
+        $this->assertSame(1, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->count());
+        $this->assertSame(2000.0, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
+    }
+
+    /** TikTok Upsell's own totals must fold into the page's OVERALL TOTAL
+     *  row — same as every real team already does. */
+    public function test_tiktok_upsell_totals_are_included_in_the_overall_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        TsaTiktokEntry::create([
+            'tsa_shift_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 6000, 'net_income' => 753.94,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+        $response->assertOk();
+
+        preg_match('/<tr class="bg-black text-white font-bold tsr-overall-total-row">.*?<\/tr>/s', $response->getContent(), $matches);
+        $this->assertNotEmpty($matches, 'expected to find the OVERALL TOTAL row');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*6,000\.00\s*</', $matches[0]);
     }
 }

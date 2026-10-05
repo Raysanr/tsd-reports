@@ -76,6 +76,26 @@
         ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
     ];
+
+    // TIKTOK ORDERS row's own column set (explicit request, 2026-10-05) —
+    // same 11 columns/order as $dayColumns above, but Total Orders/Total
+    // Leads/Catered Leads are editable here too (no real Product/Order
+    // data backs this row — see DsPprReportController's own doc comment
+    // on updateTiktok()). Excess Leads/Pick-up/Conversion/Upselling Rate
+    // stay derived, same arithmetic as every other row via DsPprCalculator.
+    $tiktokDayColumns = [
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+    ];
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -165,6 +185,25 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
                 </tr>
                 @endforeach
+                {{-- TIKTOK ORDERS — manual-only row (explicit request,
+                     2026-10-05), NOT a real Product, see
+                     DsPprReportController's own doc comment on
+                     updateTiktok(). --}}
+                @php $td = $tiktokRow['derived']; @endphp
+                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="tiktok">
+                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">TIKTOK ORDERS</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($td['gross_sales']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $td['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="net_income">{{ $fmtMoney($td['net_income']) }}</td>
+                    <td class="px-3 py-2 text-right {{ $td['ni_pct'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}" data-out="ni_pct">{{ $fmtPct($td['ni_pct']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="total_orders">{{ number_format($td['total_orders']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="aov">{{ $fmtMoney($td['aov']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="total_leads">{{ number_format($td['total_leads']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="catered_leads">{{ number_format($td['catered_leads']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="excess_leads">{{ number_format($td['excess_leads']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="pickup_rate">{{ $fmtPct($td['pickup_rate']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="conversion_rate">{{ $fmtPct($td['conversion_rate']) }}</td>
+                    <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($td['upselling_rate']) }}</td>
+                </tr>
             </tbody>
             <tfoot>
                 <tr class="bg-black text-white font-bold dsppr-overall-total-row">
@@ -200,7 +239,8 @@
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto dsppr-scroller" id="dsPprScroller-{{ $chunkIndex }}">
         <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table"
-               data-update-url-template="{{ route('data.dsppr.update', ['product' => '__PRODUCT__', 'date' => '__DATE__']) }}">
+               data-update-url-template="{{ route('data.dsppr.update', ['product' => '__PRODUCT__', 'date' => '__DATE__']) }}"
+               data-update-tiktok-url-template="{{ route('data.dsppr.update-tiktok', ['date' => '__DATE__']) }}">
             <thead>
                 <tr>
                     <th rowspan="2" class="dsppr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">Product</th>
@@ -356,6 +396,47 @@
                     @endforeach
                 </tr>
                 @endforeach
+                {{-- TIKTOK ORDERS — manual-only row, every column editable
+                     (unlike real products' 2 of 11). No drag/drop/combine
+                     support — doesn't make sense for a non-product row. --}}
+                <tr class="dsppr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="tiktok">
+                    <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">TIKTOK ORDERS</td>
+                    @foreach($dates as $date)
+                        @php
+                            $dateStr = $date->toDateString();
+                            $raw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0]);
+                            $d = \App\Support\DsPprCalculator::derive($raw);
+                        @endphp
+                        @foreach($tiktokDayColumns as $i => $col)
+                            @php $borderClass = $i === count($tiktokDayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
+                            @if($col['editable'])
+                            @php
+                                $inputColor = $col['key'] === 'net_income'
+                                    ? ($raw[$col['key']] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100')
+                                    : 'text-ink dark:text-slate-100';
+                            @endphp
+                            <td class="px-2 py-1.5 {{ $borderClass }}">
+                                <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
+                                       value="{{ ($col['money'] ?? false) ? number_format($raw[$col['key']], 2) : $raw[$col['key']] }}"
+                                       data-field="{{ $col['key'] }}" data-date="{{ $dateStr }}" @if($col['money'] ?? false) data-money="1" @endif
+                                       class="dsppr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold {{ $inputColor }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                            </td>
+                            @else
+                            @php
+                                $cellColor = match (true) {
+                                    $col['key'] === 'net_income' => $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100',
+                                    $col['key'] === 'ni_pct' && $d['ni_pct'] < 0 => 'text-red-600 dark:text-red-400',
+                                    default => 'text-ink dark:text-slate-100',
+                                };
+                            @endphp
+                            <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
+                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
+                                {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
+                            </td>
+                            @endif
+                        @endforeach
+                    @endforeach
+                </tr>
             </tbody>
             <tfoot>
                 <tr class="bg-black text-white font-bold dsppr-day-total-row">
@@ -395,6 +476,19 @@
                                 \App\Support\DsPprCalculator::sum($perProductRows ?: [['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0]]),
                                 \App\Support\ProductPerformance::dsPprRow($allProducts, $ordersByDate[$dateStr] ?? collect())
                             );
+                            // TIKTOK ORDERS row folded in on top — its own
+                            // raw numbers are ALL manual (no real Order
+                            // data backs it), so its Gross Sales/Net Income/
+                            // Total Orders/Total Leads/Catered Leads all add
+                            // straight onto the real-product totals above.
+                            $tiktokRaw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0]);
+                            $dayTotal['gross_sales']   += $tiktokRaw['gross_sales'];
+                            $dayTotal['net_income']    += $tiktokRaw['net_income'];
+                            $dayTotal['total_orders']  += $tiktokRaw['total_orders'];
+                            $dayTotal['total_leads']   += $tiktokRaw['total_leads'];
+                            $dayTotal['catered_leads'] += $tiktokRaw['catered_leads'];
+                            $dayTotal['excess_leads']  = max(0, $dayTotal['total_leads'] - $dayTotal['catered_leads']);
+                            $dayTotal['ni_pct'] = $dayTotal['gross_sales'] > 0 ? $dayTotal['net_income'] / $dayTotal['gross_sales'] : 0.0;
                             // AOV depends on total_orders, which the merge
                             // above just overwrote AFTER DsPprCalculator::
                             // sum() already computed its own (wrong, 0-
@@ -536,22 +630,29 @@
     // Sep 14 TOTAL row — see DsPprCalculator::sum()'s own doc comment for
     // the full evidence). Mirrors that same PHP logic client-side so a
     // live edit's TOTAL row matches what a fresh page load would show.
+    // Reads one row's own value for $key/$date — a [data-field] INPUT if
+    // this row has one (real products' Gross Sales/Net Income always;
+    // the TIKTOK ORDERS row's own Total Orders/Total Leads/Catered Leads
+    // too, since every field there is manual — see $tiktokDayColumns'
+    // own doc comment), otherwise the read-only [data-out] span (real
+    // products' automated Total Orders/Total Leads/Catered Leads).
+    function readRowValue(row, key, date) {
+        const input = row.querySelector(`[data-field="${key}"][data-date="${date}"]`);
+        if (input) return parseMoney(input.value);
+        const out = row.querySelector(`[data-out="${key}"][data-date="${date}"]`);
+        return out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
+    }
+
     function refreshDayTotal(table, date) {
         const rows = table.querySelectorAll('tbody .dsppr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
         let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0;
         rows.forEach((row) => {
-            const grossSales = parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
-            const netIncome = parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            // Total Orders/Total Leads/Catered Leads are no longer <input>s
-            // (explicit request, 2026-10-01: automated from real Order
-            // data) — read from their own [data-out] span instead, kept
-            // current by applyDerived()'s own server-returned figures
-            // after every save, never re-derived purely client-side (this
-            // page has no way to re-match real Orders in the browser).
-            const totalOrders = Number(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
-            const totalLeads = Number(row.querySelector(`[data-out="total_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
-            const cateredLeads = Number(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+            const grossSales = readRowValue(row, 'gross_sales', date);
+            const netIncome = readRowValue(row, 'net_income', date);
+            const totalOrders = readRowValue(row, 'total_orders', date);
+            const totalLeads = readRowValue(row, 'total_leads', date);
+            const cateredLeads = readRowValue(row, 'catered_leads', date);
 
             totals.gross_sales += grossSales;
             totals.net_income += netIncome;
@@ -597,12 +698,14 @@
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
                 const date = el.dataset.date;
                 const grossSales = parseMoney(el.value);
-                const netIncome = parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-                // Same [data-out] read as refreshDayTotal() above — Total
-                // Orders/Leads/Catered are read-only now, never <input>s.
-                const totalOrders = Number(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
-                const totalLeads = Number(row.querySelector(`[data-out="total_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
-                const cateredLeads = Number(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`)?.textContent.replace(/,/g, '')) || 0;
+                // Same readRowValue() helper as refreshDayTotal() above —
+                // handles both a real product's read-only [data-out]
+                // Total Orders/Leads/Catered AND the TIKTOK ORDERS row's
+                // own [data-field] inputs for those same 3 fields.
+                const netIncome = readRowValue(row, 'net_income', date);
+                const totalOrders = readRowValue(row, 'total_orders', date);
+                const totalLeads = readRowValue(row, 'total_leads', date);
+                const cateredLeads = readRowValue(row, 'catered_leads', date);
 
                 totals.gross_sales += grossSales;
                 totals.net_income += netIncome;
@@ -697,15 +800,18 @@
         saveTimers.delete(input);
 
         const table = input.closest('.dsppr-days-table');
-        const urlTemplate = table.dataset.updateUrlTemplate;
         const row = input.closest('.dsppr-row');
+        const isTiktok = row.dataset.rowKey === 'tiktok';
+        const urlTemplate = isTiktok ? table.dataset.updateTiktokUrlTemplate : table.dataset.updateUrlTemplate;
         const date = input.dataset.date;
         const field = input.dataset.field;
         const value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
 
         flashStatus('Saving…', false);
 
-        const url = urlTemplate.replace('__PRODUCT__', row.dataset.productId).replace('__DATE__', date);
+        const url = isTiktok
+            ? urlTemplate.replace('__DATE__', date)
+            : urlTemplate.replace('__PRODUCT__', row.dataset.productId).replace('__DATE__', date);
         const body = new URLSearchParams();
         body.set(field, value);
         body.set('_method', 'PATCH');

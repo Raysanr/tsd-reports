@@ -259,6 +259,8 @@
     .field .hint { font-size: 11px; color: #94a3b8; margin-top: 5px; line-height: 1.4; }
     .field .linked-hint { font-size: 11px; color: #16a34a; margin-top: 5px; display: none; align-items: center; gap: 4px; }
     .field .linked-hint svg { width: 12px; height: 12px; }
+    .field-inline label { display: flex; align-items: center; gap: 8px; margin-bottom: 0; cursor: pointer; }
+    .field-inline input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
     .search-results {
         display: none; position: absolute; z-index: 10; margin-top: 4px; width: 100%;
         background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
@@ -402,7 +404,8 @@
                                 data-team="{{ $shift->team }}"
                                 data-extra="{{ $shift->extra_tag_keywords }}"
                                 data-pos-user-id="{{ $shift->pos_user_id }}"
-                                data-rest-day="{{ $shift->rest_day_of_week }}">
+                                data-rest-day="{{ $shift->rest_day_of_week }}"
+                                data-tiktok-upsell="{{ $shift->tiktok_upsell ? '1' : '0' }}">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                             </button>
                             <button type="button" class="icon-btn danger deleteTsaBtn" title="Remove" data-id="{{ $shift->id }}" data-name="{{ $shift->display_name }}">
@@ -543,6 +546,12 @@
                         <option value="saturday">Saturday</option>
                     </select>
                 </div>
+                <div class="field field-inline">
+                    <label>
+                        <input type="checkbox" name="tiktok_upsell" id="tsaTiktokUpsellCheckbox" value="1" class="row-checkbox">
+                        Show in TikTok Upsell section
+                    </label>
+                </div>
                 <div class="modal-actions">
                     <button type="button" id="cancelTsaModal" class="btn-ghost">Cancel</button>
                     <button type="submit" id="tsaSubmitBtn" class="btn-primary">Add TSA</button>
@@ -670,6 +679,7 @@
     const submitBtn     = document.getElementById('tsaSubmitBtn');
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
+    const tiktokUpsellCheckbox = document.getElementById('tsaTiktokUpsellCheckbox');
     const storeUrl      = form.action;
 
     let selectedTags  = [];
@@ -723,6 +733,7 @@
         setSelectedTags([]);
         restDaySelect.value = '';
         teamSelect.selectedIndex = 0;
+        tiktokUpsellCheckbox.checked = false;
         currentTsaKey = '';
         linkedHint.style.display = 'none';
         modalTitle.textContent = 'Add a new TSA';
@@ -746,6 +757,7 @@
             const existingTags = (btn.dataset.extra || '').split(',').map(t => t.trim()).filter(Boolean);
             setSelectedTags(existingTags);
             restDaySelect.value = btn.dataset.restDay || '';
+            tiktokUpsellCheckbox.checked = btn.dataset.tiktokUpsell === '1';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.style.display = 'flex';
             modalTitle.textContent = 'Edit TSA';

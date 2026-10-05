@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
+use App\Models\DsPprTiktokEntry;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
@@ -124,7 +125,33 @@ class DsPprReportController extends Controller
             return DsPprCalculator::sum($merged);
         });
 
-        $overallTotal = DsPprCalculator::sum($rows->pluck('derived')->all());
+        // TikTok Orders — a manually-run row (explicit request, 2026-10-05),
+        // NOT a real Product: no Pancake matching backs it, so every field
+        // is manual, including Total Orders/Total Leads/Catered Leads
+        // (automated for every real product above via
+        // ProductPerformance::dsPprRow()). Keyed by date alone (see
+        // create_dsppr_tiktok_entries_table migration's own doc comment),
+        // reusing DsPprCalculator as-is since the 6-input/11-derived shape
+        // is identical.
+        $tiktokEntriesByDate = DsPprTiktokEntry::whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->keyBy(fn (DsPprTiktokEntry $e) => $e->entry_date->toDateString());
+
+        $emptyTiktokRow = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
+        $tiktokDailyByKey = collect();
+        foreach ($dates as $date) {
+            $dateStr = $date->toDateString();
+            $tiktokDailyByKey->put($dateStr, $tiktokEntriesByDate->has($dateStr)
+                ? $tiktokEntriesByDate->get($dateStr)->toArray()
+                : $emptyTiktokRow);
+        }
+
+        $tiktokRow = ['derived' => DsPprCalculator::sum($tiktokDailyByKey->values()->all())];
+
+        $overallTotal = DsPprCalculator::sum(
+            $rows->pluck('derived')->push($tiktokRow['derived'])->all()
+        );
 
         // Same real-data computation as $realByProductIdAndDate above, but
         // keyed by DISPLAY ROW (matches dsppr.blade.php's own $rowKey:
@@ -176,6 +203,8 @@ class DsPprReportController extends Controller
             'dailyByKey'   => $dailyByKey,
             'realByRowKeyAndDate' => $realByRowKeyAndDate,
             'ordersByDate' => $ordersByDate,
+            'tiktokRow'       => $tiktokRow,
+            'tiktokDailyByKey' => $tiktokDailyByKey,
         ]);
     }
 
@@ -246,6 +275,38 @@ class DsPprReportController extends Controller
         } else {
             $derived = DsPprCalculator::derive(array_merge($entry->toArray(), $real));
         }
+
+        return response()->json([
+            'success' => true,
+            'derived' => $derived,
+        ]);
+    }
+
+    /** Same auto-save shape as update() above, for the TikTok Orders row
+     *  — every field is manual here (see create_dsppr_tiktok_entries_table
+     *  migration's own doc comment), so unlike update() this accepts
+     *  Total Orders/Total Leads/Catered Leads directly instead of deriving
+     *  them from real Order data. No product involved — keyed by date
+     *  alone. */
+    public function updateTiktok(Request $request, string $date)
+    {
+        $data = $request->validate([
+            'gross_sales'   => ['sometimes', 'numeric'],
+            'net_income'    => ['sometimes', 'numeric'],
+            'ads_spent'     => ['sometimes', 'numeric', 'min:0'],
+            'total_orders'  => ['sometimes', 'integer', 'min:0'],
+            'total_leads'   => ['sometimes', 'integer', 'min:0'],
+            'catered_leads' => ['sometimes', 'integer', 'min:0'],
+        ]);
+
+        $entryDate = Carbon::parse($date)->toDateString();
+
+        $entry = DsPprTiktokEntry::whereDate('entry_date', $entryDate)->first()
+            ?? new DsPprTiktokEntry(['entry_date' => $entryDate]);
+        $entry->fill($data);
+        $entry->save();
+
+        $derived = DsPprCalculator::derive($entry->toArray());
 
         return response()->json([
             'success' => true,
