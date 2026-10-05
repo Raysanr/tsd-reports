@@ -31,6 +31,21 @@ class ProjectionsTest extends TestCase
         $response->assertSee('NET INCOME');
     }
 
+    /** PNG-snapshot icon only (explicit request, 2026-10-05) — this page
+     *  is card-based, not a <table>/<tr> (see table-actions.blade.php's
+     *  own 'pngOnly' doc comment), so no CSV icon here. */
+    public function test_the_page_shows_a_png_snapshot_icon_but_no_csv_icon(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.projections'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-export-png="pjColumns"', $content);
+        $this->assertStringNotContainsString('data-export-csv="pjColumns"', $content);
+    }
+
     /** Companion to ExpectedIncomeReportSmokeTest's own
      *  test_rows_are_not_draggable_on_expected_income() — Projections is
      *  the ONE page that should actually show the drag handle/draggable

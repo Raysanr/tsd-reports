@@ -43,11 +43,27 @@
        do something before the modal appears. */
     .dsppr-draggable { user-select: none; }
     .dsppr-drop-hover { outline: 2px dashed #d97706; outline-offset: -2px; background-color: rgba(217,119,6,0.08); }
+
+    /* table-actions' own icons default to a light-background palette —
+       placed inside this page's own black header bar (explicit request,
+       2026-10-05: icons belong in the header, right-aligned, and more
+       visible) they need a bright near-white variant plus a subtle
+       frosted backing instead, same treatment as Summary Sales Report's
+       own tsr-dark-header-actions. */
+    .dsppr-dark-header-actions button { color: #f1f5f9; background-color: rgba(255,255,255,0.08); }
+    .dsppr-dark-header-actions button svg { stroke-width: 2.1; }
+    .dsppr-dark-header-actions button:hover { color: #fff; background-color: rgba(255,255,255,0.18); }
 </style>
 
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
+
+    // Snapshot-only date label for every table-actions PNG export on this
+    // page (explicit request, 2026-10-05) — same convention as Leads
+    // Report's own $snapshotDateLabel.
+    $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
+        . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
 
     // One repeating 11-column set per day — shared between the header
     // group row and every product row's per-day cell block, so the two
@@ -129,8 +145,11 @@
      Total Leads/Catered/Excess/Pick-up/Conversion/Upselling = dusty rose —
      same 3-color grouping repeated in every daily table below. --}}
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-8">
-    <div class="bg-black text-white text-center font-mono font-bold text-sm tracking-wide py-2.5">
-        TELESALES RUNNING PERFORMANCE
+    <div class="bg-black text-white font-mono font-bold text-sm tracking-wide py-2.5 flex items-center">
+        <span class="flex-1 text-center pl-18">TELESALES RUNNING PERFORMANCE</span>
+        <div class="shrink-0 pr-2 dsppr-dark-header-actions">
+            @include('partials.table-actions', ['target' => 'dsPprSummaryTable', 'name' => 'telesales-running-performance', 'title' => 'Telesales Running Performance', 'subtitle' => $snapshotDateLabel])
+        </div>
     </div>
     <div class="bg-yellow-300 dark:bg-yellow-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
         {{ \Illuminate\Support\Carbon::parse($dateFrom)->format('M j') }} – {{ \Illuminate\Support\Carbon::parse($dateTo)->format('M j, Y') }}
@@ -236,6 +255,9 @@
      Total Leads through Upselling Rate = dusty rose. Only 6 of the 13
      columns per day are real <input>s; the rest are derived/read-only. --}}
 @foreach($dateChunks as $chunkIndex => $dates)
+<div class="flex items-center justify-end mb-2">
+    @include('partials.table-actions', ['target' => 'dsPprScroller-' . $chunkIndex, 'name' => 'dsppr-daily-entry-' . ($chunkIndex + 1), 'title' => 'DSPPR - TSM Report', 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
+</div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto dsppr-scroller" id="dsPprScroller-{{ $chunkIndex }}">
         <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table"

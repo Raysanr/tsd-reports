@@ -24,11 +24,30 @@
     .dark .tsr-table th, .dark .tsr-table td { border-bottom-color: #475569; }
     .tsr-table .tsr-day-end { border-right: 3px solid #334155; }
     .dark .tsr-table .tsr-day-end { border-right-color: #cbd5e1; }
+
+    /* table-actions' own icons default to a light-background palette
+       (text-slate-400) — placed inside this page's own black header bar
+       (explicit request, 2026-10-05: "this icon should be in the header
+       like in the right side and make it more visible") they need a
+       bright near-white variant plus a subtle frosted backing instead,
+       so they read clearly against solid black rather than blending in. */
+    .tsr-dark-header-actions button { color: #f1f5f9; background-color: rgba(255,255,255,0.08); }
+    .tsr-dark-header-actions button svg { stroke-width: 2.1; }
+    .tsr-dark-header-actions button:hover { color: #fff; background-color: rgba(255,255,255,0.18); }
 </style>
 
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
+
+    // Snapshot-only date label for every table-actions PNG export on this
+    // page (explicit request, 2026-10-05: add the download/snapshot icon
+    // pair to Data Management's tables, same partial every other report
+    // page already uses) — same "full month names, self-identifying once
+    // separated from the page" convention as Leads Report's own
+    // $snapshotDateLabel.
+    $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
+        . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
 
     // Net Income color tiers (explicit request, 2026-10-03: "lahat ng
     // number kapag nilagay ay black tapos sa net income mag green lang
@@ -109,8 +128,11 @@
      has no real backing data in this app yet, so team is what's used
      instead). Add/remove a TSA via TSA Management, not here. --}}
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-8">
-    <div class="bg-black text-white text-center font-mono font-bold text-sm tracking-wide py-2.5">
-        TSA'S RUNNING SALES PERFORMANCE
+    <div class="bg-black text-white font-mono font-bold text-sm tracking-wide py-2.5 flex items-center">
+        <span class="flex-1 text-center pl-18">TSA'S RUNNING SALES PERFORMANCE</span>
+        <div class="shrink-0 pr-2 tsr-dark-header-actions">
+            @include('partials.table-actions', ['target' => 'tsrSummaryTable', 'name' => 'tsa-running-sales-performance', 'title' => "TSA's Running Sales Performance", 'subtitle' => $snapshotDateLabel])
+        </div>
     </div>
     <div class="bg-yellow-300 dark:bg-yellow-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
         {{ \Illuminate\Support\Carbon::parse($dateFrom)->format('M j') }} – {{ \Illuminate\Support\Carbon::parse($dateTo)->format('M j, Y') }}
@@ -211,9 +233,15 @@
      Report). Rows are read from the real TsaShift roster — add/remove a
      TSA via TSA Management, not here. --}}
 @foreach($groupSummaries as $gs)
-<h2 class="mb-3 text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $gs['label'] }}</h2>
-
 @foreach($dateChunks as $chunkIndex => $dates)
+<div class="flex items-center justify-between mb-3">
+    @if($chunkIndex === 0)
+    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $gs['label'] }}</h2>
+    @else
+    <span></span>
+    @endif
+    @include('partials.table-actions', ['target' => 'tsrScroller-' . \Illuminate\Support\Str::slug($gs['label']) . '-' . $chunkIndex, 'name' => \Illuminate\Support\Str::slug($gs['label']) . '-daily-entry-' . ($chunkIndex + 1), 'title' => $gs['label'], 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
+</div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto tsr-scroller" id="tsrScroller-{{ \Illuminate\Support\Str::slug($gs['label']) }}-{{ $chunkIndex }}">
         <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table"
@@ -274,15 +302,15 @@
                                  $raw and kept live as the user types via
                                  liveFormatMoney()'s own JS below. --}}
                             @php
-                                // Same 3-tier rule ($niColorClass) applies
-                                // to EVERY money input, not just Net
-                                // Income — explicit follow-up, 2026-10-03:
-                                // "the gross sales too is black" (i.e.
-                                // Gross Sales was still stuck on the OLD
-                                // plain negative=red/positive=green rule
-                                // after this feedback, since only Net
-                                // Income had been switched over).
-                                $inputColor = ($col['money'] ?? false)
+                                // Only Net Income gets the 3-tier rule
+                                // ($niColorClass) — Gross Sales is always
+                                // plain black regardless of its value
+                                // (explicit request, 2026-10-05: "the
+                                // gross sales is make numbers all black",
+                                // reversing the earlier 2026-10-03
+                                // decision that applied the same 3-tier
+                                // rule to Gross Sales too).
+                                $inputColor = $col['key'] === 'net_income'
                                     ? $niColorClass($raw[$col['key']])
                                     : 'text-ink dark:text-slate-100';
                             @endphp
@@ -355,9 +383,15 @@
      Every column is manual entry here (see $tiktokDayColumns above) —
      NOT automated from TSA Performance data like the real teams' Total
      Orders/Catered Leads/Pick-up Rate/Upselling Rate. --}}
-<h2 class="mb-3 text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $tiktokSummary['label'] }}</h2>
-
 @foreach($dateChunks as $chunkIndex => $dates)
+<div class="flex items-center justify-between mb-3">
+    @if($chunkIndex === 0)
+    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $tiktokSummary['label'] }}</h2>
+    @else
+    <span></span>
+    @endif
+    @include('partials.table-actions', ['target' => 'tsrScroller-tiktok-upsell-' . $chunkIndex, 'name' => 'tiktok-upsell-daily-entry-' . ($chunkIndex + 1), 'title' => $tiktokSummary['label'], 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
+</div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto tsr-scroller" id="tsrScroller-tiktok-upsell-{{ $chunkIndex }}">
         <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table tsr-tiktok-days-table"
@@ -395,7 +429,9 @@
                             @php $borderClass = $i === $tiktokLastColIndex ? 'tsr-day-end' : ''; @endphp
                             @if($col['editable'])
                             @php
-                                $inputColor = ($col['money'] ?? false)
+                                // Same "only Net Income gets the 3-tier
+                                // rule" change as the main table above.
+                                $inputColor = $col['key'] === 'net_income'
                                     ? $niColorClass($raw[$col['key']])
                                     : 'text-ink dark:text-slate-100';
                             @endphp
@@ -525,10 +561,12 @@
     // the user types (explicit request, 2026-10-03, matching DSPPR's own
     // Net Income behavior) — separate from applyDerived()'s own coloring
     // of the read-only [data-out] spans, since this targets the <input>
-    // element's own text color instead. Same 3-tier rule for EVERY money
-    // field (explicit follow-up, same day: "the gross sales too is
-    // black" — Gross Sales was still stuck on the old plain rule here).
+    // element's own text color instead. Net Income ONLY (explicit
+    // request, 2026-10-05: "the gross sales is make numbers all black" —
+    // reverses the 2026-10-03 follow-up that had briefly applied this
+    // same 3-tier rule to Gross Sales too).
     function updateMoneyInputColor(input) {
+        if (input.dataset.field !== 'net_income') return;
         applyNiColorClasses(input, parseMoney(input.value));
     }
 

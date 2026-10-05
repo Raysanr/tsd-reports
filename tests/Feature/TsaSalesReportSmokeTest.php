@@ -39,6 +39,22 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('OVERALL TOTAL');
     }
 
+    /** CSV-download + PNG-snapshot icons (explicit request, 2026-10-05)
+     *  on the summary table AND every daily chunk table — same shared
+     *  partials/table-actions.blade.php every other report page already
+     *  uses. */
+    public function test_the_page_shows_export_icons_on_every_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-export-csv="tsrSummaryTable"', $content);
+        $this->assertMatchesRegularExpression('/data-export-csv="tsrScroller-[a-z0-9-]+"/', $content);
+    }
+
     public function test_a_non_admin_cannot_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);
@@ -257,10 +273,13 @@ class TsaSalesReportSmokeTest extends TestCase
         );
     }
 
-    /** Same coloring applied to Gross Sales too (explicit confirmation —
-     *  unlike DSPPR, which only colors Net Income, BOTH money inputs get
-     *  it here). */
-    public function test_the_gross_sales_input_itself_is_colored_by_its_saved_value(): void
+    /** Gross Sales is always plain black, regardless of its value —
+     *  explicit request, 2026-10-05: "the gross sales is make numbers all
+     *  black," reversing the earlier 2026-10-03 decision (recorded in git
+     *  history) that had briefly applied Net Income's own 3-tier
+     *  red/black/green rule to Gross Sales too. Only Net Income keeps
+     *  that rule now, same as DSPPR's own page. */
+    public function test_the_gross_sales_input_is_always_plain_black_regardless_of_value(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -269,40 +288,19 @@ class TsaSalesReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
-        $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-red-600[^"]*"/',
-            $response->getContent()
-        );
-    }
-
-    /** Explicit follow-up, 2026-10-03: "the gross sales too is black" —
-     *  Gross Sales now shares Net Income's own 3-tier rule (negative=red,
-     *  0–4,199.99=black, 4,200+=green), not the older plain
-     *  negative=red/positive=green rule it was still stuck on right
-     *  after Net Income alone was switched over. */
-    public function test_a_gross_sales_below_4200_but_positive_stays_black(): void
-    {
-        $admin = User::factory()->create(['role' => 'admin']);
-        $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 500, 'net_income' => 0]);
-
-        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
-
-        $response->assertOk();
         $content = $response->getContent();
         $this->assertMatchesRegularExpression(
             '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-ink[^"]*"/',
             $content,
-            'expected 500.00 Gross Sales (below the 4,200 threshold) to be plain black (text-ink), not green'
+            'a negative Gross Sales (-200.00) must still render plain black, not red'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-green-600[^"]*"/',
-            $content,
-            '500.00 Gross Sales must NOT be green — only 4,200 and above should be'
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-red-600[^"]*"/',
+            $content
         );
     }
 
-    public function test_a_gross_sales_of_4200_or_above_is_rendered_green(): void
+    public function test_a_large_gross_sales_stays_black_not_green(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -311,10 +309,15 @@ class TsaSalesReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
+        $content = $response->getContent();
         $this->assertMatchesRegularExpression(
+            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-ink[^"]*"/',
+            $content,
+            'expected 4,200.00 Gross Sales to be plain black, not green — the 4,200 threshold only applies to Net Income'
+        );
+        $this->assertDoesNotMatchRegularExpression(
             '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-green-600[^"]*"/',
-            $response->getContent(),
-            'expected exactly 4,200.00 Gross Sales to be green (inclusive threshold)'
+            $content
         );
     }
 

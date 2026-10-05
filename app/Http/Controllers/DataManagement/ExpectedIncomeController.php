@@ -228,6 +228,11 @@ class ExpectedIncomeController extends Controller
             'fmtMoney'      => fn ($n) => number_format((float) $n, 2),
             'fmtPct'        => fn ($n) => number_format(((float) $n) * 100, 2) . '%',
             'selectedTeam'  => $selectedTeam,
+            // table-actions' own PNG snapshot subtitle (explicit request,
+            // 2026-10-05) — same label index() computes, kept in sync here
+            // so a live AJAX refresh never shows a stale date range.
+            'snapshotDateLabel' => Carbon::parse($dateFrom)->format('F j, Y')
+                . ($dateFrom === $dateTo ? '' : ' – ' . Carbon::parse($dateTo)->format('F j, Y')),
         ]));
     }
 

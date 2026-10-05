@@ -9,7 +9,10 @@
     block can be swapped in one replaceWith().
 --}}
 <div id="eiSummarySection">
-    <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
+    <div class="flex items-center justify-between mb-3">
+        <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
+        @include('partials.table-actions', ['target' => 'eiSummaryScroller', 'name' => 'telesales-expected-performance', 'title' => 'Telesales Expected Performance', 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
+    </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
         <div class="flex items-start gap-5 w-max">
             @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => '#fde047', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
@@ -26,8 +29,11 @@
 
     @if($selectedTeam === 'all')
     @foreach($teamSummaryRows as $teamRow)
-    <div class="mb-3 font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($teamRow['label']) }}</div>
-    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8">
+    <div class="flex items-center justify-between mb-3">
+        <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($teamRow['label']) }}</div>
+        @include('partials.table-actions', ['target' => 'eiTeamScroller-' . $loop->index, 'name' => \Illuminate\Support\Str::slug($teamRow['label']) . '-summary', 'title' => $teamRow['label'], 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
+    </div>
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiTeamScroller-{{ $loop->index }}">
         <div class="flex items-start gap-5 w-max">
             @include('data.expected-income._card', ['d' => $teamRow['overallTotal'], 'label' => strtoupper($teamRow['label']), 'headerBg' => '#000000', 'headerText' => '#ffffff', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @foreach($teamRow['cards'] as $card)

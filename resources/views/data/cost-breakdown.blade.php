@@ -11,6 +11,16 @@
     thead .cb-sticky { z-index: 25; }
     tr:hover > .cb-sticky { background-color: #f8fafc; }
     .dark tr:hover > .cb-sticky { background-color: #1e293b; }
+
+    /* table-actions' own icons default to a light-background palette
+       (text-slate-400) — this page's own dark section headers (bg-
+       slate-900/800) need a bright near-white variant plus a subtle
+       frosted backing instead (explicit follow-up, 2026-10-05: "make it
+       more visible"), same treatment as Summary Sales Report/DSPPR's own
+       dark-header-actions. */
+    .cb-dark-header-actions button { color: #f1f5f9; background-color: rgba(255,255,255,0.08); }
+    .cb-dark-header-actions button svg { stroke-width: 2.1; }
+    .cb-dark-header-actions button:hover { color: #fff; background-color: rgba(255,255,255,0.18); }
 </style>
 
 @php
@@ -50,10 +60,13 @@
                         class="shrink-0 w-6 h-6 inline-flex items-center justify-center rounded-full text-sm leading-none font-bold text-slate-300 border border-slate-600 hover:text-white hover:border-white">
                     +
                 </button>
+                <div class="cb-dark-header-actions">
+                    @include('partials.table-actions', ['target' => 'cbSalaryTable', 'name' => 'telesales-salary-breakdown'])
+                </div>
             </div>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-[13px] cb-table border-separate border-spacing-0">
+            <table class="w-full text-[13px] cb-table border-separate border-spacing-0" id="cbSalaryTable">
                 <thead>
                     <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
@@ -299,9 +312,18 @@
     <div class="rounded-2xl border border-line dark:border-slate-700 bg-white dark:bg-slate-900 shadow-panel overflow-hidden">
         <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between">
             <h2 class="font-mono font-bold text-sm uppercase tracking-wide text-white">Shared Monthly Cost Pools</h2>
-            <span id="cbPoolSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+            <div class="flex items-center gap-3">
+                <span id="cbPoolSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+                {{-- PNG only — this "table" is a CSS grid of divs, not a
+                     real <table>/<tr> (see table-actions.blade.php's own
+                     'pngOnly' doc comment), so a CSV export has nothing to
+                     walk. --}}
+                <div class="cb-dark-header-actions">
+                    @include('partials.table-actions', ['target' => 'cbPoolsGrid', 'name' => 'shared-monthly-cost-pools', 'pngOnly' => true])
+                </div>
+            </div>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line dark:bg-slate-700">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line dark:bg-slate-700" id="cbPoolsGrid">
             @foreach($pools as $pool)
             <div class="bg-white dark:bg-slate-900 px-5 py-3 flex items-center justify-between gap-3" data-pool-row data-pool-key="{{ $pool->key }}" data-action="{{ route('data.cost-breakdown.update-pool', $pool) }}">
                 <span class="text-xs font-mono text-ink-muted dark:text-slate-400 truncate">{{ $pool->label }}</span>
@@ -324,7 +346,12 @@
     <div class="rounded-2xl border border-line dark:border-slate-700 bg-white dark:bg-slate-900 shadow-panel overflow-hidden">
         <div class="px-6 py-4 bg-slate-900 dark:bg-slate-800 flex items-center justify-between">
             <h2 class="font-mono font-bold text-sm uppercase tracking-wide text-white">Cost Allocation Per TSA</h2>
-            <span id="cbTsaSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+            <div class="flex items-center gap-3">
+                <span id="cbTsaSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
+                <div class="cb-dark-header-actions">
+                    @include('partials.table-actions', ['target' => 'cbTsaTable', 'name' => 'cost-allocation-per-tsa'])
+                </div>
+            </div>
         </div>
         <div class="overflow-x-auto" id="cbTsaScroller">
             <table class="cb-table border-collapse text-[13px]" id="cbTsaTable"

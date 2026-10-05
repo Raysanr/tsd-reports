@@ -47,7 +47,13 @@
             Add Projection
         </button>
     </div>
-    <span id="pjSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+    <div class="flex items-center gap-3">
+        <span id="pjSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+        {{-- PNG only — this page is card-based, not a <table>/<tr> (see
+             table-actions.blade.php's own 'pngOnly' doc comment), so a
+             CSV export has nothing to walk. --}}
+        @include('partials.table-actions', ['target' => 'pjColumns', 'name' => 'projections-' . $month, 'title' => 'Projections', 'subtitle' => \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y'), 'pngOnly' => true])
+    </div>
 </div>
 
 {{-- Add Projection modal — same shared/visual shell as the existing

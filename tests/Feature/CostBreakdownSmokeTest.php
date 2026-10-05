@@ -37,6 +37,25 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertSee('Cost Allocation Per TSA');
     }
 
+    /** CSV-download + PNG-snapshot icons (explicit request, 2026-10-05) on
+     *  the Salary Breakdown and Cost Allocation Per TSA tables (real
+     *  <table>s), and PNG-only on Shared Monthly Cost Pools (a CSS grid of
+     *  divs, no <table>/<tr> for a CSV export to walk — see
+     *  table-actions.blade.php's own 'pngOnly' doc comment). */
+    public function test_the_page_shows_export_icons_on_every_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-export-csv="cbSalaryTable"', $content);
+        $this->assertStringContainsString('data-export-csv="cbTsaTable"', $content);
+        $this->assertStringContainsString('data-export-png="cbPoolsGrid"', $content);
+        $this->assertStringNotContainsString('data-export-csv="cbPoolsGrid"', $content);
+    }
+
     /** Explicit follow-up, 2026-09-29: "the supervisor of opening and
      *  closing is in the rows of their TSA's" — each shift's own
      *  Supervisor renders immediately above her own team's real TSAs, in

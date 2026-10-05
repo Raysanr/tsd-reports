@@ -12,6 +12,13 @@
 @php
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
+    // Snapshot-only date label for every table-actions PNG export on this
+    // page (explicit request, 2026-10-05) — same convention as Leads
+    // Report's own $snapshotDateLabel. This page is card-based, not
+    // table-based (see table-actions.blade.php's own 'pngOnly' doc
+    // comment) — PNG-only, no CSV icon here.
+    $snapshotDateLabel = \Illuminate\Support\Carbon::parse($dateFrom)->format('F j, Y')
+        . ($dateFrom === $dateTo ? '' : ' – ' . \Illuminate\Support\Carbon::parse($dateTo)->format('F j, Y'));
     // sellingCostRows()/operatingCostRows(), not the bare constants —
     // explicit request, 2026-09-28: a row added via the + icon on
     // Projections "should be automatically added to the expected income
@@ -104,7 +111,10 @@
     @php
         $tsa = $tsaRow['tsa'];
     @endphp
-    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller">
+    <div class="flex items-center justify-end mb-2">
+        @include('partials.table-actions', ['target' => 'eiTsaScroller-range-' . $tsa->id, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income', 'title' => $tsa->display_name, 'subtitle' => $snapshotDateLabel, 'pngOnly' => true])
+    </div>
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" id="eiTsaScroller-range-{{ $tsa->id }}">
         <div class="flex items-start gap-5 w-max">
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
                 <div class="px-5 py-4" style="background:#fde047;">
@@ -151,7 +161,10 @@
         $tsaDailyByKey = $tsaRow['dailyByKey'];
         $tsaDayOverallTotal = $tsaRow['dailyOverallTotals'][$dateStr];
     @endphp
-    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}">
+    <div class="flex items-center justify-end mb-2">
+        @include('partials.table-actions', ['target' => 'eiTsaScroller-' . $tsa->id . '-' . $dateStr, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income-' . $dateStr, 'title' => $tsa->display_name, 'subtitle' => \Illuminate\Support\Carbon::parse($dateStr)->format('F j, Y'), 'pngOnly' => true])
+    </div>
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}" id="eiTsaScroller-{{ $tsa->id }}-{{ $dateStr }}">
         <div class="flex items-start gap-5 w-max">
             {{-- Her own name where the plain "TELESALES" card title used
                  to be — a read-only rollup of HER OWN product cards for this day

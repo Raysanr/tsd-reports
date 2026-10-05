@@ -3741,3 +3741,337 @@ document.addEventListener('keydown', (e) => {
         });
     }
 })();
+
+// ─── Table export: CSV + PNG snapshot ────────────────────────────────────────
+// Ported from app.js's own identical feature (explicit request, 2026-10-05,
+// after confirming live that clicking the camera icon on a Data Management
+// page did nothing — root cause: layouts/data.blade.php vites calls.js, not
+// app.js, per that layout's own doc comment on why it reuses this bundle, so
+// app.js's click handler for partials/table-actions.blade.php's icons never
+// shipped to any Data Management OR Call Tracker page at all, despite those
+// icons rendering fine). Deliberately duplicated here (not extracted to a
+// shared module/import) rather than app.js importing from calls.js or vice
+// versa — the two bundles are independent Vite entry points on purpose (see
+// this file's own top-of-file doc comment), and this whole feature is only
+// ~390 lines with no other cross-file dependency. Keep both copies in sync
+// if this feature's logic ever changes in one of them.
+//
+// Every report table renders partials/table-actions.blade.php — two icon
+// buttons carrying data-export-csv / data-export-png with the id of the
+// wrapper whose <table> to export. Delegated from document so it survives
+// any dynamic DOM replacement on this page.
+//
+// CSV walks the live DOM rather than re-querying the server: what you see is
+// exactly what you get, filters and all. colspan cells are padded with empty
+// columns so headers stay aligned in Excel; rowspan isn't padded (only the
+// hour-label column uses it, and losing the repeat is fine in a flat file).
+function tableToCsv(table) {
+    const rows = [];
+    for (const tr of table.querySelectorAll('tr')) {
+        // Skip rows hidden by the sortable-table live filter (data-table-filter)
+        // — "what you see is exactly what you get, filters and all" above —
+        // a hidden row is still a real <tr> in the DOM, so without this check it
+        // would silently leak into the export despite being filtered out on
+        // screen.
+        if (tr.classList.contains('hidden')) continue;
+        const cells = [];
+        for (const cell of tr.querySelectorAll('th, td')) {
+            // <br> inside header labels reads as a space, not a squashed word
+            const clone = cell.cloneNode(true);
+            clone.querySelectorAll('br').forEach((br) => br.replaceWith(' '));
+            const text = clone.textContent.replace(/\s+/g, ' ').trim();
+            cells.push('"' + text.replace(/"/g, '""') + '"');
+            for (let i = 1; i < (cell.colSpan || 1); i++) cells.push('""');
+        }
+        rows.push(cells.join(','));
+    }
+    return rows.join('\r\n');
+}
+
+function downloadBlob(blob, filename) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+
+// html2canvas-pro (NOT plain html2canvas: 1.4.1 chokes on the oklch() colors
+// Tailwind v4 emits — "unsupported color function oklch") is ~200kb — only
+// fetched the first time a snapshot is taken, never on page load. Cached
+// promise so repeat clicks don't re-inject.
+let html2canvasReady = null;
+function loadHtml2Canvas() {
+    if (window.html2canvas) return Promise.resolve();
+    if (!html2canvasReady) {
+        html2canvasReady = new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.11/dist/html2canvas-pro.min.js';
+            s.onload = resolve;
+            s.onerror = () => { html2canvasReady = null; reject(new Error('html2canvas failed to load')); };
+            document.head.appendChild(s);
+        });
+    }
+    return html2canvasReady;
+}
+
+document.addEventListener('click', async (e) => {
+    const csvBtn = e.target.closest('[data-export-csv]');
+    const pngBtn = e.target.closest('[data-export-png]');
+    if (!csvBtn && !pngBtn) return;
+
+    const btn     = csvBtn || pngBtn;
+    const target  = document.getElementById(btn.dataset.exportCsv || btn.dataset.exportPng);
+    const table   = target?.querySelector('table') || target;
+    if (!table) return;
+
+    const name = (btn.dataset.exportName || 'export') + '-' + new Date().toISOString().slice(0, 10);
+
+    if (csvBtn) {
+        // UTF-8 BOM: Excel needs it to render ₱ signs correctly
+        downloadBlob(new Blob(['﻿' + tableToCsv(table)], { type: 'text/csv;charset=utf-8' }), name + '.csv');
+        return;
+    }
+
+    // PNG: capture the <table> element itself, not its scroll container, so a
+    // horizontally-scrolled wide table is captured in full, not cropped to the
+    // visible slice. Button shows a busy state — capture takes a beat.
+    btn.disabled = true;
+    btn.classList.add('opacity-40');
+
+    // Exported images are meant to be shared/printed, so they're always rendered
+    // in light mode regardless of the viewer's current on-screen theme — forcing
+    // html2canvas's backgroundColor to white while the table's live computed
+    // colors are dark-mode grays/whites would otherwise produce a near-illegible,
+    // low-contrast PNG. Stripped right before capture, restored in `finally` so
+    // a capture error never leaves the page stuck in light mode.
+    const wasDark = document.documentElement.classList.contains('dark');
+    if (wasDark) document.documentElement.classList.remove('dark');
+
+    // Browser zoom (Ctrl/Cmd +/-, not to be confused with OS display scaling)
+    // sets a CSS `zoom` factor on the page that html2canvas measures DOM
+    // boxes/fonts against incorrectly at anything other than 100% — confirmed
+    // live: at 75% zoom, captured text overlapped/ran together ("GROSSSALES",
+    // "TSAname") and in one real report came out fully mirrored/upside-down.
+    // Reset to 100% for the capture, restored in `finally` — same pattern as
+    // the dark-mode strip above, and for the same reason: a capture error must
+    // never leave the page visibly rezoomed for the user.
+    const prevZoom = document.documentElement.style.zoom;
+    document.documentElement.style.zoom = '1';
+    // Force a layout flush before anything below reads offsetWidth/offsetHeight
+    // (swapInputsForSnapshot) — a bare style write doesn't guarantee the new
+    // zoom has actually been applied to computed layout by the very next line.
+    void document.documentElement.offsetHeight;
+
+    // Optional adjacent Chart.js canvas (e.g. a disposition pie) to composite
+    // beside the table — unused by any current Data Management page (none of
+    // table-actions' own 'chart' param is passed there), kept here only for
+    // parity with app.js's own identical feature in case a future page needs it.
+    const chartCanvas  = btn.dataset.exportChart ? document.getElementById(btn.dataset.exportChart) : null;
+    const chartFrame   = chartCanvas?.parentElement;
+    const chartPanel   = chartFrame?.parentElement;
+    const restoreWidth = chartPanel?.style.width || '';
+    const ANIMATE_MS   = 350;
+
+    const animatePanelWidth = (targetWidth) => new Promise((resolve) => {
+        if (!chartPanel) return resolve();
+        chartPanel.style.transition = `width ${ANIMATE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+        window.__pieRedrawPaused = true;
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            chartPanel.style.width = targetWidth;
+            setTimeout(() => {
+                window.__pieRedrawPaused = false;
+                window.__redrawAllPieCharts?.();
+                resolve();
+            }, ANIMATE_MS + 50);
+        }));
+    });
+
+    if (chartPanel && restoreWidth) await animatePanelWidth('');
+
+    // html2canvas can't reliably paint live form controls: a <input type="date">
+    // renders its native picker chrome mirrored/garbled, and text/number inputs
+    // render their placeholder instead of the actually-typed value with the
+    // browser's default black instead of the input's own computed color. Fixed
+    // generically by swapping each live <input> for a plain <span> carrying its
+    // current value/placeholder and computed text color right before capture,
+    // then restoring the originals in `finally` — html2canvas paints text nodes
+    // correctly, just not form control internals. See swapInputsForSnapshot()
+    // below for why each style is set individually rather than via the `font`
+    // shorthand.
+    const restoreInputs = swapInputsForSnapshot(table);
+
+    // [data-snapshot-hide] — a generic opt-in for any export target that
+    // wants its snapshot to look different from the live page (e.g. a "click
+    // any value to edit" hint that doesn't belong in a static exported image).
+    // Hidden/restored the same way as the input swap above — display:none
+    // instead of remove(), so nothing needs to be re-created afterward.
+    const hiddenForSnapshot = Array.from(table.querySelectorAll('[data-snapshot-hide]'));
+    const hiddenDisplays = hiddenForSnapshot.map((el) => el.style.display);
+    hiddenForSnapshot.forEach((el) => { el.style.display = 'none'; });
+
+    try {
+        await loadHtml2Canvas();
+        const tableCanvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
+
+        // Optional adjacent chart composited beside the table so the exported
+        // image matches what's on screen, not just the table half of it. The
+        // chart canvas is Chart.js's own already-rendered bitmap (drawImage
+        // handles the scale-up cleanly), not a second html2canvas pass.
+        const chartBox    = chartCanvas?.getBoundingClientRect();
+        const frameBox    = chartFrame?.getBoundingClientRect();
+        let finalCanvas   = tableCanvas;
+
+        if (chartCanvas && chartBox && frameBox && chartBox.width > 0) {
+            const scale   = 2; // matches the table capture's own scale above
+            const gap     = 16 * scale;
+            const padX    = (frameBox.width - chartBox.width) / 2 * scale;
+            const padY    = (frameBox.height - chartBox.height) / 2 * scale;
+            const frameW  = frameBox.width * scale;
+            const frameH  = frameBox.height * scale;
+
+            finalCanvas = document.createElement('canvas');
+            finalCanvas.width  = tableCanvas.width + gap + frameW;
+            finalCanvas.height = Math.max(tableCanvas.height, frameH);
+
+            // Vertically centered against the table's own height, matching the
+            // on-screen layout (flex items-center) — not pinned to the top.
+            const frameY = (finalCanvas.height - frameH) / 2;
+
+            const ctx = finalCanvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+            ctx.drawImage(tableCanvas, 0, 0);
+
+            const frameX = tableCanvas.width + gap;
+            ctx.fillStyle   = '#ffffff';
+            ctx.fillRect(frameX, frameY, frameW, frameH);
+            ctx.strokeStyle = '#e2e8f0'; // border-slate-200, matching the on-screen frame
+            ctx.lineWidth   = 1 * scale;
+            ctx.strokeRect(frameX, frameY, frameW, frameH);
+            ctx.drawImage(chartCanvas, frameX + padX, frameY + padY, chartBox.width * scale, chartBox.height * scale);
+        }
+
+        // Title bar: the table element captured above never includes its own
+        // heading (that h2/header bar lives in a sibling element on the page),
+        // so without this a downloaded/shared snapshot has no way to identify
+        // which table it's showing. Drawn as its own band on top of whatever
+        // was captured so far (table alone, or table+chart composite).
+        const title    = btn.dataset.exportTitle;
+        const subtitle = btn.dataset.exportSubtitle;
+        if (title) {
+            const scale      = 2; // matches the table capture's own scale above
+            // Two-line band (title + date subtitle) needs more room than a
+            // title-only one — fixed heights rather than measuring text, since
+            // both lines use a known, unchanging font size.
+            const bandHeight = (subtitle ? 84 : 56) * scale;
+            const titled     = document.createElement('canvas');
+            titled.width  = finalCanvas.width;
+            titled.height = finalCanvas.height + bandHeight;
+
+            const tctx = titled.getContext('2d');
+            tctx.fillStyle = '#ffffff';
+            tctx.fillRect(0, 0, titled.width, titled.height);
+            tctx.textBaseline = 'middle';
+            tctx.fillStyle = '#334155'; // slate-700, matching the on-screen h2
+            tctx.font = `bold ${20 * scale}px ui-monospace, monospace`;
+            tctx.fillText(title, 24 * scale, subtitle ? 32 * scale : bandHeight / 2);
+            if (subtitle) {
+                tctx.fillStyle = '#94a3b8'; // slate-400, matching the on-screen rangeLabel
+                tctx.font = `${13 * scale}px ui-monospace, monospace`;
+                tctx.fillText(subtitle, 24 * scale, 60 * scale);
+            }
+            tctx.strokeStyle = '#e2e8f0'; // border-slate-200
+            tctx.lineWidth = 1 * scale;
+            tctx.beginPath();
+            tctx.moveTo(0, bandHeight);
+            tctx.lineTo(titled.width, bandHeight);
+            tctx.stroke();
+            tctx.drawImage(finalCanvas, 0, bandHeight);
+
+            finalCanvas = titled;
+        }
+
+        finalCanvas.toBlob((blob) => blob && downloadBlob(blob, name + '.png'), 'image/png');
+    } catch (err) {
+        console.error('Table snapshot failed:', err);
+    } finally {
+        restoreInputs();
+        hiddenForSnapshot.forEach((el, i) => { el.style.display = hiddenDisplays[i]; });
+        if (chartPanel && restoreWidth) await animatePanelWidth(restoreWidth);
+        if (chartPanel) chartPanel.style.transition = ''; // don't leave the drag handle feeling laggy afterward
+        if (wasDark) document.documentElement.classList.add('dark');
+        document.documentElement.style.zoom = prevZoom;
+        btn.disabled = false;
+        btn.classList.remove('opacity-40');
+    }
+});
+
+// Swaps every <input>/<textarea>/<select> inside `root` for a plain <span>
+// showing its current value (or its own placeholder, styled at reduced
+// opacity, when empty — matching what the field visually shows on screen)
+// right before an html2canvas capture — see the doc comment at this
+// function's call site for why. Returns a restore() callback that puts the
+// originals back exactly where they were.
+function swapInputsForSnapshot(root) {
+    // [data-tss-date-input] is excluded: a tiny opacity-0 calendar-icon click
+    // target backing an already-visible friendly-formatted label — swapping
+    // it in generically would render its raw ISO value on top of the label.
+    const fields = Array.from(root.querySelectorAll('input, textarea, select'))
+        .filter((field) => !field.matches('[data-tss-date-input]'));
+    if (fields.length === 0) return () => {};
+
+    const swaps = fields.map((field) => {
+        const computed = getComputedStyle(field);
+        const hasValue = field.value !== '' && field.value !== null;
+        let text = hasValue
+            ? (field.tagName === 'SELECT' ? field.options[field.selectedIndex]?.text ?? '' : field.value)
+            : (field.placeholder || '');
+
+        // type="date" stores/reports its value as ISO (YYYY-MM-DD), but the
+        // browser always DISPLAYS it locale-formatted — the swapped <span>
+        // must match what was actually on screen.
+        if (hasValue && field.type === 'date') {
+            const [y, m, d] = field.value.split('-');
+            text = `${m}/${d}/${y}`;
+        }
+
+        // white-space: nowrap — an <input>'s text never wraps regardless of its
+        // width, but a plain <span> defaults to `white-space: normal` and WILL
+        // wrap at the swapped-in fixed width.
+        const span = document.createElement('span');
+        span.textContent = text;
+        span.style.cssText = `
+            display: inline-block;
+            width: ${field.offsetWidth}px;
+            height: ${field.offsetHeight}px;
+            line-height: ${field.offsetHeight}px;
+            box-sizing: border-box;
+            padding: ${computed.paddingTop} ${computed.paddingRight} ${computed.paddingBottom} ${computed.paddingLeft};
+            border: ${computed.borderWidth} ${computed.borderStyle} ${computed.borderColor};
+            border-radius: ${computed.borderRadius};
+            background: ${computed.backgroundColor};
+            color: ${computed.color};
+            font-family: ${computed.fontFamily};
+            font-size: ${computed.fontSize};
+            font-weight: ${computed.fontWeight};
+            font-style: ${computed.fontStyle};
+            text-align: ${computed.textAlign};
+            opacity: ${hasValue ? '1' : '0.5'};
+            vertical-align: middle;
+            white-space: nowrap;
+        `;
+
+        field.parentNode.insertBefore(span, field);
+        field.style.display = 'none';
+
+        return { field, span };
+    });
+
+    return function restore() {
+        swaps.forEach(({ field, span }) => {
+            field.style.display = '';
+            span.remove();
+        });
+    };
+}

@@ -45,6 +45,20 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertSee('OVERALL TOTAL');
     }
 
+    /** CSV-download + PNG-snapshot icons (explicit request, 2026-10-05)
+     *  on the summary table AND every daily chunk table. */
+    public function test_the_page_shows_export_icons_on_every_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-export-csv="dsPprSummaryTable"', $content);
+        $this->assertMatchesRegularExpression('/data-export-csv="dsPprScroller-\d+"/', $content);
+    }
+
     public function test_a_non_admin_cannot_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);

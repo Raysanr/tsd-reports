@@ -69,6 +69,21 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertSee('Telesales Expected Performance');
     }
 
+    /** PNG-snapshot icon only (explicit request, 2026-10-05) — this page
+     *  is card-based, not a <table>/<tr>, so no CSV icon here (see
+     *  table-actions.blade.php's own 'pngOnly' doc comment). */
+    public function test_the_summary_section_shows_a_png_snapshot_icon_but_no_csv_icon(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $this->assertStringContainsString('data-export-png="eiSummaryScroller"', $content);
+        $this->assertStringNotContainsString('data-export-csv="eiSummaryScroller"', $content);
+    }
+
     /** Explicit request, 2026-10-03: "the only will display on that is
      *  has cost products ... the products that has cost is has check in
      *  cost breakdown page Cost Allocation Per TSA" — an UNFLAGGED

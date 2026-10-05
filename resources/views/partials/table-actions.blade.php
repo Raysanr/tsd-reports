@@ -17,8 +17,18 @@
                 range (e.g. "July 27, 2026"), so the snapshot is self-
                 identifying even once separated from the page it came from.
                 Ignored if 'title' isn't also set.
+     'pngOnly' = true hides the CSV icon (explicit request, 2026-10-05: add
+                this to Expected Income's own card-based layout, which has
+                no <table>/<tr> for tableToCsv() to walk at all — a PNG
+                snapshot still works there since html2canvas can capture
+                ANY element, 'target' included, not just a <table>; app.js's
+                own `target?.querySelector('table') || target` already
+                falls back to the plain element when it finds no <table>
+                inside). Defaults to false (both icons) for every existing
+                table-based page.
      The click handlers live in app.js (delegated, so they survive soft refresh). --}}
 <div class="flex items-center gap-1 shrink-0">
+    @unless($pngOnly ?? false)
     <button type="button" data-export-csv="{{ $target }}" data-export-name="{{ $name }}"
             title="Download CSV" aria-label="Download CSV"
             class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
@@ -26,6 +36,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
         </svg>
     </button>
+    @endunless
     <button type="button" data-export-png="{{ $target }}" data-export-name="{{ $name }}"
             @if(!empty($chart)) data-export-chart="{{ $chart }}" @endif
             @if(!empty($title)) data-export-title="{{ $title }}" @endif
