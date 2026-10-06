@@ -268,6 +268,12 @@ class ProjectionCalculator
         return self::customRows()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all();
     }
 
+    /** Row keys that always count toward Total Selling Costs regardless of
+     *  where RowOrder's own row_sort_orders.section currently says they
+     *  are — see RowOrder::LOCKED_TO_SELLING's own doc comment (defined
+     *  there, not here, so both calculators read the one real list). */
+    public const LOCKED_TO_SELLING = RowOrder::LOCKED_TO_SELLING;
+
     /** SELLING_COST_ROWS plus every user-added Selling And Marketing row,
      *  in the same key => label shape — the view and every sum/cascade
      *  below use this instead of the bare constant so a custom row
@@ -279,15 +285,23 @@ class ProjectionCalculator
      *  you make the row can be draggable and can change the position by
      *  other row") — the SAME shared order Expected Income's own
      *  sellingCostRows() reads, instead of built-ins always sorting before
-     *  every custom row via a plain array_merge like before this feature. */
+     *  every custom row via a plain array_merge like before this feature.
+     *
+     *  2026-10-02 passes OPERATING_COST_ROWS as $otherBuiltinRows
+     *  (explicit follow-up, 2026-10-06: "is it possible that row in the
+     *  Selling And Marketing can change ... drag to Operating Costs ...
+     *  vise versa") — RowOrder::rows() now decides a built-in's CURRENT
+     *  section from row_sort_orders, not from which constant it's
+     *  hardcoded into, so a row dragged in from Operating needs its label
+     *  available here too. */
     public static function sellingCostRows(): array
     {
-        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling');
+        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
     }
 
     public static function operatingCostRows(): array
     {
-        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating');
+        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating', self::SELLING_COST_ROWS);
     }
 
     /** NON_EDITABLE_SELLING_ROWS plus every custom row marked is_fixed —
@@ -462,6 +476,12 @@ class ProjectionCalculator
         $productCost = $grossSales * $rates['product_cost'];
         $grossProfit = $grossSales - $cancelled - $returns - $tax - $productCost;
 
+        // Safe to unconditionally ->put() these 2 keys below regardless of
+        // whatever sellingCostRows() actually returned: RowOrder::moveAfter()
+        // refuses to let cod_fee/fulfillment_fee (LOCKED_TO_SELLING) cross
+        // into 'operating', so they're always among sellingCostRows()'s own
+        // keys — see that constant's own doc comment for what breaks if
+        // that ever stops being true.
         $sellingLines = collect(array_keys(self::sellingCostRows()))
             ->mapWithKeys(fn ($key) => [$key => $grossSales * ($rates[$key] ?? 0)])
             // COD Fee = Delivered Sales × 2.24% (confirmed via the real

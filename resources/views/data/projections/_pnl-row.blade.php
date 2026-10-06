@@ -43,7 +43,15 @@
     chain): explicit request, 2026-10-02 ("can you make the row can be
     draggable and can change the position by other row") — every row here
     shares ONE order with Expected Income's own identical rows
-    (App\Support\RowOrder), so dragging here reorders both pages.
+    (App\Support\RowOrder), so dragging here reorders both pages. $section
+    is just this row's CURRENT section, not a fixed home — 2026-10-06
+    follow-up ("is it possible that row in the Selling And Marketing can
+    change ... drag to Operating Costs ... vise versa") lets a row
+    actually cross into the other section (except cod_fee/fulfillment_fee
+    — see RowOrder::LOCKED_TO_SELLING), which also moves it into that
+    section's own Total — see projections.blade.php's own drop handler
+    for how that's handled (every card's fresh HTML swapped in, not a
+    page reload).
 
     $locked (optional, passed by _column.blade.php as $isLockable &&
     $column->is_locked): explicit follow-up, 2026-10-02 ("and when it is

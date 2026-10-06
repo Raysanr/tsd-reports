@@ -127,6 +127,11 @@ class ExpectedIncomeCalculator
         return ProjectionCustomRow::orderBy('sort_order')->get();
     }
 
+    /** Same meaning as ProjectionCalculator::LOCKED_TO_SELLING — defined
+     *  once on RowOrder, delegated here so both calculators read the one
+     *  real list. */
+    public const LOCKED_TO_SELLING = RowOrder::LOCKED_TO_SELLING;
+
     /** SELLING_COST_ROWS plus every custom row from Projections, in the
      *  same key => label shape — the view and every derive()/sum() call
      *  below use this instead of the bare constant so a custom row
@@ -139,15 +144,19 @@ class ExpectedIncomeCalculator
      *  you make the row can be draggable and can change the position by
      *  other row") — the SAME shared order ProjectionCalculator's own
      *  sellingCostRows() reads, so dragging a row on either page reorders
-     *  both. */
+     *  both.
+     *
+     *  2026-10-06 passes OPERATING_COST_ROWS as $otherBuiltinRows — same
+     *  reasoning as ProjectionCalculator's own identical change, see that
+     *  method's own doc comment. */
     public static function sellingCostRows(): array
     {
-        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling');
+        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
     }
 
     public static function operatingCostRows(): array
     {
-        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating');
+        return RowOrder::rows(self::OPERATING_COST_ROWS, 'operating', self::SELLING_COST_ROWS);
     }
 
     /** NON_EDITABLE_SELLING_ROWS plus every custom row marked is_fixed —
@@ -217,6 +226,13 @@ class ExpectedIncomeCalculator
         $delivered      = $grossSales - $cancelled - $returns;
         $grossProfit    = $grossSales - $cancelled - $returns - $taxAllocation - $productCost;
 
+        // Safe to unconditionally ->put() these 2 keys below regardless of
+        // $sellingKeys' actual contents — same reasoning as
+        // ProjectionCalculator::pnlFromOrders()'s identical comment:
+        // RowOrder::moveAfter() refuses to let cod_fee/fulfillment_fee
+        // (LOCKED_TO_SELLING) cross into 'operating', so they're always
+        // among sellingCostRows()'s own keys (and SELLING_COST_ROWS' own,
+        // the default $sellingKeys falls back to below).
         $sellingLines = collect($sellingKeys)
             ->mapWithKeys(fn ($key) => [$key => (float) ($row[$key] ?? 0)])
             ->put('cod_fee', $delivered * self::COD_FEE_RATE_OF_DELIVERED)

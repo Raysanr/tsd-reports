@@ -9,9 +9,16 @@
        top border = will drop ABOVE this row, bottom border = will drop
        BELOW it, so the final position is clear before you release
        (root-caused live: the drop used to always land one row off from
-       where it visually looked like it would). */
-    .pj-row-drag-over-before { border-top: 2px solid var(--color-primary, #CA8A04); }
-    .pj-row-drag-over:not(.pj-row-drag-over-before) { border-bottom: 2px solid var(--color-primary, #CA8A04); }
+       where it visually looked like it would). Both borders transition in
+       (explicit follow-up, 2026-10-06: "smooth transition ... not like
+       blinking") instead of snapping on/off as the cursor crosses row
+       boundaries — a plain 2px solid border has nothing to transition
+       FROM, so each starts at 0 width/transparent and animates to its
+       real value; box-sizing keeps the row's own height from jumping by
+       ~2px as the border grows in. */
+    .pj-row { border-top: 2px solid transparent; border-bottom: 2px solid transparent; box-sizing: border-box; transition: border-color 120ms ease; }
+    .pj-row-drag-over-before { border-top-color: var(--color-primary, #CA8A04); }
+    .pj-row-drag-over:not(.pj-row-drag-over-before) { border-bottom-color: var(--color-primary, #CA8A04); }
 </style>
 
 {{-- Intro paragraph removed (explicit request, 2026-09-23: "i want you te
@@ -811,11 +818,13 @@
     // which side it'll land on BEFORE you release, so the drop position
     // is never a surprise.
     let draggedRowKey = null;
+    let draggedFromSection = null;
     let dropBefore = false;
     document.addEventListener('dragstart', (e) => {
         const row = e.target.closest('.pj-row');
         if (!row) return;
         draggedRowKey = row.dataset.rowKey;
+        draggedFromSection = row.dataset.rowSection;
         row.classList.add('opacity-40');
         e.dataTransfer.effectAllowed = 'move';
     });
@@ -825,10 +834,20 @@
         draggedRowKey = null;
         document.querySelectorAll('.pj-row-drag-over').forEach((el) => el.classList.remove('pj-row-drag-over', 'pj-row-drag-over-before'));
     });
+    // COD Fee/Fulfillment Fee can never leave Selling & Marketing (see
+    // RowOrder::LOCKED_TO_SELLING's own doc comment for why — their
+    // dollar value is a hardcoded formula that always lands in Total
+    // Selling Costs regardless of what section they'd otherwise report
+    // under). The server already refuses this move (moveAfter() ignores
+    // it), but blocking it here too means a drag toward Operating just
+    // never shows a drop indicator there at all, instead of accepting the
+    // drop and then reloading to silently snap it back.
+    const lockedToSellingKeys = @json(\App\Support\RowOrder::LOCKED_TO_SELLING);
     document.addEventListener('dragover', (e) => {
         if (!draggedRowKey) return;
         const row = e.target.closest('.pj-row');
         if (!row || row.dataset.rowKey === draggedRowKey) return;
+        if (lockedToSellingKeys.includes(draggedRowKey) && row.dataset.rowSection !== 'selling') return;
         e.preventDefault();
         const rect = row.getBoundingClientRect();
         dropBefore = (e.clientY - rect.top) < rect.height / 2;
@@ -843,6 +862,21 @@
         e.preventDefault();
         const section = targetRow.dataset.rowSection;
         const targetKey = targetRow.dataset.rowKey;
+
+        // Recomputed from targetRow HERE, not trusted from the module-level
+        // `dropBefore` the last dragover set — root-caused live ("why is
+        // the saved drag sometimes different from what i dragged"):
+        // dragover and drop each independently resolve their own row via
+        // e.target.closest('.pj-row'), and on a fast drag/release the
+        // browser can fire drop on a DIFFERENT row (or a different point
+        // within the same row) than whichever one the LAST dragover event
+        // happened to land on and compute dropBefore for — the save then
+        // silently used a stale top/bottom-half reading from a row that
+        // isn't even the one drop resolved to. Recalculating against
+        // targetRow's own current rect makes the saved position always
+        // match the row actually under the cursor on release.
+        const targetRect = targetRow.getBoundingClientRect();
+        dropBefore = (e.clientY - targetRect.top) < targetRect.height / 2;
 
         // after_row_key computed BEFORE the DOM mutation below — reading
         // targetRow.previousElementSibling AFTER inserting the dragged row
@@ -861,15 +895,75 @@
             afterRowKey = prev?.dataset.rowKey ?? null;
         }
 
-        // Moves the dragged row to sit immediately before/after the drop
-        // target (per dropBefore, set live by the last dragover above),
-        // in EVERY dropzone sharing this section (every card on the page)
-        // — same row key, same new position, everywhere at once.
-        document.querySelectorAll(`[data-row-dropzone="${section}"]`).forEach((zone) => {
-            const dragged = zone.querySelector(`.pj-row[data-row-key="${draggedRowKey}"]`);
-            const target = zone.querySelector(`.pj-row[data-row-key="${targetKey}"]`);
-            if (dragged && target) target.insertAdjacentElement(dropBefore ? 'beforebegin' : 'afterend', dragged);
-        });
+        // A cross-section drop (Selling <-> Operating — explicit request,
+        // 2026-10-06: "is it possible that row in the Selling And
+        // Marketing can change ... drag to Operating Costs ... vise
+        // versa") moves the row into a DIFFERENT total (Total Selling
+        // Costs vs Total Operating Costs), which cascades into Income
+        // Before OPEX/Net Income on EVERY card — not just this row's own
+        // position, so the same-section optimistic DOM move below (just
+        // relocating one <div>) isn't enough on its own here. Instead of
+        // reloading the whole page (explicit follow-up, 2026-10-06: "when
+        // i drag to another row i want to make it it will not reload the
+        // whole page"), the server additionally returns 'cardsHtml' (every
+        // card's own freshly rendered partial, keyed by column key) ONLY
+        // when the move actually crossed sections — swapped in below, same
+        // cross-fade pattern the lock-toggle handler above already uses,
+        // just for every card instead of one.
+        const crossingSections = section !== draggedFromSection;
+
+        if (!crossingSections) {
+            // Moves the dragged row to sit immediately before/after the
+            // drop target (per dropBefore, set live by the last dragover
+            // above), in EVERY dropzone sharing this section (every card
+            // on the page) — same row key, same new position, everywhere
+            // at once.
+            //
+            // FLIP-animated (explicit follow-up, 2026-10-06: "i want to
+            // make it smooth transition of the dragged like it is not like
+            // blinking") — insertAdjacentElement itself is instant, which
+            // read as every affected row (the dragged one AND every row
+            // that shifted up/down to make room for it) teleporting to its
+            // new spot with no animation. First: record every row's CURRENT
+            // position in each zone. [the actual move happens, unchanged].
+            // Last+Invert+Play: for every row whose position changed,
+            // transform it back to where it visually WAS (zero perceived
+            // motion), then transition that transform to none on the very
+            // next frame — the browser animates the real delta instead of
+            // a hand-picked distance, so it stays correct regardless of
+            // how many rows shifted or by how much.
+            const zones = document.querySelectorAll(`[data-row-dropzone="${section}"]`);
+            const firstRects = new Map(); // zone -> (rowKey -> DOMRect)
+            zones.forEach((zone) => {
+                const rects = new Map();
+                zone.querySelectorAll('.pj-row').forEach((row) => rects.set(row.dataset.rowKey, row.getBoundingClientRect()));
+                firstRects.set(zone, rects);
+            });
+
+            zones.forEach((zone) => {
+                const dragged = zone.querySelector(`.pj-row[data-row-key="${draggedRowKey}"]`);
+                const target = zone.querySelector(`.pj-row[data-row-key="${targetKey}"]`);
+                if (dragged && target) target.insertAdjacentElement(dropBefore ? 'beforebegin' : 'afterend', dragged);
+            });
+
+            zones.forEach((zone) => {
+                const firsts = firstRects.get(zone);
+                zone.querySelectorAll('.pj-row').forEach((row) => {
+                    const first = firsts.get(row.dataset.rowKey);
+                    if (!first) return;
+                    const last = row.getBoundingClientRect();
+                    const deltaY = first.top - last.top;
+                    if (Math.abs(deltaY) < 1) return; // didn't actually move — skip the transition entirely, avoids a no-op transitionend never firing cleanly.
+                    row.style.transition = 'none';
+                    row.style.transform = `translateY(${deltaY}px)`;
+                    requestAnimationFrame(() => {
+                        row.style.transition = 'transform 180ms ease';
+                        row.style.transform = '';
+                        row.addEventListener('transitionend', () => { row.style.transition = ''; }, { once: true });
+                    });
+                });
+            });
+        }
 
         fetch('{{ route('data.rows.reorder') }}', {
             method: 'POST',
@@ -881,6 +975,35 @@
             body: new URLSearchParams({ _method: 'PATCH', row_key: draggedRowKey, after_row_key: afterRowKey ?? '', section }).toString(),
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then((body) => {
+                // 'cardsHtml' is only present when the server itself
+                // resolved a genuine cross-section move (it checks the
+                // row's own before/after section, not this request's
+                // guess) — absent both when this was already a
+                // same-section drag AND when a LOCKED_TO_SELLING row's
+                // cross-section attempt got silently refused (its own
+                // dragover guard above should have already stopped that
+                // case from reaching here at all; this is the fallback if
+                // it somehow didn't).
+                // Absent 'cardsHtml' with crossingSections true means the
+                // locked-row refusal case (COD Fee/Fulfillment Fee) — the
+                // optimistic DOM move was already skipped above (see the
+                // `if (!crossingSections)` guard), so there's nothing to
+                // undo here.
+                if (body?.cardsHtml) {
+                    Object.entries(body.cardsHtml).forEach(([key, html]) => {
+                        const card = document.querySelector(`.pj-card[data-key="${key}"]`);
+                        if (!card) return;
+                        const wrapper = document.createElement('div');
+                        wrapper.innerHTML = html.trim();
+                        const freshCard = wrapper.firstElementChild;
+                        freshCard.style.transition = 'opacity 180ms ease';
+                        freshCard.style.opacity = '0';
+                        card.replaceWith(freshCard);
+                        requestAnimationFrame(() => { freshCard.style.opacity = '1'; });
+                    });
+                }
+            })
             .catch(() => {
                 window.showToast?.('Could not save the new row order — try again.', 'error');
                 window.location.reload();

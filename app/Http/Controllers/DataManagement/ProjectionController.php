@@ -5,6 +5,7 @@ namespace App\Http\Controllers\DataManagement;
 use App\Http\Controllers\Controller;
 use App\Models\ProjectionColumn;
 use App\Models\ProjectionCustomRow;
+use App\Models\RowSortOrder;
 use App\Models\Setting;
 use App\Support\ProjectionCalculator;
 use App\Support\RowOrder;
@@ -302,15 +303,43 @@ class ProjectionController extends Controller
 
     /** Shared row drag-reorder (explicit request, 2026-10-02: "can you make
      *  the row can be draggable and can change the position by other row")
-     *  — persists a row's new position within its own section via
-     *  RowOrder::moveAfter(), the SAME ordering both this page's own
-     *  sellingCostRows()/operatingCostRows() and Expected Income's
-     *  identically-named methods read, so a drag on EITHER page reorders
-     *  both (explicit decision, same day: "one shared order everywhere").
-     *  No full-page reload needed on success — the frontend already moved
-     *  the dragged row's own DOM element optimistically on drop; this call
-     *  only needs to persist that same move, not describe a new state for
-     *  the page to re-render. */
+     *  — persists a row's new position via RowOrder::moveAfter(), the SAME
+     *  ordering both this page's own sellingCostRows()/operatingCostRows()
+     *  and Expected Income's identically-named methods read, so a drag on
+     *  EITHER page reorders both (explicit decision, same day: "one shared
+     *  order everywhere"). No full-page reload needed on success — the
+     *  frontend already moved the dragged row's own DOM element
+     *  optimistically on drop; this call only needs to persist that same
+     *  move, not describe a new state for the page to re-render.
+     *
+     *  2026-10-06 (explicit follow-up: "is it possible that row in the
+     *  Selling And Marketing can change ... drag to Operating Costs ...
+     *  vise versa"): `section` is simply whichever section the drop
+     *  TARGET row belongs to (read client-side from its own
+     *  data-row-section) — it no longer has to match $row_key's own
+     *  current section. moveAfter() itself decides whether that's a
+     *  same-section reorder or a real cross-section move (and silently
+     *  refuses the move for cod_fee/fulfillment_fee — see
+     *  RowOrder::LOCKED_TO_SELLING). Returns the row's resolved
+     *  'section' (which may differ from the request's if the lock
+     *  applied) so the frontend can tell a genuine cross-section move
+     *  from a refused one.
+     *
+     *  A genuine cross-section move changes which total the row feeds
+     *  (Total Selling Costs vs Total Operating Costs), which cascades
+     *  into Income Before OPEX/Net Income on EVERY card (Telesales
+     *  Department / Opening+Closing Shift / every Individual TSA
+     *  Monthly+Daily — all derived from Opening/Closing's own P&L, see
+     *  ProjectionCalculator's own doc comment) — a same-section drag's
+     *  plain position-only JSON response can't express that, so this
+     *  additionally returns 'cardsHtml' (column key => freshly rendered
+     *  _column partial, same per-card markup index() itself renders) ONLY
+     *  when the move actually crossed sections, so the frontend can
+     *  cross-fade every card in place instead of reloading the whole page
+     *  (explicit follow-up, 2026-10-06: "when i drag to another row i want
+     *  to make it it will not reload the whole page") — same "swap the
+     *  card's own fresh partial" pattern updateColumn()'s own is_locked
+     *  branch already established, just for every card instead of one. */
     public function reorderRows(Request $request)
     {
         $data = $request->validate([
@@ -319,8 +348,25 @@ class ProjectionController extends Controller
             'section'        => ['required', 'string', 'in:selling,operating'],
         ]);
 
+        $fromSection = RowSortOrder::where('row_key', $data['row_key'])->value('section');
+
         RowOrder::moveAfter($data['row_key'], $data['after_row_key'] ?? null, $data['section']);
 
-        return response()->json(['success' => true]);
+        $resolvedSection = RowSortOrder::where('row_key', $data['row_key'])->value('section');
+
+        $response = ['success' => true, 'section' => $resolvedSection];
+
+        if ($fromSection !== null && $resolvedSection !== $fromSection) {
+            $month   = $this->currentSessionMonth();
+            $columns = ProjectionColumn::where('month', $month)->orderBy('sort_order')->get();
+            $rates   = ProjectionCalculator::allRates();
+            $all     = ProjectionCalculator::forAllColumns($columns, $rates);
+
+            $response['cardsHtml'] = collect($all)
+                ->mapWithKeys(fn ($entry, $key) => [$key => view('data.projections._column', ['entry' => $entry, 'rates' => $rates])->render()])
+                ->all();
+        }
+
+        return response()->json($response);
     }
 }
