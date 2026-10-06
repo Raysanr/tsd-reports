@@ -1019,17 +1019,13 @@ class TsaPerformanceController extends Controller
         // rejected the same way — see ProductPerformance::tally()'s own
         // comment.
         //
-        // Canceled (6) is handled separately from Deleted (7) (fixed
-        // 2026-08-24, real gap: Marisol showed 11 here vs. the Dashboard's
-        // correct 12) — a Canceled order can still carry a genuine upsell
-        // that happened before it was later canceled
-        // (is_upsell_on_voided_order, commit 78c5094); blanket-dropping
-        // every Canceled order here was silently undoing that fix for this
-        // page specifically, exactly the same hand-copied-path drift this
-        // comment already warns about above — see
-        // ProductPerformance::tally()'s own comment for the identical fix.
+        // Canceled (6) is NOT excluded (2026-10-06 reversal — see
+        // ProductPerformance::tally()'s own comment for the identical fix,
+        // kept in sync here for the same hand-copied-path drift reason this
+        // comment already warns about above): a Cancelled order must still
+        // count under whatever disposition it actually carries, same as any
+        // other order, not be dropped just for being cancelled.
         $orders = $orders->reject(fn ($o) => $o->status_code === 7
-            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 

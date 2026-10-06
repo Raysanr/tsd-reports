@@ -111,16 +111,19 @@ class DashboardHourlyShiftCutoffTest extends TestCase
      * leads from POS like in the new leads in the leads report" — hourlyLeads
      * must use the exact same ProductPerformance::tally() 'total' definition
      * Leads Report's own hourly "New Leads" column uses, not a bare
-     * unfiltered order count. A Canceled order (Pancake itself no longer
-     * really has it — Order::DELETED_STATUSES) must not count as a real
-     * lead here, same as it never counts as one anywhere else in this app.
+     * unfiltered order count. A Deleted order (Pancake itself no longer
+     * really has it — status_code 7) must not count as a real lead here,
+     * same as it never counts as one anywhere else in this app. (A Canceled
+     * order, status_code 6, is a different case — see
+     * test_hourly_leads_still_counts_a_canceled_order below; 2026-10-06
+     * reversal.)
      */
     public function test_hourly_leads_excludes_orders_pancake_itself_no_longer_has(): void
     {
         Order::create([
-            'pancake_order_id' => 'cancelled-hourly-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'pancake_order_id' => 'deleted-hourly-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
             'product' => 'SINUXYL', 'raw_tags' => ['GEMMA'], 'is_upsell' => false,
-            'status_code' => 6, // Canceled
+            'status_code' => 7, // Deleted recently
             'pancake_created_at' => '2026-07-22 10:15:00', 'pancake_inserted_at' => '2026-07-22 10:15:00',
             'synced_at' => now(),
         ]);
@@ -129,6 +132,30 @@ class DashboardHourlyShiftCutoffTest extends TestCase
 
         $response->assertOk();
         $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[10] === 0);
+    }
+
+    /**
+     * 2026-10-06 reversal (explicit request: "like for example there's
+     * confirmation w/ upsell but cancelled status. it will still counts") —
+     * a Canceled order (status_code 6) is no longer excluded from
+     * ProductPerformance::tally() at all, so hourlyLeads must count it here
+     * too, same as Leads Report/TSA Performance now do.
+     */
+    public function test_hourly_leads_still_counts_a_canceled_order(): void
+    {
+        Order::create([
+            'pancake_order_id' => 'cancelled-hourly-1', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
+            'product' => 'SINUXYL', 'raw_tags' => ['GEMMA'], 'is_upsell' => false,
+            'disposition' => 'confirmed via call',
+            'status_code' => 6, // Canceled
+            'pancake_created_at' => '2026-07-22 10:15:00', 'pancake_inserted_at' => '2026-07-22 10:15:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->get(route('dashboard', ['date_from' => '2026-07-22', 'date_to' => '2026-07-22']));
+
+        $response->assertOk();
+        $response->assertViewHas('hourlyLeads', fn ($leads) => $leads[10] === 1);
     }
 
     /**

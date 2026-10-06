@@ -817,12 +817,10 @@ class LeadsReportController extends Controller
             // Same exclusions ordersForColumn() already applies for every
             // other column — see this method's own docblock for why the
             // Total cell now matches instead of being the one exception.
-            // Canceled (6) carve-out (2026-08-24) matches
-            // ProductPerformance::tally()'s own fix — a genuine upsell that
-            // happened before an order was later canceled still counts, see
-            // that method's own comment.
+            // Canceled (6) is NOT excluded (2026-10-06 reversal — see
+            // ProductPerformance::tally()'s own comment): a Cancelled order
+            // still counts toward the Total cell like any other order.
             $pairs = $pairs->reject(fn ($pair) => $pair['order']->status_code === 7
-                || ($pair['order']->status_code === 6 && !Order::isBroadRealUpsell($pair['order']))
                 || $pair['order']->excluded_upsell_seller
                 || $pair['order']->is_duplicated_by_logistics);
         }

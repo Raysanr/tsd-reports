@@ -112,16 +112,17 @@ class ProductPerformance
      *  the mismatch confirmed live (202+214=416 hour-bucketed leads vs. 227
      *  in sumRows()'s own total for the same day/team). Same exclusion
      *  filter tally() applies, kept in sync by hand (matches that method's
-     *  own comment on why: Deleted (7) always dropped, Canceled (6) kept
-     *  only when it's a genuine pre-cancellation upsell, excluded-seller/
-     *  duplicated-by-logistics orders dropped). */
+     *  own comment on why: Deleted (7) always dropped; Canceled (6) is NOT
+     *  excluded — a Canceled order still counts under whatever disposition
+     *  it actually carries, same as any other order, see tally()'s own
+     *  comment for the 2026-10-06 reversal — excluded-seller/duplicated-by-
+     *  logistics orders dropped). */
     public static function countedOrdersFor(Collection $products, Collection $orders): Collection
     {
         $ids = collect();
         foreach ($products as $product) {
             $matching = self::matchingOrders($product, $orders, $products)
                 ->reject(fn ($o) => $o->status_code === 7
-                    || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
                     || $o->excluded_upsell_seller
                     || $o->is_duplicated_by_logistics);
             $ids = $ids->merge($matching->pluck('id'));
@@ -320,18 +321,18 @@ class ProductPerformance
         // the SAME lead, not a second real lead — 215 such orders were inflating
         // Leads Report/TSA Performance before this exclusion.
         //
-        // Canceled (6) is handled separately from Deleted (7) here (fixed
-        // 2026-08-24, real gap: Marisol showed 11 here vs. the Dashboard's
-        // correct 12) — Deleted means the order no longer exists in Pancake
-        // at all, always dropped; but a Canceled order can still carry a
-        // genuine upsell that happened before it was later canceled
-        // (is_upsell_on_voided_order, see Order.php's own doc comment,
-        // commit 78c5094) — blanket-dropping every Canceled order here was
-        // silently undoing that fix for every page that flows through
-        // tally(), even though the Dashboard's own Leaderboard (which
-        // doesn't apply this exclusion) already counted it correctly.
+        // Canceled (6) is NOT excluded here (reversed 2026-10-06, explicit
+        // request: "like for example there's confirmation w/ upsell but
+        // cancelled status. it will still counts" — a Cancelled order must
+        // still be reflected in Leads Report/TSA Performance/Dashboard
+        // exactly like any other order, counted under whatever disposition
+        // it actually carries, not silently dropped just for being
+        // cancelled). Deleted (7) is a different case — the order no longer
+        // exists in Pancake at all, so it stays dropped. (This replaces the
+        // narrower 2026-08-24 fix, which only spared a Canceled order when
+        // it carried a genuine pre-cancellation upsell — see git history for
+        // that version if ever needed.)
         $orders = $orders->reject(fn($o) => $o->status_code === 7
-            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 
@@ -624,11 +625,11 @@ class ProductPerformance
      *  version that could drift out of sync with it. */
     public static function ordersForColumn(Collection $orders, string $column): Collection
     {
-        // Same exclusions as tally() above, including the Canceled-but-a-
-        // genuine-upsell carve-out (2026-08-24) — see that method's own
-        // comment for why.
+        // Same exclusions as tally() above — Canceled (6) is NOT excluded
+        // (2026-10-06 reversal, see that method's own comment for why) so a
+        // drilldown popover never shows fewer orders than the cell it
+        // explains counted.
         $orders = $orders->reject(fn($o) => $o->status_code === 7
-            || ($o->status_code === 6 && !Order::isBroadRealUpsell($o))
             || $o->excluded_upsell_seller
             || $o->is_duplicated_by_logistics);
 

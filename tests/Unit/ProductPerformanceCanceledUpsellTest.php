@@ -9,16 +9,16 @@ use Illuminate\Support\Collection;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Explicit request (2026-08-24): Marisol showed 11 "Upsell w/ Confirmation"
- * on the TSA Performance page but 12 on the Dashboard Leaderboard for the
- * same day — root-caused to tally()'s own DELETED_STATUSES rejection
- * dropping a Canceled (status_code 6) order before ever checking whether it
- * was a genuine upsell. is_upsell_on_voided_order (commit 78c5094) exists
- * specifically so a real upsell that happened before an order was later
- * canceled still counts — this blanket rejection was silently undoing that
- * fix for every page going through tally(), even though the Dashboard's own
- * Leaderboard (which never applied this exclusion) already counted it
- * correctly.
+ * Originally added 2026-08-24 for a narrower fix (a Canceled order was only
+ * spared from exclusion when it carried a genuine pre-cancellation upsell).
+ * Superseded 2026-10-06 (explicit request: "like for example there's
+ * confirmation w/ upsell but cancelled status. it will still counts") —
+ * Canceled (status_code 6) is no longer excluded from tally()/
+ * ordersForColumn()/countedOrdersFor() at all; a Cancelled order counts
+ * under whatever disposition it actually carries, same as any other order,
+ * on Leads Report, TSA Performance (aggregate + individual), and Dashboard.
+ * Deleted (status_code 7) is a different case — the order no longer exists
+ * in Pancake at all — and stays excluded everywhere.
  */
 class ProductPerformanceCanceledUpsellTest extends TestCase
 {
@@ -70,10 +70,13 @@ class ProductPerformanceCanceledUpsellTest extends TestCase
         $this->assertSame(1, $row['upsell_confirmation']);
     }
 
-    /** A Canceled order that is NOT a real upsell must still be dropped
-     *  entirely (the original anti-inflation behavior this exclusion was
-     *  built for) — the fix only carves out genuine upsells, nothing else. */
-    public function test_a_canceled_non_upsell_order_is_still_excluded(): void
+    /** A Canceled order that is NOT a real upsell must still count under its
+     *  own disposition, same as any other order (2026-10-06 reversal,
+     *  explicit request: "like for example there's confirmation w/ upsell
+     *  but cancelled status. it will still counts" — Cancelled is no longer
+     *  excluded from Leads Report/TSA Performance/Dashboard at all; only
+     *  Deleted (7) still is, since that order no longer exists in Pancake). */
+    public function test_a_canceled_non_upsell_order_still_counts_under_its_disposition(): void
     {
         $staleCanceled = $this->order([
             'status_code' => 6,
@@ -82,9 +85,9 @@ class ProductPerformanceCanceledUpsellTest extends TestCase
 
         $row = ProductPerformance::tally(collect([$staleCanceled]));
 
-        $this->assertSame(0, $row['total']);
+        $this->assertSame(1, $row['total']);
         $this->assertSame(0, $row['upsell_confirmation']);
-        $this->assertSame(0, $row['confirmed_via_call']);
+        $this->assertSame(1, $row['confirmed_via_call']);
     }
 
     /** Deleted (7) — the order no longer exists in Pancake at all — must
