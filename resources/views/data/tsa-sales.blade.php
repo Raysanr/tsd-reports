@@ -228,24 +228,58 @@
     </div>
 </div>
 
-{{-- Daily entry — one table PER 7-day chunk PER team (same "only 7 days,
-     drag right, next chunk stacks below" convention as DSPPR - TSM
-     Report). Rows are read from the real TsaShift roster — add/remove a
-     TSA via TSA Management, not here. --}}
-@foreach($groupSummaries as $gs)
+{{-- Daily entry — ONE combined table per 7-day chunk (merged 2026-10-06,
+     explicit request: "in the sales summary report, can you make it in
+     one table?" then confirmed against the real sheet's own screenshot —
+     TEAM OPENING SHIFT / TEAM CLOSING SHIFT / TIKTOK UPSELL each as their
+     own tbody with a TOTAL row, inside ONE table, same shape as the
+     "TSA's Running Sales Performance" summary table above, which already
+     combined these the same way; this daily-entry section previously
+     rendered 3 SEPARATE boxed tables instead. $dailyGroups below is built
+     once from $groupSummaries + $tiktokSummary so this loop (and the
+     summary table above) share one definition of "every group in order"
+     — see the top php block's own doc comment.
+
+     Each <tbody>'s own TOTAL row carries data-update-url-template/
+     data-is-tiktok ON ITSELF now, not on the <table> (moved there
+     because a single shared table can no longer carry one save-endpoint
+     for every row — team rows save via update-entry, TikTok rows via
+     update-tiktok-entry) — saveField()'s own JS now resolves both from
+     input.closest('tbody') instead of input.closest('table'); see that
+     function's own comment. Same for refreshDayTotal()/
+     refreshTiktokDayTotal(), which used to sum `table.querySelectorAll(
+     'tbody .tsr-row')` — scoped to the WHOLE table, silently correct only
+     because there used to be exactly one <tbody> per table; now scoped
+     to the specific tbody being edited instead. --}}
+@php
+    $dailyGroups = $groupSummaries->map(fn ($gs) => [
+        'label' => $gs['label'], 'tsas' => $gs['tsas'],
+        'columns' => $dayColumns, 'lastColIndex' => $lastColIndex,
+        'dailyByKey' => $dailyByKey, 'emptyRaw' => $emptyRaw,
+        'isTiktok' => false,
+        'updateUrlTemplate' => route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']),
+        'emptyMessage' => 'No TSAs on this team yet — add one via TSA Management.',
+    ])->push([
+        'label' => $tiktokSummary['label'], 'tsas' => $tiktokSummary['tsas'],
+        'columns' => $tiktokDayColumns, 'lastColIndex' => $tiktokLastColIndex,
+        'dailyByKey' => $tiktokDailyByKey, 'emptyRaw' => $emptyTiktokRaw,
+        'isTiktok' => true,
+        'updateUrlTemplate' => route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']),
+        'emptyMessage' => 'No TSAs in TikTok Upsell yet — add one via TSA Management.',
+    ]);
+@endphp
 @foreach($dateChunks as $chunkIndex => $dates)
 <div class="flex items-center justify-between mb-3">
     @if($chunkIndex === 0)
-    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $gs['label'] }}</h2>
+    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">TSA's Daily Sales Report</h2>
     @else
     <span></span>
     @endif
-    @include('partials.table-actions', ['target' => 'tsrScroller-' . \Illuminate\Support\Str::slug($gs['label']) . '-' . $chunkIndex, 'name' => \Illuminate\Support\Str::slug($gs['label']) . '-daily-entry-' . ($chunkIndex + 1), 'title' => $gs['label'], 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
+    @include('partials.table-actions', ['target' => 'tsrScroller-' . $chunkIndex, 'name' => 'daily-entry-' . ($chunkIndex + 1), 'title' => "TSA's Daily Sales Report", 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
 </div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
-    <div class="overflow-x-auto tsr-scroller" id="tsrScroller-{{ \Illuminate\Support\Str::slug($gs['label']) }}-{{ $chunkIndex }}">
-        <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table"
-               data-update-url-template="{{ route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']) }}">
+    <div class="overflow-x-auto tsr-scroller" id="tsrScroller-{{ $chunkIndex }}">
+        <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table">
             <thead>
                 <tr>
                     <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
@@ -265,14 +299,20 @@
                     @endforeach
                 </tr>
             </thead>
+            @foreach($dailyGroups as $group)
             <tbody>
-                @forelse($gs['tsas'] as $tsa)
-                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $tsa->id }}">
+                <tr class="tsr-group-label-row bg-slate-200 dark:bg-slate-700 font-bold" data-group-label="{{ $group['label'] }}">
+                    <td class="tsr-sticky px-3 py-2" style="background-color:inherit;" colspan="{{ 1 + count($dates) * count($group['columns']) }}">
+                        {{ strtoupper($group['label']) }}
+                    </td>
+                </tr>
+                @forelse($group['tsas'] as $tsa)
+                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60 {{ $group['isTiktok'] ? 'tsr-tiktok-row' : '' }}" data-tsa-id="{{ $tsa->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($tsa->display_name) }}</td>
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $raw = $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
+                            $raw = $group['dailyByKey']->get($tsa->id . ':' . $dateStr, $group['emptyRaw']);
                             $d = \App\Support\TsaSalesCalculator::derive($raw);
                             // AOV automated — explicit request, 2026-10-03:
                             // "also automate AOV like TSA Performance's" —
@@ -283,13 +323,17 @@
                             // TsaSalesReportController::withAutomatedAov()'s
                             // own doc comment for why this stays an
                             // override here instead of a change to
-                            // TsaSalesCalculator itself).
+                            // TsaSalesCalculator itself). TikTok's own rows
+                            // never had this override (every field manual
+                            // there) — same no-op either way since TikTok's
+                            // $raw has no upsell_sales/upsell_confirmation
+                            // keys at all, so the ?? 0 branch always wins.
                             $d['aov'] = ($raw['upsell_confirmation'] ?? 0) > 0
                                 ? $raw['upsell_sales'] / $raw['upsell_confirmation']
-                                : 0.0;
+                                : ($group['isTiktok'] ? $d['aov'] : 0.0);
                         @endphp
-                        @foreach($dayColumns as $i => $col)
-                            @php $borderClass = $i === $lastColIndex ? 'tsr-day-end' : ''; @endphp
+                        @foreach($group['columns'] as $i => $col)
+                            @php $borderClass = $i === $group['lastColIndex'] ? 'tsr-day-end' : ''; @endphp
                             @if($col['editable'])
                             {{-- Negative amounts allowed on every money input
                                  (explicit request, 2026-10-03: "i want to
@@ -310,127 +354,6 @@
                                 // reversing the earlier 2026-10-03
                                 // decision that applied the same 3-tier
                                 // rule to Gross Sales too).
-                                $inputColor = $col['key'] === 'net_income'
-                                    ? $niColorClass($raw[$col['key']])
-                                    : 'text-ink dark:text-slate-100';
-                            @endphp
-                            <td class="px-2 py-1.5 {{ $borderClass }}">
-                                <input type="text" inputmode="{{ ($col['int'] ?? false) ? 'numeric' : 'decimal' }}"
-                                       value="{{ ($col['money'] ?? false) ? number_format($raw[$col['key']], 2) : (($col['pct'] ?? false) ? number_format($raw[$col['key']] * 100, 2) : $raw[$col['key']]) }}"
-                                       data-field="{{ $col['key'] }}" data-date="{{ $dateStr }}"
-                                       @if($col['money'] ?? false) data-money="1" @endif
-                                       @if($col['pct'] ?? false) data-percent="1" @endif
-                                       class="tsr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold {{ $inputColor }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-                            </td>
-                            @else
-                            @php
-                                $cellColor = match (true) {
-                                    $col['key'] === 'net_income' => $niColorClass($d['net_income']),
-                                    $col['key'] === 'ni_pct' && $d['ni_pct'] < 0 => 'text-red-600 dark:text-red-400',
-                                    default => 'text-ink dark:text-slate-100',
-                                };
-                            @endphp
-                            <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
-                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
-                                {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
-                            </td>
-                            @endif
-                        @endforeach
-                    @endforeach
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="{{ 1 + count($dates) * count($dayColumns) }}" class="px-3 py-4 text-center text-ink-muted dark:text-slate-500">
-                        No TSAs on this team yet — add one via TSA Management.
-                    </td>
-                </tr>
-                @endforelse
-            </tbody>
-            <tfoot>
-                <tr class="bg-black text-white font-bold tsr-day-total-row">
-                    <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">TOTAL</td>
-                    @foreach($dates as $date)
-                        @php
-                            $dateStr = $date->toDateString();
-                            $dayRawRows = $gs['tsas']->map(function ($tsa) use ($dailyByKey, $dateStr, $emptyRaw) {
-                                return $dailyByKey->get($tsa->id . ':' . $dateStr, $emptyRaw);
-                            })->all();
-                            $dayTotal = \App\Support\TsaSalesCalculator::sum($dayRawRows);
-                            // AOV automated — see the per-row $d['aov']
-                            // override above for the full reasoning.
-                            $dayUpsellSales = array_sum(array_column($dayRawRows, 'upsell_sales'));
-                            $dayUpsellConfirmation = array_sum(array_column($dayRawRows, 'upsell_confirmation'));
-                            $dayTotal['aov'] = $dayUpsellConfirmation > 0 ? $dayUpsellSales / $dayUpsellConfirmation : 0.0;
-                        @endphp
-                        @foreach($dayColumns as $i => $col)
-                        <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($dayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
-                            data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
-                            {{ ($col['pct'] ?? false) ? $fmtPct($dayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($dayTotal[$col['key']]) : $fmtMoney($dayTotal[$col['key']])) }}
-                        </td>
-                        @endforeach
-                    @endforeach
-                </tr>
-            </tfoot>
-        </table>
-    </div>
-</div>
-@endforeach
-@endforeach
-
-{{-- TikTok Upsell — manually-run section (explicit request, 2026-10-05),
-     separate roster (TsaShift.tiktok_upsell, managed via TSA Management)
-     and separate raw numbers (TsaTiktokEntry) from the real teams above.
-     Every column is manual entry here (see $tiktokDayColumns above) —
-     NOT automated from TSA Performance data like the real teams' Total
-     Orders/Catered Leads/Pick-up Rate/Upselling Rate. --}}
-@foreach($dateChunks as $chunkIndex => $dates)
-<div class="flex items-center justify-between mb-3">
-    @if($chunkIndex === 0)
-    <h2 class="text-sm font-mono font-bold uppercase tracking-widest text-ink dark:text-slate-100">{{ $tiktokSummary['label'] }}</h2>
-    @else
-    <span></span>
-    @endif
-    @include('partials.table-actions', ['target' => 'tsrScroller-tiktok-upsell-' . $chunkIndex, 'name' => 'tiktok-upsell-daily-entry-' . ($chunkIndex + 1), 'title' => $tiktokSummary['label'], 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
-</div>
-<div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
-    <div class="overflow-x-auto tsr-scroller" id="tsrScroller-tiktok-upsell-{{ $chunkIndex }}">
-        <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table tsr-tiktok-days-table"
-               data-update-url-template="{{ route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']) }}">
-            <thead>
-                <tr>
-                    <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
-                    @foreach($dates as $date)
-                    <th colspan="{{ count($tiktokDayColumns) }}" class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap tsr-day-end">
-                        {{ $date->format('D, M j') }}
-                    </th>
-                    @endforeach
-                </tr>
-                <tr>
-                    @foreach($dates as $date)
-                        @foreach($tiktokDayColumns as $i => $col)
-                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-950 {{ $col['headerBg'] }} {{ $i === $tiktokLastColIndex ? 'tsr-day-end' : '' }}">
-                            {{ $col['label'] }}
-                        </th>
-                        @endforeach
-                    @endforeach
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($tiktokSummary['tsas'] as $tsa)
-                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $tsa->id }}">
-                    <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($tsa->display_name) }}</td>
-                    @foreach($dates as $date)
-                        @php
-                            $dateStr = $date->toDateString();
-                            $raw = $tiktokDailyByKey->get($tsa->id . ':' . $dateStr, $emptyTiktokRaw);
-                            $d = \App\Support\TsaSalesCalculator::derive($raw);
-                        @endphp
-                        @foreach($tiktokDayColumns as $i => $col)
-                            @php $borderClass = $i === $tiktokLastColIndex ? 'tsr-day-end' : ''; @endphp
-                            @if($col['editable'])
-                            @php
-                                // Same "only Net Income gets the 3-tier
-                                // rule" change as the main table above.
                                 $inputColor = $col['key'] === 'net_income'
                                     ? $niColorClass($raw[$col['key']])
                                     : 'text-ink dark:text-slate-100';
@@ -471,27 +394,78 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="{{ 1 + count($dates) * count($tiktokDayColumns) }}" class="px-3 py-4 text-center text-ink-muted dark:text-slate-500">
-                        No TSAs in TikTok Upsell yet — add one via TSA Management.
+                    <td colspan="{{ 1 + count($dates) * count($group['columns']) }}" class="px-3 py-4 text-center text-ink-muted dark:text-slate-500">
+                        {{ $group['emptyMessage'] }}
                     </td>
                 </tr>
                 @endforelse
-            </tbody>
-            <tfoot>
-                <tr class="bg-black text-white font-bold tsr-day-total-row">
-                    <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">TOTAL</td>
+                <tr class="bg-slate-800 text-white font-bold tsr-day-total-row"
+                    data-update-url-template="{{ $group['updateUrlTemplate'] }}"
+                    @if($group['isTiktok']) data-is-tiktok="1" @endif>
+                    <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($group['label']) }} TOTAL:</td>
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            $dayRawRows = $tiktokSummary['tsas']->map(function ($tsa) use ($tiktokDailyByKey, $dateStr, $emptyTiktokRaw) {
-                                return $tiktokDailyByKey->get($tsa->id . ':' . $dateStr, $emptyTiktokRaw);
+                            $dayRawRows = $group['tsas']->map(function ($tsa) use ($group, $dateStr) {
+                                return $group['dailyByKey']->get($tsa->id . ':' . $dateStr, $group['emptyRaw']);
                             })->all();
                             $dayTotal = \App\Support\TsaSalesCalculator::sum($dayRawRows);
+                            if (!$group['isTiktok']) {
+                                // AOV automated — see the per-row $d['aov']
+                                // override above for the full reasoning.
+                                $dayUpsellSales = array_sum(array_column($dayRawRows, 'upsell_sales'));
+                                $dayUpsellConfirmation = array_sum(array_column($dayRawRows, 'upsell_confirmation'));
+                                $dayTotal['aov'] = $dayUpsellConfirmation > 0 ? $dayUpsellSales / $dayUpsellConfirmation : 0.0;
+                            }
                         @endphp
-                        @foreach($tiktokDayColumns as $i => $col)
-                        <td class="px-3 py-2.5 text-right {{ $i === $tiktokLastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($dayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
+                        @foreach($group['columns'] as $i => $col)
+                        <td class="px-3 py-2.5 text-right {{ $i === $group['lastColIndex'] ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($dayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $dayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
                             data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
                             {{ ($col['pct'] ?? false) ? $fmtPct($dayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($dayTotal[$col['key']]) : $fmtMoney($dayTotal[$col['key']])) }}
+                        </td>
+                        @endforeach
+                    @endforeach
+                </tr>
+            </tbody>
+            @endforeach
+            {{-- Chunk's own OVERALL TOTAL row (explicit follow-up,
+                 2026-10-06, right after the 3-way merge above: "and
+                 there's overall total" — same role as the summary table's
+                 own OVERALL TOTAL at the very bottom, just for THIS
+                 7-day chunk's own daily figures instead of the whole
+                 selected range) — sums every group's own day-raw-rows
+                 together per date, same TsaSalesCalculator::sum() call
+                 each group's own TOTAL row already makes, just pooling
+                 ACROSS groups instead of within one. --}}
+            <tfoot>
+                <tr class="bg-black text-white font-bold tsr-day-overall-total-row">
+                    <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
+                    @foreach($dates as $date)
+                        @php
+                            $dateStr = $date->toDateString();
+                            $allDayRawRows = $dailyGroups->flatMap(function ($group) use ($dateStr) {
+                                return $group['tsas']->map(fn ($tsa) => $group['dailyByKey']->get($tsa->id . ':' . $dateStr, $group['emptyRaw']));
+                            })->all();
+                            $teamDayRawRows = $dailyGroups->reject(fn ($g) => $g['isTiktok'])->flatMap(function ($group) use ($dateStr) {
+                                return $group['tsas']->map(fn ($tsa) => $group['dailyByKey']->get($tsa->id . ':' . $dateStr, $group['emptyRaw']));
+                            });
+                            $allDayTotal = \App\Support\TsaSalesCalculator::sum($allDayRawRows);
+                            // AOV automated for the real-team portion only
+                            // (same reasoning as every other group total
+                            // above) — TikTok's own rows have no
+                            // upsell_sales/upsell_confirmation to pool in,
+                            // so AOV here reflects the real teams' actual
+                            // tracked upsell revenue, same definition the
+                            // page's own summary table OVERALL TOTAL uses
+                            // (TsaSalesReportController::withAutomatedAov()).
+                            $allUpsellSales = array_sum(array_column($teamDayRawRows->all(), 'upsell_sales'));
+                            $allUpsellConfirmation = array_sum(array_column($teamDayRawRows->all(), 'upsell_confirmation'));
+                            $allDayTotal['aov'] = $allUpsellConfirmation > 0 ? $allUpsellSales / $allUpsellConfirmation : 0.0;
+                        @endphp
+                        @foreach($dayColumns as $i => $col)
+                        <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($allDayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $allDayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
+                            data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
+                            {{ ($col['pct'] ?? false) ? $fmtPct($allDayTotal[$col['key']]) : (($col['int'] ?? false) ? number_format($allDayTotal[$col['key']]) : $fmtMoney($allDayTotal[$col['key']])) }}
                         </td>
                         @endforeach
                     @endforeach
@@ -580,12 +554,13 @@
     }
 
     function applyDerived(row, date, derived) {
-        // tsr-day-total-row has a dark (bg-black) background — its own
-        // Net Income cell uses the dark-mode-only class variant (no
-        // explicit text-ink, same as every other total/footer row on this
-        // page), same distinction $niColorClass's own $darkMode param
-        // makes server-side.
-        const isDarkRow = row.classList.contains('tsr-day-total-row');
+        // tsr-day-total-row/tsr-day-overall-total-row both have a dark
+        // (bg-slate-800/bg-black) background — their own Net Income cell
+        // uses the dark-mode-only class variant (no explicit text-ink,
+        // same as every other total/footer row on this page), same
+        // distinction $niColorClass's own $darkMode param makes
+        // server-side.
+        const isDarkRow = row.classList.contains('tsr-day-total-row') || row.classList.contains('tsr-day-overall-total-row');
         row.querySelectorAll(`[data-out][data-date="${date}"]`).forEach((el) => {
             const key = el.dataset.out;
             if (!(key in derived)) return;
@@ -611,8 +586,15 @@
         });
     }
 
-    function refreshDayTotal(table, date) {
-        const rows = table.querySelectorAll('tbody .tsr-row');
+    // $scope: the row's own <tbody> (2026-10-06 — scoped per-GROUP now
+    // that TEAM OPENING/TEAM CLOSING/TIKTOK UPSELL share one combined
+    // <table> per 7-day chunk, each as its own <tbody> with its own
+    // TOTAL row; querying the whole table here would silently sum every
+    // group's rows into one, same "whole table" bug the merge would
+    // otherwise introduce — see this section's own Blade comment above
+    // the daily-entry loop).
+    function refreshDayTotal(scope, date) {
+        const rows = scope.querySelectorAll('.tsr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
         rows.forEach((row) => {
@@ -642,7 +624,7 @@
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
             upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
         };
-        const totalRow = table.querySelector('.tsr-day-total-row');
+        const totalRow = scope.querySelector('.tsr-day-total-row');
         if (totalRow) applyDerived(totalRow, date, derived);
     }
 
@@ -790,8 +772,10 @@
     // [data-field] input here (unlike the real teams' tables, where
     // Total Orders/Catered Leads/Pick-up/Upselling Rate are read-only
     // [data-out] cells), so this can't reuse refreshDayTotal() above.
-    function refreshTiktokDayTotal(table, date) {
-        const rows = table.querySelectorAll('tbody .tsr-row');
+    // $scope: TikTok's own <tbody> — same per-group scoping fix as
+    // refreshDayTotal()'s own comment.
+    function refreshTiktokDayTotal(scope, date) {
+        const rows = scope.querySelectorAll('.tsr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
         rows.forEach((row) => {
@@ -811,7 +795,51 @@
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
             upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
         };
-        const totalRow = table.querySelector('.tsr-day-total-row');
+        const totalRow = scope.querySelector('.tsr-day-total-row');
+        if (totalRow) applyDerived(totalRow, date, derived);
+    }
+
+    // Chunk's own OVERALL TOTAL row (2026-10-06, same follow-up as the
+    // merge itself: "and there's overall total") — pools EVERY row in
+    // the table for this date, real-team AND TikTok alike. Reads each
+    // row by whichever shape it actually has (team rows: total_orders/
+    // catered_leads/pickup_rate/upselling_rate are read-only [data-out]
+    // cells; TikTok rows: every field is a [data-field] input — same
+    // distinction refreshDayTotal()/refreshTiktokDayTotal() each handle
+    // separately, now reconciled into one pass here via each row's own
+    // .tsr-tiktok-row marker class).
+    function refreshDayOverallTotal(table, date) {
+        const rows = table.querySelectorAll('.tsr-row');
+        let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
+        let pickupSum = 0, upsellSum = 0, rowCount = 0;
+        rows.forEach((row) => {
+            const isTiktokRow = row.classList.contains('tsr-tiktok-row');
+            totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
+            totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
+            if (isTiktokRow) {
+                totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
+                totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
+                pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
+                upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
+            } else {
+                totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
+                totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
+                pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
+                upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
+            }
+            rowCount += 1;
+        });
+        // No 'aov' key — same "leave the existing cell untouched, it's
+        // automated server-side and doesn't move from a Gross Sales/Net
+        // Income edit" reasoning as refreshDayTotal()'s own comment.
+        const derived = {
+            gross_sales: totals.gross_sales, net_income: totals.net_income,
+            total_orders: totals.total_orders, catered_leads: totals.catered_leads,
+            ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
+            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
+            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+        };
+        const totalRow = table.querySelector('.tsr-day-overall-total-row');
         if (totalRow) applyDerived(totalRow, date, derived);
     }
 
@@ -826,7 +854,11 @@
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, dayCount = 0;
 
-        document.querySelectorAll(`.tsr-tiktok-days-table .tsr-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
+        // '.tsr-tiktok-row', not the removed '.tsr-tiktok-days-table'
+        // wrapper (2026-10-06 — TikTok rows now share the same
+        // table/tbody element type as the real teams', so a dedicated
+        // row-level marker is what tells them apart now).
+        document.querySelectorAll(`.tsr-tiktok-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
                 const date = el.dataset.date;
                 totals.gross_sales += parseMoney(el.value);
@@ -875,9 +907,16 @@
         clearTimeout(saveTimers.get(input));
         saveTimers.delete(input);
 
-        const table = input.closest('.tsr-days-table');
-        const isTiktok = table.classList.contains('tsr-tiktok-days-table');
-        const urlTemplate = table.dataset.updateUrlTemplate;
+        // Resolved from the row's own <tbody> now (2026-10-06 — one
+        // combined <table> per 7-day chunk can no longer carry a single
+        // save-endpoint/isTiktok flag; each GROUP's own <tbody> can, via
+        // its own TOTAL row's data-update-url-template/data-is-tiktok —
+        // see this section's own Blade comment above the daily-entry
+        // loop for the full reasoning).
+        const tbody = input.closest('tbody');
+        const groupTotalRow = tbody.querySelector('.tsr-day-total-row');
+        const isTiktok = groupTotalRow.dataset.isTiktok === '1';
+        const urlTemplate = groupTotalRow.dataset.updateUrlTemplate;
         const row = input.closest('.tsr-row');
         const date = input.dataset.date;
         const field = input.dataset.field;
@@ -907,12 +946,13 @@
                 if (input.dataset.money === '1') updateMoneyInputColor(input);
                 if (data?.derived) applyDerived(row, date, data.derived);
                 if (isTiktok) {
-                    refreshTiktokDayTotal(table, date);
+                    refreshTiktokDayTotal(tbody, date);
                     refreshTiktokSummaryRow(row.dataset.tsaId);
                 } else {
-                    refreshDayTotal(table, date);
+                    refreshDayTotal(tbody, date);
                     refreshSummaryRow(row.dataset.tsaId);
                 }
+                refreshDayOverallTotal(tbody.closest('table'), date);
             })
             .catch(() => {
                 flashStatus('Could not save — try again.', true);

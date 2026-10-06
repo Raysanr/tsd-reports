@@ -626,4 +626,134 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertNotEmpty($matches, 'expected to find the OVERALL TOTAL row');
         $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*6,000\.00\s*</', $matches[0]);
     }
+
+    /**
+     * Daily entry — merged into ONE table per 7-day chunk (explicit
+     * request, 2026-10-06: "in the sales summary report, can you make it
+     * in one table?" — confirmed against the real sheet's own screenshot:
+     * TEAM OPENING SHIFT / TEAM CLOSING SHIFT / TIKTOK UPSELL each as
+     * their own section with a TOTAL row, inside one table, same shape
+     * as the "TSA's Running Sales Performance" summary table above it).
+     * Previously rendered as 3 SEPARATE boxed tables. Confirms only ONE
+     * .tsr-days-table exists per chunk, and both real-team group labels
+     * plus TIKTOK UPSELL all appear inside it.
+     */
+    public function test_the_daily_entry_section_renders_one_combined_table_per_chunk(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        preg_match_all('/class="[^"]*\btsr-days-table\b[^"]*"/', $content, $tableMatches);
+        $this->assertCount(1, $tableMatches[0], 'expected exactly ONE .tsr-days-table for the single 7-day chunk, not one per group');
+
+        preg_match('/<table class="[^"]*tsr-days-table[^"]*">.*?<\/table>/s', $content, $tableBody);
+        $this->assertNotEmpty($tableBody, 'expected to find the combined daily table');
+        $this->assertStringContainsString('EYECARE TOTAL:', $tableBody[0]);
+        $this->assertStringContainsString('SH NATURALS TOTAL:', $tableBody[0]);
+        $this->assertStringContainsString('TIKTOK UPSELL TOTAL:', $tableBody[0]);
+    }
+
+    /** Each group's own TOTAL row carries its own save-endpoint/isTiktok
+     *  flag now (moved off the shared <table> — a single table can no
+     *  longer carry one save-endpoint for every row once team AND TikTok
+     *  rows share it) — confirms the real team's row points at
+     *  update-entry (no data-is-tiktok) and TikTok's own row points at
+     *  update-tiktok-entry (with data-is-tiktok="1"). */
+    public function test_each_groups_total_row_carries_its_own_save_endpoint(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        // "TIKTOK UPSELL TOTAL:"/"EYECARE TOTAL:" each appear TWICE on the
+        // page — once in the top summary table's own group-total row,
+        // once in the merged daily-entry table below it — so this scopes
+        // to the daily table specifically (the one actually bearing
+        // data-update-url-template/data-is-tiktok) rather than
+        // strpos()'s first (summary table) hit.
+        $dailyTableStart = strpos($content, 'tsr-days-table');
+        $this->assertNotFalse($dailyTableStart, 'expected to find the daily entry table');
+
+        $tiktokTotalPos = strpos($content, 'TIKTOK UPSELL TOTAL:', $dailyTableStart);
+        $this->assertNotFalse($tiktokTotalPos);
+        $tiktokRowStart = strrpos(substr($content, 0, $tiktokTotalPos), '<tr class="bg-slate-800');
+        $tiktokRowHtml = substr($content, $tiktokRowStart, $tiktokTotalPos - $tiktokRowStart);
+        $this->assertStringContainsString('data-is-tiktok="1"', $tiktokRowHtml);
+        $this->assertStringContainsString(route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']), $tiktokRowHtml);
+
+        $sinceEyecarePos = strpos($content, 'EYECARE TOTAL:', $dailyTableStart);
+        $this->assertNotFalse($sinceEyecarePos);
+        $eyecareRowStart = strrpos(substr($content, 0, $sinceEyecarePos), '<tr class="bg-slate-800');
+        $eyecareRowHtml = substr($content, $eyecareRowStart, $sinceEyecarePos - $eyecareRowStart);
+        $this->assertStringNotContainsString('data-is-tiktok', $eyecareRowHtml);
+        $this->assertStringContainsString(route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']), $eyecareRowHtml);
+    }
+
+    /** Each real TSA row in the daily entry section is tagged with its
+     *  own group's TOTAL row sitting in the SAME tbody — confirms the
+     *  tbody-scoping fix (refreshDayTotal()/saveField() now resolve the
+     *  save-endpoint and day-total row from input.closest('tbody')
+     *  instead of the whole shared table) by checking a TikTok row's
+     *  marker class exists and a real team row does NOT carry it. */
+    public function test_tiktok_rows_are_marked_separately_from_real_team_rows_in_the_daily_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $otherTsa = TsaShift::skip(1)->first();
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/<tr class="tsr-row[^"]*tsr-tiktok-row[^"]*" data-tsa-id="' . $tsa->id . '"/',
+            $content,
+            "expected {$tsa->display_name}'s TikTok row to carry the tsr-tiktok-row marker"
+        );
+        if ($otherTsa) {
+            preg_match('/<tr class="tsr-row[^"]*" data-tsa-id="' . $otherTsa->id . '"/', $content, $match);
+            $this->assertNotEmpty($match, "expected to find {$otherTsa->display_name}'s own row");
+            $this->assertStringNotContainsString('tsr-tiktok-row', $match[0]);
+        }
+    }
+
+    /** The merged daily-entry table has its OWN "OVERALL TOTAL" row too
+     *  (explicit follow-up, 2026-10-06, right after the 3-way merge
+     *  above: "and there's overall total") — pools every group's own day
+     *  raw rows together, real teams AND TikTok alike, same role the
+     *  page's own summary-table OVERALL TOTAL plays for the whole range. */
+    public function test_the_daily_table_has_its_own_overall_total_row_pooling_every_group(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 4000]);
+        TsaTiktokEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 1500]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        preg_match('/<tr class="bg-black text-white font-bold tsr-day-overall-total-row">.*?<\/tr>/s', $content, $matches);
+        $this->assertNotEmpty($matches, 'expected to find the daily table\'s own OVERALL TOTAL row');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*data-date="' . preg_quote($date, '/') . '"[^>]*>\s*5,500\.00/', $matches[0], 'expected 4000 (real team) + 1500 (TikTok) = 5,500.00');
+    }
 }
