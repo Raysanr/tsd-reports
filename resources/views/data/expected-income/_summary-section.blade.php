@@ -20,10 +20,17 @@
             @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
             {{-- TikTok's own TOTAL — every TikTok-flagged TSA's own 2 fixed
-                 cards, summed together into one card each (explicit
-                 request, 2026-10-05), regardless of team filter, same as
-                 TELESALES above. --}}
+                 cards, summed together into one card (explicit request,
+                 2026-10-05). Originally shown regardless of team filter;
+                 narrowed to ONLY the TIKTOK TEAM filter as of 2026-10-06
+                 (explicit follow-up, right after TikTok was fully split
+                 into its own filter: "why is it there's still tiktok total
+                 card in the opening and closing" — TikTok is "separate
+                 now", so this card no longer belongs on ALL/a real team's
+                 own summary row either, only its own filter's). --}}
+            @if($selectedTeam === 'tiktok')
             @include('data.expected-income._card', ['d' => $tiktokOverallTotal, 'label' => 'TIKTOK TOTAL', 'headerBg' => '#c9daf8', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+            @endif
         </div>
     </div>
 

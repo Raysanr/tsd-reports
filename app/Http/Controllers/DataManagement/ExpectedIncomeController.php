@@ -85,19 +85,30 @@ class ExpectedIncomeController extends Controller
 
         $teamsConfig = Teams::config();
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
+        // TIKTOK TEAM sits right after the real teams (explicit request,
+        // 2026-10-06: "next to the team opening is TIKTOK TEAM") — not a
+        // real Teams::config() entry, see resolveSelectedTeam()'s own doc
+        // comment for why. Only shown at all when at least one TSA is
+        // actually flagged tiktok_upsell, same "don't show a filter with
+        // nothing behind it" convention as every other conditional UI
+        // piece on this page.
         $teams = ['all' => 'ALL'] + array_map(fn ($t) => $t['name'], $teamsConfig);
+        if (TsaShift::where('tiktok_upsell', true)->exists()) {
+            $teams['tiktok'] = 'TIKTOK TEAM';
+        }
 
-        // Only FLAGGED products get a card at all (explicit request,
-        // 2026-10-03: "the only will display on that is has cost
-        // products ... the products that has cost is has check in cost
-        // breakdown page Cost Allocation Per TSA") — same
-        // has_cost_allocation flag TsaDailyRateService::flaggedProductRows()
-        // already uses for the divisor/Daily Rate math, now also
-        // narrowing which PRODUCTS actually render a card here. A grouped
-        // product's row only forms once ProductGrouping::rows() sees this
-        // already-filtered list — an unflagged member silently drops out
-        // of its own group instead of rendering its own card.
-        $products = Product::where('has_cost_allocation', true)->orderBy('team')->orderBy('sort_order')->get();
+        // EVERY product gets a card (reversed 2026-10-06, explicit
+        // request: "it should be all products has product card in the
+        // expected income but it has no cost like in the Operating Costs
+        // row" — supersedes the narrower 2026-10-03 decision that only
+        // rendered a card for FLAGGED products at all). has_cost_allocation
+        // still correctly gates the Operating Costs DIVISOR
+        // (TsaDailyRateService::flaggedProductRows()/productCount() —
+        // unchanged, unaffected by this) — an unflagged product's own card
+        // still renders, just with no share of Operating Costs allocated
+        // to it, same as a flagged product's card already shows real
+        // Operating Costs.
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
 
         // Computed ONCE here (this controller has DB access) and passed
         // explicitly into every derive()/sum() call below — see
@@ -118,28 +129,46 @@ class ExpectedIncomeController extends Controller
         // every product's own card) scopes to the selected team's own real
         // TSAs (explicit correction, 2026-09-30: "when per team filter the
         // Telesales Expected Performance is per team only") — null (every
-        // TSA, site-wide) only in the ALL view.
-        $summaryTeamTsaIds = $selectedTeam === 'all'
-            ? null
-            : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all();
-        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $summaryTeamTsaIds);
+        // TSA, site-wide) only in the ALL view. TIKTOK TEAM has no real
+        // product cards of its own at all (explicit scope, 2026-10-06:
+        // "only tiktok-flagged tsas... just their 2 tiktok cards, not
+        // their normal product cards"), so this whole summary row is
+        // skipped there entirely (see buildSummary()'s own doc comment for
+        // why it only ever makes sense for a real team or ALL) — the
+        // $teamsConfig[$selectedTeam] lookup below never runs for
+        // 'tiktok' since that branch short-circuits first.
+        $summaryData = $selectedTeam === 'tiktok'
+            ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all());
 
         // The DAILY rows below the summary DO change with the team filter
         // (confirmed by the same screenshot: "in the down the yellow is
         // only TSA NAMES" when a team is picked) — one row per calendar
         // day either way, but each day's own card set is either every
-        // product (ALL) or one block per real TSA on that team, her own
-        // name where "TELESALES" used to be, each followed by her
-        // own product cards.
-        $dailyData = $selectedTeam === 'all'
-            ? $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys)
-            : $this->buildTeamDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamsConfig[$selectedTeam]);
+        // product (ALL), one block per real TSA on that team (her own
+        // name where "TELESALES" used to be, each followed by her own
+        // product cards), or — TIKTOK TEAM (explicit request, 2026-10-06:
+        // "separate the tiktok team ... next to the team opening is TIKTOK
+        // TEAM") — one block per TikTok-flagged TSA showing ONLY her 2
+        // TikTok cards, no overview/product cards at all. No separate
+        // builder needed for this third case: buildTiktokRows() below
+        // already computes everything a TikTok block needs
+        // ($tiktokTsaRows), so $dailyData stays empty here and the view's
+        // own @if($selectedTeam === 'tiktok') branch reads $tiktokTsaRows
+        // directly instead of $tsaRows.
+        $dailyData = match ($selectedTeam) {
+            'all'    => $this->buildAllDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys),
+            'tiktok' => ['isRangeSummed' => $dates->count() > 1, 'dailyRows' => collect(), 'dailyOverallTotals' => collect(), 'dailyByKey' => collect(), 'tsaRows' => collect(), 'rangeRows' => null, 'rangeOverallTotal' => null],
+            default  => $this->buildTeamDailyRows($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamsConfig[$selectedTeam]),
+        };
 
         // TikTok's own 2 fixed cards (explicit request, 2026-10-05) — see
         // buildTiktokRows()'s own doc comment. Computed unconditionally
         // (not scoped to $selectedTeam) since $tiktokOverallTotal always
         // shows in the TOTAL section regardless of team filter, same as
-        // $summaryOverallTotal above.
+        // $summaryOverallTotal above — and TIKTOK TEAM's own daily blocks
+        // (above) read straight from this same $tiktokTsaRows, not a
+        // separate query.
         $tiktokData = $this->buildTiktokRows($dates, $dateFrom, $dateTo);
 
         return view('data.expected-income', array_merge($summaryData, $dailyData, $tiktokData, [
@@ -164,7 +193,15 @@ class ExpectedIncomeController extends Controller
      *  gets saved to session; otherwise whatever was last saved; otherwise
      *  'all' on a brand-new session. An invalid/stale team slug (a team
      *  renamed or removed since it was saved) falls back to 'all' rather
-     *  than a broken filter. */
+     *  than a broken filter.
+     *
+     *  'tiktok' (explicit request, 2026-10-06: "i want you to separate the
+     *  tiktok team so it will be like next to the team opening is TIKTOK
+     *  TEAM") is accepted here as a 4th pill value alongside 'all' and the
+     *  real $teamsConfig keys — not a real Teams::config() entry (TikTok-
+     *  flagged TSAs, TsaShift.tiktok_upsell, aren't a real team; they can
+     *  belong to either real team), so it's special-cased rather than
+     *  added there. */
     private function resolveSelectedTeam(Request $request, array $teamsConfig): string
     {
         $team = $request->input('team');
@@ -175,7 +212,7 @@ class ExpectedIncomeController extends Controller
             $team = session('expected-income.team', 'all');
         }
 
-        return $team === 'all' || isset($teamsConfig[$team]) ? $team : 'all';
+        return in_array($team, ['all', 'tiktok'], true) || isset($teamsConfig[$team]) ? $team : 'all';
     }
 
     /** Live refresh for the top "Telesales Expected Performance" row
@@ -199,18 +236,22 @@ class ExpectedIncomeController extends Controller
         $teamsConfig = Teams::config();
         $selectedTeam = $this->resolveSelectedTeam($request, $teamsConfig);
 
-        // Same has_cost_allocation filter as index() above — this AJAX
-        // live-refresh endpoint must never show a different product list
-        // than the page's own initial render.
-        $products = Product::where('has_cost_allocation', true)->orderBy('team')->orderBy('sort_order')->get();
+        // Same (now unfiltered — 2026-10-06, see index()'s own doc
+        // comment) product list as index() above — this AJAX live-refresh
+        // endpoint must never show a different product list than the
+        // page's own initial render.
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
-        $summaryTeamTsaIds = $selectedTeam === 'all'
-            ? null
-            : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all();
-        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $summaryTeamTsaIds);
+        // TIKTOK TEAM has no real product cards (see index()'s own
+        // identical branch/doc comment, 2026-10-06) — same empty/zeroed
+        // shape here so this AJAX fragment never disagrees with the
+        // initial page render.
+        $summaryData = $selectedTeam === 'tiktok'
+            ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all());
 
         // TikTok's own TOTAL card (explicit request, 2026-10-05) — this
         // fragment is re-rendered after every autosave, including a save
@@ -339,7 +380,22 @@ class ExpectedIncomeController extends Controller
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
-            return $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$productCardLookups);
+            // Every product now gets a card (2026-10-06 — see index()'s
+            // own doc comment), but the per-TSA Operating Costs/Tax
+            // Allocation SHARE this method adds back on is only a real
+            // number for a FLAGGED product (TsaDailyRateService::
+            // flaggedProductRows()'s own divisor only counts flagged
+            // products at all) — an unflagged one has no share of that
+            // cost to begin with, so it must show its raw (manually-saved,
+            // un-allocated) operating_lines/tax_allocation instead of
+            // silently inheriting the exact same figure every flagged
+            // card shows (confirmed live, 2026-10-06: "it should be all
+            // products has product card ... but it has no cost like in
+            // the Operating Costs row" — same gate as buildTeamDailyRows()'s
+            // identical fix, same day).
+            return $groupProducts->first()->has_cost_allocation
+                ? $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$productCardLookups)
+                : $derived;
         });
 
         // Every product/day's own RAW row (not $cards's own already-derived
@@ -658,6 +714,13 @@ class ExpectedIncomeController extends Controller
                 $rangeRows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dates, $sellingKeys, $operatingKeys, $productCardOverridesForRange, $productCardTaxAllocationForRange) {
                     $pooled = $groupProducts->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())));
                     $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
+                    // Every product now gets a card (2026-10-06), but the
+                    // per-product Operating Costs/Tax Allocation share only
+                    // applies to a FLAGGED product — see buildSummaryRow()'s
+                    // identical gate/doc comment for the full reasoning.
+                    if (!$groupProducts->first()->has_cost_allocation) {
+                        return $summed;
+                    }
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverridesForRange);
                     return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $productCardTaxAllocationForRange);
                 });
@@ -680,6 +743,13 @@ class ExpectedIncomeController extends Controller
                 $rows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dateStr, $sellingKeys, $operatingKeys, $productCardOverrides, $productCardTaxAllocation) {
                     $pooled = $groupProducts->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr));
                     $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
+                    // Every product now gets a card (2026-10-06), but the
+                    // per-product Operating Costs/Tax Allocation share only
+                    // applies to a FLAGGED product — see buildSummaryRow()'s
+                    // identical gate/doc comment for the full reasoning.
+                    if (!$groupProducts->first()->has_cost_allocation) {
+                        return $summed;
+                    }
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverrides);
                     return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $productCardTaxAllocation);
                 });
@@ -775,13 +845,25 @@ class ExpectedIncomeController extends Controller
                 return [$cardKey => $rows];
             });
 
+            // Her own "[TSA NAME]" overview card for the TIKTOK TEAM filter
+            // (explicit follow-up, 2026-10-06: "in the tiktok it should be
+            // have tsa card too") — same role as buildTeamDailyRows()'s own
+            // overview card (a read-only rollup sitting above her real
+            // cards, same visual anchor a real team filter already has),
+            // but pooling only HER OWN 2 TikTok cards here, not her real
+            // product cards (those stay out of scope for this filter — see
+            // this method's own class-level doc comment). Flattens both
+            // cards' raw rows across every date in range either way, so a
+            // multi-day range sums correctly the same way $cards above does.
+            $overallTotal = ExpectedIncomeCalculator::sum($rowsByCard->flatMap(fn ($rows) => $rows->pluck('raw'))->all());
+
             if ($isRangeSummed) {
                 $cards = $rowsByCard->map(fn ($rows, $cardKey) => [
                     'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
                     'derived' => ExpectedIncomeCalculator::sum($rows->pluck('raw')->all()),
                 ])->values();
 
-                return ['tsa' => $tsa, 'isRangeSummed' => true, 'cards' => $cards];
+                return ['tsa' => $tsa, 'isRangeSummed' => true, 'cards' => $cards, 'overallTotal' => $overallTotal];
             }
 
             $dateStr = $dates->first()->toDateString();
@@ -794,7 +876,7 @@ class ExpectedIncomeController extends Controller
                 ];
             })->values();
 
-            return ['tsa' => $tsa, 'isRangeSummed' => false, 'dateStr' => $dateStr, 'cards' => $cards];
+            return ['tsa' => $tsa, 'isRangeSummed' => false, 'dateStr' => $dateStr, 'cards' => $cards, 'overallTotal' => $overallTotal];
         });
 
         return [
@@ -1233,7 +1315,15 @@ class ExpectedIncomeController extends Controller
                 ?? new ExpectedIncomeEntry(['product_id' => $product->id, 'tsa_id' => $tsaId, 'entry_date' => $entryDate]);
 
             $derived = ExpectedIncomeCalculator::derive($this->withCustomRowValues($entry, $tsaId, $entryDate), $sellingKeys, $operatingKeys);
-            return $this->withOperatingCostOverridesIfTsaScoped($derived, $tsaId);
+            // Same gate as buildTeamDailyRows()/buildSummaryRow()'s own
+            // initial-page-render fix (2026-10-06) — an UNFLAGGED
+            // product's live autosave response must also show NO
+            // Operating Costs/Tax Allocation share, not just the initial
+            // render (real bug caught live: editing Gross Sales on an
+            // unflagged product's card was refreshing it back to the
+            // locked/overridden figures via THIS endpoint, even after the
+            // page-render fix already corrected the initial load).
+            return $product->has_cost_allocation ? $this->withOperatingCostOverridesIfTsaScoped($derived, $tsaId) : $derived;
         }
 
         $memberEntries = ExpectedIncomeEntry::whereIn('product_id', $group->products->pluck('id'))
@@ -1247,7 +1337,11 @@ class ExpectedIncomeController extends Controller
         });
 
         $summed = ExpectedIncomeCalculator::sum($pooled->all(), $sellingKeys, $operatingKeys);
-        return $this->withOperatingCostOverridesIfTsaScoped($summed, $tsaId);
+        // Same gate — a grouped card's own flag is its FIRST member's
+        // (same "the group's first member owns the edit" convention
+        // ProductGrouping::rows()/TsaDailyRateService::flaggedProductRows()
+        // already use).
+        return $group->products->first()->has_cost_allocation ? $this->withOperatingCostOverridesIfTsaScoped($summed, $tsaId) : $summed;
     }
 
     /** Every Operating Costs row AND Tax Allocation on a TSA-scoped card are

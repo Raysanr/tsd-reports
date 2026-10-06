@@ -90,11 +90,81 @@
      PER REAL TSA on that team, her own name where the overall card's
      title used to be, each followed by her own product cards — for EVERY
      date, same per-day stacking either way. --}}
+{{-- TIKTOK TEAM (explicit request, 2026-10-06: "separate the tiktok team
+     so it will be like next to the team opening is TIKTOK TEAM") — one
+     block per TikTok-flagged TSA, same scroller/header shape as a real
+     team's own per-TSA block above, but showing ONLY her 2 TikTok cards
+     (explicit scope: not her normal overview/product cards — those
+     already show under her real team's own filter) — reads $tiktokTsaRows
+     directly (already computed for the TOTAL section regardless of
+     filter) rather than needing its own builder/dailyRows shape. --}}
+@if($selectedTeam === 'tiktok')
+@if($dates->count() > 1)
+    @foreach($tiktokTsaRows as $tsaId => $tsaRow)
+    @php
+        $tsa = $tsaRow['tsa'];
+    @endphp
+    <div class="flex items-center justify-end mb-2">
+        @include('partials.table-actions', ['target' => 'eiTiktokScroller-range-' . $tsa->id, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-tiktok-expected-income', 'title' => $tsa->display_name . ' (TikTok)', 'subtitle' => $snapshotDateLabel, 'pngOnly' => true])
+    </div>
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" id="eiTiktokScroller-range-{{ $tsa->id }}">
+        <div class="flex items-start gap-5 w-max">
+            {{-- Her own "[TSA NAME]" overview card (explicit follow-up,
+                 2026-10-06: "in the tiktok it should be have tsa card too")
+                 — same visual anchor every real team's own per-TSA block
+                 already has, read-only rollup of HER OWN 2 TikTok cards
+                 only (not her real product cards — out of scope here). --}}
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+                <div class="px-5 py-4" style="background:#fde047;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $tsaRow['overallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            </div>
+            @foreach($tsaRow['cards'] as $card)
+            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            @endforeach
+        </div>
+    </div>
+    @endforeach
+@else
+    @foreach($dates as $date)
+    @php
+        $dateStr = $date->toDateString();
+    @endphp
+    @foreach($tiktokTsaRows as $tsaId => $tsaRow)
+    @php
+        $tsa = $tsaRow['tsa'];
+    @endphp
+    <div class="flex items-center justify-end mb-2">
+        @include('partials.table-actions', ['target' => 'eiTiktokScroller-' . $tsa->id . '-' . $dateStr, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-tiktok-expected-income-' . $dateStr, 'title' => $tsa->display_name . ' (TikTok)', 'subtitle' => \Illuminate\Support\Carbon::parse($dateStr)->format('F j, Y'), 'pngOnly' => true])
+    </div>
+    <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}" id="eiTiktokScroller-{{ $tsa->id }}-{{ $dateStr }}">
+        <div class="flex items-start gap-5 w-max">
+            {{-- Her own "[TSA NAME]" overview card — same role as above,
+                 just read-only even on a 1-day selection (same "overview
+                 never editable, only the real cards are" rule every other
+                 team's own overview card already follows). --}}
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+                <div class="px-5 py-4" style="background:#fde047;">
+                    <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
+                </div>
+                @include('data.expected-income._card-body', ['d' => $tsaRow['overallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
+            </div>
+            @foreach($tsaRow['cards'] as $card)
+            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'dateStr' => $dateStr, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
+            @endforeach
+        </div>
+    </div>
+    @endforeach
+    @endforeach
+@endif
+@endif
+
 {{-- ALL-view daily rows removed (explicit request, 2026-09-30: ALL should
      only show Telesales Expected Performance + TEAM 1 + TEAM 2 summary
      rows above, no per-date card rows) — daily per-date cards now only
      render once a real team is picked. --}}
-@if($selectedTeam !== 'all')
+@if($selectedTeam !== 'all' && $selectedTeam !== 'tiktok')
 @if($isRangeSummed)
     {{-- Multi-day range: ONE read-only block per TSA summing the whole
          selected range, instead of a stack repeated per calendar day
@@ -136,15 +206,6 @@
                 @include('data.expected-income._card-body', ['d' => $d, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
             </div>
             @endforeach
-
-            {{-- TikTok's own 2 fixed cards — only for a TSA flagged
-                 tiktok_upsell (explicit request, 2026-10-05), read-only
-                 here same as every other card in a range-summed block. --}}
-            @if($tiktokTsaRows->has($tsa->id))
-            @foreach($tiktokTsaRows[$tsa->id]['cards'] as $card)
-            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
-            @endforeach
-            @endif
         </div>
     </div>
     @endforeach
@@ -185,15 +246,6 @@
             @endphp
             @include('data.expected-income._product-card', ['row' => $row, 'tsa' => $tsa, 'dateStr' => $dateStr, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
-
-            {{-- TikTok's own 2 fixed cards — only for a TSA flagged
-                 tiktok_upsell (explicit request, 2026-10-05), editable
-                 here same as every other card on a 1-day selection. --}}
-            @if($tiktokTsaRows->has($tsa->id))
-            @foreach($tiktokTsaRows[$tsa->id]['cards'] as $card)
-            @include('data.expected-income._tiktok-card', ['card' => $card, 'tsa' => $tsa, 'dateStr' => $dateStr, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true])
-            @endforeach
-            @endif
         </div>
     </div>
     @endforeach

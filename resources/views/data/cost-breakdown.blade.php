@@ -369,26 +369,26 @@
                          per-TSA rows below (COST/Days/% cells blank, no
                          product columns — this row predates the products
                          feature on the real sheet, so it never had any). --}}
-                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs">
+                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs" data-daily-cost-per-product-row>
                         <td class="cb-sticky px-4 py-1.5 font-semibold whitespace-nowrap bg-slate-100 dark:bg-slate-800">Daily Cost per product</td>
                         <td class="px-3 py-1.5"></td>
                         <td class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700"></td>
                         @foreach($pools as $pool)
-                        <td class="px-3 py-1.5 text-right">{{ $fmtMoney($dailyCostPerProductRow[$pool->key] ?? 0) }}</td>
+                        <td class="px-3 py-1.5 text-right" data-out="pool" data-pool-key="{{ $pool->key }}">{{ $fmtMoney($dailyCostPerProductRow[$pool->key] ?? 0) }}</td>
                         @endforeach
-                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white">{{ $fmtMoney($dailyCostPerProductRow['total'] ?? 0) }}</td>
+                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white" data-out="row_total">{{ $fmtMoney($dailyCostPerProductRow['total'] ?? 0) }}</td>
                         @foreach($productRows as $product)
                         <td class="px-3 py-1.5"></td>
                         @endforeach
                     </tr>
-                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs border-b border-line dark:border-slate-700">
+                    <tr class="bg-slate-100 dark:bg-slate-800 text-ink-muted dark:text-slate-400 text-xs border-b border-line dark:border-slate-700" data-daily-cost-row>
                         <td class="cb-sticky px-4 py-1.5 font-semibold whitespace-nowrap bg-slate-100 dark:bg-slate-800">Daily Cost</td>
                         <td class="px-3 py-1.5"></td>
                         <td class="px-3 py-1.5 bg-slate-200 dark:bg-slate-700"></td>
                         @foreach($pools as $pool)
-                        <td class="px-3 py-1.5 text-right">{{ $fmtMoney($dailyCostRow[$pool->key] ?? 0) }}</td>
+                        <td class="px-3 py-1.5 text-right" data-out="pool" data-pool-key="{{ $pool->key }}">{{ $fmtMoney($dailyCostRow[$pool->key] ?? 0) }}</td>
                         @endforeach
-                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white">{{ $fmtMoney($dailyCostRow['total']) }}</td>
+                        <td class="px-4 py-1.5 text-right font-semibold bg-slate-800 dark:bg-slate-950 text-white" data-out="row_total">{{ $fmtMoney($dailyCostRow['total']) }}</td>
                         @foreach($productRows as $product)
                         <td class="px-3 py-1.5"></td>
                         @endforeach
@@ -573,6 +573,26 @@
         refreshCostTableTotals();
     }
 
+    // Patches the "Daily Cost per product"/"Daily Cost" mini-table row at
+    // $selector with a fresh { pool_key: value, ..., total: value } payload
+    // (CostBreakdownCalculator::dailyCostRow()/dailyCostPerProductRow()'s
+    // own shape) — see updatePool()'s own doc comment for why this needs
+    // its own patch separate from applyRecomputed() above (that one is
+    // keyed per-TSA; this row has no TSA to key against at all).
+    function applyDailyCostMiniTableRow(selector, row) {
+        const rowEl = document.querySelector(selector);
+        if (!rowEl) return;
+        Object.entries(row).forEach(([key, value]) => {
+            if (key === 'total') {
+                const el = rowEl.querySelector('[data-out="row_total"]');
+                if (el) el.textContent = fmtMoney(value);
+                return;
+            }
+            const cell = rowEl.querySelector(`[data-out="pool"][data-pool-key="${key}"]`);
+            if (cell) cell.textContent = fmtMoney(value);
+        });
+    }
+
     // Applies a fresh { roleId: overheadValue|null } payload (the
     // controller's own recomputeAllRoleOverhead() shape) — editing one
     // role's own base_salary can change every OTHER role sharing the same
@@ -690,7 +710,18 @@
                 }
 
                 if (data.recomputed) applyRecomputed(data.recomputed);
-                if (row.hasAttribute('data-pool-row')) refreshPoolGrandTotal();
+                if (row.hasAttribute('data-pool-row')) {
+                    refreshPoolGrandTotal();
+                    // The "Daily Cost per product"/"Daily Cost" mini-table
+                    // — NOT scoped to any TSA, so recomputeAllTsaRows()'s
+                    // own per-TSA-keyed 'recomputed' payload above never
+                    // touches it (real bug caught live, 2026-10-06: "why is
+                    // it when i change in the Shared Monthly Cost Pools ...
+                    // why is it not changing?"). updatePool()'s own
+                    // response carries these two rows fresh.
+                    if (data.dailyCostPerProductRow) applyDailyCostMiniTableRow('[data-daily-cost-per-product-row]', data.dailyCostPerProductRow);
+                    if (data.dailyCostRow) applyDailyCostMiniTableRow('[data-daily-cost-row]', data.dailyCostRow);
+                }
             })
             .catch(() => {
                 flashStatus(status, 'Could not save — try again.', true);

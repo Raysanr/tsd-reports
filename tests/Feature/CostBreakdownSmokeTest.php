@@ -513,6 +513,35 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertJsonPath("recomputed.{$tsaA->id}.derived.communication_allowance", fn ($v) => abs($v - $expectedShare) < 0.01);
     }
 
+    /**
+     * Real bug caught live, 2026-10-06: "in the cost breakdown page when i
+     * change in the Shared Monthly Cost Pools ... why is this not
+     * changing?" (the "Daily Cost per product"/"Daily Cost" mini-table) —
+     * that table isn't scoped to any TSA at all, so recomputeAllTsaRows()'s
+     * own per-TSA-keyed 'recomputed' payload never carried it, and the
+     * frontend had no fresh figures to patch it with after a pool edit.
+     * updatePool() now also returns 'dailyCostRow'/'dailyCostPerProductRow'
+     * directly. */
+    public function test_updating_a_pools_amount_also_returns_the_daily_cost_mini_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        $tsaCount = TsaShift::count();
+        $pool = CostBreakdownPool::where('key', 'communication_allowance')->firstOrFail();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-pool', $pool),
+            ['amount' => 1200]
+        );
+
+        $response->assertOk();
+        // Daily Cost = pool ÷ real TSA count ÷ 24 (CostBreakdownCalculator::
+        // dailyCostRow()'s own confirmed formula).
+        $expectedDailyCost = 1200 / $tsaCount / 24;
+        $response->assertJsonPath('dailyCostRow.communication_allowance', fn ($v) => abs($v - $expectedDailyCost) < 0.01);
+        $response->assertJsonPath('dailyCostPerProductRow.communication_allowance', fn ($v) => $v !== null);
+    }
+
     public function test_a_tsa_with_fewer_days_gets_a_smaller_share_and_everyone_else_gets_more(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

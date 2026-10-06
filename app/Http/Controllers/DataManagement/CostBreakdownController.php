@@ -524,10 +524,25 @@ class CostBreakdownController extends Controller
 
         $costBreakdownPool->update($data);
 
+        // "Daily Cost per product"/"Daily Cost" mini-table — NOT scoped to
+        // any TSA (see that table's own doc comment in the view), so it
+        // was never included in recomputeAllTsaRows()'s own per-TSA-keyed
+        // shape and silently stayed stale after a live pool edit (real bug
+        // caught live, 2026-10-06: "why is it when i change in the Shared
+        // Monthly Cost Pools ... [this table] why is it not changing?").
+        // Same two calls index() itself uses to build these rows on a
+        // fresh page load.
+        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $tsaCount = TsaShift::count();
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, $tsaCount);
+        $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, TsaDailyRateService::productCount());
+
         return response()->json([
             'success' => true,
             'pool' => ['key' => $costBreakdownPool->key, 'amount' => $costBreakdownPool->amount],
             'recomputed' => $this->recomputeAllTsaRows(),
+            'dailyCostRow' => $dailyCostRow,
+            'dailyCostPerProductRow' => $dailyCostPerProductRow,
         ]);
     }
 

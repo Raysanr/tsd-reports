@@ -84,12 +84,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringNotContainsString('data-export-csv="eiSummaryScroller"', $content);
     }
 
-    /** Explicit request, 2026-10-03: "the only will display on that is
-     *  has cost products ... the products that has cost is has check in
-     *  cost breakdown page Cost Allocation Per TSA" — an UNFLAGGED
-     *  product renders no card at all on Expected Income, anywhere on
-     *  the page (top summary row included). */
-    public function test_an_unflagged_product_renders_no_card_at_all(): void
+    /** Reversed 2026-10-06 (explicit request: "it should be all products
+     *  has product card in the expected income but it has no cost like
+     *  in the Operating Costs row" — supersedes the narrower 2026-10-03
+     *  decision this test used to encode) — EVERY product gets a card
+     *  regardless of has_cost_allocation; only the per-product Operating
+     *  Costs SHARE (on a TSA-scoped card) is gated on the flag, not the
+     *  card's own existence. */
+    public function test_an_unflagged_product_still_gets_a_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $flagged = Product::first();
@@ -100,31 +102,63 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertSee($flagged->display_name);
-        $response->assertDontSee($unflagged->display_name);
+        $response->assertSee($unflagged->display_name);
     }
 
-    /** Companion to the above — re-flagging a product makes its card
-     *  appear again, confirming this reads the flag live on every
-     *  request rather than caching an initial product list. */
-    public function test_a_newly_flagged_product_gets_a_card(): void
+    /** On a TSA-scoped card (a real team selected), a FLAGGED product's
+     *  Operating Costs rows show the real per-product Cost Breakdown
+     *  share; an UNFLAGGED product's own card shows 0.00 there instead of
+     *  silently inheriting the same figure (real bug caught live,
+     *  2026-10-06: before this fix, every product card — flagged or not —
+     *  showed the identical Operating Costs total, since the per-TSA
+     *  override was applied uniformly with no per-product gate). */
+    public function test_an_unflagged_products_card_shows_no_operating_costs_share(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
-        $product->update(['has_cost_allocation' => false]);
+        CostBreakdownPool::ensureSeeded();
+        $flagged = Product::first();
+        $flagged->update(['has_cost_allocation' => true]);
+        $unflagged = Product::orderBy('id')->skip(1)->first();
+        $unflagged->update(['has_cost_allocation' => false]);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        $before = $this->actingAs($admin)->get(route('data.expected-income'));
-        $before->assertDontSee($product->display_name);
+        $expected = TsaDailyRateService::dailyCostPerProductRow()['communication_allowance'];
+        $this->assertGreaterThan(0, $expected);
 
-        $product->update(['has_cost_allocation' => true]);
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
 
-        $after = $this->actingAs($admin)->get(route('data.expected-income'));
-        $after->assertSee($product->display_name);
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $flaggedPos = strpos($content, 'data-product-id="' . $flagged->id . '"');
+        $this->assertNotFalse($flaggedPos, 'expected to find the flagged product card');
+        $nextCardPos = strpos($content, 'data-product-id=', $flaggedPos + 1) ?: strlen($content);
+        $flaggedSlice = substr($content, $flaggedPos, $nextCardPos - $flaggedPos);
+        $this->assertMatchesRegularExpression(
+            '/data-out="communication_allowance"[^>]*>\s*' . preg_quote(number_format($expected, 2), '/') . '/',
+            $flaggedSlice,
+            'a flagged product card should show its real Cost Breakdown share'
+        );
+
+        $unflaggedPos = strpos($content, 'data-product-id="' . $unflagged->id . '"');
+        $this->assertNotFalse($unflaggedPos, 'expected to find the unflagged product card');
+        $nextCardPos2 = strpos($content, 'data-product-id=', $unflaggedPos + 1) ?: strlen($content);
+        $unflaggedSlice = substr($content, $unflaggedPos, $nextCardPos2 - $unflaggedPos);
+        $this->assertMatchesRegularExpression(
+            '/data-out="communication_allowance"[^>]*>\s*0\.00/',
+            $unflaggedSlice,
+            'an unflagged product card should show NO Operating Costs share'
+        );
     }
 
     /** The AJAX live-refresh endpoint (summary()) must never show a
-     *  different product list than the page's own initial render —
-     *  same filter applied independently there. */
-    public function test_the_summary_endpoint_also_excludes_unflagged_products(): void
+     *  different product list than the page's own initial render — same
+     *  "every product shows" behavior applies there too. */
+    public function test_the_summary_endpoint_also_shows_unflagged_products(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $unflagged = Product::first();
@@ -135,7 +169,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertDontSee($unflagged->display_name);
+        $response->assertSee($unflagged->display_name);
     }
 
     /** Only Gross Sales/Cancelled stay editable inputs — Projected Returns
@@ -1994,6 +2028,41 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertJsonPath('derived.operating_lines.salaries', fn ($v) => $v > 0);
     }
 
+    /**
+     * Real bug caught live, 2026-10-06 (after the initial page-render fix
+     * already landed): "why is it when i delete the gross sell is the
+     * operating costs will be has data?" — editing ANY field on an
+     * UNFLAGGED product's card (Gross Sales here) re-triggers this
+     * autosave endpoint, whose own 'derived' response was STILL applying
+     * the locked Operating Costs/Tax Allocation override unconditionally
+     * (derivedForProductOrGroup()/withOperatingCostOverridesIfTsaScoped()
+     * had no has_cost_allocation gate of their own, a separate code path
+     * from buildTeamDailyRows()'s initial render) — so the card would
+     * flash back to showing a real Operating Costs share the instant you
+     * typed anything, even though the page's own initial load already
+     * correctly showed 0.00 for it. */
+    public function test_updating_an_unflagged_products_card_does_not_apply_an_operating_costs_share(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 19500.00]);
+        $product = Product::first();
+        $product->update(['has_cost_allocation' => false]);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 5000]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.operating_lines.salaries', fn ($v) => (float) $v === 0.0);
+        $response->assertJsonPath('derived.tax_allocation', fn ($v) => (float) $v === 0.0);
+    }
+
     /** A live autosave's returned 'derived' payload reflects the LOCKED Tax
      *  Allocation figure too, not a stale manually-saved value — same
      *  reasoning as the Salaries test above, via
@@ -2121,12 +2190,19 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     }
 
     /** TikTok's own 2 fixed cards — explicit request, 2026-10-05, real
-     *  sheet screenshot: "TIKTOK: SH NATURALS" / "TIKTOK: NATUREVA", shown
-     *  ONLY in a TikTok-flagged TSA's own card stack (TsaShift.
-     *  tiktok_upsell — same flag Summary Sales Report's own TikTok Upsell
-     *  section uses) and folded into the page's overall TOTAL. Fully
-     *  manual — no real Product/team backs either card. */
-    public function test_a_tiktok_flagged_tsas_own_card_stack_shows_both_fixed_cards(): void
+     *  sheet screenshot: "TIKTOK: SH NATURALS" / "TIKTOK: NATUREVA".
+     *  Originally shown inline inside a TikTok-flagged TSA's own card
+     *  stack on her REAL team's filter (TsaShift.tiktok_upsell). Moved
+     *  out entirely as of 2026-10-06 (explicit follow-up, right after the
+     *  TIKTOK TEAM filter pill shipped: "and in the team opening and
+     *  closing it should be has no card of tiktok ... because it is
+     *  separate now") — her 2 TikTok cards now show ONLY under the
+     *  dedicated TIKTOK TEAM filter (see the test_tiktok_team_* tests
+     *  below), never duplicated inline on her real team's own view
+     *  anymore, regardless of her tiktok_upsell flag. Still folded into
+     *  the page's overall TOTAL (TIKTOK TOTAL) either way — unaffected.
+     *  Fully manual — no real Product/team backs either card. */
+    public function test_a_tiktok_flagged_tsas_real_team_view_shows_no_tiktok_cards(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -2139,8 +2215,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        $response->assertSee('TIKTOK: SH NATURALS');
-        $response->assertSee('TIKTOK: NATUREVA');
+        $response->assertDontSee('TIKTOK: SH NATURALS');
+        $response->assertDontSee('TIKTOK: NATUREVA');
     }
 
     public function test_a_tsa_not_flagged_for_tiktok_shows_neither_fixed_card(): void
@@ -2163,16 +2239,30 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     /** The TOTAL section's own "TIKTOK TOTAL" card shows regardless of
      *  team filter or whether any TSA is currently flagged — same
      *  "always renders, even all-zero" convention as TELESALES. */
-    public function test_the_total_section_always_shows_a_tiktok_total_card(): void
+    /** Reversed 2026-10-06 (explicit follow-up, right after TikTok was
+     *  fully split into its own TIKTOK TEAM filter: "why is it there's
+     *  still tiktok total card in the opening and closing" — "it is
+     *  separate now") — TIKTOK TOTAL no longer shows on ALL or a real
+     *  team's own summary row, only on the TIKTOK TEAM filter itself. See
+     *  test_tiktok_team_summary_row_shows_no_real_product_cards for the
+     *  positive case (it DOES show there). */
+    public function test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        TsaShift::first()->update(['tiktok_upsell' => true]);
 
-        $response = $this->actingAs($admin)->get(route('data.expected-income', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+        $allResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => 'all',
         ]));
+        $allResponse->assertOk();
+        $allResponse->assertDontSee('TIKTOK TOTAL');
 
-        $response->assertOk();
-        $response->assertSee('TIKTOK TOTAL');
+        $teamSlug = TsaShift::first()->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $teamResponse = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => $teamSlug,
+        ]));
+        $teamResponse->assertOk();
+        $teamResponse->assertDontSee('TIKTOK TOTAL');
     }
 
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
@@ -2226,8 +2316,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 3000]);
 
+        // 'tiktok' team filter — TIKTOK TOTAL's one home filter as of
+        // 2026-10-06 (see
+        // test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter).
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
-            'date_from' => $date, 'date_to' => $date,
+            'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
         ]));
         $response->assertOk();
 
@@ -2250,11 +2343,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
         $tsa->update(['tiktok_upsell' => true]);
-        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
+        // 'tiktok' team filter, not her real team's own slug — TikTok
+        // cards moved out of the real team view entirely, 2026-10-06 (see
+        // test_a_tiktok_flagged_tsas_real_team_view_shows_no_tiktok_cards'
+        // own doc comment).
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
-            'team' => $teamSlug,
+            'team' => 'tiktok',
         ]));
 
         $response->assertOk();
@@ -2273,12 +2369,13 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
         $tsa->update(['tiktok_upsell' => true]);
-        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
         \App\Models\ProjectionCustomRow::create(['key' => 'custom_tiktok_test_row', 'section' => 'selling', 'label' => 'Custom Tiktok Test Row', 'sort_order' => 99]);
 
+        // 'tiktok' team filter — see test_a_tiktok_card_has_no_data_product_id's
+        // own comment for why this is no longer her real team's slug.
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
-            'team' => $teamSlug,
+            'team' => 'tiktok',
         ]));
 
         $response->assertOk();
@@ -2286,5 +2383,201 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertNotFalse($pos, 'expected to find the TikTok card');
         $cardSlice = substr($response->getContent(), $pos, 4000);
         $this->assertStringNotContainsString('Custom Tiktok Test Row', $cardSlice);
+    }
+
+    /**
+     * TIKTOK TEAM filter pill (explicit request, 2026-10-06: "i want you
+     * to separate the tiktok team so it will be like next to the team
+     * opening is TIKTOK TEAM" — scope confirmed: "only tiktok-flagged
+     * tsas... just their 2 tiktok cards, not their normal product
+     * cards"). Only shown when at least one TSA is actually flagged.
+     */
+    public function test_the_tiktok_team_pill_only_appears_when_a_tsa_is_flagged(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertDontSee('TIKTOK TEAM');
+    }
+
+    public function test_the_tiktok_team_pill_appears_once_a_tsa_is_flagged(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        TsaShift::first()->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK TEAM');
+    }
+
+    /** Selecting TIKTOK TEAM shows a flagged TSA's own 2 TikTok cards. */
+    public function test_selecting_tiktok_team_shows_a_flagged_tsas_tiktok_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK: SH NATURALS');
+        $response->assertSee('TIKTOK: NATUREVA');
+        $response->assertSee($tsa->display_name);
+    }
+
+    /** The whole point of the filter: her normal product cards must NOT
+     *  render here, only the 2 TikTok ones — confirmed scope,
+     *  2026-10-06. */
+    public function test_tiktok_team_does_not_show_a_flagged_tsas_normal_product_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $product = Product::first();
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 5000,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee($product->display_name);
+    }
+
+    /** A TSA NOT flagged for TikTok must never show up under the TIKTOK
+     *  TEAM filter at all. */
+    public function test_tiktok_team_excludes_a_tsa_not_flagged(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsas = TsaShift::take(2)->get();
+        $tsas[0]->update(['tiktok_upsell' => true]);
+        $tsas[1]->update(['tiktok_upsell' => false]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee($tsas[0]->display_name);
+        $response->assertDontSee($tsas[1]->display_name);
+    }
+
+    /** TIKTOK TEAM has no real product cards of its own (explicit scope,
+     *  2026-10-06) — the top summary row's TELESALES card (the per-
+     *  product rollup) still renders (same "always shows, even all-zero"
+     *  convention as the ALL view), but with every figure at zero since
+     *  there's genuinely no product-card data behind it for this filter —
+     *  it must NOT show a real product's own name/card there. TIKTOK
+     *  TOTAL alongside it DOES show here — this is its one home filter as
+     *  of 2026-10-06 (see test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter
+     *  for confirmation it's gone everywhere else). */
+    public function test_tiktok_team_summary_row_shows_no_real_product_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        TsaShift::first()->update(['tiktok_upsell' => true]);
+        $product = Product::first();
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertDontSee($product->display_name);
+        $response->assertSee('TIKTOK TOTAL');
+    }
+
+    /** A multi-day range summed into one read-only block per TSA, same
+     *  "pick a 1-day range for editable inputs" convention as a real
+     *  team's own TikTok cards already follow. */
+    public function test_tiktok_team_on_a_multi_day_range_shows_one_summed_block_per_tsa(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->subDay()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK: SH NATURALS');
+    }
+
+    /**
+     * Her own "[TSA NAME]" overview card (explicit follow-up, 2026-10-06:
+     * "in the tiktok it should be have tsa card too") — a read-only rollup
+     * of HER OWN 2 TikTok cards, pooling both into one Gross Sales figure,
+     * same visual anchor every real team's own per-TSA block already has.
+     */
+    public function test_tiktok_team_shows_a_tsa_overview_card_pooling_her_own_two_cards(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 3000]
+        );
+        $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 2000]
+        );
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $overviewPos = strpos($content, 'data-out-scope="1"');
+        $this->assertNotFalse($overviewPos, 'expected to find the TSA overview card');
+        $overviewSlice = substr($content, $overviewPos, 5000);
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*>\s*5,000\.00/', $overviewSlice, 'overview card should pool both TikTok cards\' Gross Sales (3000 + 2000)');
+    }
+
+    /** An invalid/stale team slug already falls back to 'all' — confirm
+     *  'tiktok' itself is a genuinely accepted value, not silently
+     *  rejected the same way. */
+    public function test_tiktok_is_a_valid_remembered_team_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        TsaShift::first()->update(['tiktok_upsell' => true]);
+
+        $this->actingAs($admin)->get(route('data.expected-income', ['team' => 'tiktok']));
+        $response = $this->actingAs($admin)->get(route('data.expected-income'));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK: SH NATURALS');
+    }
+
+    /** The live AJAX summary() refresh endpoint must not crash for the
+     *  'tiktok' team either — same empty/zeroed summary shape as index()
+     *  uses for this filter. */
+    public function test_the_summary_endpoint_does_not_crash_for_the_tiktok_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        TsaShift::first()->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income.summary', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
     }
 }
