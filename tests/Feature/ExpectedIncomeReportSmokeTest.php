@@ -2315,16 +2315,18 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     }
 
     /** The TOTAL section's own "TIKTOK TOTAL" card shows regardless of
-     *  team filter or whether any TSA is currently flagged — same
-     *  "always renders, even all-zero" convention as TELESALES. */
-    /** Reversed 2026-10-06 (explicit follow-up, right after TikTok was
-     *  fully split into its own TIKTOK TEAM filter: "why is it there's
-     *  still tiktok total card in the opening and closing" — "it is
-     *  separate now") — TIKTOK TOTAL no longer shows on ALL or a real
-     *  team's own summary row, only on the TIKTOK TEAM filter itself. See
+     *  whether any TSA is currently flagged — same "always renders, even
+     *  all-zero" convention as TELESALES. Scope narrowed twice on
+     *  2026-10-06: first reversed off of ALL/a real team's own summary row
+     *  entirely ("why is it there's still tiktok total card in the opening
+     *  and closing" — "it is separate now"), then restored specifically to
+     *  ALL the same day ("in the expected income ALL filter it should be
+     *  have tiktok right?" — ALL is the site-wide rollup, not a real
+     *  team's own filter, so it keeps every total). A REAL team's own
+     *  summary row (TEAM OPENING SHIFT etc.) still never shows it. See
      *  test_tiktok_team_summary_row_shows_no_real_product_cards for the
-     *  positive case (it DOES show there). */
-    public function test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter(): void
+     *  TIKTOK TEAM filter's own positive case. */
+    public function test_the_total_section_shows_a_tiktok_total_card_on_all_but_not_a_real_teams_own_row(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         TsaShift::first()->update(['tiktok_upsell' => true]);
@@ -2333,7 +2335,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => 'all',
         ]));
         $allResponse->assertOk();
-        $allResponse->assertDontSee('TIKTOK TOTAL');
+        $allResponse->assertSee('TIKTOK TOTAL');
 
         $teamSlug = TsaShift::first()->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
         $teamResponse = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -2557,9 +2559,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
      *  convention as the ALL view), but with every figure at zero since
      *  there's genuinely no product-card data behind it for this filter —
      *  it must NOT show a real product's own name/card there. TIKTOK
-     *  TOTAL alongside it DOES show here — this is its one home filter as
-     *  of 2026-10-06 (see test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter
-     *  for confirmation it's gone everywhere else). */
+     *  TOTAL alongside it DOES show here — see
+     *  test_the_total_section_shows_a_tiktok_total_card_on_all_but_not_a_real_teams_own_row
+     *  for where else it does/doesn't show. */
     public function test_tiktok_team_summary_row_shows_no_real_product_cards(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -2574,6 +2576,41 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertOk();
         $response->assertDontSee($product->display_name);
         $response->assertSee('TIKTOK TOTAL');
+    }
+
+    /** ALL also gets its own "TIKTOK TEAM" per-team breakdown row
+     *  (explicit follow-up, 2026-10-06, same request as the TIKTOK TOTAL
+     *  restoration above) — one block per TikTok-flagged TSA, her own name
+     *  card plus her 2 TikTok cards, same shape as the TIKTOK TEAM
+     *  filter's own daily section and as every other team's own row on
+     *  ALL. A TSA not flagged must not appear in it. */
+    public function test_all_shows_a_tiktok_team_breakdown_row_with_only_flagged_tsas(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $flagged = TsaShift::first();
+        $flagged->update(['tiktok_upsell' => true]);
+        $unflagged = TsaShift::skip(1)->first();
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('TIKTOK TEAM');
+        $response->assertSee('TIKTOK: SH NATURALS');
+        $response->assertSee('TIKTOK: NATUREVA');
+        $content = $response->getContent();
+        $scrollerStart = strpos($content, 'id="eiTeamScroller-tiktok"');
+        $this->assertNotFalse($scrollerStart, 'expected the TIKTOK TEAM breakdown row\'s own scroller container to render');
+        // This is the LAST section _summary-section.blade.php renders, so
+        // everything from its scroller to end-of-page belongs to it.
+        $scrollerHtml = substr($content, $scrollerStart);
+
+        $this->assertStringContainsString($flagged->display_name, $scrollerHtml);
+        if ($unflagged) {
+            $this->assertStringNotContainsString($unflagged->display_name, $scrollerHtml, 'an unflagged TSA should not appear inside the TIKTOK TEAM breakdown row');
+        }
     }
 
     /** A multi-day range summed into one read-only block per TSA, same
