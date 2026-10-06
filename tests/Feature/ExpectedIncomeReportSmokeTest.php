@@ -1187,14 +1187,18 @@ class ExpectedIncomeReportSmokeTest extends TestCase
      *  "this card should be the totals of the per-tsa cards" then "each has
      *  Operating Costs and it should be all total in the TELESALES card" —
      *  the TELESALES rollup's own Salaries must total EVERY real TSA on the
-     *  team's own OVERVIEW-card figure (her TOTAL ÷ 24 ÷ flagged-product-
-     *  count, undivided a second time), once each, REGARDLESS of whether
+     *  team's own OVERVIEW-card figure, once each, REGARDLESS of whether
      *  she has any saved entry at all (explicit correction, 2026-10-02 —
      *  reverses this test's own earlier "active = has an entry" premise:
      *  confirmed live, 6 real TSAs with ZERO saved entries between them
      *  still each contribute their own real staffing cost). Flags 2
      *  products but gives only ONE TSA an entry on only ONE of them — the
-     *  rollup must still total ALL of the team's real TSAs regardless. */
+     *  rollup must still total ALL of the team's real TSAs regardless.
+     *
+     *  The "overview-card figure" itself changed 2026-10-06 (see
+     *  test_product_cards_divide_salaries_once_past_the_tsa_overview_card's
+     *  own doc comment) — now her REAL, undivided Daily Rate
+     *  (dailyRateByTsaId()), not the product-divided perProductByTsaId(). */
     public function test_the_range_summary_cards_salaries_totals_every_real_tsas_overview_figure(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -1219,8 +1223,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
         $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
-        $perProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $expectedSalaries = $teamTsaIds->sum(fn ($id) => $perProductByTsaId[$id] ?? 0.0);
+        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        $expectedSalaries = $teamTsaIds->sum(fn ($id) => $dailyRateByTsaId[$id] ?? 0.0);
         $this->assertGreaterThan(0, $expectedSalaries, 'test setup: expected a non-zero Salaries total');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -1293,9 +1297,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // UNDIVIDED overview figure, each × 4 days (explicit correction,
         // 2026-10-02: the rollup totals every real TSA regardless of
         // whether she has an entry, not just whoever happens to have one).
+        // "UNDIVIDED" here means dailyRateByTsaId() as of 2026-10-06 — see
+        // test_product_cards_divide_salaries_once_past_the_tsa_overview_card's
+        // own doc comment for the reversal.
         $teamTsaIds = TsaShift::where('team', $tsa->team)->pluck('id');
-        $perProductByTsaId = \App\Support\TsaDailyRateService::perProductByTsaId();
-        $expectedRollupSalaries = number_format($teamTsaIds->sum(fn ($id) => ($perProductByTsaId[$id] ?? 0.0) * 4), 2);
+        $dailyRateByTsaId = \App\Support\TsaDailyRateService::dailyRateByTsaId();
+        $expectedRollupSalaries = number_format($teamTsaIds->sum(fn ($id) => ($dailyRateByTsaId[$id] ?? 0.0) * 4), 2);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedRollupSalaries, '/') . '/',
             $summaryHtml,
@@ -1308,11 +1315,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // product card totals every real TSA the same way the rollup does,
         // regardless of whether she has an entry on THIS specific
         // product). Sliced to just THIS product's own card (bounded by its
-        // own label through the next card's).
+        // own label through the next card's). perProductByTsaId() (ONE
+        // division), not perProductByTsaIdTwice() — corrected 2026-10-06,
+        // see test_product_cards_divide_salaries_once_past_the_tsa_overview_card's
+        // own doc comment.
         $productCardStart = strpos($summaryHtml, $product->display_name);
         $productCardHtml = substr($summaryHtml, $productCardStart, 20000);
-        $perProductByTsaIdTwice = \App\Support\TsaDailyRateService::perProductByTsaIdTwice();
-        $expectedProductCardSalaries = number_format($teamTsaIds->sum(fn ($id) => ($perProductByTsaIdTwice[$id] ?? 0.0) * 4), 2);
+        $perProductByTsaId = \App\Support\TsaDailyRateService::perProductByTsaId();
+        $expectedProductCardSalaries = number_format($teamTsaIds->sum(fn ($id) => ($perProductByTsaId[$id] ?? 0.0) * 4), 2);
         $this->assertMatchesRegularExpression(
             '/data-out="salaries"[^>]*>\s*' . preg_quote($expectedProductCardSalaries, '/') . '/',
             $productCardHtml,
@@ -1709,14 +1719,22 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Salaries goes through the SAME two-tier division the pool rows
-     *  already follow (explicit correction, 2026-10-01: "the 243.31 is
-     *  the TSA card and in the products, it should be 243.31 / 7 like the
-     *  other costs") — her overview card shows Daily Rate / Product
-     *  (e.g. 243.31), and each individual product card divides THAT
-     *  figure again by product count (e.g. 243.31 ÷ 7 ≈ 34.76), same
-     *  shape as dailyCostRow() → dailyCostPerProductRow(). */
-    public function test_product_cards_divide_salaries_a_second_time_past_the_tsa_overview_card(): void
+    /** Salaries — REVERSED TWICE on 2026-10-06, same day, two explicit
+     *  follow-ups to the same live screenshot comparison:
+     *  (1) "the salaries per tsa card is wrong it should be the Daily
+     *  Rate (÷24) in the cost breakdown page" — her overview card now
+     *  shows her REAL, undivided Daily Rate (dailyRateByTsaId(), matching
+     *  Cost Breakdown's own "Daily Rate (÷24)" column exactly), reversing
+     *  the original 2026-10-01 decision this test encoded (overview
+     *  showed Daily Rate / Product instead).
+     *  (2) "in the products it should be divided by 7 like other cost
+     *  too" (confirmed live: 1,682.86 ÷ 7 ≈ 240.41 expected) — now that
+     *  the overview card is undivided, a PRODUCT card divides it by
+     *  product count exactly ONCE (perProductByTsaId()), same single
+     *  division every other Operating Costs row already gets — NOT
+     *  perProductByTsaIdTwice()'s own two divisions, which this test
+     *  originally asserted and which would now divide by 49, not 7. */
+    public function test_product_cards_divide_salaries_once_past_the_tsa_overview_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
@@ -1725,9 +1743,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
 
-        $overviewFigure = TsaDailyRateService::perProductByTsaId()[$tsa->id];
-        $productCardFigure = TsaDailyRateService::perProductByTsaIdTwice()[$tsa->id];
-        $this->assertGreaterThan($productCardFigure, $overviewFigure, 'test setup: dividing a second time by 2 products should shrink the figure');
+        $overviewFigure = TsaDailyRateService::dailyRateByTsaId()[$tsa->id];
+        $productCardFigure = TsaDailyRateService::perProductByTsaId()[$tsa->id];
+        $this->assertGreaterThan($productCardFigure, $overviewFigure, 'test setup: dividing by 2 products should shrink the figure below the undivided rate');
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
@@ -1781,11 +1799,15 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringNotContainsString('data-field="tax_allocation"', $dailyHtml);
     }
 
-    /** Tax Allocation goes through the SAME two-tier division Salaries
-     *  already follows — her overview card shows the undivided per-team
-     *  Daily Tax figure, and each individual product card divides THAT
-     *  figure again by product count, same shape as
-     *  TsaDailyRateService::perProductByTsaId() → perProductByTsaIdTwice(). */
+    /** Tax Allocation's own two-tier division (NOT the same methods as
+     *  Salaries — Salaries moved to a single division on 2026-10-06, see
+     *  test_product_cards_divide_salaries_once_past_the_tsa_overview_card's
+     *  own doc comment; Tax Allocation's own two-tier shape was untouched
+     *  by that reversal, still unchanged here) — her overview card shows
+     *  the undivided per-team Daily Tax figure, and each individual
+     *  product card divides THAT figure again by product count, same
+     *  shape as TsaDailyRateService::taxAllocationByTsaId() →
+     *  perProductTaxAllocationByTsaId(). */
     public function test_product_cards_divide_tax_allocation_a_second_time_past_the_tsa_overview_card(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

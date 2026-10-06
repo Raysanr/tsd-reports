@@ -355,13 +355,32 @@ class ExpectedIncomeController extends Controller
         // the N+1 performance bug this fixes (root-caused live, 2026-10-02:
         // a full-month per-team filter 500'd on Railway, timing out from
         // re-running this whole lookup chain once per product card).
+        // perProductByTsaIdTwice() -> perProductByTsaId() (2026-10-06,
+        // further correction right after the overview-card fix above:
+        // "in the products it should be divided by 7 like other cost
+        // too" — confirmed live, 1,682.86 ÷ 7 ≈ 240.41 expected, not
+        // ÷7÷7 ≈ 34.34) — a PRODUCT card's own Salaries now divides the
+        // real, undivided Daily Rate by product count ONCE, same single
+        // division every other Operating Costs row already gets
+        // (dailyCostRow() -> dailyCostPerProductRow(), also one
+        // division). perProductByTsaIdTwice() is no longer used for
+        // Salaries anywhere on this page — it stays defined on
+        // TsaDailyRateService in case Tax Allocation's own analogous
+        // method (perProductTaxAllocationByTsaId()) ever needs the same
+        // correction, but that wasn't part of this request.
         $productCardLookups = [
-            TsaDailyRateService::perProductByTsaIdTwice(),
+            TsaDailyRateService::perProductByTsaId(),
             collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all(),
             TsaDailyRateService::perProductTaxAllocationByTsaId(),
         ];
+        // perProductByTsaId() -> dailyRateByTsaId() (2026-10-06, same
+        // reversal as buildTeamDailyRows()'s own overview-card fix, same
+        // day — see that one's own doc comment) — the TELESALES/per-team
+        // rollup card sums every active TSA's own REAL, undivided Daily
+        // Rate now, matching Cost Breakdown's own figure, instead of each
+        // TSA's ÷7 product-divided one.
         $rollupLookups = [
-            TsaDailyRateService::perProductByTsaId(),
+            TsaDailyRateService::dailyRateByTsaId(),
             collect(TsaDailyRateService::dailyCostRow())->except('total')->all(),
             TsaDailyRateService::taxAllocationByTsaId(),
         ];
@@ -450,19 +469,25 @@ class ExpectedIncomeController extends Controller
      *  which under-multiplied her cost whenever she hadn't logged a sale on
      *  every single day in the range).
      *
-     *  $divideByProductCount: false (default, the overall "TELESALES"
-     *  rollup) uses her UNDIVIDED overview-card figure (perProductByTsaId()
-     *  / dailyCostRow()) — the rollup's own role is "the totals of the
-     *  per-TSA cards" (explicit confirmation, 2026-10-01). true (each
-     *  individual product card, called with $products already narrowed to
-     *  just that card's own group — explicit correction, same day: "it
-     *  should be all cards will be multiplied") uses her PRODUCT-card
-     *  figure instead (perProductByTsaIdTwice() / dailyCostPerProductRow()
-     *  — divided a second time by the page's own flagged-product count,
-     *  same figure every one of her product cards already shows), scoped
-     *  to only the TSAs who touched ONE OF THIS GROUP'S OWN products
-     *  somewhere in the range (the $products passed in IS the group's own
-     *  member list in that case, not the whole page's).
+     *  Which lookup array is passed in by the caller decides overview vs
+     *  product-card scope (both via $dailyRateByTsaId's own parameter —
+     *  see buildSummaryRow()'s own $rollupLookups/$productCardLookups):
+     *  the overall "TELESALES" rollup passes her REAL, UNDIVIDED Daily
+     *  Rate (dailyRateByTsaId() / dailyCostRow() — corrected 2026-10-06,
+     *  was perProductByTsaId() before that) — the rollup's own role is
+     *  "the totals of the per-TSA cards" (explicit confirmation,
+     *  2026-10-01). An individual product card (called with $products
+     *  already narrowed to just that card's own group — explicit
+     *  correction, 2026-10-01: "it should be all cards will be
+     *  multiplied") passes her PRODUCT-card figure instead
+     *  (perProductByTsaId() / dailyCostPerProductRow() — divided ONCE by
+     *  the page's own flagged-product count, same single division every
+     *  other Operating Costs row gets; corrected 2026-10-06 from
+     *  perProductByTsaIdTwice()'s own double division, confirmed live:
+     *  "in the products it should be divided by 7 like other cost too"),
+     *  scoped to only the TSAs who touched ONE OF THIS GROUP'S OWN
+     *  products somewhere in the range (the $products passed in IS the
+     *  group's own member list in that case, not the whole page's).
      *
      *  $onlyTsaIds restricts which real TSAs get totaled in — null
      *  (site-wide) means EVERY real TSA company-wide, an array means one
@@ -628,15 +653,34 @@ class ExpectedIncomeController extends Controller
         // Product") — the SAME figure Cost Breakdown's own salary table
         // shows, used for her own "[TSA NAME]" overview card's own
         // Salaries. Each individual PRODUCT card instead divides that
-        // SAME figure a second time by product count (explicit
-        // correction, 2026-10-01: "the 243.31 is the TSA card and in the
-        // products, it should be 243.31 / 7 like the other costs" — same
-        // two-tier pattern as the pool rows below, dailyCostRow() →
-        // dailyCostPerProductRow()). Both computed once per request (not
-        // per card) since they're identical for every one of a TSA's own
-        // cards on a given day.
-        $dailyRateByTsaId = TsaDailyRateService::perProductByTsaId();
-        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
+        // SAME figure by product count (explicit correction, 2026-10-01:
+        // "the 243.31 is the TSA card and in the products, it should be
+        // 243.31 / 7 like the other costs" — same two-tier pattern as the
+        // pool rows below, dailyCostRow() → dailyCostPerProductRow()).
+        //
+        // REVERSED 2026-10-06 (explicit follow-up, from a direct Cost
+        // Breakdown-vs-Expected-Income comparison screenshot: "the
+        // salaries per tsa card is wrong it should be the Daily Rate
+        // (÷24) in the cost breakdown page") — her own "[TSA NAME]"
+        // overview card now shows her REAL, undivided Daily Rate
+        // (dailyRateByTsaId(), ÷24 only — matches Cost Breakdown's own
+        // column exactly) instead of perProductByTsaId()'s own ÷7 figure,
+        // which the 2026-10-01 decision above had it showing instead.
+        // Individual PRODUCT cards ALSO corrected, immediately after
+        // (same day, explicit follow-up: "in the products it should be
+        // divided by 7 like other cost too" — confirmed live, 1,682.86 ÷
+        // 7 ≈ 240.41 expected) — a product card's own Salaries now
+        // divides the real Daily Rate by product count ONCE
+        // (perProductByTsaId()), same single division every other
+        // Operating Costs row already gets, not perProductByTsaIdTwice()'s
+        // two (that double-division only made sense when the overview
+        // card itself was ALSO divided once — now that it isn't, dividing
+        // the product card twice from the true rate was dividing by 49,
+        // not 7). Both computed once per request (not per card) since
+        // they're identical for every one of a TSA's own cards on a given
+        // day.
+        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
 
         // Her own Tax Allocation (explicit request, 2026-10-02: "the tax
         // allocation in tsa cards is should be not editable") — same
@@ -1011,7 +1055,12 @@ class ExpectedIncomeController extends Controller
         // here (not per row) since every TSA's own Salaries figure is the
         // same across every one of her own product/day rows, and the 20
         // pools are the same for every TSA company-wide.
-        $salariesByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
+        // perProductByTsaIdTwice() -> perProductByTsaId() (2026-10-06 —
+        // see buildSummaryRow()'s own $productCardLookups comment for the
+        // full reasoning: a product card's own Salaries divides the real
+        // Daily Rate by product count ONCE, same as every other Operating
+        // Costs row, not twice).
+        $salariesByTsaId = TsaDailyRateService::perProductByTsaId();
         $poolsOverride = TsaDailyRateService::dailyCostPerProductRow();
         $operatingOverridesFor = fn (int $tsaId) => array_merge($poolsOverride, ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]);
 
@@ -1354,8 +1403,13 @@ class ExpectedIncomeController extends Controller
      *  page render already applies (via $productCardOverrides/
      *  $productCardTaxAllocation there), reapplied here so a live
      *  autosave's returned 'derived' payload never shows a stale figure.
-     *  Both use the PRODUCT-divided figure (perProductByTsaIdTwice() /
-     *  perProductTaxAllocationByTsaId()), matching this call site's own
+     *  Operating Costs uses the PRODUCT-divided figure, now a SINGLE
+     *  division (perProductByTsaId() — corrected 2026-10-06, same day as
+     *  the overview-card fix above: "in the products it should be
+     *  divided by 7 like other cost too", confirmed live 1,682.86 ÷ 7 ≈
+     *  240.41, not ÷7÷7 ≈ 34.34); Tax Allocation still uses its own
+     *  perProductTaxAllocationByTsaId() (unaffected — that correction
+     *  wasn't part of this request), matching this call site's own
      *  per-product-card scope — see derivedForProductOrGroup()'s own doc
      *  comment. A null $tsaId (the ALL view's own product-level cards) is
      *  unaffected by either lock. */
@@ -1365,7 +1419,7 @@ class ExpectedIncomeController extends Controller
             return $derived;
         }
 
-        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaIdTwice();
+        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
         $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostPerProductRow(), [
             'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
         ]);
