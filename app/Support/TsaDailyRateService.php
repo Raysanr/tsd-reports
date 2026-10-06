@@ -107,7 +107,14 @@ class TsaDailyRateService
     /** Every real TSA's own plain Daily Rate (her own TOTAL ÷ 24), keyed
      *  by tsa_id — NOT divided by product count at all. Building block
      *  for perProductByTsaId() above; not used directly by any Expected
-     *  Income card itself. */
+     *  Income card itself.
+     *
+     *  Deliberately NOT zeroed for a 0-day TSA (2026-10-06 — briefly tried,
+     *  then explicitly reverted same day: "the salary will be stay because
+     *  the salary will be base to the Daily Rate (÷24)" — her Salaries
+     *  always matches Cost Breakdown's own Salary Breakdown "Daily Rate
+     *  (÷24)" column regardless of Days; only Operating Costs is
+     *  Days-gated, see zeroOperatingCostsIfZeroDay() below). */
     public static function dailyRateByTsaId(): array
     {
         $roles = CostBreakdownRole::all();
@@ -128,8 +135,67 @@ class TsaDailyRateService
         })->all();
     }
 
-    /** Every shared pool's own "Daily Cost" figure — pool amount ÷ real TSA
-     *  count ÷ 24. NOT scoped to any specific TSA — see
+    /** Every real TSA's own id whose Days is currently 0 (2026-10-06) —
+     *  shared by activeTsaCount() above and zeroOperatingCostsIfZeroDay()
+     *  below so "she's not working this period" zeroes her own share of
+     *  every shared Operating Cost pool on Expected Income. Deliberately
+     *  does NOT affect Salaries (always her real Daily Rate ÷24, see
+     *  dailyRateByTsaId()'s own doc comment) or Tax Allocation (see
+     *  taxAllocationByTsaId()'s own doc comment). Same "no saved entry yet
+     *  defaults to 30 days" convention as activeTsaCount()'s own doc
+     *  comment. */
+    private static function zeroDayTsaIds(): \Illuminate\Support\Collection
+    {
+        $tsas = self::allTsas();
+        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+
+        return $tsas->filter(fn (TsaShift $tsa) => (($entriesByTsaId->get($tsa->id)?->days) ?? 30) === 0)->pluck('id');
+    }
+
+    /** Zeroes every key of a pool-cost row (dailyCostRow()/
+     *  dailyCostPerProductRow(), e.g. Communication Allowance, 13th Month
+     *  Allowance, SIL, ...) for a TSA whose own Days is currently 0 —
+     *  otherwise returns $row unchanged. Callers merge a 'salaries' key
+     *  into the row AFTER calling this (see buildTeamDailyRows()'s own
+     *  $productCardOverrides/$overviewCardOverrides) — Salaries is never
+     *  zeroed by Days at all, see dailyRateByTsaId()'s own doc comment, so
+     *  this only ever needs to touch the pool keys. Shared by every
+     *  Expected Income call site that merges a pool-cost row into one
+     *  TSA's own card (explicit request, 2026-10-06: "the salaries is will
+     *  stay but the other costs will be 0.00 when 0 days in the cost
+     *  breakdown"). */
+    public static function zeroOperatingCostsIfZeroDay(int $tsaId, array $row): array
+    {
+        if (!self::zeroDayTsaIds()->contains($tsaId)) {
+            return $row;
+        }
+
+        return array_map(fn () => 0.0, $row);
+    }
+
+    /** The real TSA count feeding "Daily Cost"/"Daily Cost per product"'s
+     *  own divisor — EXCLUDES a TSA whose own Days is 0 (explicit request,
+     *  2026-10-06, live screenshot: "if i make anne 0 days why is it the
+     *  Daily Cost per product, and Daily Cost is not changing ... it
+     *  should be reflect to the cost breakdown that she is 0 and the
+     *  other tsa is same data" — confirmed: a 0-day TSA isn't actually
+     *  working this period, same "not here, everyone else absorbs her
+     *  share" redistribution the Days-based % column (shareOfDays()) in
+     *  the Cost Allocation Per TSA table below already applies; this
+     *  divisor was the one place on the page that still silently counted
+     *  her anyway, e.g. ÷12 instead of ÷11, understating everyone else's
+     *  real daily cost). A TSA with NO saved CostBreakdownTsaEntry row yet
+     *  defaults to 30 days (same "seed_key"-style default every other
+     *  Days read on this page already uses), so a brand-new TSA counts
+     *  normally until someone explicitly zeroes her out. */
+    public static function activeTsaCount(): int
+    {
+        return self::allTsas()->count() - self::zeroDayTsaIds()->count();
+    }
+
+    /** Every shared pool's own "Daily Cost" figure — pool amount ÷ real,
+     *  ACTIVE TSA count (activeTsaCount() above — a 0-day TSA doesn't
+     *  count, 2026-10-06) ÷ 24. NOT scoped to any specific TSA — see
      *  CostBreakdownCalculator::dailyCostRow()'s own doc comment for the
      *  confirmed-exact formula. Keyed by pool key (e.g.
      *  'communication_allowance'). Used by dailyCostPerProductRow() below
@@ -140,7 +206,7 @@ class TsaDailyRateService
     {
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
 
-        return CostBreakdownCalculator::dailyCostRow($poolAmounts, self::allTsas()->count());
+        return CostBreakdownCalculator::dailyCostRow($poolAmounts, self::activeTsaCount());
     }
 
     /** Same "Daily Cost" row from dailyCostRow() above, split further
@@ -211,7 +277,15 @@ class TsaDailyRateService
      *  individual PRODUCT card does NOT use this directly — see
      *  perProductTaxAllocationByTsaId() below (same two-tier "overview
      *  undivided, product divided again by product count" pattern
-     *  Salaries/the pool rows already use). */
+     *  Salaries/the pool rows already use).
+     *
+     *  Deliberately NOT zeroed for a 0-day TSA (2026-10-06 — considered
+     *  alongside dailyRateByTsaId()'s own identical-looking fix, then
+     *  explicitly scoped OUT: "the only has data is Salaries of that
+     *  tsa" — Tax Allocation and Operating Costs stay as company-wide
+     *  overhead figures regardless of any one TSA's own Days; only
+     *  Salaries is "her own personal cost" and goes to 0 when she isn't
+     *  working). */
     public static function taxAllocationByTsaId(): array
     {
         $perShift = self::departmentTaxAllocationPerShift();

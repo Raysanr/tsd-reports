@@ -541,7 +541,12 @@ class ExpectedIncomeController extends Controller
             : collect();
         foreach ($activeTsaIds as $tsaId) {
             $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
-            foreach ($dailyCostRow as $key => $amount) {
+            // A 0-day TSA contributes none of her own share of the shared
+            // pool cost here either (2026-10-06 — see
+            // TsaDailyRateService::zeroOperatingCostsIfZeroDay()'s own doc
+            // comment); her Salaries above is already 0.0 on its own.
+            $tsaDailyCostRow = TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, $dailyCostRow);
+            foreach ($tsaDailyCostRow as $key => $amount) {
                 $addedOperatingCosts[$key] += $amount * $dayCount;
             }
             $tax = $taxAllocationByTsaId[$tsaId]
@@ -726,8 +731,19 @@ class ExpectedIncomeController extends Controller
 
         $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId, $isRangeSummed) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
-            $productCardOverrides = array_merge($dailyCostPerProductRow, ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]);
-            $overviewCardOverrides = array_merge($dailyCostRow, ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]);
+            // A 0-day TSA's own share of every shared pool cost is zeroed
+            // here too (2026-10-06, follow-up to the Salaries-only fix
+            // above — "the salaries is will stay but the other costs will
+            // be 0.00 when 0 days"); her Salaries is already 0.0 via
+            // dailyRatePerProductByTsaId/dailyRateByTsaId on their own.
+            $productCardOverrides = array_merge(
+                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostPerProductRow),
+                ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]
+            );
+            $overviewCardOverrides = array_merge(
+                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
+                ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+            );
             // Direct fallback when $tsa is missing from the pre-built maps
             // (root-caused live, 2026-10-03: "why is it all last tsa has
             // no tax?" — a newly-added TSA showed 0.00 here despite Cost
@@ -1062,7 +1078,14 @@ class ExpectedIncomeController extends Controller
         // Costs row, not twice).
         $salariesByTsaId = TsaDailyRateService::perProductByTsaId();
         $poolsOverride = TsaDailyRateService::dailyCostPerProductRow();
-        $operatingOverridesFor = fn (int $tsaId) => array_merge($poolsOverride, ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]);
+        // A 0-day TSA's own share of every shared pool cost is zeroed here
+        // too (2026-10-06 — see TsaDailyRateService::
+        // zeroOperatingCostsIfZeroDay()'s own doc comment); her Salaries
+        // is already 0.0 via perProductByTsaId() on its own.
+        $operatingOverridesFor = fn (int $tsaId) => array_merge(
+            TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, $poolsOverride),
+            ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]
+        );
 
         return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor) {
             return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor) {
@@ -1420,9 +1443,14 @@ class ExpectedIncomeController extends Controller
         }
 
         $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
-        $operatingCostOverrides = array_merge(TsaDailyRateService::dailyCostPerProductRow(), [
-            'salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0,
-        ]);
+        // A 0-day TSA's own share of every shared pool cost is zeroed here
+        // too (2026-10-06 — see TsaDailyRateService::
+        // zeroOperatingCostsIfZeroDay()'s own doc comment); her Salaries
+        // is already 0.0 via perProductByTsaId() on its own.
+        $operatingCostOverrides = array_merge(
+            TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, TsaDailyRateService::dailyCostPerProductRow()),
+            ['salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0]
+        );
 
         $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts($derived, $operatingCostOverrides);
 

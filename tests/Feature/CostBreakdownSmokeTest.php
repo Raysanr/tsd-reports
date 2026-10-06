@@ -722,6 +722,69 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertSee(number_format($expected, 2));
     }
 
+    /**
+     * Real bug caught live, 2026-10-06: "if i make anne 0 days why is it
+     * the Daily Cost per product, and Daily Cost is not changing and it
+     * should be like when like 0 days it should be reflect to the cost
+     * breakdown that she is 0 and the other tsa is same data with the
+     * breakdown" — the mini-table's own TSA-count divisor used to count
+     * EVERY real TSA regardless of her own Days, so a 0-day TSA still
+     * silently diluted everyone else's daily cost (e.g. ÷12 instead of
+     * ÷11). Confirms a 0-day TSA is now excluded from that divisor, same
+     * redistribution the Days-based % column already gives.
+     */
+    public function test_a_zero_day_tsa_is_excluded_from_the_daily_cost_mini_tables_own_divisor(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $pool = CostBreakdownPool::where('key', 'communication_allowance')->firstOrFail();
+        $tsaCount = TsaShift::count();
+        $this->assertGreaterThan(1, $tsaCount, 'test setup: need at least 2 real TSAs to prove the divisor actually shrinks');
+
+        $zeroedOutTsa = TsaShift::first();
+        CostBreakdownTsaEntry::updateOrCreate(['tsa_id' => $zeroedOutTsa->id], ['days' => 0]);
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+
+        $response->assertOk();
+        // Divisor is now (real TSA count - 1), not the full roster.
+        $expectedActiveCount = $tsaCount - 1;
+        $expected = CostBreakdownCalculator::dailyCostRow([$pool->key => $pool->amount], $expectedActiveCount)[$pool->key];
+        $staleExpected = CostBreakdownCalculator::dailyCostRow([$pool->key => $pool->amount], $tsaCount)[$pool->key];
+        $this->assertNotEquals(round($expected, 2), round($staleExpected, 2), 'test setup: excluding one TSA should actually change the figure');
+        $response->assertSee(number_format($expected, 2));
+
+        $this->assertSame($expectedActiveCount, TsaDailyRateService::activeTsaCount());
+    }
+
+    /** The live autosave path (updateTsaEntry(), the actual save endpoint
+     *  the Days input on this table uses) must also return the
+     *  refreshed mini-table figures — this is a SEPARATE code path from
+     *  updatePool()'s own identical fix, and was still stale until this
+     *  endpoint got the same treatment. */
+    public function test_updating_a_tsas_days_also_returns_the_refreshed_daily_cost_mini_table(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        $tsa = TsaShift::first();
+        $tsaCount = TsaShift::count();
+        $this->assertGreaterThan(1, $tsaCount, 'test setup: need at least 2 real TSAs');
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.cost-breakdown.update-tsa-entry', $tsa),
+            ['days' => 0]
+        );
+
+        $response->assertOk();
+        $response->assertJsonStructure(['dailyCostRow', 'dailyCostPerProductRow']);
+        $expectedActiveCount = $tsaCount - 1;
+        $pool = CostBreakdownPool::where('key', 'communication_allowance')->firstOrFail();
+        $expected = CostBreakdownCalculator::dailyCostRow([$pool->key => $pool->amount], $expectedActiveCount)[$pool->key];
+        $response->assertJsonPath('dailyCostRow.communication_allowance', fn ($v) => abs($v - $expected) < 0.01);
+    }
+
     /** An unflagged product's own column shows a genuinely BLANK cell
      *  (explicit follow-up, 2026-09-30: "user only can identify what
      *  product that has cost") — never a typed 0.00, same "never a typed

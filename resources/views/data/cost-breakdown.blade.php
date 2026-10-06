@@ -759,6 +759,17 @@
             .then((data) => {
                 flashStatus(status, 'Saved', false);
                 if (data.recomputed) applyRecomputed(data.recomputed);
+                // Days changes the "Daily Cost per product"/"Daily Cost"
+                // mini-table's own TSA-count divisor now too (2026-10-06,
+                // explicit follow-up: "if i make anne 0 days why is it
+                // the Daily Cost per product, and Daily Cost is not
+                // changing" — a 0-day TSA stops counting toward that
+                // divisor, see updateTsaEntry()'s own doc comment) — same
+                // live-patch updatePool()'s own handler above already
+                // does, needed here too since THIS is the Days input's
+                // real save path (saveTsaCostField(), not saveGenericField()).
+                if (data.dailyCostPerProductRow) applyDailyCostMiniTableRow('[data-daily-cost-per-product-row]', data.dailyCostPerProductRow);
+                if (data.dailyCostRow) applyDailyCostMiniTableRow('[data-daily-cost-row]', data.dailyCostRow);
             })
             .catch(() => {
                 flashStatus(status, 'Could not save — try again.', true);

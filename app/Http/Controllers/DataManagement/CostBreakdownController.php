@@ -186,12 +186,18 @@ class CostBreakdownController extends Controller
         // "Daily Cost per product" / "Daily Cost" mini-table sitting above
         // the per-TSA rows (explicit request, 2026-09-30, real sheet
         // screenshot) — NOT scoped to any specific TSA, each pool's own
-        // amount ÷ the app's own REAL TSA count (explicit correction,
-        // 2026-09-30: "the 12 is number of the tsa" — not the sheet's own
-        // fixed 12-TSA headcount) ÷ 24 working days, then that same figure
-        // split across every FLAGGED product. See CostBreakdownCalculator::
-        // dailyCostRow()'s own doc comment for the confirmed-exact formula.
-        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, $tsas->count());
+        // amount ÷ the app's own REAL, ACTIVE TSA count (explicit
+        // correction, 2026-09-30: "the 12 is number of the tsa" — not the
+        // sheet's own fixed 12-TSA headcount; narrowed further 2026-10-06:
+        // "if i make anne 0 days why is it the Daily Cost per product,
+        // and Daily Cost is not changing" — a TSA with Days=0 no longer
+        // counts toward this divisor either, same redistribution the
+        // Days-based % column below already gives every OTHER TSA — see
+        // TsaDailyRateService::activeTsaCount()'s own doc comment) ÷ 24
+        // working days, then that same figure split across every FLAGGED
+        // product. See CostBreakdownCalculator::dailyCostRow()'s own doc
+        // comment for the confirmed-exact formula.
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaDailyRateService::activeTsaCount());
         $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, $flaggedProductCount);
 
         // Each TSA's own % share + her own dollar amount per pool + her
@@ -532,9 +538,12 @@ class CostBreakdownController extends Controller
         // Monthly Cost Pools ... [this table] why is it not changing?").
         // Same two calls index() itself uses to build these rows on a
         // fresh page load.
+        // Active (Days > 0) TSA count, not the plain roster count —
+        // TsaDailyRateService::activeTsaCount()'s own doc comment for why
+        // (2026-10-06 follow-up, right after this same mini-table's own
+        // live-update fix).
         $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
-        $tsaCount = TsaShift::count();
-        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, $tsaCount);
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaDailyRateService::activeTsaCount());
         $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, TsaDailyRateService::productCount());
 
         return response()->json([
@@ -552,7 +561,19 @@ class CostBreakdownController extends Controller
      *  CostBreakdownCalculator::tsaTotal()'s own doc comment). Days is the
      *  only field here that changes every OTHER TSA's own % share too (see
      *  CostBreakdownCalculator's own doc comment) — same "shared total,
-     *  every row recomputed" reasoning as updatePool() above. */
+     *  every row recomputed" reasoning as updatePool() above.
+     *
+     *  Days ALSO changes the "Daily Cost per product"/"Daily Cost"
+     *  mini-table now (2026-10-06, explicit follow-up: "if i make anne 0
+     *  days why is it the Daily Cost per product, and Daily Cost is not
+     *  changing ... it should be reflect" — a 0-day TSA no longer counts
+     *  toward that table's own TSA-count divisor either, see
+     *  TsaDailyRateService::activeTsaCount()'s own doc comment) — this
+     *  table isn't scoped to any TSA at all (same reason updatePool()
+     *  needed the identical fix), so it was never included in
+     *  recomputeAllTsaRows()'s own per-TSA-keyed shape and previously
+     *  stayed stale here until a full page reload, same gap updatePool()
+     *  had before its own 2026-10-06 fix. */
     public function updateTsaEntry(Request $request, TsaShift $tsaShift)
     {
         $data = $request->validate([
@@ -576,12 +597,18 @@ class CostBreakdownController extends Controller
         // save) since editing base_salary just moved $total/$dailyRate.
         $dailyRatePerProduct = TsaDailyRateService::perProductByTsaId()[$tsaShift->id] ?? 0.0;
 
+        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaDailyRateService::activeTsaCount());
+        $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, TsaDailyRateService::productCount());
+
         return response()->json([
             'success' => true,
             'total' => $total,
             'dailyRate' => $dailyRate,
             'dailyRatePerProduct' => $dailyRatePerProduct,
             'recomputed' => $this->recomputeAllTsaRows(),
+            'dailyCostRow' => $dailyCostRow,
+            'dailyCostPerProductRow' => $dailyCostPerProductRow,
         ]);
     }
 

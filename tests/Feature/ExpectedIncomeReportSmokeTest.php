@@ -1944,6 +1944,62 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Real bug caught live, 2026-10-06 (screenshot): "kathleen has no
+     *  cost why is it displaying to the expected income that has costs" —
+     *  a 0-day TSA's card still showed nonzero Salaries, Tax Allocation,
+     *  AND Operating Costs (Communication Allowance etc.). Scope was then
+     *  refined through several explicit corrections the same day: "the
+     *  only has data is Salaries of that tsa" → "the salaries is will stay
+     *  but the other costs will be 0.00 when 0 days" → final correction,
+     *  "the salary will be stay because the salary will be base to the
+     *  Daily Rate (÷24)". FINAL intended behavior: Salaries always matches
+     *  Cost Breakdown's own Daily Rate (÷24) regardless of Days; only the
+     *  shared pool Operating Cost rows (Communication Allowance, etc.) are
+     *  zeroed for a 0-day TSA; Tax Allocation stays untouched either way. */
+    public function test_a_zero_day_tsas_card_zeroes_operating_costs_but_keeps_salaries_and_tax_allocation(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownRole::ensureSeeded();
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        CostBreakdownTsaEntry::updateOrCreate(['tsa_id' => $tsa->id], ['days' => 0, 'base_salary' => 19500]);
+
+        $expectedSalaries = TsaDailyRateService::dailyRateByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expectedSalaries, 'test setup: Salaries must stay non-zero (her real Daily Rate ÷24) for a 0-day TSA');
+        $expectedTax = TsaDailyRateService::taxAllocationByTsaId()[$tsa->id];
+        $this->assertGreaterThan(0, $expectedTax, 'test setup: Tax Allocation must stay non-zero for a 0-day TSA');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $namePos = strpos($content, $tsa->display_name);
+        $this->assertNotFalse($namePos);
+        $firstFieldPos = strpos($content, 'data-field=', $namePos);
+        $overviewHtml = substr($content, $namePos, $firstFieldPos - $namePos);
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($expectedSalaries, 2), '/') . '/',
+            $overviewHtml,
+            'expected a 0-day TSA\'s overview card Salaries to stay non-zero, matching Cost Breakdown\'s own Daily Rate (÷24)'
+        );
+        $this->assertMatchesRegularExpression(
+            '/data-out="communication_allowance"[^>]*>\s*0\.00/',
+            $overviewHtml,
+            'expected a 0-day TSA\'s overview card Operating Costs (e.g. Communication Allowance) to show 0.00'
+        );
+        $this->assertMatchesRegularExpression(
+            '/data-out="tax_allocation"[^>]*>\s*' . preg_quote(number_format($expectedTax, 2), '/') . '/',
+            $overviewHtml,
+            'expected a 0-day TSA\'s overview card Tax Allocation to stay non-zero and unaffected'
+        );
+    }
+
     /** Regression test, 2026-10-02 (live 500 on Railway): a full-month,
      *  per-team Expected Income filter errored in production after the
      *  Projections-per-month change added a DB seed-check
