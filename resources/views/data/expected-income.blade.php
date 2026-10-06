@@ -386,11 +386,17 @@
     // product card's own currently-saved inputs IN THAT SAME DAY'S ROW —
     // scoped to $scroller so editing one day never touches another day's
     // rollup card, same convention as dsppr.blade.php's own refreshDayTotal().
+    // Also sums `[data-tiktok-card]` cards (2026-10-06 fix — a TikTok
+    // scroller has no `[data-product-id]` cards at all, only her 2
+    // TikTok cards, so this used to find nothing and zero out her own
+    // TikTok overview card after any field autosaved; a scroller only
+    // ever contains one kind or the other, never both, so summing both
+    // selectors together is safe).
     function refreshDayOverall(scroller) {
         const overallCard = scroller.querySelector('.ei-card[data-out-scope="1"]');
         if (!overallCard) return;
 
-        const productCards = scroller.querySelectorAll('.ei-card[data-product-id]');
+        const productCards = scroller.querySelectorAll('.ei-card[data-product-id], .ei-card[data-tiktok-card]');
         const rawRows = [];
         let roasSum = 0, costPerLeadSum = 0;
 

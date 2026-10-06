@@ -289,6 +289,37 @@ class ExpectedIncomeCalculator
         ];
     }
 
+    /** Combines two already-derive()d/sum()d rows into one, as if every raw
+     *  row behind both had been summed together from the start — used to
+     *  fold TikTok's own site-wide total into TELESALES' overall total
+     *  (explicit request, 2026-10-06: "it will be remove this card TIKTOK
+     *  TOTAL because the overall total is will be TELESALES" — TikTok no
+     *  longer gets its own separate TOTAL card; TELESALES becomes the
+     *  true site-wide figure, real products + TikTok combined).
+     *
+     *  Can't just pass $a/$b straight into sum() — sum()'s own
+     *  $row[$key] ?? 0 lookups only find Selling/Operating lines as
+     *  TOP-LEVEL keys, but a derive()d row nests those under
+     *  selling_lines/operating_lines instead (same root cause
+     *  buildSummaryRow()'s own doc comment already documents for an
+     *  identical bug) — so each row's own lines are flattened back to
+     *  top-level first. */
+    public static function addDerivedTotals(array $a, array $b, ?array $sellingKeys = null, ?array $operatingKeys = null): array
+    {
+        $sellingKeys ??= array_keys(self::SELLING_COST_ROWS);
+        $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
+
+        // selling_lines/operating_lines are Collections on a derive()d row
+        // (not plain arrays) — ->toArray() first or array_merge() blows up.
+        $flatten = fn (array $row) => array_merge(
+            $row,
+            collect($row['selling_lines'] ?? [])->toArray(),
+            collect($row['operating_lines'] ?? [])->toArray()
+        );
+
+        return self::sum([$flatten($a), $flatten($b)], $sellingKeys, $operatingKeys);
+    }
+
     /** Overrides an already-derived row's own Operating Costs lines with
      *  figures computed elsewhere (Cost Breakdown's own per-TSA Daily Rate
      *  / Product for Salaries, and its "Daily Cost per product" mini-table

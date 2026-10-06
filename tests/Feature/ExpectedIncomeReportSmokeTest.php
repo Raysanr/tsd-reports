@@ -2278,8 +2278,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
      *  dedicated TIKTOK TEAM filter (see the test_tiktok_team_* tests
      *  below), never duplicated inline on her real team's own view
      *  anymore, regardless of her tiktok_upsell flag. Still folded into
-     *  the page's overall TOTAL (TIKTOK TOTAL) either way — unaffected.
-     *  Fully manual — no real Product/team backs either card. */
+     *  TELESALES' own overall total on ALL/the TIKTOK TEAM filter either
+     *  way (see test_telesales_folds_in_tiktoks_total_on_all_but_not_a_real_teams_own_row)
+     *  — unaffected. Fully manual — no real Product/team backs either card. */
     public function test_a_tiktok_flagged_tsas_real_team_view_shows_no_tiktok_cards(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -2314,35 +2315,49 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertDontSee('TIKTOK: NATUREVA');
     }
 
-    /** The TOTAL section's own "TIKTOK TOTAL" card shows regardless of
-     *  whether any TSA is currently flagged — same "always renders, even
-     *  all-zero" convention as TELESALES. Scope narrowed twice on
-     *  2026-10-06: first reversed off of ALL/a real team's own summary row
-     *  entirely ("why is it there's still tiktok total card in the opening
-     *  and closing" — "it is separate now"), then restored specifically to
-     *  ALL the same day ("in the expected income ALL filter it should be
-     *  have tiktok right?" — ALL is the site-wide rollup, not a real
-     *  team's own filter, so it keeps every total). A REAL team's own
-     *  summary row (TEAM OPENING SHIFT etc.) still never shows it. See
-     *  test_tiktok_team_summary_row_shows_no_real_product_cards for the
-     *  TIKTOK TEAM filter's own positive case. */
-    public function test_the_total_section_shows_a_tiktok_total_card_on_all_but_not_a_real_teams_own_row(): void
+    /** The standalone "TIKTOK TOTAL" card was REMOVED (explicit follow-up,
+     *  2026-10-06: "it will be remove this card TIKTOK TOTAL because the
+     *  overall total is will be TELESALES") — TELESALES itself now folds
+     *  TikTok's own site-wide total in on top of every real product's
+     *  own total, on ALL only (a real team's own summary row — TEAM
+     *  OPENING SHIFT etc. — never included TikTok and still doesn't). */
+    public function test_telesales_folds_in_tiktoks_total_on_all_but_not_a_real_teams_own_row(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        TsaShift::first()->update(['tiktok_upsell' => true]);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
 
         $allResponse = $this->actingAs($admin)->get(route('data.expected-income', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => 'all',
+            'date_from' => $date, 'date_to' => $date, 'team' => 'all',
         ]));
         $allResponse->assertOk();
-        $allResponse->assertSee('TIKTOK TOTAL');
+        $allResponse->assertDontSee('TIKTOK TOTAL');
+        $content = $allResponse->getContent();
+        $telesalesPos = strpos($content, '>TELESALES<');
+        $this->assertNotFalse($telesalesPos);
+        $this->assertMatchesRegularExpression(
+            '/data-out="gross_sales"[^>]*>\s*5,000\.00/',
+            substr($content, $telesalesPos, 3000),
+            'TELESALES on ALL should fold in TikTok\'s own 5,000 Gross Sales even with no real product sales entered'
+        );
 
-        $teamSlug = TsaShift::first()->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
         $teamResponse = $this->actingAs($admin)->get(route('data.expected-income', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => $teamSlug,
+            'date_from' => $date, 'date_to' => $date, 'team' => $teamSlug,
         ]));
         $teamResponse->assertOk();
         $teamResponse->assertDontSee('TIKTOK TOTAL');
+        $teamContent = $teamResponse->getContent();
+        $teamTelesalesPos = strpos($teamContent, '>TELESALES<');
+        $this->assertNotFalse($teamTelesalesPos);
+        $this->assertMatchesRegularExpression(
+            '/data-out="gross_sales"[^>]*>\s*0\.00/',
+            substr($teamContent, $teamTelesalesPos, 3000),
+            'a real team\'s own TELESALES row should NOT fold in TikTok\'s total'
+        );
     }
 
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
@@ -2384,9 +2399,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertSame(2000.0, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
     }
 
-    /** The 2 fixed cards' own saved numbers must fold into the TOTAL
-     *  section's own "TIKTOK TOTAL" card. */
-    public function test_tiktok_card_entries_are_included_in_the_tiktok_total(): void
+    /** The 2 fixed cards' own saved numbers must fold into TELESALES on
+     *  the TIKTOK TEAM filter (the standalone "TIKTOK TOTAL" card was
+     *  removed, 2026-10-06 — see
+     *  test_telesales_folds_in_tiktoks_total_on_all_but_not_a_real_teams_own_row). */
+    public function test_tiktok_card_entries_are_included_in_telesales_on_the_tiktok_filter(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -2396,18 +2413,53 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 3000]);
 
-        // 'tiktok' team filter — TIKTOK TOTAL's one home filter as of
-        // 2026-10-06 (see
-        // test_the_total_section_does_not_show_a_tiktok_total_card_outside_the_tiktok_filter).
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
         ]));
         $response->assertOk();
+        $response->assertDontSee('TIKTOK TOTAL');
 
-        $pos = strpos($response->getContent(), 'TIKTOK TOTAL');
-        $this->assertNotFalse($pos, 'expected to find the TIKTOK TOTAL card');
-        $cardSlice = substr($response->getContent(), $pos, 3000);
-        $this->assertStringContainsString('8,000.00', $cardSlice);
+        $content = $response->getContent();
+        $pos = strpos($content, '>TELESALES<');
+        $this->assertNotFalse($pos, 'expected to find the TELESALES card');
+        $cardSlice = substr($content, $pos, 3000);
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*>\s*8,000\.00/', $cardSlice, 'TELESALES on the TIKTOK filter should fold in both cards\' Gross Sales (5000 + 3000)');
+    }
+
+    /** TIKTOK TOTAL's own 2 card-level breakdowns (explicit follow-up,
+     *  2026-10-06: "this too is should be change with 2 cards TIKTOK: SH
+     *  NATURALS and TIKTOK: NATUREVA like total in all tsa inputs") — each
+     *  card sums that SAME card across EVERY flagged TSA, not per-TSA
+     *  (unlike $tiktokTsaRows' own per-TSA cards). Two different TSAs'
+     *  own "sh_naturals" entries (10,000 + 500) must pool into ONE
+     *  10,500.00 figure on the "TIKTOK: SH NATURALS" breakdown card. */
+    public function test_tiktok_totals_own_2_cards_sum_that_same_card_across_every_flagged_tsa(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsaA = TsaShift::first();
+        $tsaB = TsaShift::skip(1)->first();
+        $tsaA->update(['tiktok_upsell' => true]);
+        $tsaB->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsaA->id, 'entry_date' => $date, 'gross_sales' => 10000]);
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsaB->id, 'entry_date' => $date, 'gross_sales' => 500]);
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsaA->id, 'entry_date' => $date, 'gross_sales' => 200]);
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsaB->id, 'entry_date' => $date, 'gross_sales' => 300]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
+        ]));
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $shPos = strpos($content, 'TIKTOK: SH NATURALS');
+        $this->assertNotFalse($shPos, 'expected to find the TIKTOK: SH NATURALS breakdown card');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*>\s*10,500\.00/', substr($content, $shPos, 3000), 'SH NATURALS card should sum 10,000 + 500 across both TSAs');
+
+        $naturevaPos = strpos($content, 'TIKTOK: NATUREVA');
+        $this->assertNotFalse($naturevaPos, 'expected to find the TIKTOK: NATUREVA breakdown card');
+        $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*>\s*500\.00/', substr($content, $naturevaPos, 3000), 'NATUREVA card should sum 200 + 300 across both TSAs');
     }
 
     /** A TikTok card must NEVER fold into the TSA's own real overview
@@ -2556,12 +2608,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     /** TIKTOK TEAM has no real product cards of its own (explicit scope,
      *  2026-10-06) — the top summary row's TELESALES card (the per-
      *  product rollup) still renders (same "always shows, even all-zero"
-     *  convention as the ALL view), but with every figure at zero since
-     *  there's genuinely no product-card data behind it for this filter —
-     *  it must NOT show a real product's own name/card there. TIKTOK
-     *  TOTAL alongside it DOES show here — see
-     *  test_the_total_section_shows_a_tiktok_total_card_on_all_but_not_a_real_teams_own_row
-     *  for where else it does/doesn't show. */
+     *  convention as the ALL view) — real products contribute 0 here
+     *  since there's genuinely no product-card data behind this filter,
+     *  but TikTok's own total still folds in (see
+     *  test_telesales_folds_in_tiktoks_total_on_all_but_not_a_real_teams_own_row).
+     *  It must NOT show a real product's own name/card. */
     public function test_tiktok_team_summary_row_shows_no_real_product_cards(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -2575,7 +2626,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertDontSee($product->display_name);
-        $response->assertSee('TIKTOK TOTAL');
+        $response->assertDontSee('TIKTOK TOTAL');
     }
 
     /** ALL also gets its own "TIKTOK TEAM" per-team breakdown row
@@ -2663,6 +2714,34 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertNotFalse($overviewPos, 'expected to find the TSA overview card');
         $overviewSlice = substr($content, $overviewPos, 5000);
         $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*>\s*5,000\.00/', $overviewSlice, 'overview card should pool both TikTok cards\' Gross Sales (3000 + 2000)');
+    }
+
+    /** Real bug caught live, 2026-10-06 (screenshot): "why is it in the
+     *  tsa card in tiktok it is not totalling?" — a TSA's own TikTok
+     *  overview card kept getting zeroed out AFTER any TikTok field
+     *  autosaved, even though the server-rendered page (confirmed by the
+     *  test above) correctly pooled both cards. Root cause: the page's
+     *  own refreshDayOverall() JS only ever summed `.ei-card[data-product-id]`
+     *  cards into the overview, but a TikTok card is deliberately never
+     *  given data-product-id (it isn't a real Product) — so that JS found
+     *  nothing in a TikTok scroller and overwrote the overview with an
+     *  all-zero sum. Fixed by tagging each TikTok card data-tiktok-card="1"
+     *  and having refreshDayOverall() also sum that selector. This test
+     *  confirms the server-side half of the fix: the markup the JS fix
+     *  depends on is actually present (DOM/JS behavior itself isn't
+     *  exercised by a PHP feature test). */
+    public function test_a_tiktok_cards_markup_carries_the_attribute_the_overview_refresh_js_needs(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(), 'team' => 'tiktok',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('data-tiktok-card="1"', false);
     }
 
     /** An invalid/stale team slug already falls back to 'all' — confirm

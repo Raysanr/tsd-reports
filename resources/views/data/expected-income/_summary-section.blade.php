@@ -19,20 +19,26 @@
             @foreach($summaryCards as $card)
             @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
-            {{-- TikTok's own TOTAL — every TikTok-flagged TSA's own 2 fixed
-                 cards, summed together into one card (explicit request,
-                 2026-10-05). Narrowed to ONLY ALL/the TIKTOK TEAM filter as
-                 of 2026-10-06 (explicit follow-up, right after TikTok was
-                 fully split into its own filter: "why is it there's still
-                 tiktok total card in the opening and closing" — TikTok is
-                 "separate now", so this card doesn't belong on a REAL
-                 team's own summary row); then restored to ALL specifically
-                 the same day (explicit follow-up: "in the expected income
-                 ALL filter it should be have tiktok right?") — ALL is the
-                 site-wide rollup, not a real team's own filter, so it
-                 keeps every total including TikTok's. --}}
+            {{-- TikTok's own 2 card-level breakdowns — every TikTok-flagged
+                 TSA's own SAME card summed together (explicit request,
+                 2026-10-05, then changed to this 2-card shape 2026-10-06:
+                 "this too is should be change with 2 cards TIKTOK: SH
+                 NATURALS and TIKTOK: NATUREVA like total in all tsa
+                 inputs"). The standalone "TIKTOK TOTAL" card that used to
+                 sit before these was REMOVED the same day (explicit
+                 follow-up: "it will be remove this card TIKTOK TOTAL
+                 because the overall total is will be TELESALES") —
+                 TELESALES itself now folds TikTok's site-wide total in on
+                 top of every real product's own total (see index()'s own
+                 addDerivedTotals() fold/doc comment), so a separate TOTAL
+                 card here would double-count it. Narrowed to ONLY
+                 ALL/the TIKTOK TEAM filter, same scope the removed card
+                 itself had — a REAL team's own summary row never includes
+                 TikTok. --}}
             @if($selectedTeam === 'all' || $selectedTeam === 'tiktok')
-            @include('data.expected-income._card', ['d' => $tiktokOverallTotal, 'label' => 'TIKTOK TOTAL', 'headerBg' => '#c9daf8', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+            @foreach($tiktokCardTotals as $cardTotal)
+            @include('data.expected-income._card', ['d' => $cardTotal['derived'], 'label' => $cardTotal['label'], 'headerBg' => '#c9daf8', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+            @endforeach
             @endif
         </div>
     </div>

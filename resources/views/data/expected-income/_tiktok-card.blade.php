@@ -2,12 +2,17 @@
     One of Expected Income's 2 fixed TikTok cards (explicit request,
     2026-10-05) — "TIKTOK: SH NATURALS" / "TIKTOK: NATUREVA", shown only
     in a TikTok-flagged TSA's own card stack. Deliberately NOT given
-    data-product-id (unlike _product-card.blade.php) so the page's own
-    refreshDayOverall() JS — which sums every `.ei-card[data-product-id]`
-    into the TSA's own overview rollup — skips these 2 cards entirely;
-    TikTok's own totals are tracked completely separately (see
-    ExpectedIncomeController::buildTiktokRows()'s own doc comment) and
-    must never bleed into a TSA's real P&L overview card.
+    data-product-id (unlike _product-card.blade.php) — a TikTok card is
+    never a real Product, so it must never bleed into a TSA's REAL
+    product-card rollup (see buildTeamDailyRows()'s own overview, scoped
+    to her real cards only). Tagged data-tiktok-card="1" instead
+    (2026-10-06 fix — real bug, screenshot: "why is it in the tsa card in
+    tiktok it is not totalling?" — the TSA's own TikTok overview card kept
+    getting zeroed out by refreshDayOverall() after any TikTok field
+    autosaved, since that JS only ever summed `[data-product-id]` cards
+    and found none in a TikTok scroller; it now also sums
+    `[data-tiktok-card]` cards, scoped the same way since a scroller only
+    ever holds one kind or the other, never both).
 
     No lock toggle (manual-only card, nothing to lock to) — a plain
     .ei-card wrapper is enough for the existing saveField()/applyDerived()
@@ -28,6 +33,7 @@
     reason — always ignore whatever the page-level fetch passed in.
 --}}
 <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
+     data-tiktok-card="1"
      @if($editable ?? false)
      data-action="{{ route('data.expected-income.update-tiktok', ['cardKey' => $card['key'], 'tsaShift' => $tsa->id, 'date' => $dateStr]) }}"
      @endif>
