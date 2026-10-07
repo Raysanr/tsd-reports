@@ -88,8 +88,15 @@
                 $actorName = $log->actor_name ?? $log->user?->name ?? 'Unknown user';
             @endphp
             <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                {{-- Actual date + time (explicit follow-up, 2026-10-07:
+                     "in the activity page i want you to add time like
+                     that") — was relative-only ("2 hours ago") with the
+                     real timestamp hidden behind a hover tooltip; now
+                     shown directly, with the relative phrase kept as a
+                     smaller second line underneath. --}}
                 <td class="px-5 py-3 font-mono text-xs text-ink-muted dark:text-slate-300 whitespace-nowrap" title="{{ $log->created_at->format('M j, Y g:i A') }}">
-                    {{ $log->created_at->diffForHumans() }}
+                    <div class="text-ink dark:text-slate-200">{{ $log->created_at->format('M j, Y g:i A') }}</div>
+                    <div class="text-[11px] text-ink-muted/70 dark:text-slate-500">{{ $log->created_at->diffForHumans() }}</div>
                 </td>
                 <td class="px-4 py-3 font-mono text-xs text-ink dark:text-slate-200 whitespace-nowrap">
                     {{ $actorName }}

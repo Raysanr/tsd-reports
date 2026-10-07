@@ -49,6 +49,27 @@ class DataManagementActivityLogTest extends TestCase
         $this->assertStringContainsString($admin->name, $log->actor_name);
     }
 
+    /** The "When" column shows the real date/time, not just a relative
+     *  phrase (explicit follow-up, 2026-10-07: "in the activity page i
+     *  want you to add time like that") — relative phrasing ("2 hours
+     *  ago") stays as a smaller second line, not the only thing shown. */
+    public function test_the_page_shows_the_real_timestamp_not_just_a_relative_phrase(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
+        $this->actingAs($admin)->patchJson(
+            route('data.projections.update-column', $column),
+            ['net_income_target' => 11111]
+        )->assertOk();
+
+        $log = ActivityLog::where('action', 'projection.field_updated')->latest('id')->first();
+
+        $response = $this->actingAs($admin)->get(route('data.activity-log'));
+        $response->assertOk();
+        $response->assertSee($log->created_at->format('M j, Y g:i A'));
+    }
+
     public function test_editing_cost_breakdown_creates_a_log_entry_visible_only_to_admins(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

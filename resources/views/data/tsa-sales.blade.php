@@ -284,8 +284,34 @@
                 <tr>
                     <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
                     @foreach($dates as $date)
-                    <th colspan="{{ count($dayColumns) }}" class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap tsr-day-end">
-                        {{ $date->format('D, M j') }}
+                    @php $dateLocked = in_array($date->toDateString(), $lockedDates, true); @endphp
+                    <th colspan="{{ count($dayColumns) }}" data-tsr-date-header data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
+                        class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap tsr-day-end relative">
+                        {{-- Per-date lock (explicit request, 2026-10-07:
+                             "add lock icon like in the dsppr") — same
+                             mechanism/markup/animation as DSPPR's own
+                             per-date lock: freezes every TSA's own real +
+                             TikTok Upsell entry for THIS one date only,
+                             other dates stay independently editable. --}}
+                        <span class="inline-flex items-center justify-center gap-2 w-full">
+                            <span class="flex-1 text-center">{{ $date->format('D, M j') }}</span>
+                            <button type="button" data-tsr-lock-toggle data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
+                                    title="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
+                                    aria-label="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
+                                    class="shrink-0 p-1 rounded-md text-ink/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                                <span data-tsr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
+                                    @if($dateLocked)
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+                                    </svg>
+                                    @else
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+                                    </svg>
+                                    @endif
+                                </span>
+                            </button>
+                        </span>
                     </th>
                     @endforeach
                 </tr>
@@ -999,6 +1025,66 @@
             isDragging = false;
             scroller.classList.remove('cursor-grabbing');
         });
+    });
+
+    // Per-date lock (explicit request, 2026-10-07: "add lock icon like in
+    // the dsppr") — same mechanism as DSPPR's own per-date lock: each
+    // date header has its own lock button + icon; locking disables every
+    // .tsr-field tagged with that SAME data-date, across every chunk/row
+    // that date appears in.
+    function applyTsrDateLockState(dateStr, locked) {
+        document.querySelectorAll(`[data-tsr-date-header][data-date="${dateStr}"]`).forEach((th) => {
+            th.dataset.locked = locked ? '1' : '0';
+        });
+        document.querySelectorAll(`.tsr-field[data-date="${dateStr}"]`).forEach((el) => { el.disabled = locked; });
+    }
+
+    function swapTsrLockIcon(dateStr, locked) {
+        const lockedSvg = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        const unlockedSvg = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        const btn = document.querySelector(`[data-tsr-lock-toggle][data-date="${dateStr}"]`);
+        if (!btn) return;
+        btn.dataset.locked = locked ? '1' : '0';
+        btn.title = locked ? 'Unlock this date' : 'Lock this date';
+        btn.setAttribute('aria-label', btn.title);
+        const iconWrap = btn.querySelector('[data-tsr-lock-icon]');
+        if (!iconWrap) return;
+        iconWrap.style.opacity = '0';
+        setTimeout(() => {
+            iconWrap.innerHTML = locked ? lockedSvg : unlockedSvg;
+            iconWrap.style.opacity = '1';
+        }, 180);
+    }
+
+    document.querySelectorAll('[data-tsr-date-header]').forEach((th) => {
+        applyTsrDateLockState(th.dataset.date, th.dataset.locked === '1');
+    });
+
+    document.addEventListener('click', (e) => {
+        const lockBtn = e.target.closest('[data-tsr-lock-toggle]');
+        if (!lockBtn) return;
+        const dateStr = lockBtn.dataset.date;
+        const nowLocked = lockBtn.dataset.locked !== '1';
+
+        lockBtn.disabled = true;
+        fetch(`{{ url('/data/tsa-sales/lock') }}/${dateStr}`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: new URLSearchParams({ _method: 'PATCH', locked: nowLocked ? '1' : '0' }).toString(),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => {
+                swapTsrLockIcon(dateStr, nowLocked);
+                applyTsrDateLockState(dateStr, nowLocked);
+            })
+            .catch(() => {
+                window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} this date — try again.`, 'error');
+            })
+            .finally(() => { lockBtn.disabled = false; });
     });
 })();
 </script>

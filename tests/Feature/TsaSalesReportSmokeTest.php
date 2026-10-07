@@ -69,6 +69,90 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertOk();
     }
 
+    /** Per-date lock (explicit request, 2026-10-07: "add lock icon like
+     *  in the dsppr") — same mechanism as DSPPR's own per-date lock, see
+     *  TsaSalesLockedDate's own doc comment. */
+    public function test_locking_a_date_persists_and_is_reflected_on_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(route('data.tsa-sales.toggle-lock', ['date' => $date]), ['locked' => true]);
+        $response->assertOk()->assertJson(['success' => true, 'date' => $date, 'locked' => true]);
+        $this->assertDatabaseHas('tsa_sales_locked_dates', ['entry_date' => $date . ' 00:00:00']);
+
+        $page = $this->actingAs($admin)->get(route('data.tsa-sales', ['date_from' => $date, 'date_to' => $date]));
+        $page->assertOk();
+        $page->assertSee('data-tsr-date-header data-date="' . $date . '" data-locked="1"', false);
+    }
+
+    public function test_unlocking_a_date_removes_its_locked_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        \App\Models\TsaSalesLockedDate::create(['entry_date' => $date]);
+
+        $response = $this->actingAs($admin)->patchJson(route('data.tsa-sales.toggle-lock', ['date' => $date]), ['locked' => false]);
+        $response->assertOk()->assertJson(['success' => true, 'date' => $date, 'locked' => false]);
+
+        $this->assertDatabaseMissing('tsa_sales_locked_dates', ['entry_date' => $date . ' 00:00:00']);
+    }
+
+    /** Normal (TSA) users have full edit access to this page (2026-10-07
+     *  reversal — see RoleAccessTest's own doc comment on the same
+     *  Data Management-wide decision), so locking a date is allowed for
+     *  them too, same as every other write action here. */
+    public function test_a_normal_user_can_toggle_a_date_lock(): void
+    {
+        $user = User::factory()->create(['role' => 'normal']);
+
+        $this->actingAs($user)->patchJson(route('data.tsa-sales.toggle-lock', ['date' => today()->toDateString()]), ['locked' => true])->assertOk();
+    }
+
+    public function test_a_locked_date_refuses_a_direct_update(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $tsa = TsaShift::first();
+        \App\Models\TsaSalesLockedDate::create(['entry_date' => $date]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 999]
+        );
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 999]);
+    }
+
+    public function test_a_locked_date_refuses_a_direct_tiktok_update(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $tsa = TsaShift::first();
+        \App\Models\TsaSalesLockedDate::create(['entry_date' => $date]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 999]
+        );
+        $response->assertStatus(422);
+    }
+
+    public function test_an_unlocked_date_is_unaffected_by_a_different_locked_date(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $lockedDate = today()->toDateString();
+        $otherDate = today()->addDay()->toDateString();
+        $tsa = TsaShift::first();
+        \App\Models\TsaSalesLockedDate::create(['entry_date' => $lockedDate]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $otherDate]),
+            ['gross_sales' => 777]
+        );
+        $response->assertOk();
+    }
+
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

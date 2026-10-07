@@ -361,6 +361,15 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // records, grouped by team; no admin row management routes
         // anymore (that's TSA Management's job).
         Route::get('/tsa-sales', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'index'])->name('tsa-sales');
+        // Per-date lock (explicit request, 2026-10-07: "add lock icon
+        // like in the dsppr") — MUST be registered BEFORE
+        // tsa-sales.update-entry below, same reason DSPPR's own
+        // dsppr.toggle-lock had to move ahead of dsppr.update:
+        // /tsa-sales/lock/{date} would otherwise greedily match
+        // /tsa-sales/{tsaShift}/{date} first (tsaShift="lock"), 404ing on
+        // implicit TsaShift route-model binding before this route is
+        // ever reached.
+        Route::patch('/tsa-sales/lock/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'toggleLock'])->name('tsa-sales.toggle-lock');
         Route::patch('/tsa-sales/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'updateEntry'])->name('tsa-sales.update-entry');
         // TikTok Upsell section (explicit request, 2026-10-05) — separate
         // manual-entry roster/table, see TsaSalesReportController's own

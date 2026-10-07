@@ -5,6 +5,7 @@ namespace App\Http\Controllers\DataManagement;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Models\TsaSalesEntry;
+use App\Models\TsaSalesLockedDate;
 use App\Models\TsaShift;
 use App\Models\TsaTiktokEntry;
 use App\Support\ActivityLogger;
@@ -297,6 +298,16 @@ class TsaSalesReportController extends Controller
             ->merge($tiktokRowSummaries->pluck('derived'))->all();
         $overallTotal = $this->withAutomatedAov(TsaSalesCalculator::sum($overallRows), $overallRows);
 
+        // Per-date lock (explicit request, 2026-10-07: "add lock icon
+        // like in the dsppr") — same set-of-locked-date-strings shape as
+        // DsPprReportController::index()'s own $lockedDates, see
+        // TsaSalesLockedDate's own doc comment.
+        $lockedDates = TsaSalesLockedDate::whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->pluck('entry_date')
+            ->map(fn ($d) => $d->toDateString())
+            ->all();
+
         return view('data.tsa-sales', [
             'groupSummaries' => $groupSummaries,
             'tiktokSummary'  => $tiktokSummary,
@@ -306,6 +317,7 @@ class TsaSalesReportController extends Controller
             'dateChunks'     => $dateChunks,
             'dailyByKey'     => $dailyByKey,
             'tiktokDailyByKey' => $tiktokDailyByKey,
+            'lockedDates'    => $lockedDates,
         ]);
     }
 
@@ -326,6 +338,14 @@ class TsaSalesReportController extends Controller
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
+
+        // Never trust the frontend's own `disabled` attribute alone — a
+        // locked date refuses a direct PATCH too (explicit request,
+        // 2026-10-07 — same guard DsPprReportController::update() already
+        // has).
+        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+            return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
+        }
 
         $entry = TsaSalesEntry::where('tsa_shift_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new TsaSalesEntry(['tsa_shift_id' => $tsaShift->id, 'entry_date' => $entryDate]);
@@ -370,6 +390,10 @@ class TsaSalesReportController extends Controller
 
         $entryDate = Carbon::parse($date)->toDateString();
 
+        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+            return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
+        }
+
         $entry = TsaTiktokEntry::where('tsa_shift_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new TsaTiktokEntry(['tsa_shift_id' => $tsaShift->id, 'entry_date' => $entryDate]);
         $old = $entry->only(array_keys($data));
@@ -392,5 +416,27 @@ class TsaSalesReportController extends Controller
             'success' => true,
             'derived' => $derived,
         ]);
+    }
+
+    /** Flips ONE date's own lock on/off (explicit request, 2026-10-07:
+     *  "add lock icon like in the dsppr") — same per-date mechanism as
+     *  DsPprReportController::toggleLock(): freezes every TSA's own real
+     *  entry AND her TikTok Upsell entry for that one date, across every
+     *  7-day chunk that date happens to render in. See
+     *  TsaSalesLockedDate's own doc comment for why existence of a row is
+     *  the flag. */
+    public function toggleLock(Request $request, string $date)
+    {
+        $locked = $request->boolean('locked');
+        $entryDate = Carbon::parse($date)->toDateString();
+
+        if ($locked) {
+            TsaSalesLockedDate::firstOrCreate(['entry_date' => $entryDate]);
+        } else {
+            TsaSalesLockedDate::whereDate('entry_date', $entryDate)->delete();
+        }
+        ActivityLogger::log($locked ? 'tsa_sales.date_locked' : 'tsa_sales.date_unlocked', null, ($locked ? 'Locked' : 'Unlocked') . ' the daily entry table for ' . Carbon::parse($entryDate)->format('M j, Y') . '.');
+
+        return response()->json(['success' => true, 'date' => $entryDate, 'locked' => $locked]);
     }
 }
