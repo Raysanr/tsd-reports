@@ -290,12 +290,39 @@ class TsaDailyRateService
     {
         $perShift = self::departmentTaxAllocationPerShift();
 
-        return self::allTsas()->groupBy('team')->flatMap(function ($teamTsas) use ($perShift) {
-            $teamCount = $teamTsas->count();
+        // A TikTok-flagged TSA doesn't count toward her team's own tax
+        // divisor (explicit request, 2026-10-07: "when tsa is on the
+        // tiktok she is not included to the divided tax so the tax will
+        // be only to 5 tsa only ... so anne will be no tax" — confirmed
+        // to apply here too, keeping Expected Income's own Tax Allocation
+        // column consistent with Cost Breakdown's identical fix on the
+        // same formula). $teamCount is computed from the FILTERED team
+        // roster, not the raw group, so a flagged TSA's own teammates'
+        // share correctly grows to reflect 5 real TSAs, not 6.
+        //
+        // Built via array union (+), NOT ->flatMap() (real bug, root-
+        // caused 2026-10-07 while verifying the override above) —
+        // Collection::flatMap() silently REINDEXES integer keys when
+        // flattening multiple sub-collections (same underlying behavior
+        // as array_merge() on numeric keys), discarding every one of
+        // mapWithKeys()'s own tsa_id keys and replacing them with plain
+        // 0,1,2... position — every caller of this method had therefore
+        // been reading the WRONG TSA's own figure by key (e.g.
+        // $map[$tsa->id]) since this method was first written, silently
+        // wrong for any roster where a TSA's own id didn't coincidentally
+        // match its position in the flattened result. `+` (array union)
+        // keeps each sub-array's own keys intact instead.
+        return self::allTsas()->groupBy('team')->reduce(function (array $carry, $teamTsas) use ($perShift) {
+            $realTeamTsas = $teamTsas->where('tiktok_upsell', false);
+            $teamCount = $realTeamTsas->count();
             $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
-            return $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $monthly / 24]);
-        })->all();
+            // A flagged TSA still gets a map ENTRY (every TSA id must be
+            // present so callers elsewhere never fall back to a stale/
+            // missing-key default), just worth 0 — her own "no tax"
+            // (explicit request above), not her team's own per-TSA share.
+            return $carry + $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $tsa->tiktok_upsell ? 0.0 : $monthly / 24])->all();
+        }, []);
     }
 
     /** Same formula as taxAllocationByTsaId() above, computed directly for
@@ -310,8 +337,16 @@ class TsaDailyRateService
      *  place. */
     public static function taxAllocationForTsa(TsaShift $tsa): float
     {
+        // Same "no tax at all for a flagged TSA, 5-not-6 divisor for her
+        // real teammates" rule as taxAllocationByTsaId() above (explicit
+        // request, 2026-10-07) — this fallback must never silently
+        // disagree with the pre-built map it stands in for.
+        if ($tsa->tiktok_upsell) {
+            return 0.0;
+        }
+
         $perShift = self::departmentTaxAllocationPerShift();
-        $teamCount = TsaShift::where('team', $tsa->team)->count();
+        $teamCount = TsaShift::where('team', $tsa->team)->where('tiktok_upsell', false)->count();
         $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
         return $monthly / 24;

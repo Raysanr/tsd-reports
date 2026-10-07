@@ -245,10 +245,26 @@
                                  by 6 (6 tsa per team) so when they add new
                                  tsa it will be 7" — dynamic per team, not a
                                  fixed sheet headcount and not the
-                                 company-wide total). --}}
+                                 company-wide total) — EXCEPT a TikTok-
+                                 flagged TSA (explicit request, 2026-10-07:
+                                 "when tsa is on the tiktok she is not
+                                 included to the divided tax so the tax
+                                 will be only to 5 tsa only ... so anne
+                                 will be no tax") — she's excluded from
+                                 $monthlyTaxPerTsaByTeam's own divisor
+                                 entirely (see CostBreakdownController::
+                                 taxFigures()'s own doc comment) and shows
+                                 no figure of her own, same blank "no tax
+                                 figure" convention every non-Supervisor
+                                 role row above already has. --}}
+                            @if($tsa->tiktok_upsell)
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            @else
                             @php $monthlyTaxPerTsa = $monthlyTaxPerTsaByTeam[$tsa->team] ?? 0.0; @endphp
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
+                            @endif
                         </tr>
                     @endif
                     @endforeach

@@ -1944,6 +1944,24 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** A TikTok-flagged TSA gets no Tax Allocation of her own, on both the
+     *  pre-built map AND its direct fallback (explicit request,
+     *  2026-10-07: "when tsa is on the tiktok she is not included to the
+     *  divided tax ... so anne will be no tax") — confirmed consistent
+     *  between TsaDailyRateService::taxAllocationByTsaId() and
+     *  taxAllocationForTsa() (the fallback used when a TSA is missing
+     *  from the pre-built map), same "never silently disagree with the
+     *  map it stands in for" rule the fallback's own doc comment states. */
+    public function test_a_tiktok_flagged_tsa_has_zero_tax_allocation_on_both_the_map_and_its_fallback(): void
+    {
+        ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+
+        $this->assertSame(0.0, TsaDailyRateService::taxAllocationByTsaId()[$tsa->id] ?? null);
+        $this->assertSame(0.0, TsaDailyRateService::taxAllocationForTsa($tsa));
+    }
+
     /** Real bug caught live, 2026-10-06 (screenshot): "kathleen has no
      *  cost why is it displaying to the expected income that has costs" —
      *  a 0-day TSA's card still showed nonzero Salaries, Tax Allocation,

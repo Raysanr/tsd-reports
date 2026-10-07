@@ -362,7 +362,18 @@ class CostBreakdownController extends Controller
     {
         $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
 
-        $perTsaByTeam = $tsas->groupBy('team')->map(
+        // A TikTok-flagged TSA (TsaShift.tiktok_upsell) doesn't count
+        // toward her team's own tax divisor, and gets no tax figure of
+        // her own at all (explicit request, 2026-10-07: "when tsa is on
+        // the tiktok she is not included to the divided tax so the tax
+        // will be only to 5 tsa only ... so anne will be no tax") — same
+        // "excluded from the real-team view entirely" treatment Expected
+        // Income's own buildTeamDailyRows()/buildSummary() already give a
+        // TikTok TSA (see those methods' own doc comments, 2026-10-07).
+        // Her own Monthly Tax/Daily Tax cells render blank in the view
+        // (same "no figure" convention as every non-Supervisor role row),
+        // not just a 0.00 that would misread as her own computed share.
+        $perTsaByTeam = $tsas->where('tiktok_upsell', false)->groupBy('team')->map(
             fn ($teamTsas) => $teamTsas->count() > 0 ? $perShift / $teamTsas->count() : 0.0
         )->all();
 

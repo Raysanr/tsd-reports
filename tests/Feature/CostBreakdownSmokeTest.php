@@ -166,6 +166,90 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertNotEquals($perTsaShNaturals, $perTsaEyecare, 'test fixture sanity check — the 2 teams must have different TSA counts for this test to be meaningful');
     }
 
+    /** A TikTok-flagged TSA (TsaShift.tiktok_upsell) doesn't count toward
+     *  her team's own tax divisor, and shows no Monthly Tax/Daily Tax
+     *  figure of her own at all (explicit request, 2026-10-07: "when tsa
+     *  is on the tiktok she is not included to the divided tax so the
+     *  tax will be only to 5 tsa only ... so anne will be no tax"). */
+    public function test_a_tiktok_flagged_tsa_is_excluded_from_her_teams_tax_divisor(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+
+        $flagged = TsaShift::where('team', 'SH Naturals')->first();
+        $flagged->update(['tiktok_upsell' => true]);
+        $realCount = TsaShift::where('team', 'SH Naturals')->where('tiktok_upsell', false)->count();
+
+        $columns = \App\Models\ProjectionColumn::where('month', now()->format('Y-m'))->orderBy('sort_order')->get();
+        $rates = \App\Support\ProjectionCalculator::allRates();
+        $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
+        $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
+        $perShift = $departmentTaxAllocation / 2;
+        $perRealTsa = $perShift / $realCount;
+
+        $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+        $response->assertOk();
+        $html = $response->getContent();
+
+        // Her real (non-flagged) teammates now divide by $realCount, not
+        // the full team headcount.
+        $this->assertStringContainsString(number_format($perRealTsa, 2), $html);
+
+        // Her own row shows no tax figure at all.
+        $pos = strpos($html, $flagged->display_name);
+        $this->assertNotFalse($pos);
+        $rowEnd = strpos($html, '</tr>', $pos);
+        $rowHtml = substr($html, $pos, $rowEnd - $pos);
+        $this->assertStringNotContainsString(number_format($perRealTsa, 2), $rowHtml);
+        $this->assertStringNotContainsString(number_format($perRealTsa / 24, 2), $rowHtml);
+    }
+
+    /** TsaDailyRateService::taxAllocationByTsaId() is keyed by tsa_id
+     *  (confirmed real bug, root-caused 2026-10-07 while verifying the
+     *  TikTok exclusion above: the original implementation built its
+     *  result via ->groupBy('team')->flatMap(...), and Collection::
+     *  flatMap() silently REINDEXES integer keys when flattening
+     *  multiple sub-collections — same behavior as array_merge() on
+     *  numeric keys — discarding mapWithKeys()'s own tsa_id keys and
+     *  replacing them with plain sequential position instead. Every
+     *  caller reading $map[$tsa->id] had been silently getting the WRONG
+     *  TSA's own figure whenever a TSA's id didn't coincidentally match
+     *  its position in the flattened array — e.g. 2 teams of 3 always
+     *  shifted team 2's own figures by exactly team 1's headcount). Now
+     *  built via array union (+) instead, which preserves each
+     *  sub-array's own keys. This test seeds 2 teams with DIFFERENT real
+     *  TSA counts specifically so a reindexing bug can't coincidentally
+     *  look correct. */
+    public function test_tax_allocation_by_tsa_id_is_keyed_by_the_real_tsa_id_not_position(): void
+    {
+        \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
+        TsaShift::where('team', 'Eyecare Team')->first()->delete();
+
+        $shNaturalsTsas = TsaShift::where('team', 'SH Naturals')->get();
+        $eyecareTsas = TsaShift::where('team', 'Eyecare Team')->get();
+        $this->assertNotEquals($shNaturalsTsas->count(), $eyecareTsas->count(), 'fixture sanity check');
+
+        $map = \App\Support\TsaDailyRateService::taxAllocationByTsaId();
+
+        // Every real TSA id in the roster must appear as a KEY in the
+        // result — a flatMap-reindexed result would instead have keys
+        // 0..N-1, missing every TSA's own real id entirely once ids
+        // don't start at 0.
+        foreach ($shNaturalsTsas->merge($eyecareTsas) as $tsa) {
+            $this->assertArrayHasKey($tsa->id, $map, "tsa_id {$tsa->id} should be a key in the result");
+        }
+
+        // SH Naturals' own figure must differ from Eyecare's own (they
+        // have different headcounts) — a reindexed result could
+        // coincidentally still pass the key-existence check above while
+        // handing each TSA the WRONG team's own value.
+        $shValue = $map[$shNaturalsTsas->first()->id];
+        $eyecareValue = $map[$eyecareTsas->first()->id];
+        $this->assertNotEquals($shValue, $eyecareValue);
+        $this->assertGreaterThan(0, $shValue);
+        $this->assertGreaterThan(0, $eyecareValue);
+    }
+
     /** CEO/Sales Director/Telesales Manager/QA Specialist/Junior AI
      *  Engineer rows are NOT tied to either shift — they stay blank on
      *  Monthly Tax/Daily Tax, same as Total/Daily Rate already are for
