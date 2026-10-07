@@ -265,43 +265,48 @@
      columns per day are real <input>s; the rest are derived/read-only. --}}
 @foreach($dateChunks as $chunkIndex => $dates)
 <div class="flex items-center justify-end gap-1 mb-2">
-    {{-- Whole-table lock (explicit request, 2026-10-07: "add lock icon
-         too in the editable table") — ONE lock covers every 7-day chunk
-         at once (see DsPprReportController::LOCK_SETTING_KEY's own doc
-         comment), so the same button/state repeats on every chunk's own
-         action row purely for visibility while scrolling — clicking ANY
-         one locks/unlocks them all together (dsppr-lock-toggle's own JS
-         below updates every copy + every .dsppr-field page-wide in one
-         pass, not just this chunk's). --}}
-    <button type="button" data-dsppr-lock-toggle data-locked="{{ $dailyTableLocked ? '1' : '0' }}"
-            title="{{ $dailyTableLocked ? 'Unlock the daily entry table' : 'Lock the daily entry table' }}"
-            aria-label="{{ $dailyTableLocked ? 'Unlock the daily entry table' : 'Lock the daily entry table' }}"
-            class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
-        <span data-dsppr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
-            @if($dailyTableLocked)
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
-            </svg>
-            @else
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
-            </svg>
-            @endif
-        </span>
-    </button>
     @include('partials.table-actions', ['target' => 'dsPprScroller-' . $chunkIndex, 'name' => 'dsppr-daily-entry-' . ($chunkIndex + 1), 'title' => 'DSPPR - TSM Report', 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
 </div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto dsppr-scroller" id="dsPprScroller-{{ $chunkIndex }}">
-        <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table" data-locked="{{ $dailyTableLocked ? '1' : '0' }}"
+        <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table"
                data-update-url-template="{{ route('data.dsppr.update', ['product' => '__PRODUCT__', 'date' => '__DATE__']) }}"
                data-update-tiktok-url-template="{{ route('data.dsppr.update-tiktok', ['date' => '__DATE__']) }}">
             <thead>
                 <tr>
                     <th rowspan="2" class="dsppr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">Product</th>
                     @foreach($dates as $date)
-                    <th colspan="{{ count($dayColumns) }}" class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap dsppr-day-end">
-                        {{ $date->format('D, M j') }}
+                    @php $dateLocked = in_array($date->toDateString(), $lockedDates, true); @endphp
+                    <th colspan="{{ count($dayColumns) }}" data-dsppr-date-header data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
+                        class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap dsppr-day-end relative">
+                        <span class="inline-flex items-center justify-center gap-2 w-full">
+                            <span class="flex-1 text-center">{{ $date->format('D, M j') }}</span>
+                            {{-- Per-date lock (explicit follow-up,
+                                 2026-10-07: "i want to make it per date
+                                 like the lock icon is in the dates right
+                                 side") — freezes every product's own
+                                 input for THIS one date only (plus TIKTOK
+                                 ORDERS' own fields for the same date),
+                                 other dates stay independently editable.
+                                 Same cross-fade icon swap as every other
+                                 lock on this app. --}}
+                            <button type="button" data-dsppr-lock-toggle data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
+                                    title="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
+                                    aria-label="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
+                                    class="shrink-0 p-1 rounded-md text-ink/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                                <span data-dsppr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
+                                    @if($dateLocked)
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+                                    </svg>
+                                    @else
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+                                    </svg>
+                                    @endif
+                                </span>
+                            </button>
+                        </span>
                     </th>
                     @endforeach
                 </tr>
@@ -1198,50 +1203,51 @@
         });
     });
 
-    // Whole-table lock for the daily-entry table (explicit request,
-    // 2026-10-07: "add lock icon too in the editable table") — ONE lock
-    // for every 7-day chunk at once (see DsPprReportController::
-    // LOCK_SETTING_KEY's own doc comment), same 180ms cross-fade icon
-    // animation as Cost Breakdown's own per-table lock. Every chunk's own
-    // copy of the lock button shares the SAME state (data-dsppr-lock-
-    // toggle's own data-locked), so clicking any one disables every
-    // .dsppr-field across every chunk and updates every button's own icon
-    // together in one pass.
-    function applyDailyTableLockState(locked) {
-        document.querySelectorAll('.dsppr-days-table').forEach((table) => {
-            table.dataset.locked = locked ? '1' : '0';
-            table.querySelectorAll('.dsppr-field').forEach((el) => { el.disabled = locked; });
+    // Per-date lock for the daily-entry table (explicit follow-up,
+    // 2026-10-07: "i want to make it per date like the lock icon is in
+    // the dates right side" — reverses the earlier same-day "one lock
+    // for the whole table" decision). Each date header has its own lock
+    // button + icon; locking disables every .dsppr-field tagged with that
+    // SAME data-date, across every chunk/row that date appears in (a
+    // date's own column only ever renders once across the whole page, so
+    // this is a 1:1 match, not a many-buttons-one-state situation the old
+    // whole-table version had).
+    function applyDateLockState(dateStr, locked) {
+        document.querySelectorAll(`[data-dsppr-date-header][data-date="${dateStr}"]`).forEach((th) => {
+            th.dataset.locked = locked ? '1' : '0';
         });
+        document.querySelectorAll(`.dsppr-field[data-date="${dateStr}"]`).forEach((el) => { el.disabled = locked; });
     }
 
-    function swapDsprLockIcons(locked) {
-        const lockedSvg = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
-        const unlockedSvg = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
-        document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => {
-            btn.dataset.locked = locked ? '1' : '0';
-            btn.title = locked ? 'Unlock the daily entry table' : 'Lock the daily entry table';
-            btn.setAttribute('aria-label', btn.title);
-            const iconWrap = btn.querySelector('[data-dsppr-lock-icon]');
-            if (!iconWrap) return;
-            iconWrap.style.opacity = '0';
-            setTimeout(() => {
-                iconWrap.innerHTML = locked ? lockedSvg : unlockedSvg;
-                iconWrap.style.opacity = '1';
-            }, 180);
-        });
+    function swapDsprLockIcon(dateStr, locked) {
+        const lockedSvg = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        const unlockedSvg = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        const btn = document.querySelector(`[data-dsppr-lock-toggle][data-date="${dateStr}"]`);
+        if (!btn) return;
+        btn.dataset.locked = locked ? '1' : '0';
+        btn.title = locked ? 'Unlock this date' : 'Lock this date';
+        btn.setAttribute('aria-label', btn.title);
+        const iconWrap = btn.querySelector('[data-dsppr-lock-icon]');
+        if (!iconWrap) return;
+        iconWrap.style.opacity = '0';
+        setTimeout(() => {
+            iconWrap.innerHTML = locked ? lockedSvg : unlockedSvg;
+            iconWrap.style.opacity = '1';
+        }, 180);
     }
 
-    document.querySelectorAll('.dsppr-days-table').forEach((table) => {
-        applyDailyTableLockState(table.dataset.locked === '1');
+    document.querySelectorAll('[data-dsppr-date-header]').forEach((th) => {
+        applyDateLockState(th.dataset.date, th.dataset.locked === '1');
     });
 
     document.addEventListener('click', (e) => {
         const lockBtn = e.target.closest('[data-dsppr-lock-toggle]');
         if (!lockBtn) return;
+        const dateStr = lockBtn.dataset.date;
         const nowLocked = lockBtn.dataset.locked !== '1';
 
-        document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => { btn.disabled = true; });
-        fetch('{{ route('data.dsppr.toggle-lock') }}', {
+        lockBtn.disabled = true;
+        fetch(`{{ url('/data/dsppr/lock') }}/${dateStr}`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -1252,15 +1258,13 @@
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
             .then(() => {
-                swapDsprLockIcons(nowLocked);
-                applyDailyTableLockState(nowLocked);
+                swapDsprLockIcon(dateStr, nowLocked);
+                applyDateLockState(dateStr, nowLocked);
             })
             .catch(() => {
-                window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} the daily entry table — try again.`, 'error');
+                window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} this date — try again.`, 'error');
             })
-            .finally(() => {
-                document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => { btn.disabled = false; });
-            });
+            .finally(() => { lockBtn.disabled = false; });
     });
 })();
 </script>

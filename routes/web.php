@@ -316,16 +316,22 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // binding before this route is ever reached (route order, not
         // path specificity, decides the match here).
         Route::patch('/dsppr/tiktok/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'updateTiktok'])->name('dsppr.update-tiktok');
+        // Per-date lock for the daily-entry table (explicit follow-up,
+        // 2026-10-07: "i want to make it per date like the lock icon is
+        // in the dates right side" — reverses the earlier same-day
+        // "one lock for the whole table" decision) — see
+        // DsPprLockedDate's own doc comment. Same "MUST be registered
+        // BEFORE dsppr.update" ordering reason as update-tiktok above —
+        // /dsppr/lock/{date} would otherwise greedily match
+        // /dsppr/{product}/{date} first (product="lock"), 404ing on
+        // implicit Product route-model binding before this route is ever
+        // reached.
+        Route::patch('/dsppr/lock/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'toggleLock'])->name('dsppr.toggle-lock');
         // PATCH by (product, date), not a {dsPprEntry} id — a cell with
         // nothing typed into it yet has no row to bind to at all (unlike
         // Projections' fixed, pre-seeded columns), so this upserts via
         // DsPprEntry::updateOrCreate() instead of route-model binding.
         Route::patch('/dsppr/{product}/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'update'])->name('dsppr.update');
-        // Whole-table lock for the daily-entry table (explicit request,
-        // 2026-10-07: "add lock icon too in the editable table") — one
-        // lock for every 7-day chunk at once, see
-        // DsPprReportController::LOCK_SETTING_KEY's own doc comment.
-        Route::patch('/dsppr/lock', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'toggleLock'])->name('dsppr.toggle-lock');
         // Product combining (explicit request, 2026-09-26: "drag the TO-01
         // to TO-02 ... it will reflect it to the expected income") — DSPPR
         // is the only place a group is CREATED; Expected Income just

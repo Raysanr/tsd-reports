@@ -4,11 +4,11 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
+use App\Models\DsPprLockedDate;
 use App\Models\DsPprTiktokEntry;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
-use App\Models\Setting;
 use App\Support\DateRangeFilter;
 use App\Support\DsPprCalculator;
 use App\Support\ProductGrouping;
@@ -32,17 +32,6 @@ use Illuminate\Support\Carbon;
  */
 class DsPprReportController extends Controller
 {
-    /** The daily-entry table's own whole-table lock (explicit request,
-     *  2026-10-07: "add lock icon too in the editable table") — ONE lock
-     *  for the entire daily table, not per 7-day chunk (explicit scope:
-     *  the chunking is purely a horizontal-scroll display convenience,
-     *  not separate data — see dateChunks' own doc comment), same
-     *  "Setting key-value store, survives a reload for everyone" pattern
-     *  as CostBreakdownController::LOCK_TABLES. The top "Telesales
-     *  Running Performance" summary table is a read-only range rollup
-     *  with nothing to lock. */
-    private const LOCK_SETTING_KEY = 'dsppr_lock_daily_table';
-
     public function index(Request $request)
     {
         // See DateRangeFilter's own doc comment — remembers the last range
@@ -212,6 +201,19 @@ class DsPprReportController extends Controller
         // selected range.
         $dateChunks = $dates->chunk(7)->values();
 
+        // Per-date lock (explicit follow-up, 2026-10-07: "i want to make
+        // it per date like the lock icon is in the dates right side" —
+        // reverses the earlier same-day "one lock for the whole table"
+        // decision) — a set of every locked date STRING in the selected
+        // range, so the view's own in_array() check is O(1)-ish per date
+        // header without a query per date. See DsPprLockedDate's own doc
+        // comment for why this is a separate table keyed by date alone.
+        $lockedDates = DsPprLockedDate::whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->pluck('entry_date')
+            ->map(fn ($d) => $d->toDateString())
+            ->all();
+
         return view('data.dsppr', [
             'rows'         => $rows,
             'overallTotal' => $overallTotal,
@@ -232,7 +234,7 @@ class DsPprReportController extends Controller
             // same "$entry seeds inputs, $d/derived seeds display" split
             // every other editable page in this app already follows.
             'tiktokEntriesByDate' => $tiktokEntriesByDate,
-            'dailyTableLocked' => Setting::get(self::LOCK_SETTING_KEY) === '1',
+            'lockedDates' => $lockedDates,
         ]);
     }
 
@@ -255,6 +257,14 @@ class DsPprReportController extends Controller
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
+
+        // Never trust the frontend's own `disabled` attribute alone — a
+        // locked date refuses a direct PATCH too (explicit follow-up,
+        // 2026-10-07 — same guard Expected Income's own per-card
+        // is_locked already has).
+        if (DsPprLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+            return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
+        }
 
         // whereDate(), not a plain ['entry_date' => $entryDate] attribute
         // match on firstOrNew() — SQLite (this app's local driver, see
@@ -343,6 +353,10 @@ class DsPprReportController extends Controller
 
         $entryDate = Carbon::parse($date)->toDateString();
 
+        if (DsPprLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+            return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
+        }
+
         $entry = DsPprTiktokEntry::whereDate('entry_date', $entryDate)->first()
             ?? new DsPprTiktokEntry(['entry_date' => $entryDate]);
         $entry->fill($data);
@@ -359,12 +373,25 @@ class DsPprReportController extends Controller
     /** Flips the daily-entry table's own whole-table lock on/off (explicit
      *  request, 2026-10-07) — see LOCK_SETTING_KEY's own doc comment for
      *  why this is one Setting flag rather than per-7-day-chunk/per-row. */
-    public function toggleLock(Request $request)
+    /** Flips ONE date's own lock on/off (explicit follow-up, 2026-10-07:
+     *  "i want to make it per date like the lock icon is in the dates
+     *  right side") — freezes every product's own Gross Sales/Net Income
+     *  input for that one date, plus TIKTOK ORDERS' own fields for that
+     *  same date, across every 7-day chunk that date happens to render
+     *  in. See DsPprLockedDate's own doc comment for why existence of a
+     *  row is the flag (no boolean column needed). */
+    public function toggleLock(Request $request, string $date)
     {
         $locked = $request->boolean('locked');
-        Setting::set(self::LOCK_SETTING_KEY, $locked ? '1' : '');
+        $entryDate = Carbon::parse($date)->toDateString();
 
-        return response()->json(['success' => true, 'locked' => $locked]);
+        if ($locked) {
+            DsPprLockedDate::firstOrCreate(['entry_date' => $entryDate]);
+        } else {
+            DsPprLockedDate::whereDate('entry_date', $entryDate)->delete();
+        }
+
+        return response()->json(['success' => true, 'date' => $entryDate, 'locked' => $locked]);
     }
 
     /** Combines 2+ products into one display row (explicit request,

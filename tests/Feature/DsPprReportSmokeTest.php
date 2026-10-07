@@ -68,38 +68,86 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertForbidden();
     }
 
-    /** The daily-entry table's own whole-table lock (explicit request,
-     *  2026-10-07: "add lock icon too in the editable table") — ONE lock
-     *  for the whole table, persisted via Setting so it survives a
-     *  reload, same pattern as Cost Breakdown's own per-table lock. */
-    public function test_locking_the_daily_table_persists_and_is_reflected_on_reload(): void
+    /** The daily-entry table's own PER-DATE lock (explicit follow-up,
+     *  2026-10-07: "i want to make it per date like the lock icon is in
+     *  the dates right side" — supersedes the same-day "one lock for the
+     *  whole table" decision). Existence of a DsPprLockedDate row for a
+     *  date means that date is locked; other dates stay independently
+     *  editable. */
+    public function test_locking_a_date_persists_and_is_reflected_on_reload(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
 
-        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => true]);
-        $response->assertOk()->assertJson(['success' => true, 'locked' => true]);
+        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock', ['date' => $date]), ['locked' => true]);
+        $response->assertOk()->assertJson(['success' => true, 'date' => $date, 'locked' => true]);
+        $this->assertDatabaseHas('dsppr_locked_dates', ['entry_date' => $date . ' 00:00:00']);
 
-        $page = $this->actingAs($admin)->get(route('data.dsppr'));
+        $page = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]));
         $page->assertOk();
-        $page->assertSee('data-locked="1"', false);
+        $page->assertSee('data-dsppr-date-header data-date="' . $date . '" data-locked="1"', false);
     }
 
-    public function test_unlocking_the_daily_table_clears_its_stored_state(): void
+    public function test_unlocking_a_date_removes_its_locked_row(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        \App\Models\Setting::set('dsppr_lock_daily_table', '1');
+        $date = today()->toDateString();
+        \App\Models\DsPprLockedDate::create(['entry_date' => $date]);
 
-        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => false]);
-        $response->assertOk()->assertJson(['success' => true, 'locked' => false]);
+        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock', ['date' => $date]), ['locked' => false]);
+        $response->assertOk()->assertJson(['success' => true, 'date' => $date, 'locked' => false]);
 
-        $this->assertNotEquals('1', \App\Models\Setting::get('dsppr_lock_daily_table'));
+        $this->assertDatabaseMissing('dsppr_locked_dates', ['entry_date' => $date . ' 00:00:00']);
     }
 
-    public function test_a_non_admin_cannot_toggle_the_daily_table_lock(): void
+    public function test_a_non_admin_cannot_toggle_a_date_lock(): void
     {
         $user = User::factory()->create(['role' => 'normal']);
 
-        $this->actingAs($user)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => true])->assertForbidden();
+        $this->actingAs($user)->patchJson(route('data.dsppr.toggle-lock', ['date' => today()->toDateString()]), ['locked' => true])->assertForbidden();
+    }
+
+    public function test_a_locked_date_refuses_a_direct_update(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $product = Product::first();
+        \App\Models\DsPprLockedDate::create(['entry_date' => $date]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update', ['product' => $product->id, 'date' => $date]),
+            ['gross_sales' => 999]
+        );
+        $response->assertStatus(422);
+        $this->assertDatabaseMissing('dsppr_entries', ['product_id' => $product->id, 'gross_sales' => 999]);
+    }
+
+    public function test_a_locked_date_refuses_a_direct_tiktok_update(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        \App\Models\DsPprLockedDate::create(['entry_date' => $date]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update-tiktok', ['date' => $date]),
+            ['gross_sales' => 999]
+        );
+        $response->assertStatus(422);
+    }
+
+    public function test_an_unlocked_date_is_unaffected_by_a_different_locked_date(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $lockedDate = today()->toDateString();
+        $otherDate = today()->addDay()->toDateString();
+        $product = Product::first();
+        \App\Models\DsPprLockedDate::create(['entry_date' => $lockedDate]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update', ['product' => $product->id, 'date' => $otherDate]),
+            ['gross_sales' => 777]
+        );
+        $response->assertOk();
     }
 
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void
