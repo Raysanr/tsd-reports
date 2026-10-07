@@ -2399,6 +2399,96 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertSame(2000.0, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
     }
 
+    /** Lock toggle on a TikTok card (explicit request, 2026-10-07: "i want
+     *  to have like lock icon too") — reverses the original "no lock
+     *  toggle (manual-only card)" decision now that Salaries is a
+     *  computed figure here, same one-lock-per-card mechanics as a real
+     *  product card's own lock (update()'s is_locked). */
+    public function test_locking_a_tiktok_card_persists_and_returns_fresh_card_html(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['is_locked' => true]
+        );
+
+        $response->assertOk();
+        $this->assertDatabaseHas('expected_income_tiktok_entries', [
+            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'is_locked' => true,
+        ]);
+        $cardHtml = $response->json('cardHtml');
+        $this->assertNotEmpty($cardHtml, 'lock toggle must return a fresh cardHtml for the frontend cross-fade');
+        $this->assertStringContainsString('data-ei-lock-toggle', $cardHtml);
+        $this->assertMatchesRegularExpression('/data-field="gross_sales"[^>]*disabled/', $cardHtml);
+    }
+
+    public function test_a_locked_tiktok_card_refuses_other_field_edits(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        \App\Models\ExpectedIncomeTiktokEntry::create([
+            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 100, 'is_locked' => true,
+        ]);
+
+        $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 99999]
+        )->assertOk();
+
+        $this->assertDatabaseHas('expected_income_tiktok_entries', [
+            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'gross_sales' => 100,
+        ]);
+    }
+
+    /** Salaries on a TikTok card is a computed Daily Rate figure, not
+     *  manual input (explicit request, 2026-10-07: "the boxes will be
+     *  gone in editable row") — same "computed, never editable" rendering
+     *  a real TSA-scoped product card already gives Salaries, but every
+     *  OTHER Operating Costs row (Communication Allowance, SIL, ...) on a
+     *  TikTok card stays a plain manual input, unlike a real product
+     *  card where ALL of them are locked — TikTok cards have no Cost
+     *  Breakdown automation for those. */
+    public function test_a_tiktok_cards_salaries_row_is_not_editable_but_other_operating_costs_are(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownRole::ensureSeeded();
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        CostBreakdownTsaEntry::updateOrCreate(['tsa_id' => $tsa->id], ['days' => 24, 'base_salary' => 15990]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => 'tiktok',
+        ]));
+        $response->assertOk();
+        $html = $response->getContent();
+
+        // Anchor on the real editable card's own data-action (its
+        // cardKey) rather than its label text — "TIKTOK: SH NATURALS"
+        // also appears in the ALL view's own read-only TikTok breakdown
+        // row earlier on this same page, which this test isn't targeting.
+        $actionPos = strpos($html, 'sh_naturals');
+        $this->assertNotFalse($actionPos, 'expected to find the editable TikTok card action');
+        $cardStart = strrpos(substr($html, 0, $actionPos), '<div class="ei-card');
+        $cardEnd = strpos($html, '<div class="ei-card', $actionPos);
+        $cardSlice = substr($html, $cardStart, $cardEnd - $cardStart);
+
+        $this->assertStringContainsString('data-ei-lock-toggle', $cardSlice);
+        $this->assertStringContainsString('data-out="salaries"', $cardSlice);
+        $this->assertDoesNotMatchRegularExpression('/data-field="salaries"/', $cardSlice);
+        // Communication Allowance stays a real editable input on a TikTok
+        // card (no Cost Breakdown automation for it there).
+        $this->assertStringContainsString('data-field="communication_allowance"', $cardSlice);
+    }
+
     /** The 2 fixed cards' own saved numbers must fold into TELESALES on
      *  the TIKTOK TEAM filter (the standalone "TIKTOK TOTAL" card was
      *  removed, 2026-10-06 — see

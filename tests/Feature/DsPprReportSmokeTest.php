@@ -68,6 +68,40 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertForbidden();
     }
 
+    /** The daily-entry table's own whole-table lock (explicit request,
+     *  2026-10-07: "add lock icon too in the editable table") — ONE lock
+     *  for the whole table, persisted via Setting so it survives a
+     *  reload, same pattern as Cost Breakdown's own per-table lock. */
+    public function test_locking_the_daily_table_persists_and_is_reflected_on_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => true]);
+        $response->assertOk()->assertJson(['success' => true, 'locked' => true]);
+
+        $page = $this->actingAs($admin)->get(route('data.dsppr'));
+        $page->assertOk();
+        $page->assertSee('data-locked="1"', false);
+    }
+
+    public function test_unlocking_the_daily_table_clears_its_stored_state(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \App\Models\Setting::set('dsppr_lock_daily_table', '1');
+
+        $response = $this->actingAs($admin)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => false]);
+        $response->assertOk()->assertJson(['success' => true, 'locked' => false]);
+
+        $this->assertNotEquals('1', \App\Models\Setting::get('dsppr_lock_daily_table'));
+    }
+
+    public function test_a_non_admin_cannot_toggle_the_daily_table_lock(): void
+    {
+        $user = User::factory()->create(['role' => 'normal']);
+
+        $this->actingAs($user)->patchJson(route('data.dsppr.toggle-lock'), ['locked' => true])->assertForbidden();
+    }
+
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -594,12 +628,105 @@ class DsPprReportSmokeTest extends TestCase
 
         preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="tiktok".*?<\/tr>/s', $content, $matches);
         $this->assertNotEmpty($matches, 'expected to find the TIKTOK ORDERS daily row');
-        foreach (['gross_sales', 'net_income', 'total_orders', 'total_leads', 'catered_leads'] as $field) {
+        // Excess Leads/Pick-up/Conversion/Upselling Rate (explicit
+        // follow-up, 2026-10-07: "make it editable") joined the original
+        // 5 as real inputs too — every one of the row's 9 non-derived
+        // columns (ni_pct/aov stay derived-only, no raw column backs
+        // either) is now a data-field input.
+        foreach (['gross_sales', 'net_income', 'total_orders', 'total_leads', 'catered_leads', 'excess_leads', 'pickup_rate', 'conversion_rate', 'upselling_rate'] as $field) {
             $this->assertStringContainsString(
                 "data-field=\"{$field}\"", $matches[0],
                 "{$field} should be editable on the TIKTOK ORDERS row"
             );
         }
+    }
+
+    /** Excess Leads/Pick-up/Conversion/Upselling Rate overrides (explicit
+     *  request, 2026-10-07: "make it editable") — these 4 are pure
+     *  formulas everywhere else (DsPprCalculator::derive(), computed from
+     *  Total Leads/Catered Leads/Total Orders), but TIKTOK ORDERS' own
+     *  manual row gets a direct per-day override for each, saved to its
+     *  own *_override column rather than replacing the formula outright —
+     *  see DsPprTiktokEntry::toRawRowWithOverrides()'s own doc comment. */
+    public function test_a_tiktok_rate_override_wins_over_the_formula(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+        ]);
+
+        // Un-overridden: Pick-up Rate = catered/total = 8/10 = 80%.
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update-tiktok', ['date' => $date]),
+            ['pickup_rate_override' => 0.5]
+        );
+        $response->assertOk();
+        $response->assertJsonPath('derived.pickup_rate', fn ($v) => abs($v - 0.5) < 0.0001);
+
+        $this->assertDatabaseHas('dsppr_tiktok_entries', ['pickup_rate_override' => 0.5]);
+    }
+
+    public function test_clearing_a_tiktok_rate_override_reverts_to_the_formula(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+            'pickup_rate_override' => 0.5,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update-tiktok', ['date' => $date]),
+            ['pickup_rate_override' => '']
+        );
+        $response->assertOk();
+        // Formula: 8/10 = 80%, not the cleared 50% override.
+        $response->assertJsonPath('derived.pickup_rate', fn ($v) => abs($v - 0.8) < 0.0001);
+
+        $this->assertDatabaseHas('dsppr_tiktok_entries', ['pickup_rate_override' => null]);
+    }
+
+    public function test_an_excess_leads_override_is_a_count_not_a_percentage(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'total_leads' => 10, 'catered_leads' => 8,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.dsppr.update-tiktok', ['date' => $date]),
+            ['excess_leads_override' => 99]
+        );
+        $response->assertOk();
+        $response->assertJsonPath('derived.excess_leads', 99);
+    }
+
+    public function test_a_tiktok_rate_override_is_folded_into_the_overall_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $product = \App\Models\Product::first();
+        $product->update(['has_cost_allocation' => true]);
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+            'upselling_rate_override' => 1.0,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+        $response->assertOk();
+        // Not asserting an exact blended figure (depends on every other
+        // seeded product's own rate too) — just that the page renders
+        // without error and the override itself is visible as the saved
+        // input value.
+        $this->assertStringContainsString('value="100.00"', $response->getContent());
     }
 
     public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void

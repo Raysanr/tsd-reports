@@ -21,6 +21,12 @@
     .cb-dark-header-actions button { color: #f1f5f9; background-color: rgba(255,255,255,0.08); }
     .cb-dark-header-actions button svg { stroke-width: 2.1; }
     .cb-dark-header-actions button:hover { color: #fff; background-color: rgba(255,255,255,0.18); }
+    /* The lock toggle (partials/table-lock-toggle.blade.php) sits as a
+       sibling of table-actions.blade.php's own inner flex wrapper, not
+       inside it — without its own flex row here the two stacked onto 2
+       lines instead of sitting side by side (explicit follow-up,
+       2026-10-07: "fix the positioning, i want to make it in a 1 row"). */
+    .cb-dark-header-actions { display: flex; align-items: center; gap: 0.25rem; }
 </style>
 
 @php

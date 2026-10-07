@@ -220,7 +220,16 @@
          $tsaScoped is true (the ALL view's own tsa_id-NULL cards have no
          TSA to compute anything from, so every row there is unaffected,
          still a plain manual input). --}}
-    @php($isOperatingCostLocked = !$isCustom && ($tsaScoped ?? false))
+    {{-- A TikTok card (tsaScoped = false, lockedOperatingKeys = ['salaries']
+         — see _tiktok-card.blade.php's own doc comment, explicit request
+         2026-10-07) locks ONLY Salaries, not the other 19 pools — unlike a
+         real TSA-scoped product card, which has no Cost Breakdown
+         automation for Communication Allowance/SIL/etc. on a TikTok card
+         at all, so those stay plain manual inputs there. $lockedOperatingKeys
+         defaults to null (not passed), meaning "every key, same as the
+         existing tsaScoped-wide rule" — only a TikTok card passes an
+         explicit narrower list. --}}
+    @php($isOperatingCostLocked = !$isCustom && (isset($lockedOperatingKeys) ? in_array($key, $lockedOperatingKeys, true) : ($tsaScoped ?? false)))
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1 ei-row" data-row-key="{{ $key }}" data-row-section="operating">
         <span class="{{ $isBlue ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }} flex items-center gap-1">
             {{ $label }}

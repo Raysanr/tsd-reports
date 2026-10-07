@@ -8,6 +8,7 @@ use App\Models\DsPprTiktokEntry;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
+use App\Models\Setting;
 use App\Support\DateRangeFilter;
 use App\Support\DsPprCalculator;
 use App\Support\ProductGrouping;
@@ -31,6 +32,17 @@ use Illuminate\Support\Carbon;
  */
 class DsPprReportController extends Controller
 {
+    /** The daily-entry table's own whole-table lock (explicit request,
+     *  2026-10-07: "add lock icon too in the editable table") — ONE lock
+     *  for the entire daily table, not per 7-day chunk (explicit scope:
+     *  the chunking is purely a horizontal-scroll display convenience,
+     *  not separate data — see dateChunks' own doc comment), same
+     *  "Setting key-value store, survives a reload for everyone" pattern
+     *  as CostBreakdownController::LOCK_TABLES. The top "Telesales
+     *  Running Performance" summary table is a read-only range rollup
+     *  with nothing to lock. */
+    private const LOCK_SETTING_KEY = 'dsppr_lock_daily_table';
+
     public function index(Request $request)
     {
         // See DateRangeFilter's own doc comment — remembers the last range
@@ -142,8 +154,16 @@ class DsPprReportController extends Controller
         $tiktokDailyByKey = collect();
         foreach ($dates as $date) {
             $dateStr = $date->toDateString();
+            // toRawRowWithOverrides(), not a plain ->toArray() — a day
+            // with one of the 4 rate columns manually overridden (explicit
+            // request, 2026-10-07) folds that straight onto the matching
+            // derived key, same "DsPprCalculator::sum()'s own rateOf()
+            // already prefers an already-present key over re-deriving it"
+            // mechanism real per-product rows use for Pick-up/Conversion/
+            // Upselling Rate (see sum()'s own doc comment) — no new
+            // special-case needed in the calculator for the daily table.
             $tiktokDailyByKey->put($dateStr, $tiktokEntriesByDate->has($dateStr)
-                ? $tiktokEntriesByDate->get($dateStr)->toArray()
+                ? $tiktokEntriesByDate->get($dateStr)->toRawRowWithOverrides()
                 : $emptyTiktokRow);
         }
 
@@ -205,6 +225,14 @@ class DsPprReportController extends Controller
             'ordersByDate' => $ordersByDate,
             'tiktokRow'       => $tiktokRow,
             'tiktokDailyByKey' => $tiktokDailyByKey,
+            // Keyed by date, the real models (not $tiktokDailyByKey's own
+            // plain raw arrays) — the view's own 4 rate-override inputs
+            // (explicit request, 2026-10-07) need the real *_override
+            // columns directly to seed each input's own saved value,
+            // same "$entry seeds inputs, $d/derived seeds display" split
+            // every other editable page in this app already follows.
+            'tiktokEntriesByDate' => $tiktokEntriesByDate,
+            'dailyTableLocked' => Setting::get(self::LOCK_SETTING_KEY) === '1',
         ]);
     }
 
@@ -297,6 +325,20 @@ class DsPprReportController extends Controller
             'total_orders'  => ['sometimes', 'integer', 'min:0'],
             'total_leads'   => ['sometimes', 'integer', 'min:0'],
             'catered_leads' => ['sometimes', 'integer', 'min:0'],
+            // Rate overrides (explicit request, 2026-10-07: "make it
+            // editable" — Excess Leads/Pick-up Rate/Conversion Rate/
+            // Upselling Rate are formulas everywhere else on this page,
+            // but TIKTOK ORDERS' own manual row gets a direct override
+            // for each — see DsPprTiktokEntry::toRawRowWithOverrides()'s
+            // own doc comment). A blank/null value clears the override
+            // and reverts that cell to the formula — 'nullable', not
+            // 'sometimes', so the frontend can explicitly send an empty
+            // value to clear one (sometimes alone would just never touch
+            // the column at all on a blank submit).
+            'excess_leads_override'    => ['nullable', 'integer', 'min:0'],
+            'pickup_rate_override'     => ['nullable', 'numeric'],
+            'conversion_rate_override' => ['nullable', 'numeric'],
+            'upselling_rate_override'  => ['nullable', 'numeric'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
@@ -306,12 +348,23 @@ class DsPprReportController extends Controller
         $entry->fill($data);
         $entry->save();
 
-        $derived = DsPprCalculator::derive($entry->toArray());
+        $derived = DsPprCalculator::derive($entry->toRawRowWithOverrides());
 
         return response()->json([
             'success' => true,
             'derived' => $derived,
         ]);
+    }
+
+    /** Flips the daily-entry table's own whole-table lock on/off (explicit
+     *  request, 2026-10-07) — see LOCK_SETTING_KEY's own doc comment for
+     *  why this is one Setting flag rather than per-7-day-chunk/per-row. */
+    public function toggleLock(Request $request)
+    {
+        $locked = $request->boolean('locked');
+        Setting::set(self::LOCK_SETTING_KEY, $locked ? '1' : '');
+
+        return response()->json(['success' => true, 'locked' => $locked]);
     }
 
     /** Combines 2+ products into one display row (explicit request,

@@ -31,6 +31,15 @@ class DsPprCalculator
 
         $excessLeads = max(0, $totalLeads - $cateredLeads);
 
+        // TIKTOK ORDERS' own manual rate overrides (explicit request,
+        // 2026-10-07 — see DsPprTiktokEntry::toRawRowWithOverrides()'s own
+        // doc comment) — if $row already carries one of these 4 keys
+        // directly (an override was set), it wins over the formula below;
+        // every real product row never has these keys pre-set, so this is
+        // a no-op for them, same "array_key_exists on the incoming row
+        // wins" convention sum()'s own rateOf() already uses.
+        $hasOverride = fn (string $key) => array_key_exists($key, $row);
+
         return [
             'gross_sales'   => $grossSales,
             'net_income'    => $netIncome,
@@ -38,7 +47,7 @@ class DsPprCalculator
             'total_orders'  => $totalOrders,
             'total_leads'   => $totalLeads,
             'catered_leads' => $cateredLeads,
-            'excess_leads'  => $excessLeads,
+            'excess_leads'  => $hasOverride('excess_leads') ? (int) $row['excess_leads'] : $excessLeads,
 
             // NI% = Net Income ÷ Gross Sales — confirmed exact.
             'ni_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
@@ -47,9 +56,9 @@ class DsPprCalculator
             // Actual Cost Per Lead = Ads Spent ÷ Total Leads.
             'actual_cost_per_lead' => $totalLeads > 0 ? $adsSpent / $totalLeads : 0.0,
             // Pick-up Rate = Catered Leads ÷ Total Leads.
-            'pickup_rate' => $totalLeads > 0 ? $cateredLeads / $totalLeads : 0.0,
+            'pickup_rate' => $hasOverride('pickup_rate') ? (float) $row['pickup_rate'] : ($totalLeads > 0 ? $cateredLeads / $totalLeads : 0.0),
             // Conversion Rate = Total Orders ÷ Catered Leads.
-            'conversion_rate' => $cateredLeads > 0 ? $totalOrders / $cateredLeads : 0.0,
+            'conversion_rate' => $hasOverride('conversion_rate') ? (float) $row['conversion_rate'] : ($cateredLeads > 0 ? $totalOrders / $cateredLeads : 0.0),
             // Upselling Rate: share of catered leads that convert AND
             // upsell isn't separately tracked on this manual-entry table
             // (no per-order upsell flag here, unlike Orders' own
@@ -58,7 +67,7 @@ class DsPprCalculator
             // this table, same placeholder convention
             // ProjectionCalculator's own target_card uses for
             // upselling_rate (1:1 with orders_needed).
-            'upselling_rate' => $cateredLeads > 0 ? $totalOrders / $cateredLeads : 0.0,
+            'upselling_rate' => $hasOverride('upselling_rate') ? (float) $row['upselling_rate'] : ($cateredLeads > 0 ? $totalOrders / $cateredLeads : 0.0),
         ];
     }
 
@@ -124,6 +133,20 @@ class DsPprCalculator
             $summed['pickup_rate']     = array_sum(array_map(fn ($row) => $rateOf($row, 'pickup_rate'), $rows)) / $rowCount;
             $summed['conversion_rate'] = array_sum(array_map(fn ($row) => $rateOf($row, 'conversion_rate'), $rows)) / $rowCount;
             $summed['upselling_rate']  = array_sum(array_map(fn ($row) => $rateOf($row, 'upselling_rate'), $rows)) / $rowCount;
+
+            // Excess Leads (explicit request, 2026-10-07, TIKTOK ORDERS'
+            // own manual rate-override columns — see
+            // DsPprTiktokEntry::toRawRowWithOverrides()'s own doc comment)
+            // — an overridden per-row count ADDS into the range total,
+            // same additive convention as total_orders/total_leads above
+            // (a count, not a ratio) — unlike the 3 rate percentages
+            // (averaged) just above. A row with no override falls back to
+            // derive()'s own formula for its own share, same $rateOf
+            // pattern the 3 rates already use.
+            $excessLeadsOf = fn (array $row) => array_key_exists('excess_leads', $row)
+                ? (float) $row['excess_leads']
+                : self::derive($row)['excess_leads'];
+            $summed['excess_leads'] = array_sum(array_map($excessLeadsOf, $rows));
         }
 
         return $summed;

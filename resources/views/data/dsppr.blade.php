@@ -98,7 +98,16 @@
     // Leads/Catered Leads are editable here too (no real Product/Order
     // data backs this row — see DsPprReportController's own doc comment
     // on updateTiktok()). Excess Leads/Pick-up/Conversion/Upselling Rate
-    // stay derived, same arithmetic as every other row via DsPprCalculator.
+    // (explicit follow-up, 2026-10-07: "make it editable") are ALSO
+    // editable now via a dedicated OVERRIDE column each (not the same
+    // column real-product rows never have in the first place) — 'override'
+    // marks these 4 so the render loop below seeds from $entry's own
+    // *_override field (not $raw/$d) and tags data-pct for the 3
+    // percentages — see DsPprTiktokEntry::toRawRowWithOverrides()'s own
+    // doc comment for the "blank clears the override, falls back to the
+    // formula" rule these 4 follow, same "formula unless manually
+    // overridden" pattern as Cost Breakdown/Expected Income's own
+    // overrides elsewhere in this app.
     $tiktokDayColumns = [
         ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
@@ -107,10 +116,10 @@
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
-        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => true, 'override' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'conversion_rate', 'label' => 'Conversion Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
+        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => true, 'override' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
     ];
 @endphp
 
@@ -255,12 +264,36 @@
      Total Leads through Upselling Rate = dusty rose. Only 6 of the 13
      columns per day are real <input>s; the rest are derived/read-only. --}}
 @foreach($dateChunks as $chunkIndex => $dates)
-<div class="flex items-center justify-end mb-2">
+<div class="flex items-center justify-end gap-1 mb-2">
+    {{-- Whole-table lock (explicit request, 2026-10-07: "add lock icon
+         too in the editable table") — ONE lock covers every 7-day chunk
+         at once (see DsPprReportController::LOCK_SETTING_KEY's own doc
+         comment), so the same button/state repeats on every chunk's own
+         action row purely for visibility while scrolling — clicking ANY
+         one locks/unlocks them all together (dsppr-lock-toggle's own JS
+         below updates every copy + every .dsppr-field page-wide in one
+         pass, not just this chunk's). --}}
+    <button type="button" data-dsppr-lock-toggle data-locked="{{ $dailyTableLocked ? '1' : '0' }}"
+            title="{{ $dailyTableLocked ? 'Unlock the daily entry table' : 'Lock the daily entry table' }}"
+            aria-label="{{ $dailyTableLocked ? 'Unlock the daily entry table' : 'Lock the daily entry table' }}"
+            class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+        <span data-dsppr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
+            @if($dailyTableLocked)
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            @else
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            @endif
+        </span>
+    </button>
     @include('partials.table-actions', ['target' => 'dsPprScroller-' . $chunkIndex, 'name' => 'dsppr-daily-entry-' . ($chunkIndex + 1), 'title' => 'DSPPR - TSM Report', 'subtitle' => $dates->first()->format('F j, Y') . ($dates->count() > 1 ? ' – ' . $dates->last()->format('F j, Y') : '')])
 </div>
 <div class="rounded-2xl border border-line dark:border-slate-700 shadow-panel overflow-hidden mb-6">
     <div class="overflow-x-auto dsppr-scroller" id="dsPprScroller-{{ $chunkIndex }}">
-        <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table"
+        <table class="text-[13px] font-mono border-collapse dsppr-table dsppr-days-table" data-locked="{{ $dailyTableLocked ? '1' : '0' }}"
                data-update-url-template="{{ route('data.dsppr.update', ['product' => '__PRODUCT__', 'date' => '__DATE__']) }}"
                data-update-tiktok-url-template="{{ route('data.dsppr.update-tiktok', ['date' => '__DATE__']) }}">
             <thead>
@@ -428,10 +461,40 @@
                             $dateStr = $date->toDateString();
                             $raw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0]);
                             $d = \App\Support\DsPprCalculator::derive($raw);
+                            $tiktokEntry = $tiktokEntriesByDate->get($dateStr);
                         @endphp
                         @foreach($tiktokDayColumns as $i => $col)
                             @php $borderClass = $i === count($tiktokDayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
-                            @if($col['editable'])
+                            @if($col['editable'] && ($col['override'] ?? false))
+                            {{-- Excess Leads/Pick-up/Conversion/Upselling
+                                 Rate overrides (explicit request,
+                                 2026-10-07: "make it editable") — seeded
+                                 from the real entry's own *_override
+                                 column (NOT $raw/$d, which only carry the
+                                 CURRENTLY-WINNING value, override or
+                                 formula, with no way to tell which);
+                                 blank/empty when no override is set,
+                                 placeholder shows the live formula result
+                                 instead so the field never just looks
+                                 confusingly empty. data-pct="1" (not
+                                 data-money) — saveField()'s own
+                                 OVERRIDE_FIELD_MAP branch divides a typed
+                                 whole-percent number by 100 before saving,
+                                 same fraction-storage convention as every
+                                 other %, int (excess_leads) needs neither. --}}
+                            @php
+                                $overrideColumn = $col['key'] . '_override';
+                                $overrideValue = $tiktokEntry?->{$overrideColumn};
+                                $overrideSeed = $overrideValue === null ? '' : (($col['pct'] ?? false) ? number_format($overrideValue * 100, 2) : $overrideValue);
+                                $placeholder = ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : number_format($d[$col['key']]);
+                            @endphp
+                            <td class="px-2 py-1.5 {{ $borderClass }}">
+                                <input type="text" inputmode="decimal" value="{{ $overrideSeed }}" placeholder="{{ $placeholder }}"
+                                       data-field="{{ $col['key'] }}" data-date="{{ $dateStr }}" @if($col['pct'] ?? false) data-pct="1" @endif
+                                       title="Blank uses the computed {{ $col['label'] }} ({{ $placeholder }})"
+                                       class="dsppr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 placeholder:text-ink-muted/60 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+                            </td>
+                            @elseif($col['editable'])
                             @php
                                 $inputColor = $col['key'] === 'net_income'
                                     ? ($raw[$col['key']] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100')
@@ -665,10 +728,29 @@
         return out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
     }
 
+    // TIKTOK ORDERS' own 4 rate-override inputs (explicit request,
+    // 2026-10-07: "make it editable") — a blank override input means "use
+    // the formula", same as the server (DsPprCalculator::derive()'s own
+    // $hasOverride check). Mirrors that exact rule client-side so a live
+    // edit's own TOTAL-row preview never disagrees with what a fresh page
+    // load (or the server's own saved response) would show. $isPct
+    // divides a typed whole-percent value (e.g. "25") by 100 into the
+    // same fraction convention derive() itself stores (0.25) — the
+    // override input's own placeholder/value is always shown as a plain
+    // percent number, never a fraction, same as every other %-labeled UI
+    // text on this page (fmtPct's own ×100 formatting).
+    function readOverride(row, key, date, isPct) {
+        const input = row.querySelector(`[data-field="${key}"][data-date="${date}"]`);
+        if (!input || input.value.trim() === '') return null;
+        const n = Number(input.value);
+        if (!Number.isFinite(n)) return null;
+        return isPct ? n / 100 : n;
+    }
+
     function refreshDayTotal(table, date) {
         const rows = table.querySelectorAll('tbody .dsppr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
-        let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0;
+        let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0, excessLeadsTotal = 0;
         rows.forEach((row) => {
             const grossSales = readRowValue(row, 'gross_sales', date);
             const netIncome = readRowValue(row, 'net_income', date);
@@ -682,16 +764,21 @@
             totals.total_leads += totalLeads;
             totals.catered_leads += cateredLeads;
 
-            pickupSum += totalLeads > 0 ? cateredLeads / totalLeads : 0;
-            convSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
-            upsellSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
+            const pickupOverride = readOverride(row, 'pickup_rate', date, true);
+            const convOverride = readOverride(row, 'conversion_rate', date, true);
+            const upsellOverride = readOverride(row, 'upselling_rate', date, true);
+            const excessOverride = readOverride(row, 'excess_leads', date, false);
+
+            pickupSum += pickupOverride ?? (totalLeads > 0 ? cateredLeads / totalLeads : 0);
+            convSum += convOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
+            upsellSum += upsellOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
+            excessLeadsTotal += excessOverride ?? Math.max(0, totalLeads - cateredLeads);
             rowCount += 1;
         });
-        const excessLeads = Math.max(0, totals.total_leads - totals.catered_leads);
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
-            excess_leads: excessLeads,
+            excess_leads: Math.max(0, excessLeadsTotal),
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
@@ -714,7 +801,7 @@
         if (!summaryTable) return;
 
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
-        let pickupSum = 0, convSum = 0, upsellSum = 0, dayCount = 0;
+        let pickupSum = 0, convSum = 0, upsellSum = 0, dayCount = 0, excessLeadsTotal = 0;
 
         document.querySelectorAll(`.dsppr-days-table .dsppr-row[data-row-key="${rowKey}"]`).forEach((row) => {
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
@@ -735,18 +822,27 @@
                 totals.total_leads += totalLeads;
                 totals.catered_leads += cateredLeads;
 
-                pickupSum += totalLeads > 0 ? cateredLeads / totalLeads : 0;
-                convSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
-                upsellSum += cateredLeads > 0 ? totalOrders / cateredLeads : 0;
+                // Same override-aware read as refreshDayTotal() above — a
+                // TikTok day with one of the 4 rate columns manually
+                // overridden contributes THAT value instead of the
+                // formula, matching the server's own DsPprCalculator.
+                const pickupOverride = readOverride(row, 'pickup_rate', date, true);
+                const convOverride = readOverride(row, 'conversion_rate', date, true);
+                const upsellOverride = readOverride(row, 'upselling_rate', date, true);
+                const excessOverride = readOverride(row, 'excess_leads', date, false);
+
+                pickupSum += pickupOverride ?? (totalLeads > 0 ? cateredLeads / totalLeads : 0);
+                convSum += convOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
+                upsellSum += upsellOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
+                excessLeadsTotal += excessOverride ?? Math.max(0, totalLeads - cateredLeads);
                 dayCount += 1;
             });
         });
 
-        const excessLeads = Math.max(0, totals.total_leads - totals.catered_leads);
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
-            excess_leads: excessLeads,
+            excess_leads: Math.max(0, excessLeadsTotal),
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
             pickup_rate: dayCount > 0 ? pickupSum / dayCount : 0,
@@ -817,6 +913,20 @@
         });
     }
 
+    // TIKTOK ORDERS' own 4 rate-override fields (explicit request,
+    // 2026-10-07) save to a DIFFERENT column name than their own
+    // data-field/data-out key (excess_leads -> excess_leads_override,
+    // same "_override" suffix for all 4 — see the migration's own doc
+    // comment for why these are separate nullable columns rather than
+    // reusing the plain column name real products' Total Orders/Leads/
+    // Catered already occupy for a different purpose there).
+    const OVERRIDE_FIELD_MAP = {
+        excess_leads: 'excess_leads_override',
+        pickup_rate: 'pickup_rate_override',
+        conversion_rate: 'conversion_rate_override',
+        upselling_rate: 'upselling_rate_override',
+    };
+
     function saveField(input) {
         clearTimeout(saveTimers.get(input));
         saveTimers.delete(input);
@@ -827,7 +937,8 @@
         const urlTemplate = isTiktok ? table.dataset.updateTiktokUrlTemplate : table.dataset.updateUrlTemplate;
         const date = input.dataset.date;
         const field = input.dataset.field;
-        const value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
+        const isOverride = field in OVERRIDE_FIELD_MAP;
+        const isPctOverride = input.dataset.pct === '1';
 
         flashStatus('Saving…', false);
 
@@ -835,7 +946,23 @@
             ? urlTemplate.replace('__DATE__', date)
             : urlTemplate.replace('__PRODUCT__', row.dataset.productId).replace('__DATE__', date);
         const body = new URLSearchParams();
-        body.set(field, value);
+
+        let value;
+        if (isOverride) {
+            // A blank override input clears it back to the formula (same
+            // "blank falls back to the formula" rule the server's own
+            // DsPprCalculator::derive() follows) — sent as an explicit
+            // empty string, NOT omitted, so the PATCH actually nulls out
+            // whatever override was previously saved rather than leaving
+            // it untouched (the 'nullable' validation rule, not
+            // 'sometimes', accepts this).
+            const trimmed = input.value.trim();
+            value = trimmed === '' ? '' : (isPctOverride ? Number(trimmed) / 100 : Number(trimmed));
+            body.set(OVERRIDE_FIELD_MAP[field], value);
+        } else {
+            value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
+            body.set(field, value);
+        }
         body.set('_method', 'PATCH');
 
         fetch(url, {
@@ -1069,6 +1196,71 @@
                 .then(() => window.location.reload())
                 .catch(() => window.showToast?.('Could not ungroup — try again.', 'error'));
         });
+    });
+
+    // Whole-table lock for the daily-entry table (explicit request,
+    // 2026-10-07: "add lock icon too in the editable table") — ONE lock
+    // for every 7-day chunk at once (see DsPprReportController::
+    // LOCK_SETTING_KEY's own doc comment), same 180ms cross-fade icon
+    // animation as Cost Breakdown's own per-table lock. Every chunk's own
+    // copy of the lock button shares the SAME state (data-dsppr-lock-
+    // toggle's own data-locked), so clicking any one disables every
+    // .dsppr-field across every chunk and updates every button's own icon
+    // together in one pass.
+    function applyDailyTableLockState(locked) {
+        document.querySelectorAll('.dsppr-days-table').forEach((table) => {
+            table.dataset.locked = locked ? '1' : '0';
+            table.querySelectorAll('.dsppr-field').forEach((el) => { el.disabled = locked; });
+        });
+    }
+
+    function swapDsprLockIcons(locked) {
+        const lockedSvg = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        const unlockedSvg = '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+        document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => {
+            btn.dataset.locked = locked ? '1' : '0';
+            btn.title = locked ? 'Unlock the daily entry table' : 'Lock the daily entry table';
+            btn.setAttribute('aria-label', btn.title);
+            const iconWrap = btn.querySelector('[data-dsppr-lock-icon]');
+            if (!iconWrap) return;
+            iconWrap.style.opacity = '0';
+            setTimeout(() => {
+                iconWrap.innerHTML = locked ? lockedSvg : unlockedSvg;
+                iconWrap.style.opacity = '1';
+            }, 180);
+        });
+    }
+
+    document.querySelectorAll('.dsppr-days-table').forEach((table) => {
+        applyDailyTableLockState(table.dataset.locked === '1');
+    });
+
+    document.addEventListener('click', (e) => {
+        const lockBtn = e.target.closest('[data-dsppr-lock-toggle]');
+        if (!lockBtn) return;
+        const nowLocked = lockBtn.dataset.locked !== '1';
+
+        document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => { btn.disabled = true; });
+        fetch('{{ route('data.dsppr.toggle-lock') }}', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: new URLSearchParams({ _method: 'PATCH', locked: nowLocked ? '1' : '0' }).toString(),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => {
+                swapDsprLockIcons(nowLocked);
+                applyDailyTableLockState(nowLocked);
+            })
+            .catch(() => {
+                window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} the daily entry table — try again.`, 'error');
+            })
+            .finally(() => {
+                document.querySelectorAll('[data-dsppr-lock-toggle]').forEach((btn) => { btn.disabled = false; });
+            });
     });
 })();
 </script>

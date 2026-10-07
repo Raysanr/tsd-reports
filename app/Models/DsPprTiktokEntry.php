@@ -21,6 +21,11 @@ class DsPprTiktokEntry extends Model
     protected $fillable = [
         'entry_date', 'gross_sales', 'net_income', 'ads_spent',
         'total_orders', 'total_leads', 'catered_leads',
+        // Rate overrides (explicit request, 2026-10-07: "make it
+        // editable") — nullable, null means "keep using
+        // DsPprCalculator::derive()'s own formula" (see the migration's
+        // own doc comment for why these aren't a formula replacement).
+        'excess_leads_override', 'pickup_rate_override', 'conversion_rate_override', 'upselling_rate_override',
     ];
 
     protected $casts = [
@@ -31,5 +36,37 @@ class DsPprTiktokEntry extends Model
         'total_orders'  => 'integer',
         'total_leads'   => 'integer',
         'catered_leads' => 'integer',
+        'excess_leads_override'     => 'integer',
+        'pickup_rate_override'      => 'float',
+        'conversion_rate_override'  => 'float',
+        'upselling_rate_override'   => 'float',
     ];
+
+    /** This row's own raw array, same 6-key shape DsPprCalculator::
+     *  derive()/sum() expect, with any set override merged DIRECTLY onto
+     *  the matching derived key (excess_leads/pickup_rate/conversion_rate/
+     *  upselling_rate) — explicit request, 2026-10-07: "make it editable".
+     *  A null override is simply omitted so derive()/sum() keep computing
+     *  that key from the formula as normal (same "blank falls back to the
+     *  formula" convention as Cost Breakdown's own overrides elsewhere).
+     *  Percent overrides are stored as the same fraction convention as
+     *  derive()'s own output (0.25 = 25%). */
+    public function toRawRowWithOverrides(): array
+    {
+        $raw = $this->only(['gross_sales', 'net_income', 'ads_spent', 'total_orders', 'total_leads', 'catered_leads']);
+
+        $overrideMap = [
+            'excess_leads_override'    => 'excess_leads',
+            'pickup_rate_override'     => 'pickup_rate',
+            'conversion_rate_override' => 'conversion_rate',
+            'upselling_rate_override'  => 'upselling_rate',
+        ];
+        foreach ($overrideMap as $overrideKey => $derivedKey) {
+            if ($this->{$overrideKey} !== null) {
+                $raw[$derivedKey] = $this->{$overrideKey};
+            }
+        }
+
+        return $raw;
+    }
 }

@@ -23,7 +23,7 @@ class ExpectedIncomeTiktokEntry extends Model
     ];
 
     protected $fillable = [
-        'card_key', 'tsa_id', 'entry_date',
+        'card_key', 'tsa_id', 'entry_date', 'is_locked',
         'roas', 'standard_cost_per_message', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value',
         'gross_sales', 'cancelled', 'returns', 'delivered',
         'tax_allocation', 'product_cost',
@@ -36,6 +36,7 @@ class ExpectedIncomeTiktokEntry extends Model
 
     protected $casts = [
         'entry_date'                 => 'date',
+        'is_locked'                  => 'boolean',
         'roas'                       => 'float',
         'standard_cost_per_message'  => 'float',
         'actual_cost_per_lead'       => 'float',

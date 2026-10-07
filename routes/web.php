@@ -321,6 +321,11 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // Projections' fixed, pre-seeded columns), so this upserts via
         // DsPprEntry::updateOrCreate() instead of route-model binding.
         Route::patch('/dsppr/{product}/{date}', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'update'])->name('dsppr.update');
+        // Whole-table lock for the daily-entry table (explicit request,
+        // 2026-10-07: "add lock icon too in the editable table") — one
+        // lock for every 7-day chunk at once, see
+        // DsPprReportController::LOCK_SETTING_KEY's own doc comment.
+        Route::patch('/dsppr/lock', [\App\Http\Controllers\DataManagement\DsPprReportController::class, 'toggleLock'])->name('dsppr.toggle-lock');
         // Product combining (explicit request, 2026-09-26: "drag the TO-01
         // to TO-02 ... it will reflect it to the expected income") — DSPPR
         // is the only place a group is CREATED; Expected Income just

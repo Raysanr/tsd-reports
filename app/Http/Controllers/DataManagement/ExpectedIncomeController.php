@@ -1011,6 +1011,12 @@ class ExpectedIncomeController extends Controller
                         ['salaries' => $cardSalaries]
                     ),
                     'entry' => $only['entry'],
+                    // Lock toggle (explicit request, 2026-10-07: "i want to
+                    // have like lock icon too") — one lock PER CARD, same
+                    // granularity as a real product card's own lock, not
+                    // per-TSA (her SH NATURALS card can be locked
+                    // independently of her NATUREVA one).
+                    'locked' => (bool) ($only['entry']?->is_locked ?? false),
                 ];
             })->values();
 
@@ -1374,19 +1380,81 @@ class ExpectedIncomeController extends Controller
             'geniusmakers_management_fee' => ['sometimes', 'numeric', 'min:0'],
             'business_development_fund'   => ['sometimes', 'numeric', 'min:0'],
             'hmo_expense'                 => ['sometimes', 'numeric', 'min:0'],
+            // Lock toggle (explicit request, 2026-10-07: "i want to have
+            // like lock icon too") — same one-lock-per-card semantics as
+            // update()'s own is_locked (see that method's own doc comment).
+            'is_locked'                   => ['sometimes', 'boolean'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
 
         $entry = ExpectedIncomeTiktokEntry::where('card_key', $cardKey)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new ExpectedIncomeTiktokEntry(['card_key' => $cardKey, 'tsa_id' => $tsaShift->id, 'entry_date' => $entryDate]);
+
+        // Never trust the frontend's own `disabled` attribute alone — same
+        // "a locked entry refuses every OTHER field" guard update() already
+        // has against a direct PATCH bypassing a locked card's own inputs.
+        if ($entry->is_locked) {
+            $data = array_intersect_key($data, ['is_locked' => true]);
+        }
+
         $entry->fill($data);
         $entry->save();
 
-        return response()->json([
+        $response = [
             'success' => true,
             'derived' => ExpectedIncomeCalculator::derive($entry->toArray()),
-        ]);
+        ];
+
+        // Locking swaps every input on this card for the same input, now
+        // `disabled` — a structural change the frontend's generic
+        // applyDerived() can't express in place, so (same convention as
+        // update()'s own cardHtml) the server re-renders this one card's
+        // fresh _tiktok-card partial and the frontend cross-fades the
+        // swap (wireLockToggles() in expected-income.blade.php already
+        // handles this generically — no JS change needed for this card
+        // type specifically).
+        if (array_key_exists('is_locked', $data)) {
+            $response['cardHtml'] = $this->renderTiktokCardHtml($cardKey, $tsaShift, $entryDate);
+        }
+
+        return response()->json($response);
+    }
+
+    /** Re-renders ONE TikTok card's own fresh _tiktok-card partial — same
+     *  role as renderProductCardHtml() below plays for a real product
+     *  card, used by updateTiktok()'s own lock-toggle response above so
+     *  the frontend can cross-fade the whole card in place. Recomputes
+     *  her own Salaries split fresh (same formula buildTiktokRows() uses)
+     *  rather than reusing a stale value, since a lock toggle itself
+     *  never changes it but this helper needs to be correct on its own
+     *  regardless of what triggered the re-render. */
+    private function renderTiktokCardHtml(string $cardKey, TsaShift $tsaShift, string $entryDate): string
+    {
+        $entry = ExpectedIncomeTiktokEntry::where('card_key', $cardKey)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first();
+        $dailyRate = TsaDailyRateService::dailyRateByTsaId()[$tsaShift->id] ?? 0.0;
+        $cardSalaries = $dailyRate / count(ExpectedIncomeTiktokEntry::CARDS);
+
+        $raw = $entry?->toArray() ?? ['tsa_id' => $tsaShift->id, 'card_key' => $cardKey, 'entry_date' => $entryDate];
+        $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+            ExpectedIncomeCalculator::derive($raw),
+            ['salaries' => $cardSalaries]
+        );
+
+        $card = [
+            'key' => $cardKey,
+            'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
+            'derived' => $derived,
+            'entry' => $entry,
+            'locked' => (bool) ($entry?->is_locked ?? false),
+        ];
+
+        return view('data.expected-income._tiktok-card', [
+            'card' => $card, 'tsa' => $tsaShift, 'dateStr' => $entryDate,
+            'fmtMoney' => fn ($n) => number_format((float) $n, 2),
+            'fmtPct'   => fn ($n) => number_format(((float) $n) * 100, 2) . '%',
+            'editable' => true,
+        ])->render();
     }
 
     /** Re-renders ONE TSA-scoped product card's own fresh _product-card
