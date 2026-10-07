@@ -273,12 +273,15 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     // TSD Data Management — a new, standalone module (explicit request,
     // 2026-09-23: "create new module TSD DATA MANAGEMENT") alongside TSD
     // Leads Reports and TSD Call Tracker, same "own Hub card, own
-    // prefix/layout" pattern as Call Tracker's own group above. Admin-only
-    // throughout — this manages real financial planning targets/rates, not
-    // day-to-day TSA-facing data, so it sits under the same
-    // role:super_admin,admin gate CONFIG pages already use rather than
-    // Call Tracker's "opened to a TSA too" precedent.
-    Route::prefix('data')->name('data.')->middleware('role:super_admin,admin')->group(function () {
+    // prefix/layout" pattern as Call Tracker's own group above. Opened up
+    // to TSAs too (explicit request, 2026-10-07: "make it the data
+    // management module is visible for the TSA's (NORMAL USERS)") —
+    // reverses the original 2026-09-23 admin-only decision above, EXCEPT
+    // Cost Breakdown (real payroll/salary data), which stays behind its
+    // own nested role:super_admin,admin gate further down, same "CONFIG
+    // pages only" convention as line 85's own group. Projections/DSPPR/
+    // Summary Sales Report/Expected Income are all now normal-accessible.
+    Route::prefix('data')->name('data.')->middleware('role:super_admin,admin,normal')->group(function () {
         Route::get('/', fn () => redirect()->route('data.projections'));
         Route::get('/projections', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'index'])->name('projections');
         // /rates registered BEFORE the {projectionColumn} wildcard — PATCH
@@ -408,45 +411,51 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/expected-income/summary', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'summary'])->name('expected-income.summary');
 
         // Cost Breakdown (explicit request, 2026-09-29: "add new page in
-        // data management (COST BREAKDOWN)") — the top salary/org section
-        // (roles) and the bottom per-TSA cost-allocation table each get
-        // their own PATCH endpoint, same "one row/cell at a time,
-        // debounced auto-save" convention as every other page in this
-        // module. /roles/{costBreakdownRole} and /pools/{costBreakdownPool}
-        // both bind to real, pre-seeded rows (CostBreakdownRole::
-        // ensureSeeded()/CostBreakdownPool::ensureSeeded(), called from the
-        // controller's own index()) — unlike DSPPR/Expected Income's own
-        // cell routes, there's always a row to bind to here, so plain
-        // route-model binding works rather than an upsert-by-(product,date)
-        // pattern.
-        Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
-        // Add/remove a role (explicit request, 2026-10-03: "i want you to
-        // add role") — registered before the {costBreakdownRole} PATCH
-        // below, same "static segment before the wildcard" convention
-        // /rates and /custom-rows already follow on Projections (POST
-        // here is a different HTTP verb than that PATCH anyway, but kept
-        // consistent with that convention regardless).
-        Route::post('/cost-breakdown/roles', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'storeRole'])->name('cost-breakdown.roles.store');
-        Route::delete('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'destroyRole'])->name('cost-breakdown.roles.destroy');
-        Route::patch('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateRole'])->name('cost-breakdown.update-role');
-        Route::patch('/cost-breakdown/pools/{costBreakdownPool}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updatePool'])->name('cost-breakdown.update-pool');
-        // {tsaShift}, not {costBreakdownTsaEntry} — the view keys every
-        // input by the real TSA (tsa_id), never the entry row's own id,
-        // since a TSA with nothing typed yet has no CostBreakdownTsaEntry
-        // row at all; same upsert-by-real-key convention as DSPPR/Expected
-        // Income's own {product}/{date} routes.
-        Route::patch('/cost-breakdown/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateTsaEntry'])->name('cost-breakdown.update-tsa-entry');
-        // Per-product "has cost" checkbox on the Cost Allocation Per TSA
-        // table's own column headers (explicit request, 2026-09-30: "user
-        // only can identify what product that has cost") — {product}, not
-        // a Cost Breakdown model, since this flag lives on the real
-        // Product record itself (shared with every other page that reads
-        // Product, not scoped to this page alone).
-        Route::patch('/cost-breakdown/products/{product}/has-cost-allocation', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateProductHasCostAllocation'])->name('cost-breakdown.update-product-has-cost-allocation');
-        // Whole-table lock toggle (explicit request, 2026-10-07: "add lock
-        // icon in every table ... like in the projections page") — {table}
-        // is the short key (salary/pools/tsa), validated against
-        // CostBreakdownController::LOCK_TABLES, not a model binding.
-        Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
+        // data management (COST BREAKDOWN)") — admin-only within the
+        // Data Management module (explicit request, 2026-10-07: "for the
+        // tsa's the cost breakdown is not visible to them only
+        // [projections, dsppr, summary sales report, and expected
+        // income]" — real payroll/salary data, unlike those 4 pages). The
+        // top salary/org section (roles) and the bottom per-TSA cost-
+        // allocation table each get their own PATCH endpoint, same "one
+        // row/cell at a time, debounced auto-save" convention as every
+        // other page in this module. /roles/{costBreakdownRole} and
+        // /pools/{costBreakdownPool} both bind to real, pre-seeded rows
+        // (CostBreakdownRole::ensureSeeded()/CostBreakdownPool::
+        // ensureSeeded(), called from the controller's own index()) —
+        // unlike DSPPR/Expected Income's own cell routes, there's always
+        // a row to bind to here, so plain route-model binding works
+        // rather than an upsert-by-(product,date) pattern.
+        Route::middleware('role:super_admin,admin')->group(function () {
+            Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
+            // Add/remove a role (explicit request, 2026-10-03: "i want you to
+            // add role") — registered before the {costBreakdownRole} PATCH
+            // below, same "static segment before the wildcard" convention
+            // /rates and /custom-rows already follow on Projections (POST
+            // here is a different HTTP verb than that PATCH anyway, but kept
+            // consistent with that convention regardless).
+            Route::post('/cost-breakdown/roles', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'storeRole'])->name('cost-breakdown.roles.store');
+            Route::delete('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'destroyRole'])->name('cost-breakdown.roles.destroy');
+            Route::patch('/cost-breakdown/roles/{costBreakdownRole}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateRole'])->name('cost-breakdown.update-role');
+            Route::patch('/cost-breakdown/pools/{costBreakdownPool}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updatePool'])->name('cost-breakdown.update-pool');
+            // {tsaShift}, not {costBreakdownTsaEntry} — the view keys every
+            // input by the real TSA (tsa_id), never the entry row's own id,
+            // since a TSA with nothing typed yet has no CostBreakdownTsaEntry
+            // row at all; same upsert-by-real-key convention as DSPPR/Expected
+            // Income's own {product}/{date} routes.
+            Route::patch('/cost-breakdown/tsa/{tsaShift}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateTsaEntry'])->name('cost-breakdown.update-tsa-entry');
+            // Per-product "has cost" checkbox on the Cost Allocation Per TSA
+            // table's own column headers (explicit request, 2026-09-30: "user
+            // only can identify what product that has cost") — {product}, not
+            // a Cost Breakdown model, since this flag lives on the real
+            // Product record itself (shared with every other page that reads
+            // Product, not scoped to this page alone).
+            Route::patch('/cost-breakdown/products/{product}/has-cost-allocation', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateProductHasCostAllocation'])->name('cost-breakdown.update-product-has-cost-allocation');
+            // Whole-table lock toggle (explicit request, 2026-10-07: "add lock
+            // icon in every table ... like in the projections page") — {table}
+            // is the short key (salary/pools/tsa), validated against
+            // CostBreakdownController::LOCK_TABLES, not a model binding.
+            Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
+        });
     });
 });

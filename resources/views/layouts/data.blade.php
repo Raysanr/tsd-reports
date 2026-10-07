@@ -114,7 +114,15 @@
 
         {{-- Cost Breakdown, right next to Expected Income (explicit
              request, 2026-09-29: "add new page in data management (COST
-             BREAKDOWN)"). --}}
+             BREAKDOWN)"). Admin-only (explicit request, 2026-10-07: "for
+             the tsa's the cost breakdown is not visible to them only
+             [projections, dsppr, summary sales report, and expected
+             income]" — real payroll/salary data, unlike this module's
+             other 4 pages, which are now normal-accessible), hidden from
+             a TSA the same way the route group itself is gated
+             (role:super_admin,admin, nested inside this module's own
+             route group in routes/web.php). --}}
+        @if(auth()->user()->isAtLeastAdmin())
         <a href="{{ route('data.cost-breakdown') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.cost-breakdown*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -122,6 +130,7 @@
             </svg>
             Cost Breakdown
         </a>
+        @endif
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">

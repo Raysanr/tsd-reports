@@ -146,7 +146,12 @@ class RowOrderTest extends TestCase
         $this->assertSame('electricity', $operating[$rentIndex + 1]);
     }
 
-    public function test_a_non_admin_cannot_reorder_rows(): void
+    /** Reversed 2026-10-07 (explicit request: "make it the data
+     *  management module is visible for the TSA's (NORMAL USERS)", full
+     *  edit access confirmed) — a normal user can now reorder rows too,
+     *  same full edit access as every other write action shared between
+     *  Projections/Expected Income. */
+    public function test_a_normal_user_can_reorder_rows(): void
     {
         $normal = User::factory()->create(['role' => 'normal']);
 
@@ -154,7 +159,7 @@ class RowOrderTest extends TestCase
             'row_key' => 'electricity', 'after_row_key' => 'rent', 'section' => 'operating',
         ]);
 
-        $response->assertForbidden();
+        $response->assertOk();
     }
 
     /**

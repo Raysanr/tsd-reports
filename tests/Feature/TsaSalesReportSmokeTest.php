@@ -55,13 +55,18 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-export-csv="tsrScroller-[a-z0-9-]+"/', $content);
     }
 
-    public function test_a_non_admin_cannot_view_the_report_page(): void
+    /** Reversed 2026-10-07 (explicit request: "make it the data
+     *  management module is visible for the TSA's (NORMAL USERS)", full
+     *  edit access confirmed) — a normal user can now both view and edit
+     *  Summary Sales Report, same as Projections/DSPPR/Expected Income;
+     *  only Cost Breakdown stays admin-only within this module. */
+    public function test_a_normal_user_can_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);
 
         $response = $this->actingAs($tsaUser)->get(route('data.tsa-sales'));
 
-        $response->assertForbidden();
+        $response->assertOk();
     }
 
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void

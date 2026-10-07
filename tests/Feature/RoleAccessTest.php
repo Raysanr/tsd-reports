@@ -59,6 +59,45 @@ class RoleAccessTest extends TestCase
         $this->get(route('tsa-management'))->assertOk();
     }
 
+    /** TSD Data Management opened up to normal-role (TSA) users (explicit
+     *  request, 2026-10-07: "make it the data management module is
+     *  visible for the TSA's (NORMAL USERS)") — Projections/DSPPR/
+     *  Summary Sales Report/Expected Income all became normal-accessible,
+     *  EXCEPT Cost Breakdown (real payroll/salary data), which stays
+     *  behind its own nested role:super_admin,admin gate (see routes/
+     *  web.php's own Data Management group). */
+    public function test_normal_user_can_access_four_data_management_pages_but_not_cost_breakdown(): void
+    {
+        $this->actingAs(User::factory()->normal()->create());
+
+        $this->get(route('data.projections'))->assertOk();
+        $this->get(route('data.dsppr'))->assertOk();
+        $this->get(route('data.tsa-sales'))->assertOk();
+        $this->get(route('data.expected-income'))->assertOk();
+        $this->get(route('data.cost-breakdown'))->assertForbidden();
+    }
+
+    public function test_admin_still_has_full_data_management_access_including_cost_breakdown(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $this->get(route('data.cost-breakdown'))->assertOk();
+    }
+
+    /** The Hub's own "TSD Data Management" card (explicit request,
+     *  2026-10-07 — see test_normal_user_can_access_four_data_
+     *  management_pages_but_not_cost_breakdown()'s own doc comment)
+     *  shows for a normal user now too, not just super_admin/admin. */
+    public function test_the_data_management_hub_card_shows_for_a_normal_user(): void
+    {
+        $this->actingAs(User::factory()->normal()->create());
+
+        $response = $this->get(route('hub'));
+
+        $response->assertOk();
+        $response->assertSee('TSD Data Management');
+    }
+
     public function test_normal_user_can_trigger_sync(): void
     {
         $this->actingAs(User::factory()->normal()->create());

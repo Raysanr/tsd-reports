@@ -359,11 +359,12 @@
         </div>
         @endif
 
-        {{-- Admin-only (explicit request, 2026-09-23) — manages real
-             financial planning targets/rates, not day-to-day TSA-facing
-             data, so it's hidden from normal-role users the same way the
-             route group itself is gated (role:super_admin,admin). --}}
-        @if(auth()->user()->isAtLeastAdmin())
+        {{-- Opened up to TSAs too (explicit request, 2026-10-07: "make it
+             the data management module is visible for the TSA's (NORMAL
+             USERS)" — reverses the original 2026-09-23 admin-only
+             decision). Cost Breakdown itself (real payroll/salary data)
+             stays admin-only inside the module — see data.blade.php's
+             own sidebar link for that gate. --}}
         <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.projections') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -376,7 +377,6 @@
             <p>Editable P&amp;L targets and planning projections — department, shift, and per-TSA goals.</p>
             <span class="card-open">Open →</span>
         </a>
-        @endif
 
     </div>
 </main>

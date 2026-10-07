@@ -59,13 +59,18 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-export-csv="dsPprScroller-\d+"/', $content);
     }
 
-    public function test_a_non_admin_cannot_view_the_report_page(): void
+    /** Reversed 2026-10-07 (explicit request: "make it the data
+     *  management module is visible for the TSA's (NORMAL USERS)", full
+     *  edit access confirmed) — a normal user can now both view and edit
+     *  DSPPR, same as Projections/Summary Sales Report/Expected Income;
+     *  only Cost Breakdown stays admin-only within this module. */
+    public function test_a_normal_user_can_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);
 
         $response = $this->actingAs($tsaUser)->get(route('data.dsppr'));
 
-        $response->assertForbidden();
+        $response->assertOk();
     }
 
     /** The daily-entry table's own PER-DATE lock (explicit follow-up,
@@ -100,11 +105,15 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertDatabaseMissing('dsppr_locked_dates', ['entry_date' => $date . ' 00:00:00']);
     }
 
-    public function test_a_non_admin_cannot_toggle_a_date_lock(): void
+    /** Reversed 2026-10-07 (see test_a_normal_user_can_view_the_report_
+     *  page()'s own doc comment) — a normal user can now toggle a date
+     *  lock too, same full edit access as every other write action on
+     *  this page. */
+    public function test_a_normal_user_can_toggle_a_date_lock(): void
     {
         $user = User::factory()->create(['role' => 'normal']);
 
-        $this->actingAs($user)->patchJson(route('data.dsppr.toggle-lock', ['date' => today()->toDateString()]), ['locked' => true])->assertForbidden();
+        $this->actingAs($user)->patchJson(route('data.dsppr.toggle-lock', ['date' => today()->toDateString()]), ['locked' => true])->assertOk();
     }
 
     public function test_a_locked_date_refuses_a_direct_update(): void

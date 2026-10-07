@@ -287,13 +287,18 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertViewHas('selectedTeam', 'all');
     }
 
-    public function test_a_non_admin_cannot_view_the_report_page(): void
+    /** Reversed 2026-10-07 (explicit request: "make it the data
+     *  management module is visible for the TSA's (NORMAL USERS)", full
+     *  edit access confirmed) — a normal user can now both view and edit
+     *  Expected Income, same as Projections/DSPPR/Summary Sales Report;
+     *  only Cost Breakdown stays admin-only within this module. */
+    public function test_a_normal_user_can_view_the_report_page(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);
 
         $response = $this->actingAs($tsaUser)->get(route('data.expected-income'));
 
-        $response->assertForbidden();
+        $response->assertOk();
     }
 
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void

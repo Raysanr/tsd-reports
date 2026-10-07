@@ -152,46 +152,36 @@ class ProjectionsTest extends TestCase
         $response->assertViewHas('month', '2027-05');
     }
 
-    public function test_normal_user_is_blocked(): void
+    /** Reversed 2026-10-07 (explicit request: "make it the data
+     *  management module is visible for the TSA's (NORMAL USERS)" then
+     *  confirmed "full edit access" when asked whether this should be
+     *  view-only or full read/write — supersedes the original 2026-09-23
+     *  "admin only can edit ... normal user and guest can't edit"
+     *  decision below). A normal user can now both view AND edit
+     *  Projections (plus DSPPR/Summary Sales Report/Expected Income) —
+     *  only Cost Breakdown stays admin-only within this module. */
+    public function test_normal_user_can_view_and_edit_projections(): void
     {
         $user = User::factory()->create(['role' => 'normal']);
+        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
 
-        $response = $this->actingAs($user)->get(route('data.projections'));
+        $this->actingAs($user)->get(route('data.projections'))->assertOk();
 
-        $response->assertForbidden();
+        $this->actingAs($user)
+            ->patchJson(route('data.projections.update-column', $column), ['net_income_target' => 999])
+            ->assertOk();
+        $this->assertEquals(999, $column->fresh()->net_income_target);
     }
 
-    /** Explicit request, 2026-09-23: "make it like admin only can edit
-     *  like that... the normal user and guess can't edit" — the whole
-     *  /data route group already sits inside the outer auth middleware
-     *  (routes/web.php) AND its own role:super_admin,admin gate, so a
-     *  guest never reaches the role check at all (auth redirects to login
-     *  first); confirms that redirect explicitly rather than only testing
-     *  the already-logged-in normal-user case above. */
+    /** Guest (unauthenticated) stays blocked regardless of the 2026-10-07
+     *  normal-user reversal above — this redirect comes from the outer
+     *  'auth' middleware (routes/web.php), unrelated to the role gate a
+     *  normal user now passes. */
     public function test_guest_is_redirected_to_login(): void
     {
         $response = $this->get(route('data.projections'));
 
         $response->assertRedirect(route('login'));
-    }
-
-    /** A normal user is blocked from VIEWING (test above), but also from
-     *  the write endpoints directly — belt-and-suspenders in case someone
-     *  ever guesses/reuses a PATCH URL without going through the page. */
-    public function test_normal_user_cannot_update_a_column_or_rate(): void
-    {
-        $user = User::factory()->create(['role' => 'normal']);
-        $column = ProjectionColumn::where('key', 'opening_shift')->firstOrFail();
-
-        $this->actingAs($user)
-            ->patchJson(route('data.projections.update-column', $column), ['net_income_target' => 999])
-            ->assertForbidden();
-
-        $this->actingAs($user)
-            ->patchJson(route('data.projections.update-rates'), ['key' => 'cancelled', 'value' => 0.5])
-            ->assertForbidden();
-
-        $this->assertNotEquals(999, $column->fresh()->net_income_target);
     }
 
     public function test_updating_a_column_field_persists_and_returns_recomputed_figures(): void
@@ -949,13 +939,17 @@ class ProjectionsTest extends TestCase
         $this->assertContains($key, \App\Support\ProjectionCalculator::nonEditableRows());
     }
 
-    public function test_a_non_admin_cannot_add_or_remove_custom_rows(): void
+    /** Reversed 2026-10-07 (see test_normal_user_can_view_and_edit_
+     *  projections()'s own doc comment) — a normal user can now add a
+     *  custom row too, same full edit access as every other write action
+     *  on this page. */
+    public function test_a_normal_user_can_add_custom_rows(): void
     {
         $tsaUser = User::factory()->create(['role' => 'normal']);
 
         $this->actingAs($tsaUser)->postJson(route('data.projections.custom-rows.store'), [
-            'section' => 'selling', 'label' => 'Nope',
-        ])->assertForbidden();
+            'section' => 'selling', 'label' => 'Yep',
+        ])->assertOk();
     }
 
     /** Explicit request, 2026-09-28: "the net income it should be green if
