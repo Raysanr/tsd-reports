@@ -136,10 +136,14 @@ class ExpectedIncomeController extends Controller
         // skipped there entirely (see buildSummary()'s own doc comment for
         // why it only ever makes sense for a real team or ALL) — the
         // $teamsConfig[$selectedTeam] lookup below never runs for
-        // 'tiktok' since that branch short-circuits first.
+        // 'tiktok' since that branch short-circuits first. A TikTok-flagged
+        // TSA (tiktok_upsell) is excluded from her real team's own id list
+        // here too (explicit request, 2026-10-07 — see buildSummary()'s
+        // own doc comment), so this row's totals match the per-TSA cards
+        // below, which also exclude her.
         $summaryData = $selectedTeam === 'tiktok'
             ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
-            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all());
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all());
 
         // The DAILY rows below the summary DO change with the team filter
         // (confirmed by the same screenshot: "in the down the yellow is
@@ -262,9 +266,12 @@ class ExpectedIncomeController extends Controller
         // identical branch/doc comment, 2026-10-06) — same empty/zeroed
         // shape here so this AJAX fragment never disagrees with the
         // initial page render.
+        // Same TikTok-flagged-TSA exclusion as index() (2026-10-07 — see
+        // buildSummary()'s own doc comment) — this AJAX fragment must never
+        // disagree with the initial page render.
         $summaryData = $selectedTeam === 'tiktok'
             ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
-            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->pluck('id')->all());
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all());
 
         // TikTok's own site-wide total (explicit request, 2026-10-05) —
         // this fragment is re-rendered after every autosave, including a
@@ -342,7 +349,16 @@ class ExpectedIncomeController extends Controller
         // this reason, so this row now matches them instead of silently
         // dropping every product NOT assigned to this team).
         $teamSummaryRows = collect(Teams::config())->map(function (array $teamConfig, string $teamSlug) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys) {
-            $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->pluck('id')->all();
+            // A TikTok-flagged TSA (TsaShift.tiktok_upsell) is excluded from
+            // her real team's own summary row too (explicit request,
+            // 2026-10-07: "when she is in the tiktok the team opening or
+            // closing in the expected income the tsa card ... will be gone
+            // and the only tsa card is in the tiktok filter only" —
+            // confirmed to apply to this top summary row as well as the
+            // per-TSA blocks below, not just the latter). Her Cost
+            // Breakdown salary figure is untouched by this — that page
+            // doesn't go through TsaShift::where('team', ...) at all.
+            $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->where('tiktok_upsell', false)->pluck('id')->all();
 
             ['cards' => $cards, 'overallTotal' => $overallTotal] =
                 $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds);
@@ -673,7 +689,11 @@ class ExpectedIncomeController extends Controller
      *  "ALL" view's own tsa_id-NULL rows. */
     private function buildTeamDailyRows($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, array $teamConfig): array
     {
-        $tsas = TsaShift::where('team', $teamConfig['order_team'])->orderBy('sort_order')->get();
+        // A TikTok-flagged TSA gets no card block at all on her real team's
+        // own filter (explicit request, 2026-10-07 — see buildSummary()'s
+        // identical exclusion/doc comment above) — her only editable card
+        // stack lives under the TIKTOK TEAM filter (buildTiktokRows()).
+        $tsas = TsaShift::where('team', $teamConfig['order_team'])->where('tiktok_upsell', false)->orderBy('sort_order')->get();
 
         // Every real TSA's own Daily Rate / Product (explicit request,
         // 2026-09-30: "the salaries row is based to the Daily Rate /
@@ -912,9 +932,32 @@ class ExpectedIncomeController extends Controller
         $emptyRaw = fn (int $tsaId, string $cardKey, string $dateStr) => ['tsa_id' => $tsaId, 'card_key' => $cardKey, 'entry_date' => $dateStr];
 
         $isRangeSummed = $dates->count() > 1;
+        $dayCount = $dates->count();
         $allRawRows = [];
 
-        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $isRangeSummed, &$allRawRows) {
+        // Salaries — the ONLY cost figure a TikTok card shows (explicit
+        // request, 2026-10-07: "the only will have cost in this is the
+        // salaries row that is Daily Rate (÷24) in the cost breakdown") —
+        // every other Operating Costs row stays 0.00, same as derive()
+        // already produces for a manual TikTok raw row with no Cost
+        // Breakdown wiring (see this method's own class-level doc comment
+        // on why TikTok cards are deliberately independent of
+        // TsaDailyRateService's automation). Same two-tier split as a real
+        // team's own cards (buildTeamDailyRows()): the overview card shows
+        // her REAL, undivided Daily Rate; each of her own TikTok cards
+        // shows that SAME figure divided by her card count (2 — "TIKTOK:
+        // SH NATURALS" / "TIKTOK: NATUREVA"), matching
+        // TsaDailyRateService::perProductByTsaId()'s identical "overview
+        // whole, each card its own slice" rule for real product cards. A
+        // multi-day range multiplies both by day count first, same
+        // "DAILY rate × N" rule buildTeamDailyRows() already applies.
+        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        $tiktokCardCount = count(ExpectedIncomeTiktokEntry::CARDS);
+
+        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $isRangeSummed, $dayCount, $dailyRateByTsaId, $tiktokCardCount, &$allRawRows) {
+            $dailyRate = $dailyRateByTsaId[$tsa->id] ?? 0.0;
+            $cardSalaries = ($dailyRate / $tiktokCardCount) * $dayCount;
+            $overviewSalaries = $dailyRate * $dayCount;
             // Every (card, date) combo for this one TSA — entriesByKey
             // misses a (card, date) with nothing ever saved, so $emptyRaw
             // fills the gap rather than silently skipping that date out
@@ -941,23 +984,32 @@ class ExpectedIncomeController extends Controller
             // this method's own class-level doc comment). Flattens both
             // cards' raw rows across every date in range either way, so a
             // multi-day range sums correctly the same way $cards above does.
-            $overallTotal = ExpectedIncomeCalculator::sum($rowsByCard->flatMap(fn ($rows) => $rows->pluck('raw'))->all());
+            $overallTotal = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                ExpectedIncomeCalculator::sum($rowsByCard->flatMap(fn ($rows) => $rows->pluck('raw'))->all()),
+                ['salaries' => $overviewSalaries]
+            );
 
             if ($isRangeSummed) {
                 $cards = $rowsByCard->map(fn ($rows, $cardKey) => [
                     'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
-                    'derived' => ExpectedIncomeCalculator::sum($rows->pluck('raw')->all()),
+                    'derived' => ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                        ExpectedIncomeCalculator::sum($rows->pluck('raw')->all()),
+                        ['salaries' => $cardSalaries]
+                    ),
                 ])->values();
 
                 return ['tsa' => $tsa, 'isRangeSummed' => true, 'cards' => $cards, 'overallTotal' => $overallTotal];
             }
 
             $dateStr = $dates->first()->toDateString();
-            $cards = $rowsByCard->map(function ($rows, $cardKey) {
+            $cards = $rowsByCard->map(function ($rows, $cardKey) use ($cardSalaries) {
                 $only = $rows->first();
                 return [
                     'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
-                    'derived' => ExpectedIncomeCalculator::derive($only['raw']),
+                    'derived' => ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                        ExpectedIncomeCalculator::derive($only['raw']),
+                        ['salaries' => $cardSalaries]
+                    ),
                     'entry' => $only['entry'],
                 ];
             })->values();
@@ -974,9 +1026,25 @@ class ExpectedIncomeController extends Controller
         // already has (TELESALES + product cards, a real TEAM + its own
         // product cards). $allRawRows already carries every (tsa, card,
         // date) row tagged with its own card_key, so grouping by that key
-        // needs no extra query.
+        // needs no extra query. Salaries folds in here too (explicit
+        // request, 2026-10-07 — see $dailyRateByTsaId's own doc comment
+        // above) so a card-key total/the site-wide TELESALES figure never
+        // disagrees with the per-TSA cards they're summed from: every
+        // flagged TSA contributes her own card's slice (Daily Rate ÷ card
+        // count × day count) to EACH card-key total, and her full
+        // undivided Daily Rate × day count to the overall total — same
+        // "overview whole, each card its own slice" split used above.
+        $totalCardSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => (($dailyRateByTsaId[$tsa->id] ?? 0.0) / $tiktokCardCount) * $dayCount);
+        $totalOverviewSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => ($dailyRateByTsaId[$tsa->id] ?? 0.0) * $dayCount);
+
         $tiktokCardTotals = collect($allRawRows)->groupBy('card_key')->map(
-            fn ($rows, $cardKey) => ['key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey], 'derived' => ExpectedIncomeCalculator::sum($rows->all())]
+            fn ($rows, $cardKey) => [
+                'key' => $cardKey, 'label' => ExpectedIncomeTiktokEntry::CARDS[$cardKey],
+                'derived' => ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                    ExpectedIncomeCalculator::sum($rows->all()),
+                    ['salaries' => $totalCardSalaries]
+                ),
+            ]
         )->values();
 
         return [
@@ -985,7 +1053,10 @@ class ExpectedIncomeController extends Controller
             // buildTeamDailyRows()'s own output), so a flat lookup avoids
             // a linear search through every flagged TSA per render.
             'tiktokTsaRows'      => $tiktokTsaRows->keyBy(fn ($row) => $row['tsa']->id),
-            'tiktokOverallTotal' => ExpectedIncomeCalculator::sum($allRawRows),
+            'tiktokOverallTotal' => ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                ExpectedIncomeCalculator::sum($allRawRows),
+                ['salaries' => $totalOverviewSalaries]
+            ),
             'tiktokCardTotals'   => $tiktokCardTotals,
         ];
     }

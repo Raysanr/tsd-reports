@@ -70,6 +70,15 @@
                 <thead>
                     <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
+                        {{-- TikTok Upsell marker column (explicit request,
+                             2026-10-07: "make another column like for tiktok
+                             like under of closing becasue ANNE is for
+                             tiktok") — flags which TSA rows have the "Show
+                             in TikTok Upsell section" checkbox enabled
+                             (TsaShift::tiktok_upsell, set in the Edit TSA
+                             modal). Role rows never show a mark here, only
+                             real TSA rows. --}}
+                        <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap">TikTok</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Total</th>
@@ -140,6 +149,7 @@
                                     @endif
                                 </div>
                             </td>
+                            <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
                                        data-field="base_salary" data-money="1"
@@ -199,6 +209,13 @@
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-tsa-id="{{ $tsa->id }}" data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
+                            <td class="px-4 py-2 text-center {{ $groupEndClass }}">
+                                @if($tsa->tiktok_upsell)
+                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300" title="Shown in TikTok Upsell section">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3 h-3"><path d="M16.5 2c.3 2.2 1.8 3.9 4 4.3v2.8c-1.4 0-2.8-.4-4-1.2v6.9c0 3.4-2.8 6.2-6.2 6.2S4.1 17.2 4.1 13.8c0-3.3 2.6-6 5.9-6.2v3c-1.6.2-2.9 1.6-2.9 3.2 0 1.8 1.4 3.2 3.2 3.2s3.2-1.4 3.2-3.2V2h3z"/></svg>
+                                </span>
+                                @endif
+                            </td>
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
                                        data-field="base_salary" data-money="1"
