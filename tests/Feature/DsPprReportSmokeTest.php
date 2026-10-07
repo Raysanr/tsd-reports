@@ -716,6 +716,28 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertDatabaseHas('dsppr_tiktok_entries', ['pickup_rate_override' => 0.5]);
     }
 
+    /** The saved override's own input shows a "%" suffix on the next page
+     *  load (explicit follow-up, 2026-10-07: "why is it the % is not
+     *  visible ... it should be visible not just by number only") — not
+     *  just a bare number, same way every other %-labeled figure on this
+     *  page reads. The underlying stored value stays a plain fraction
+     *  (0.5), unaffected — this is purely how the seeded input value
+     *  renders. */
+    public function test_a_saved_pct_override_shows_a_percent_suffix_on_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        \App\Models\DsPprTiktokEntry::create([
+            'entry_date' => $date, 'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
+            'pickup_rate_override' => 0.5,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]));
+        $response->assertOk();
+        $this->assertStringContainsString('value="50.00%"', $response->getContent());
+    }
+
     public function test_clearing_a_tiktok_rate_override_reverts_to_the_formula(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -773,8 +795,10 @@ class DsPprReportSmokeTest extends TestCase
         // Not asserting an exact blended figure (depends on every other
         // seeded product's own rate too) — just that the page renders
         // without error and the override itself is visible as the saved
-        // input value.
-        $this->assertStringContainsString('value="100.00"', $response->getContent());
+        // input value. "%" suffix included (explicit follow-up,
+        // 2026-10-07: "why is it the % is not visible ... it should be
+        // visible not just by number only").
+        $this->assertStringContainsString('value="100.00%"', $response->getContent());
     }
 
     public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void

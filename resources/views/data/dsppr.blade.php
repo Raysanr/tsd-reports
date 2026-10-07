@@ -490,7 +490,16 @@
                             @php
                                 $overrideColumn = $col['key'] . '_override';
                                 $overrideValue = $tiktokEntry?->{$overrideColumn};
-                                $overrideSeed = $overrideValue === null ? '' : (($col['pct'] ?? false) ? number_format($overrideValue * 100, 2) : $overrideValue);
+                                // The "%" suffix is seeded server-side too
+                                // (explicit follow-up, 2026-10-07: "why is
+                                // it the % is not visible ... it should be
+                                // visible not just by number only"), not
+                                // just added live as the user types —
+                                // liveFormatPct()'s own JS only reformats
+                                // on an `input` event, so a saved override
+                                // would otherwise show bare "50" until the
+                                // next keystroke.
+                                $overrideSeed = $overrideValue === null ? '' : (($col['pct'] ?? false) ? number_format($overrideValue * 100, 2) . '%' : $overrideValue);
                                 $placeholder = ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : number_format($d[$col['key']]);
                             @endphp
                             <td class="px-2 py-1.5 {{ $borderClass }}">
@@ -663,6 +672,41 @@
         if (input.dataset.field === 'net_income') updateNetIncomeInputColor(input);
     }
 
+    // Strips a trailing "%" (and any stray whitespace) before parsing a
+    // rate-override input's own typed value — shared by saveField() and
+    // readOverride() below so a live "%" suffix (added by
+    // liveFormatPct() below) never breaks either path's own Number()
+    // parse. Returns NaN for a genuinely unparseable value, same as a
+    // bare Number() would.
+    function parsePctInput(raw) {
+        return Number(String(raw).replace(/%/g, '').trim());
+    }
+
+    // Live "%" suffix on Pick-up/Conversion/Upselling Rate's own override
+    // inputs (explicit request, 2026-10-07: "why is it the % is not
+    // visible ... it should be visible not just by number only") — same
+    // "reformat on every keystroke, preserve caret position" pattern as
+    // liveFormatMoney() above, just appending a literal "%" instead of
+    // comma-grouping. The % is purely DISPLAY — parsePctInput() above
+    // strips it back out before this field's own value is ever parsed/
+    // saved, so "50" typed in still stores/sends as 0.5, unaffected by
+    // what the input visually shows.
+    function liveFormatPct(input) {
+        const raw = input.value;
+        const caretFromEnd = raw.length - (input.selectionStart ?? raw.length);
+        const cleaned = raw.replace(/[^0-9.]/g, '');
+        const formatted = cleaned === '' ? '' : cleaned + '%';
+        if (formatted !== raw) {
+            input.value = formatted;
+            // Caret never lands inside/after the trailing "%" itself —
+            // typing felt wrong otherwise (the cursor would jump past the
+            // % on every keystroke instead of staying where the digits
+            // are being edited).
+            const pos = Math.max(0, Math.min(formatted.length - 1, formatted.length - caretFromEnd));
+            input.setSelectionRange(pos, pos);
+        }
+    }
+
     // Live negative=red coloring on the Net Income INPUT itself as the
     // user types (explicit request, 2026-10-01: "if negative is color
     // red") — separate from applyDerived()'s own coloring of the
@@ -747,7 +791,7 @@
     function readOverride(row, key, date, isPct) {
         const input = row.querySelector(`[data-field="${key}"][data-date="${date}"]`);
         if (!input || input.value.trim() === '') return null;
-        const n = Number(input.value);
+        const n = isPct ? parsePctInput(input.value) : Number(input.value);
         if (!Number.isFinite(n)) return null;
         return isPct ? n / 100 : n;
     }
@@ -962,7 +1006,7 @@
             // it untouched (the 'nullable' validation rule, not
             // 'sometimes', accepts this).
             const trimmed = input.value.trim();
-            value = trimmed === '' ? '' : (isPctOverride ? Number(trimmed) / 100 : Number(trimmed));
+            value = trimmed === '' ? '' : (isPctOverride ? parsePctInput(trimmed) / 100 : Number(trimmed));
             body.set(OVERRIDE_FIELD_MAP[field], value);
         } else {
             value = input.dataset.money === '1' ? parseMoney(input.value) : (Number(input.value) || 0);
@@ -1004,6 +1048,7 @@
             const input = e.target.closest('.dsppr-field');
             if (!input) return;
             if (input.dataset.money === '1') liveFormatMoney(input);
+            if (input.dataset.pct === '1') liveFormatPct(input);
             clearTimeout(saveTimers.get(input));
             saveTimers.set(input, setTimeout(() => saveField(input), 600));
         });
