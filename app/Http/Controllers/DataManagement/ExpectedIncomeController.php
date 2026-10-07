@@ -9,6 +9,7 @@ use App\Models\ExpectedIncomeTiktokEntry;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\TsaShift;
+use App\Support\ActivityLogger;
 use App\Support\DateRangeFilter;
 use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductGrouping;
@@ -1305,8 +1306,24 @@ class ExpectedIncomeController extends Controller
             $data = array_intersect_key($data, ['is_locked' => true]);
         }
 
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        // Every activity recorded (explicit request, 2026-10-07: "all
+        // activites in every page should be recorded ... what she
+        // edited"). is_locked gets a verb-phrased entry instead of the
+        // generic field_updated phrasing.
+        $context = $product->display_name . ($tsaShift ? ' — ' . $tsaShift->display_name : '') . ' on ' . Carbon::parse($entryDate)->format('M j, Y');
+        foreach ($data as $field => $newValue) {
+            if ($field === 'is_locked') {
+                if ((bool) $old['is_locked'] === (bool) $newValue) continue;
+                ActivityLogger::log($newValue ? 'expected_income.card_locked' : 'expected_income.card_unlocked', $entry, ($newValue ? 'Locked' : 'Unlocked') . " the \"{$context}\" card.");
+                continue;
+            }
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            ActivityLogger::logFieldUpdate('expected_income.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, fn ($v) => number_format((float) $v, 2));
+        }
 
         $response = [
             'success' => true,
@@ -1398,8 +1415,20 @@ class ExpectedIncomeController extends Controller
             $data = array_intersect_key($data, ['is_locked' => true]);
         }
 
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        $context = ExpectedIncomeTiktokEntry::CARDS[$cardKey] . ' — ' . $tsaShift->display_name . ' on ' . Carbon::parse($entryDate)->format('M j, Y');
+        foreach ($data as $field => $newValue) {
+            if ($field === 'is_locked') {
+                if ((bool) $old['is_locked'] === (bool) $newValue) continue;
+                ActivityLogger::log($newValue ? 'expected_income.card_locked' : 'expected_income.card_unlocked', $entry, ($newValue ? 'Locked' : 'Unlocked') . " the \"{$context}\" card.");
+                continue;
+            }
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            ActivityLogger::logFieldUpdate('expected_income.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, fn ($v) => number_format((float) $v, 2));
+        }
 
         $response = [
             'success' => true,
@@ -1530,8 +1559,14 @@ class ExpectedIncomeController extends Controller
             ->whereDate('entry_date', $entryDate)
             ->first()
             ?? new ExpectedIncomeCustomValue(['product_id' => $product->id, 'tsa_id' => $tsaId, 'entry_date' => $entryDate, 'custom_row_key' => $data['key']]);
+        $oldValue = $customValue->value ?? 0;
         $customValue->value = $data['value'];
         $customValue->save();
+
+        if ((float) $oldValue != (float) $data['value']) {
+            $context = $product->display_name . ($tsaShift ? ' — ' . $tsaShift->display_name : '') . ' on ' . Carbon::parse($entryDate)->format('M j, Y');
+            ActivityLogger::logFieldUpdate('expected_income.field_updated', $customValue, $data['key'], $oldValue, $data['value'], $context, fn ($v) => number_format((float) $v, 2));
+        }
 
         // The built-in fields' own row still needs deriving alongside the
         // just-saved custom value — a custom row participates in Total

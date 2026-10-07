@@ -283,6 +283,16 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     // Summary Sales Report/Expected Income are all now normal-accessible.
     Route::prefix('data')->name('data.')->middleware('role:super_admin,admin,normal')->group(function () {
         Route::get('/', fn () => redirect()->route('data.projections'));
+
+        // Activity Log (explicit request, 2026-10-07: "can you add another
+        // page that is ACTIVITY LOG? ... all activites in every page
+        // should be recorded on that") — visible to normal users too
+        // (unlike Cost Breakdown below), its own controller filters out
+        // Cost Breakdown's own entries for anyone who isn't at least an
+        // admin. Registered early/outside any per-page concern since it
+        // reads across all 5 pages at once, not scoped to one.
+        Route::get('/activity-log', [\App\Http\Controllers\DataManagement\ActivityLogController::class, 'index'])->name('activity-log');
+
         Route::get('/projections', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'index'])->name('projections');
         // /rates registered BEFORE the {projectionColumn} wildcard — PATCH
         // routes match in registration order, and the wildcard would

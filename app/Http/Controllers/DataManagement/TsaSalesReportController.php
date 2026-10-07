@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
 use App\Models\TsaTiktokEntry;
+use App\Support\ActivityLogger;
 use App\Support\DateRangeFilter;
 use App\Support\ProductPerformance;
 use App\Support\TsaSalesCalculator;
@@ -328,8 +329,15 @@ class TsaSalesReportController extends Controller
 
         $entry = TsaSalesEntry::where('tsa_shift_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new TsaSalesEntry(['tsa_shift_id' => $tsaShift->id, 'entry_date' => $entryDate]);
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        $context = $tsaShift->display_name . ' on ' . Carbon::parse($entryDate)->format('M j, Y');
+        foreach ($data as $field => $newValue) {
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            ActivityLogger::logFieldUpdate('tsa_sales.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, fn ($v) => number_format((float) $v, 2));
+        }
 
         $performance = $this->perTsaPerDayPerformance(collect([$tsaShift]), $entryDate, $entryDate)
             ->get($tsaShift->id . ':' . $entryDate, self::EMPTY_AUTO_FIELDS);
@@ -364,8 +372,19 @@ class TsaSalesReportController extends Controller
 
         $entry = TsaTiktokEntry::where('tsa_shift_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new TsaTiktokEntry(['tsa_shift_id' => $tsaShift->id, 'entry_date' => $entryDate]);
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        $context = $tsaShift->display_name . "'s TikTok Upsell on " . Carbon::parse($entryDate)->format('M j, Y');
+        $isPctField = fn (string $field) => in_array($field, ['pickup_rate', 'upselling_rate'], true);
+        foreach ($data as $field => $newValue) {
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            $formatter = $isPctField($field)
+                ? fn ($v) => number_format((float) $v * 100, 2) . '%'
+                : fn ($v) => number_format((float) $v, 2);
+            ActivityLogger::logFieldUpdate('tsa_sales.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, $formatter);
+        }
 
         $derived = TsaSalesCalculator::derive($entry->toArray());
 

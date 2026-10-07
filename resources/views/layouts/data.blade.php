@@ -131,6 +131,23 @@
             Cost Breakdown
         </a>
         @endif
+
+        <div class="my-3 border-t border-white/10"></div>
+        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">History</p>
+
+        {{-- Activity Log (explicit request, 2026-10-07: "can you add
+             another page that is ACTIVITY LOG? ... all activites in
+             every page should be recorded on that") — visible to normal
+             users too (its own controller hides Cost Breakdown's own
+             entries from anyone who isn't at least an admin, same
+             filtering this module's other 4 pages already get). --}}
+        <a href="{{ route('data.activity-log') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.activity-log') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6l4 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Activity Log
+        </a>
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">

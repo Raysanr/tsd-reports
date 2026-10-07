@@ -9,6 +9,7 @@ use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\ActivityLogger;
 use App\Support\CostBreakdownCalculator;
 use App\Support\ProductGrouping;
 use App\Support\TsaDailyRateService;
@@ -307,6 +308,7 @@ class CostBreakdownController extends Controller
 
         $locked = $request->boolean('locked');
         Setting::set("cost_breakdown_lock_{$table}", $locked ? '1' : '');
+        ActivityLogger::log($locked ? 'cost_breakdown.table_locked' : 'cost_breakdown.table_unlocked', null, ($locked ? 'Locked' : 'Unlocked') . " the \"{$table}\" table.");
 
         return response()->json([
             'success' => true,
@@ -422,7 +424,14 @@ class CostBreakdownController extends Controller
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
         ]);
 
+        $old = $costBreakdownRole->only(array_keys($data));
         $costBreakdownRole->update($data);
+
+        foreach ($data as $field => $newValue) {
+            if ((string) ($old[$field] ?? '') === (string) $newValue) continue;
+            $formatter = $field === 'base_salary' ? fn ($v) => number_format((float) $v, 2) : null;
+            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $costBreakdownRole, $field, $old[$field], $newValue, $costBreakdownRole->label, $formatter);
+        }
 
         return response()->json([
             'success' => true,
@@ -499,6 +508,7 @@ class CostBreakdownController extends Controller
             'overhead_divisor' => $overheadGroup ? $data['overhead_divisor'] : null,
             'sort_order' => $insertAt,
         ]);
+        ActivityLogger::log('cost_breakdown.role_created', $role, "Added role \"{$data['label']}\" to the Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
@@ -518,7 +528,9 @@ class CostBreakdownController extends Controller
             return response()->json(['success' => false, 'message' => 'A fixed role cannot be removed.'], 422);
         }
 
+        $label = $costBreakdownRole->label;
         $costBreakdownRole->delete();
+        ActivityLogger::log('cost_breakdown.role_deleted', null, "Removed role \"{$label}\" from the Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
@@ -590,7 +602,11 @@ class CostBreakdownController extends Controller
             'amount' => ['required', 'numeric', 'min:0'],
         ]);
 
+        $oldAmount = $costBreakdownPool->amount;
         $costBreakdownPool->update($data);
+        if ((float) $oldAmount != (float) $data['amount']) {
+            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $costBreakdownPool, 'amount', $oldAmount, $data['amount'], $costBreakdownPool->label, fn ($v) => number_format((float) $v, 2));
+        }
 
         // "Daily Cost per product"/"Daily Cost" mini-table — NOT scoped to
         // any TSA (see that table's own doc comment in the view), so it
@@ -645,8 +661,15 @@ class CostBreakdownController extends Controller
 
         $entry = CostBreakdownTsaEntry::where('tsa_id', $tsaShift->id)->first()
             ?? new CostBreakdownTsaEntry(['tsa_id' => $tsaShift->id, 'days' => 30]);
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        foreach ($data as $field => $newValue) {
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            $formatter = $field === 'base_salary' ? fn ($v) => number_format((float) $v, 2) : null;
+            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $tsaShift->display_name, $formatter);
+        }
 
         $roles = CostBreakdownRole::all();
         $overheadRefs = $this->overheadRefsByTeam($roles, $this->overheadByRoleId($roles))->get($tsaShift->team) ?? [];
@@ -688,7 +711,11 @@ class CostBreakdownController extends Controller
             'has_cost_allocation' => ['required', 'boolean'],
         ]);
 
+        $wasChecked = $product->has_cost_allocation;
         $product->update($data);
+        if ((bool) $wasChecked !== (bool) $data['has_cost_allocation']) {
+            ActivityLogger::log('cost_breakdown.product_cost_allocation_toggled', $product, ($data['has_cost_allocation'] ? 'Checked' : 'Unchecked') . " \"{$product->display_name}\" in Cost Allocation Per TSA.");
+        }
 
         return response()->json([
             'success' => true,

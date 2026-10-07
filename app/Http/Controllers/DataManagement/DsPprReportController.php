@@ -9,6 +9,7 @@ use App\Models\DsPprTiktokEntry;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
+use App\Support\ActivityLogger;
 use App\Support\DateRangeFilter;
 use App\Support\DsPprCalculator;
 use App\Support\ProductGrouping;
@@ -277,8 +278,20 @@ class DsPprReportController extends Controller
         // driver (SQLite included), so this finds the real existing row.
         $entry = DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $entryDate)->first()
             ?? new DsPprEntry(['product_id' => $product->id, 'entry_date' => $entryDate]);
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        // Every activity recorded (explicit request, 2026-10-07: "all
+        // activites in every page should be recorded ... what she
+        // edited") — one entry per field actually changed, same pattern
+        // every other Data Management controller's own autosave endpoint
+        // now follows.
+        $context = $product->display_name . ' on ' . Carbon::parse($entryDate)->format('M j, Y');
+        foreach ($data as $field => $newValue) {
+            if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
+            ActivityLogger::logFieldUpdate('dsppr.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, fn ($v) => number_format((float) $v, 2));
+        }
 
         // A merged/grouped product is now editable AS IF it's one product
         // (explicit request, 2026-09-29: "in the side of users the merged
@@ -359,8 +372,21 @@ class DsPprReportController extends Controller
 
         $entry = DsPprTiktokEntry::whereDate('entry_date', $entryDate)->first()
             ?? new DsPprTiktokEntry(['entry_date' => $entryDate]);
+        $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
+
+        $context = 'TIKTOK ORDERS on ' . Carbon::parse($entryDate)->format('M j, Y');
+        $isPctOverride = fn (string $field) => in_array($field, ['pickup_rate_override', 'conversion_rate_override', 'upselling_rate_override'], true);
+        foreach ($data as $field => $newValue) {
+            if ((string) ($old[$field] ?? '') === (string) $newValue) continue;
+            $formatter = match (true) {
+                $isPctOverride($field) => fn ($v) => number_format((float) $v * 100, 2) . '%',
+                is_numeric($newValue)  => fn ($v) => number_format((float) $v, 2),
+                default                 => null,
+            };
+            ActivityLogger::logFieldUpdate('dsppr.field_updated', $entry, $field, $old[$field] ?? null, $newValue, $context, $formatter);
+        }
 
         $derived = DsPprCalculator::derive($entry->toRawRowWithOverrides());
 
@@ -390,6 +416,7 @@ class DsPprReportController extends Controller
         } else {
             DsPprLockedDate::whereDate('entry_date', $entryDate)->delete();
         }
+        ActivityLogger::log($locked ? 'dsppr.date_locked' : 'dsppr.date_unlocked', null, ($locked ? 'Locked' : 'Unlocked') . ' the daily entry table for ' . Carbon::parse($entryDate)->format('M j, Y') . '.');
 
         return response()->json(['success' => true, 'date' => $entryDate, 'locked' => $locked]);
     }
@@ -422,6 +449,7 @@ class DsPprReportController extends Controller
             'sort_order' => ProductGroup::max('sort_order') + 1,
         ]);
         $group->products()->attach($data['product_ids']);
+        ActivityLogger::log('dsppr.products_combined', $group, "Combined " . Product::whereIn('id', $data['product_ids'])->pluck('display_name')->implode(' + ') . " into \"{$data['label']}\".");
 
         return response()->json(['success' => true, 'group' => $group->load('products')]);
     }
@@ -433,7 +461,9 @@ class DsPprReportController extends Controller
      *  had stays exactly as it was, since grouping never touched them. */
     public function destroyGroup(ProductGroup $productGroup)
     {
+        $label = $productGroup->label;
         $productGroup->delete();
+        ActivityLogger::log('dsppr.products_ungrouped', null, "Split \"{$label}\" back into its own separate products.");
 
         return response()->json(['success' => true]);
     }
@@ -459,6 +489,8 @@ class DsPprReportController extends Controller
         }
 
         $productGroup->products()->attach($data['product_id']);
+        $addedName = Product::find($data['product_id'])?->display_name;
+        ActivityLogger::log('dsppr.products_combined', $productGroup, "Added \"{$addedName}\" to the combined row \"{$productGroup->label}\".");
 
         return response()->json(['success' => true, 'group' => $productGroup->load('products')]);
     }

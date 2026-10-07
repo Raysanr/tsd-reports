@@ -7,6 +7,7 @@ use App\Models\ProjectionColumn;
 use App\Models\ProjectionCustomRow;
 use App\Models\RowSortOrder;
 use App\Models\Setting;
+use App\Support\ActivityLogger;
 use App\Support\ProjectionCalculator;
 use App\Support\RowOrder;
 use Illuminate\Http\Request;
@@ -147,7 +148,35 @@ class ProjectionController extends Controller
             'is_locked'            => ['sometimes', 'boolean'],
         ]);
 
+        // Snapshot the OLD values before saving, logging one entry per
+        // field actually sent this request (debounced autosave only ever
+        // sends one at a time in practice, but this stays correct even if
+        // that ever changes) — same "every activity recorded" request,
+        // 2026-10-07 ("all activites in every page should be recorded ...
+        // what she edited"). $isLocked is logged with a verb action
+        // instead of the generic field_updated phrasing (reads as "Locked
+        // Opening Shift" not "Updated Is locked from false to true").
+        $old = $column->only(array_keys($data));
         $column->update($data);
+
+        foreach ($data as $field => $newValue) {
+            if ($field === 'is_locked') {
+                ActivityLogger::log(
+                    $newValue ? 'projection.locked' : 'projection.unlocked',
+                    $column,
+                    ($newValue ? 'Locked' : 'Unlocked') . " \"{$column->label}\"."
+                );
+                continue;
+            }
+            if ($old[$field] == $newValue) continue;
+            // Every field here is a dollar/numeric figure except
+            // tsa_count (a plain headcount, no decimals) and label
+            // (free text) — 2-decimal money formatting for the rest,
+            // same convention every other controller's own logging calls
+            // use for their own numeric fields.
+            $formatter = in_array($field, ['tsa_count', 'label'], true) ? null : fn ($v) => number_format((float) $v, 2);
+            ActivityLogger::logFieldUpdate('projection.field_updated', $column, $field, $old[$field], $newValue, $column->label, $formatter);
+        }
 
         $rates   = ProjectionCalculator::allRates();
         // Every column, not just this one — editing Opening Shift's own
@@ -203,7 +232,9 @@ class ProjectionController extends Controller
             'value' => ['required', 'numeric'],
         ]);
 
+        $oldValue = Setting::get("projection_rate.{$data['key']}");
         Setting::set("projection_rate.{$data['key']}", (float) $data['value']);
+        ActivityLogger::logFieldUpdate('projection.rate_updated', null, $data['key'], $oldValue, $data['value'], 'the shared rate settings', fn ($v) => number_format((float) $v, 4));
 
         $rates   = ProjectionCalculator::allRates();
         // Scoped to the session-remembered month (explicit decision,
@@ -265,6 +296,8 @@ class ProjectionController extends Controller
             Setting::set("projection_rate.{$key}", $data['initial_value'] / $data['gross_sales']);
         }
 
+        ActivityLogger::log('projection.custom_row_created', $row, "Added custom row \"{$data['label']}\" to " . ($data['section'] === 'selling' ? 'Selling And Marketing' : 'Operating Costs') . '.');
+
         $rates   = ProjectionCalculator::allRates();
         // Scoped to the session-remembered month — see updateRates()'s own
         // doc comment; the frontend reloads the page on success anyway
@@ -286,7 +319,9 @@ class ProjectionController extends Controller
      *  happens to slugify to the same key never inherits a stale value. */
     public function destroyCustomRow(ProjectionCustomRow $projectionCustomRow)
     {
+        $label = $projectionCustomRow->label;
         Setting::where('key', "projection_rate.{$projectionCustomRow->key}")->delete();
+        ActivityLogger::log('projection.custom_row_deleted', null, "Removed custom row \"{$label}\".");
         $projectionCustomRow->delete();
 
         $rates   = ProjectionCalculator::allRates();
