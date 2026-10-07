@@ -61,12 +61,13 @@
                     +
                 </button>
                 <div class="cb-dark-header-actions">
+                    @include('partials.table-lock-toggle', ['table' => 'salary', 'locked' => $tableLocks['salary']])
                     @include('partials.table-actions', ['target' => 'cbSalaryTable', 'name' => 'telesales-salary-breakdown'])
                 </div>
             </div>
         </div>
         <div class="overflow-x-auto">
-            <table class="w-full text-[13px] cb-table border-separate border-spacing-0" id="cbSalaryTable">
+            <table class="w-full text-[13px] cb-table border-separate border-spacing-0" id="cbSalaryTable" data-locked="{{ $tableLocks['salary'] ? '1' : '0' }}">
                 <thead>
                     <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
@@ -336,11 +337,12 @@
                      'pngOnly' doc comment), so a CSV export has nothing to
                      walk. --}}
                 <div class="cb-dark-header-actions">
+                    @include('partials.table-lock-toggle', ['table' => 'pools', 'locked' => $tableLocks['pools']])
                     @include('partials.table-actions', ['target' => 'cbPoolsGrid', 'name' => 'shared-monthly-cost-pools', 'pngOnly' => true])
                 </div>
             </div>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line dark:bg-slate-700" id="cbPoolsGrid">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line dark:bg-slate-700" id="cbPoolsGrid" data-locked="{{ $tableLocks['pools'] ? '1' : '0' }}">
             @foreach($pools as $pool)
             <div class="bg-white dark:bg-slate-900 px-5 py-3 flex items-center justify-between gap-3" data-pool-row data-pool-key="{{ $pool->key }}" data-action="{{ route('data.cost-breakdown.update-pool', $pool) }}">
                 <span class="text-xs font-mono text-ink-muted dark:text-slate-400 truncate">{{ $pool->label }}</span>
@@ -366,12 +368,13 @@
             <div class="flex items-center gap-3">
                 <span id="cbTsaSaveStatus" class="text-xs font-mono text-slate-400 min-h-[1.25rem]"></span>
                 <div class="cb-dark-header-actions">
+                    @include('partials.table-lock-toggle', ['table' => 'tsa', 'locked' => $tableLocks['tsa']])
                     @include('partials.table-actions', ['target' => 'cbTsaTable', 'name' => 'cost-allocation-per-tsa'])
                 </div>
             </div>
         </div>
         <div class="overflow-x-auto" id="cbTsaScroller">
-            <table class="cb-table border-collapse text-[13px]" id="cbTsaTable"
+            <table class="cb-table border-collapse text-[13px]" id="cbTsaTable" data-locked="{{ $tableLocks['tsa'] ? '1' : '0' }}"
                    data-update-url-template="{{ route('data.cost-breakdown.update-tsa-entry', ['tsaShift' => '__TSA__']) }}">
                 <thead>
                     {{-- "Daily Cost per product" / "Daily Cost" mini-table
@@ -971,6 +974,96 @@
             .catch(() => {
                 window.showToast?.('Could not remove this role — try again.', 'error');
             });
+    });
+
+    // Whole-table lock toggle (explicit request, 2026-10-07: "add lock
+    // icon in every table ... like in the projections page", "smooth
+    // transition of lock too ... has animation") — one lock per TABLE
+    // (every .cb-field input + .cb-remove-role × + product checkbox +
+    // "+ Add Role" button inside it), not per-row, since this page is 3
+    // dense editable grids rather than a card stack (confirmed scope).
+    // Persisted server-side via CostBreakdownController::toggleLock(), so
+    // applyTableLockState() below also runs once on page load (reading
+    // each table root's own data-locked, rendered server-side from
+    // Setting) — a locked table stays locked through a hard reload, not
+    // just this tab's own JS state.
+    const LOCK_TABLE_ROOTS = {
+        salary: () => document.getElementById('cbSalaryTable'),
+        pools: () => document.getElementById('cbPoolsGrid'),
+        tsa: () => document.getElementById('cbTsaTable'),
+    };
+
+    // Every element inside a locked table that would otherwise accept
+    // input — same convention as disabling an <input> itself: a disabled
+    // button/checkbox is both visually inert (native browser dimming) and
+    // unclickable, no extra CSS needed.
+    function lockableElements(root) {
+        return root.querySelectorAll('.cb-field, .cb-remove-role, [data-product-cost-toggle]');
+    }
+
+    function applyTableLockState(table, locked) {
+        const root = LOCK_TABLE_ROOTS[table]?.();
+        if (!root) return;
+        root.dataset.locked = locked ? '1' : '0';
+        lockableElements(root).forEach((el) => { el.disabled = locked; });
+        // The Salary table's own "+ Add Role" button lives in the header,
+        // outside #cbSalaryTable itself — locking that table also freezes
+        // it (adding a role is a structural edit to the same table).
+        if (table === 'salary') {
+            const addRoleBtn = document.getElementById('cbAddRoleBtn');
+            if (addRoleBtn) addRoleBtn.disabled = locked;
+        }
+    }
+
+    // Smooth transition (explicit request) — same 180ms opacity cross-fade
+    // Projections/Expected Income's own per-card lock already uses,
+    // applied to the icon swap here (a whole-table lock has no card HTML
+    // to re-render, just the icon + every input's own disabled state).
+    function swapLockIcon(btn, locked) {
+        const iconWrap = btn.querySelector('[data-cb-lock-icon]');
+        if (!iconWrap) return;
+        iconWrap.style.opacity = '0';
+        setTimeout(() => {
+            iconWrap.innerHTML = locked
+                ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>'
+                : '<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>';
+            iconWrap.style.opacity = '1';
+        }, 180);
+    }
+
+    Object.keys(LOCK_TABLE_ROOTS).forEach((table) => {
+        const root = LOCK_TABLE_ROOTS[table]();
+        if (root) applyTableLockState(table, root.dataset.locked === '1');
+    });
+
+    document.addEventListener('click', (e) => {
+        const lockBtn = e.target.closest('[data-cb-lock-toggle]');
+        if (!lockBtn) return;
+        const table = lockBtn.dataset.table;
+        const nowLocked = lockBtn.dataset.locked !== '1';
+
+        lockBtn.disabled = true;
+        fetch(`{{ url('/data/cost-breakdown/lock') }}/${table}`, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: new URLSearchParams({ _method: 'PATCH', locked: nowLocked ? '1' : '0' }).toString(),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => {
+                lockBtn.dataset.locked = nowLocked ? '1' : '0';
+                lockBtn.title = nowLocked ? 'Unlock this table' : 'Lock this table';
+                lockBtn.setAttribute('aria-label', lockBtn.title);
+                swapLockIcon(lockBtn, nowLocked);
+                applyTableLockState(table, nowLocked);
+            })
+            .catch(() => {
+                window.showToast?.(`Could not ${nowLocked ? 'lock' : 'unlock'} this table — try again.`, 'error');
+            })
+            .finally(() => { lockBtn.disabled = false; });
     });
 })();
 </script>

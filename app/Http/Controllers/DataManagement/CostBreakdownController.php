@@ -7,6 +7,7 @@ use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
+use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\CostBreakdownCalculator;
 use App\Support\ProductGrouping;
@@ -48,6 +49,19 @@ use Illuminate\Http\Request;
  */
 class CostBreakdownController extends Controller
 {
+    /** The 3 lockable tables on this page (explicit request, 2026-10-07:
+     *  "add lock icon in every table ... like in the projections page") —
+     *  one whole-table lock each, NOT per-row/per-card like Projections'
+     *  own lock (this page is 3 dense editable grids, not a stack of
+     *  cards, so a per-row lock would be a much bigger build for no
+     *  requested benefit — confirmed scope, same conversation). Persisted
+     *  via the shared Setting key-value store (same pattern as
+     *  CallTracker\TsaManagementController's own autoTaggingEnabled
+     *  toggle) under 'cost_breakdown_lock_{table}', so a locked table
+     *  stays locked for everyone, across reloads, same as Projections'
+     *  own is_locked column. */
+    public const LOCK_TABLES = ['salary', 'pools', 'tsa'];
+
     public function index()
     {
         // Self-heals an empty table the same way ProjectionColumn::
@@ -261,6 +275,43 @@ class CostBreakdownController extends Controller
             'dailyCostPerProductRow' => $dailyCostPerProductRow,
             'monthlyTaxPerShift' => $monthlyTaxPerShift,
             'monthlyTaxPerTsaByTeam' => $monthlyTaxPerTsaByTeam,
+            'tableLocks' => $this->tableLocks(),
+        ]);
+    }
+
+    /** Current locked/unlocked state of all 3 tables, keyed by the same
+     *  short table key the lock button/toggleLock() route both use (see
+     *  LOCK_TABLES's own doc comment). */
+    private function tableLocks(): array
+    {
+        return collect(self::LOCK_TABLES)
+            ->mapWithKeys(fn (string $table) => [$table => Setting::get("cost_breakdown_lock_{$table}") === '1'])
+            ->all();
+    }
+
+    /** Flips one table's own lock on/off (explicit request, 2026-10-07) —
+     *  {table} is the short key (salary/pools/tsa), not a model, since
+     *  this isn't scoped to any one row. Validated against LOCK_TABLES so
+     *  an unknown key 404s instead of silently creating a stray Setting
+     *  row. The view disables every .cb-field input inside the matching
+     *  table client-side the instant this returns — no table markup needs
+     *  re-rendering (unlike Projections/Expected Income's own per-card
+     *  lock, which swaps the card's own HTML because disabling an input
+     *  there also means re-deriving its displayed value; every Cost
+     *  Breakdown cell already shows its live server value regardless of
+     *  lock state, so only the `disabled` attribute itself needs to
+     *  change). */
+    public function toggleLock(Request $request, string $table)
+    {
+        abort_unless(in_array($table, self::LOCK_TABLES, true), 404);
+
+        $locked = $request->boolean('locked');
+        Setting::set("cost_breakdown_lock_{$table}", $locked ? '1' : '');
+
+        return response()->json([
+            'success' => true,
+            'table' => $table,
+            'locked' => $locked,
         ]);
     }
 

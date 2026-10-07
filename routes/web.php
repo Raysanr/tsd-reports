@@ -432,5 +432,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // Product record itself (shared with every other page that reads
         // Product, not scoped to this page alone).
         Route::patch('/cost-breakdown/products/{product}/has-cost-allocation', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'updateProductHasCostAllocation'])->name('cost-breakdown.update-product-has-cost-allocation');
+        // Whole-table lock toggle (explicit request, 2026-10-07: "add lock
+        // icon in every table ... like in the projections page") — {table}
+        // is the short key (salary/pools/tsa), validated against
+        // CostBreakdownController::LOCK_TABLES, not a model binding.
+        Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
     });
 });

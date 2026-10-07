@@ -868,5 +868,53 @@ class CostBreakdownSmokeTest extends TestCase
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-pool', $pool), ['amount' => 1])->assertForbidden();
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-tsa-entry', $tsa), ['days' => 1])->assertForbidden();
         $this->actingAs($user)->patchJson(route('data.cost-breakdown.update-product-has-cost-allocation', $product), ['has_cost_allocation' => true])->assertForbidden();
+        $this->actingAs($user)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'salary']), ['locked' => true])->assertForbidden();
+    }
+
+    /** Whole-table lock toggle (explicit request, 2026-10-07: "add lock
+     *  icon in every table ... like in the projections page") — one lock
+     *  per table (salary/pools/tsa), persisted via the shared Setting
+     *  store so it survives a reload, same as Projections' own is_locked
+     *  column but scoped to the whole table rather than one row/card. */
+    public function test_locking_a_table_persists_and_is_reflected_on_reload(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'salary']), ['locked' => true]);
+        $response->assertOk()->assertJson(['success' => true, 'table' => 'salary', 'locked' => true]);
+
+        $page = $this->actingAs($admin)->get(route('data.cost-breakdown'));
+        $page->assertOk();
+        $page->assertSee('data-locked="1"', false);
+    }
+
+    public function test_unlocking_a_table_clears_its_stored_state(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \App\Models\Setting::set('cost_breakdown_lock_pools', '1');
+
+        $response = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'pools']), ['locked' => false]);
+        $response->assertOk()->assertJson(['success' => true, 'table' => 'pools', 'locked' => false]);
+
+        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_pools'));
+    }
+
+    public function test_each_table_locks_independently(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'tsa']), ['locked' => true])->assertOk();
+
+        $this->assertEquals('1', \App\Models\Setting::get('cost_breakdown_lock_tsa'));
+        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_salary'));
+        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_pools'));
+    }
+
+    public function test_an_unknown_lock_table_key_404s(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'bogus']), ['locked' => true])
+            ->assertNotFound();
     }
 }
