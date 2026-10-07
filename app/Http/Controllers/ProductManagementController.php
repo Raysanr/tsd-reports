@@ -47,7 +47,23 @@ class ProductManagementController extends Controller
 
         $trashedProducts = Product::onlyTrashed()->orderBy('display_name')->get();
 
-        return compact('products', 'teamsConfig', 'unassigned', 'trashedProducts');
+        // Resolves each already-linked pancake_product_id (a bare UUID, not
+        // human-readable on its own) back to its real POS name for display —
+        // the Edit modal's chips, and the row's own "linked:" line, need a
+        // name to show, not the raw ID. Same cached catalog the search picker
+        // itself already hits, so this adds no extra Pancake API calls beyond
+        // what loading this page already costs once products actually have
+        // IDs linked.
+        $allLinkedIds = $products->flatMap(fn ($p) => $p->pancake_product_ids ?? [])->unique()->values();
+        $linkedPosNames = [];
+        if ($allLinkedIds->isNotEmpty()) {
+            $catalogById = $this->fetchPosProducts()->keyBy('id');
+            $linkedPosNames = $allLinkedIds->mapWithKeys(fn ($id) => [
+                $id => $catalogById->get($id)['name'] ?? null,
+            ])->filter()->all();
+        }
+
+        return compact('products', 'teamsConfig', 'unassigned', 'trashedProducts', 'linkedPosNames');
     }
 
     /** Which named route store()/update()/etc. above send the browser back
@@ -69,10 +85,11 @@ class ProductManagementController extends Controller
         $nextSort = (int) (Product::max('sort_order') ?? 0) + 1;
 
         $product = Product::create([
-            'display_name'  => $data['display_name'],
-            'match_keyword' => $data['match_keyword'] ?: null,
-            'team'          => $this->defaultTeam(),
-            'sort_order'    => $nextSort,
+            'display_name'        => $data['display_name'],
+            'match_keyword'       => $data['match_keyword'] ?: null,
+            'pancake_product_ids' => $data['pancake_product_ids'],
+            'team'                => $this->defaultTeam(),
+            'sort_order'          => $nextSort,
         ]);
 
         $message = "Added \"{$data['display_name']}\".";
@@ -90,8 +107,9 @@ class ProductManagementController extends Controller
         // correctable via the bulk "Move" action on the list page if a
         // specific product's report attribution ever needs fixing.
         $product->update([
-            'display_name'  => $data['display_name'],
-            'match_keyword' => $data['match_keyword'] ?: null,
+            'display_name'        => $data['display_name'],
+            'match_keyword'       => $data['match_keyword'] ?: null,
+            'pancake_product_ids' => $data['pancake_product_ids'],
         ]);
 
         $message = "Updated \"{$data['display_name']}\".";
@@ -265,10 +283,26 @@ class ProductManagementController extends Controller
 
     private function validateProduct(Request $request): array
     {
-        return $request->validate([
-            'display_name'  => 'required|string|max:150',
-            'match_keyword' => 'nullable|string|max:500',
+        $data = $request->validate([
+            'display_name'        => 'required|string|max:150',
+            'match_keyword'       => 'nullable|string|max:500',
+            'pancake_product_ids' => 'nullable|string|max:2000',
         ]);
+
+        // Submitted as a comma-separated string (pancake_product_ids_input's
+        // own hidden-field convention — same plain-string wire format
+        // match_keyword already uses), stored as the JSON array
+        // Product::pancake_product_ids casts to/from. Picking a result from
+        // "Search POS products to add…" is what actually populates this —
+        // see that picker's own JS — never hand-typed, so no format
+        // validation beyond "non-empty strings" is needed here.
+        $data['pancake_product_ids'] = collect(explode(',', $data['pancake_product_ids'] ?? ''))
+            ->map(fn ($id) => trim($id))
+            ->filter()
+            ->values()
+            ->all() ?: null;
+
+        return $data;
     }
 
     /** Every product still needs SOME `team` value under the hood (the

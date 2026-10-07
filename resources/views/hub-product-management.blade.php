@@ -314,6 +314,9 @@
                     <span class="badge-hidden">Hidden</span>
                     @endif
                 </div>
+                @if(!empty($product->pancake_product_ids))
+                <div class="row-match" style="color:#059669">linked: {{ collect($product->pancake_product_ids)->map(fn($id) => $linkedPosNames[$id] ?? $id)->implode(', ') }}</div>
+                @endif
                 @if($product->match_keyword)
                 <div class="row-match">matches: {{ $product->match_keyword }}</div>
                 @endif
@@ -323,7 +326,8 @@
                     data-id="{{ $product->id }}"
                     data-display-name="{{ $product->display_name }}"
                     data-match-keyword="{{ $product->match_keyword }}"
-                    data-team="{{ $product->team }}">
+                    data-team="{{ $product->team }}"
+                    data-linked-ids="{{ json_encode(collect($product->pancake_product_ids ?? [])->map(fn($id) => ['id' => $id, 'name' => $linkedPosNames[$id] ?? $id])->values()) }}">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 </button>
                 <button type="button" class="icon-btn blue toggleHiddenBtn" title="{{ $product->is_hidden ? 'Unhide' : 'Hide' }}" data-id="{{ $product->id }}">
@@ -391,9 +395,11 @@
                 <div class="field">
                     <label>Match keywords <span class="opt">(optional, comma-separated)</span></label>
                     <input type="text" name="match_keyword" id="productKeywordInput" placeholder="e.g. PTERYGIUM, PteryFix — every cart-name variant of this product">
-                    <input type="text" id="productKeywordSearch" autocomplete="off" placeholder="Search POS products to add…" style="margin-top:8px;">
+                    <input type="hidden" name="pancake_product_ids" id="productIdsInput">
+                    <input type="text" id="productKeywordSearch" autocomplete="off" placeholder="Search POS products to link…" style="margin-top:8px;">
                     <div id="productKeywordResults" class="search-results"></div>
-                    <p class="hint">Leave blank to match on the display name itself. Matching ignores case, spaces and punctuation, and an order counts if it matches ANY keyword — add every alias the POS cart uses, or unclaimed leads for that variant won't be attributed to your team.</p>
+                    <div id="productLinkedChips" style="display:none;flex-wrap:wrap;gap:6px;margin-top:8px;"></div>
+                    <p class="hint">Linking a real POS product above is exact and survives renames — prefer it. Match keywords is a fallback: ignores case/spaces/punctuation, matches if ANY keyword hits, used only when nothing is linked.</p>
                 </div>
                 <div class="modal-actions">
                     <button type="button" id="cancelProductModal" class="btn-ghost">Cancel</button>
@@ -493,14 +499,43 @@
     const methodInput = document.getElementById('productFormMethod');
     const nameInput   = document.getElementById('productNameInput');
     const keywordInput = document.getElementById('productKeywordInput');
+    const idsInput    = document.getElementById('productIdsInput');
+    const linkedChips = document.getElementById('productLinkedChips');
     const keywordSearch = document.getElementById('productKeywordSearch');
     const keywordResults = document.getElementById('productKeywordResults');
     const submitBtn   = document.getElementById('productSubmitBtn');
     const storeUrl    = form.action;
     const toggleHiddenForm = document.getElementById('toggleHiddenProductForm');
 
+    let linkedProducts = [];
+
     function openModal() { modal.classList.add('open'); }
     function closeModal() { modal.classList.remove('open'); }
+
+    function renderLinkedChips() {
+        linkedChips.innerHTML = '';
+        idsInput.value = linkedProducts.map(p => p.id).join(', ');
+
+        if (!linkedProducts.length) { linkedChips.style.display = 'none'; return; }
+        linkedChips.style.display = 'flex';
+
+        linkedProducts.forEach(p => {
+            const chip = document.createElement('span');
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:4px 4px 4px 8px;font-size:11px;font-family:monospace;background:#ecfdf5;color:#059669;border:1px solid #a7f3d0;border-radius:6px;';
+            chip.textContent = p.name;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.textContent = '×';
+            removeBtn.style.cssText = 'margin-left:2px;color:#34d399;cursor:pointer;background:none;border:none;';
+            removeBtn.addEventListener('click', () => {
+                linkedProducts = linkedProducts.filter(x => x.id !== p.id);
+                renderLinkedChips();
+            });
+            chip.appendChild(removeBtn);
+            linkedChips.appendChild(chip);
+        });
+    }
 
     function resetForm() {
         form.action = storeUrl;
@@ -512,6 +547,8 @@
         submitBtn.textContent = 'Add Product';
         keywordSearch.value = '';
         keywordResults.style.display = 'none';
+        linkedProducts = [];
+        renderLinkedChips();
     }
 
     let keywordDebounceTimer = null;
@@ -538,18 +575,14 @@
         }
     }
 
-    function currentKeywords() {
-        return keywordInput.value.split(',').map(k => k.trim()).filter(k => k !== '');
-    }
-
     function renderKeywordResults(products) {
-        const existingUpper = currentKeywords().map(k => k.toUpperCase());
+        const linkedIds = linkedProducts.map(p => p.id);
         keywordResults.innerHTML = '';
 
         if (!products.length) { keywordResults.style.display = 'none'; return; }
 
         products.forEach(p => {
-            const alreadyAdded = existingUpper.includes(p.name.toUpperCase());
+            const alreadyAdded = linkedIds.includes(p.id);
             const row = document.createElement('div');
             row.className = 'result-row' + (alreadyAdded ? ' disabled' : '');
 
@@ -560,14 +593,13 @@
             if (alreadyAdded) {
                 const note = document.createElement('span');
                 note.className = 'note';
-                note.textContent = 'added';
+                note.textContent = 'linked';
                 row.appendChild(note);
             } else {
                 row.addEventListener('mousedown', (e) => {
                     e.preventDefault();
-                    const kws = currentKeywords();
-                    kws.push(p.name);
-                    keywordInput.value = kws.join(', ');
+                    linkedProducts.push({ id: p.id, name: p.name });
+                    renderLinkedChips();
                     keywordSearch.value = '';
                     keywordResults.style.display = 'none';
                     keywordSearch.focus();
@@ -598,6 +630,12 @@
             methodInput.value = 'PUT';
             nameInput.value = btn.dataset.displayName || '';
             keywordInput.value = btn.dataset.matchKeyword || '';
+            try {
+                linkedProducts = JSON.parse(btn.dataset.linkedIds || '[]');
+            } catch (e) {
+                linkedProducts = [];
+            }
+            renderLinkedChips();
             modalTitle.textContent = 'Edit product';
             modalSubtitle.textContent = 'Changes apply starting with the next sync';
             submitBtn.textContent = 'Save Changes';

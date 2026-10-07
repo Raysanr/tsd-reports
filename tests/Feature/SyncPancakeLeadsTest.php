@@ -299,6 +299,47 @@ class SyncPancakeLeadsTest extends TestCase
     }
 
     /**
+     * Regression test for the exact-ID matching priority added to doSync()
+     * — root-caused live, 2026-10-07: real production orders for "Clear
+     * Sight 3.0"/"CanPro Guyabano Herbal Drink" landed unassigned
+     * (product_id NULL) despite Product::matchesText() independently
+     * confirmed TRUE against the same item name when replayed by hand,
+     * and despite the matching Product row already having the exact right
+     * pancake_product_ids value from ProductPerformance's own ID-matching
+     * feature (2026-08-17) — a real, pre-existing column SyncPancakeLeads
+     * itself just never consulted. Root transient cause was never
+     * conclusively identified (a live catch window came up empty), but the
+     * gap itself — an order whose item name happens to not substring-match
+     * ANY configured keyword, while its real product_id IS linked — is real
+     * and worth closing regardless: this proves that order now resolves via
+     * the ID the keyword-only path alone would have missed.
+     */
+    public function test_an_order_matches_by_exact_pancake_product_id_even_when_the_item_name_would_not_match_any_keyword(): void
+    {
+        $posProductId = '3c1e5840-04f1-42d7-a32d-69e3fea98551';
+        Product::where('display_name', 'SINUXYL')->update(['pancake_product_ids' => [$posProductId]]);
+
+        $this->fakePancake([[
+            'id'               => 9010,
+            'bill_full_name'   => 'ID Matched Buyer',
+            'bill_phone_number' => '09170001111',
+            'tags'             => [],
+            // Deliberately a name that would NOT substring-match "SINUXYL"
+            // under matchesText() — the only way this lead can resolve to
+            // SINUXYL is via the linked pancake_product_ids above.
+            'items'            => [['product_id' => $posProductId, 'variation_info' => ['name' => 'Totally Unrelated Wording']]],
+            'inserted_at'      => now()->toIso8601String(),
+        ]]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $lead = Lead::where('pancake_order_id', '9010')->first();
+        $this->assertNotNull($lead);
+        $this->assertSame('SINUXYL', $lead->product->display_name);
+        $this->assertSame('assigned', $lead->status);
+    }
+
+    /**
      * Reversed (explicit follow-up request, 2026-09-03: "when there's new
      * leads it is auto tagging ... because it is their leads") — round-robin
      * assignment now pushes the new owner's own POS name tag to Pancake

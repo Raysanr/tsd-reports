@@ -48,6 +48,9 @@
                         <span class="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded">Hidden</span>
                         @endif
                     </div>
+                    @if(!empty($product->pancake_product_ids))
+                    <p class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono">linked: {{ collect($product->pancake_product_ids)->map(fn($id) => $linkedPosNames[$id] ?? $id)->implode(', ') }}</p>
+                    @endif
                     @if($product->match_keyword)
                     <p class="text-[10px] text-slate-400 font-mono">matches: {{ $product->match_keyword }}</p>
                     @endif
@@ -60,7 +63,8 @@
                         data-id="{{ $product->id }}"
                         data-display-name="{{ $product->display_name }}"
                         data-match-keyword="{{ $product->match_keyword }}"
-                        data-team="{{ $product->team }}">
+                        data-team="{{ $product->team }}"
+                        data-linked-ids="{{ json_encode(collect($product->pancake_product_ids ?? [])->map(fn($id) => ['id' => $id, 'name' => $linkedPosNames[$id] ?? $id])->values()) }}">
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
@@ -163,16 +167,29 @@
                     placeholder="e.g. PTERYGIUM, PteryFix — every cart-name variant of this product"
                     class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
 
+                {{-- Real Pancake product_id(s) linked from the picker below (comma-
+                     separated, same wire format as match_keyword — see
+                     ProductManagementController::validateProduct()). Exact-ID
+                     matching takes priority over match_keyword wherever both are
+                     set — see SyncPancakeLeads::doSync()'s own comment on that
+                     priority order. --}}
+                <input type="hidden" name="pancake_product_ids" id="productIdsInput">
+
                 {{-- Searchable picker over the REAL Pancake product catalog (GET /shops/
                      {id}/products), same pattern as TSA Management's "Also matches" tag
-                     picker — picking a result appends its exact POS name into the field
-                     above instead of it being free-typed/guessed. --}}
+                     picker — picking a result links its real product_id (shown here as
+                     its POS name) instead of just appending text to Match keywords. --}}
                 <input type="text" id="productKeywordSearch" autocomplete="off"
-                    placeholder="Search POS products to add…"
+                    placeholder="Search POS products to link…"
                     class="w-full mt-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
                 <div id="productKeywordResults" class="hidden absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-52 overflow-y-auto"></div>
 
-                <p class="text-[11px] text-slate-400 mt-1">Leave blank to match on the display name itself. Matching ignores case, spaces and punctuation, and an order counts if it matches ANY keyword — add every alias the POS cart uses, or unclaimed leads for that variant won't be attributed to your team.</p>
+                {{-- Linked POS products shown as removable chips — the actual
+                     pancake_product_ids this product will match on, distinct from
+                     the free-typed Match keywords text above. --}}
+                <div id="productLinkedChips" class="hidden flex flex-wrap gap-1.5 mt-2"></div>
+
+                <p class="text-[11px] text-slate-400 mt-1">Linking a real POS product above is exact and survives renames — prefer it. Match keywords is a fallback: ignores case/spaces/punctuation, matches if ANY keyword hits, used only when nothing is linked.</p>
             </div>
 
             <div class="flex items-center justify-end gap-2 pt-2">
@@ -236,14 +253,46 @@
     const methodInput = document.getElementById('productFormMethod');
     const nameInput   = document.getElementById('productNameInput');
     const keywordInput = document.getElementById('productKeywordInput');
+    const idsInput    = document.getElementById('productIdsInput');
+    const linkedChips = document.getElementById('productLinkedChips');
     const keywordSearch = document.getElementById('productKeywordSearch');
     const keywordResults = document.getElementById('productKeywordResults');
     const submitBtn   = document.getElementById('productSubmitBtn');
     const storeUrl    = form.action;
     const toggleHiddenForm = document.getElementById('toggleHiddenProductForm');
 
+    // Linked POS products for the product currently open in the modal — the
+    // actual exact-match data (pancake_product_ids); Match keywords above
+    // stays a separate, independent text field. Array of {id, name}.
+    let linkedProducts = [];
+
     function openModal() { modal.classList.remove('hidden'); }
     function closeModal() { modal.classList.add('hidden'); }
+
+    function renderLinkedChips() {
+        linkedChips.innerHTML = '';
+        idsInput.value = linkedProducts.map(p => p.id).join(', ');
+
+        if (!linkedProducts.length) { linkedChips.classList.add('hidden'); return; }
+        linkedChips.classList.remove('hidden');
+
+        linkedProducts.forEach(p => {
+            const chip = document.createElement('span');
+            chip.className = 'inline-flex items-center gap-1 pl-2 pr-1 py-1 text-[11px] font-mono bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900 rounded-md';
+            chip.textContent = p.name;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'ml-0.5 text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-200 cursor-pointer';
+            removeBtn.textContent = '×';
+            removeBtn.addEventListener('click', () => {
+                linkedProducts = linkedProducts.filter(x => x.id !== p.id);
+                renderLinkedChips();
+            });
+            chip.appendChild(removeBtn);
+            linkedChips.appendChild(chip);
+        });
+    }
 
     function resetForm() {
         form.action = storeUrl;
@@ -255,6 +304,8 @@
         submitBtn.textContent = 'Add Product';
         keywordSearch.value = '';
         keywordResults.classList.add('hidden');
+        linkedProducts = [];
+        renderLinkedChips();
     }
 
     // Searchable picker over the real Pancake product catalog for "Match
@@ -285,18 +336,14 @@
         }
     }
 
-    function currentKeywords() {
-        return keywordInput.value.split(',').map(k => k.trim()).filter(k => k !== '');
-    }
-
     function renderKeywordResults(products) {
-        const existingUpper = currentKeywords().map(k => k.toUpperCase());
+        const linkedIds = linkedProducts.map(p => p.id);
         keywordResults.innerHTML = '';
 
         if (!products.length) { keywordResults.classList.add('hidden'); return; }
 
         products.forEach(p => {
-            const alreadyAdded = existingUpper.includes(p.name.toUpperCase());
+            const alreadyAdded = linkedIds.includes(p.id);
 
             const row = document.createElement('div');
             row.className = alreadyAdded
@@ -307,15 +354,14 @@
             if (alreadyAdded) {
                 const note = document.createElement('span');
                 note.className = 'text-[10px] font-mono text-slate-300 dark:text-slate-600 float-right';
-                note.textContent = 'added';
+                note.textContent = 'linked';
                 row.appendChild(note);
             } else {
                 // mousedown fires before the search input's blur, so the click registers
                 row.addEventListener('mousedown', (e) => {
                     e.preventDefault();
-                    const kws = currentKeywords();
-                    kws.push(p.name);
-                    keywordInput.value = kws.join(', ');
+                    linkedProducts.push({ id: p.id, name: p.name });
+                    renderLinkedChips();
                     keywordSearch.value = '';
                     keywordResults.classList.add('hidden');
                     keywordSearch.focus();
@@ -346,6 +392,12 @@
             methodInput.value = 'PUT';
             nameInput.value = btn.dataset.displayName || '';
             keywordInput.value = btn.dataset.matchKeyword || '';
+            try {
+                linkedProducts = JSON.parse(btn.dataset.linkedIds || '[]');
+            } catch (e) {
+                linkedProducts = [];
+            }
+            renderLinkedChips();
             modalTitle.textContent = 'Edit product';
             modalSubtitle.textContent = 'Changes apply starting with the next sync';
             submitBtn.textContent = 'Save Changes';

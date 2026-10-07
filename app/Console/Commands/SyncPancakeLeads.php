@@ -275,8 +275,21 @@ class SyncPancakeLeads extends Command
                     continue;
                 }
 
+                // ID match first, same priority ProductPerformance::matchingOrders()
+                // already gives reports (see that method's own doc comment) — exact
+                // Pancake product_id comparison is authoritative and immune to the
+                // wording drift substring matching is exposed to (e.g. a POS rename,
+                // or a genuinely different product that happens to share a word).
+                // Falls through to the existing text-matching path whenever this
+                // order's own item(s) carry no product_id, or no product has any
+                // pancake_product_ids configured yet — same "don't go blank pending
+                // migration" fallback ProductPerformance already relies on.
+                $orderProductIds = collect($raw['items'] ?? [])->pluck('product_id')->filter()->unique()->values();
                 $itemName = $raw['items'][0]['variation_info']['name'] ?? $raw['items'][0]['product_name'] ?? null;
-                $product  = $products->first(fn (Product $p) => $p->matchesText($itemName) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
+                $product  = $orderProductIds->isNotEmpty()
+                    ? $products->first(fn (Product $p) => collect($p->pancake_product_ids ?? [])->intersect($orderProductIds)->isNotEmpty())
+                    : null;
+                $product ??= $products->first(fn (Product $p) => $p->matchesText($itemName) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
 
                 $rawPhone = $raw['bill_phone_number'] ?? ($raw['customer']['phone_numbers'][0] ?? null);
                 $rawCreatedAt = isset($raw['inserted_at'])
