@@ -85,7 +85,15 @@
                              (TsaShift::tiktok_upsell, set in the Edit TSA
                              modal). Role rows never show a mark here, only
                              real TSA rows. --}}
-                        <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap">TikTok</th>
+                        {{-- Icon only, no text label (explicit follow-up,
+                             2026-10-07: "remove the tiktok just the icon
+                             is okay") — narrower column, same icon used
+                             on a flagged TSA's own row below. --}}
+                        <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap" title="TikTok Upsell">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 inline-block">
+                                <path d="M16.5 2c.3 2.2 1.8 3.9 4 4.3v2.8c-1.4 0-2.8-.4-4-1.2v6.9c0 3.4-2.8 6.2-6.2 6.2S4.1 17.2 4.1 13.8c0-3.3 2.6-6 5.9-6.2v3c-1.6.2-2.9 1.6-2.9 3.2 0 1.8 1.4 3.2 3.2 3.2s3.2-1.4 3.2-3.2V2h3z"/>
+                            </svg>
+                        </th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Total</th>
@@ -140,13 +148,13 @@
                                  the 7 fixed roles ever show one, server-
                                  guarded too (CostBreakdownController::
                                  destroyRole()). --}}
-                            <td class="px-4 py-2 whitespace-nowrap {{ $groupEndClass }}">
+                            <td class="px-4 py-2 max-w-0 {{ $groupEndClass }}">
                                 <div class="flex items-start gap-1">
                                     <div class="flex-1 min-w-0 space-y-1">
                                         <input type="text" value="{{ $role->label }}" data-field="label" data-text="1"
-                                               class="cb-field w-full bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono font-bold text-ink dark:text-slate-100 outline-none">
+                                               class="cb-field w-full box-border bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono font-bold text-ink dark:text-slate-100 outline-none">
                                         <input type="text" value="{{ $role->person_name }}" data-field="person_name" data-text="1" placeholder="Name (optional)"
-                                               class="cb-field w-full bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono text-xs text-ink-muted dark:text-slate-400 outline-none">
+                                               class="cb-field w-full box-border bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono text-xs text-ink-muted dark:text-slate-400 outline-none">
                                     </div>
                                     @if($role->seed_key === null)
                                     <button type="button" data-remove-role="{{ $role->id }}" title="Remove this role"
