@@ -263,6 +263,7 @@
     const SELLING_KEYS = @json(array_keys($sellingRows));
     const OPERATING_KEYS = @json(array_keys($operatingRows));
     const COD_FEE_RATE_OF_DELIVERED = 0.0224, FULFILLMENT_FEE_PER_ORDER = 25.0;
+    const PROJECTED_RETURNS_RATE = {{ \App\Support\ExpectedIncomeCalculator::PROJECTED_RETURNS_RATE }};
 
     function fmtMoney(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function fmtInt(n) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
@@ -304,14 +305,24 @@
         const productCost = Number(row.product_cost) || 0;
 
         const conversionRate = leads > 0 ? orders / leads : 0;
-        // Gross Sales/Cancelled/Projected Returns/Projected Delivered are
-        // plain manual inputs (explicit request, 2026-09-28), no longer
-        // Orders × AOV / fixed rates — mirrors ExpectedIncomeCalculator::
-        // derive()'s own PHP side of this same change.
+        // Gross Sales/Cancelled are plain manual inputs (explicit request,
+        // 2026-09-28). Projected Returns/Projected Delivered are NOT —
+        // corrected 2026-10-01 ("the only auto is Projected Returns /
+        // Projected Delivered") to be DERIVED from Gross Sales again, same
+        // as ExpectedIncomeCalculator::derive()'s own PHP side: Returns =
+        // Gross Sales × 25%, Delivered = Gross Sales − Cancelled − Returns.
+        // Reading row.returns/row.delivered as raw inputs here (the bug
+        // this comment replaces) silently zeroed both out on every
+        // refreshDayOverall() repaint, since neither field has a
+        // data-field input to read from any more (_card-body.blade.php
+        // always renders them as read-only spans) — confirmed live,
+        // 2026-10-08: a TSA's own rollup card went stale/wrong after any
+        // product-card edit until a full page reload re-fetched the
+        // server's own correct figures.
         const grossSales = Number(row.gross_sales) || 0;
         const cancelled = Number(row.cancelled) || 0;
-        const returns = Number(row.returns) || 0;
-        const delivered = Number(row.delivered) || 0;
+        const returns = grossSales * PROJECTED_RETURNS_RATE;
+        const delivered = grossSales - cancelled - returns;
         const grossProfit = grossSales - cancelled - returns - taxAllocation - productCost;
 
         const sellingLines = {};
@@ -402,7 +413,10 @@
 
         productCards.forEach((card) => {
             const raw = {};
-            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'returns', 'delivered', 'product_cost']
+            // 'returns'/'delivered' deliberately NOT read here — see
+            // derive()'s own doc comment above: both are always derived
+            // from gross_sales/cancelled, never a raw data-field input.
+            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
@@ -440,7 +454,7 @@
             costPerLeadSum += d.actual_cost_per_lead;
         });
 
-        const totals = { number_of_leads: 0, number_of_orders: 0, gross_sales: 0, cancelled: 0, returns: 0, delivered: 0, tax_allocation: 0, product_cost: 0 };
+        const totals = { number_of_leads: 0, number_of_orders: 0, gross_sales: 0, cancelled: 0, tax_allocation: 0, product_cost: 0 };
         SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] = 0; });
         let aovSum = 0;
         rawRows.forEach((raw) => {
@@ -448,8 +462,6 @@
             totals.number_of_orders += raw.number_of_orders;
             totals.gross_sales += raw.gross_sales;
             totals.cancelled += raw.cancelled;
-            totals.returns += raw.returns;
-            totals.delivered += raw.delivered;
             totals.tax_allocation += raw.tax_allocation;
             totals.product_cost += raw.product_cost;
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] += raw[key]; });
