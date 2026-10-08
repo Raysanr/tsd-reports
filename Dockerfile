@@ -106,6 +106,17 @@ RUN install-php-extensions pdo_pgsql zip gd pcntl
 RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
+# memory_limit raised from PHP's 128M default (root-caused live via Railway
+# logs, 2026-10-08: repeated "Allowed memory size of 134217728 bytes
+# exhausted" FatalErrors in Collection.php/Carbon internals, no consistent
+# route — consistent with worker-mode's long-lived processes (see
+# entrypoint.sh's own --max-requests=500 comment) gradually accruing memory
+# across hundreds of requests until whichever request lands next tips a
+# worker over 128M, not a leak specific to any one page). 256M buys real
+# headroom at this app's actual traffic/payload sizes without masking a
+# genuine unbounded-growth bug the way going much higher would.
+RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/memory-limit.ini
+
 WORKDIR /app
 
 # Excludes the builder stage's own node_modules (npm/Vite are a build-time
