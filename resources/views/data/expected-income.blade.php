@@ -50,22 +50,31 @@
             </button>
             @endforeach
         </div>
-    </form>
 
-    {{-- TSA name filter (explicit request, 2026-10-08: "when they filter
-         their name, the only card will be display is their tsa card and
-         product") — only meaningful once a real team is picked, since
-         that's the only state with one data-tsa-block per TSA in the DOM
-         to show/hide; ALL/TikTok render pooled summary cards instead, no
-         per-TSA blocks to filter. Pure client-side show/hide (wireTsaNameFilter
-         below) — no page reload, no new backend query, since every TSA on
-         the selected team is already server-rendered. --}}
-    @if($selectedTeam !== 'all' && $selectedTeam !== 'tiktok')
-    <div class="relative">
+        {{-- TSA name filter (explicit request, 2026-10-08: "when they
+             filter their name, the only card will be display is their tsa
+             card and product") — placed directly beside the team buttons
+             it depends on, INSIDE the same form/flex row (moved here,
+             2026-10-08, after it first rendered as its own flex child of
+             the OUTER justify-between row — "make the positioning is user
+             friendly" — which pushed it into the leftover middle space
+             between the form and the "Drag/scroll" hint on the far right,
+             nowhere near the team buttons it filters). Only meaningful
+             once a real team is picked, since that's the only state with
+             one data-tsa-block per TSA in the DOM to show/hide — ALL/
+             TikTok render pooled summary cards instead, no per-TSA blocks
+             to filter. Pure client-side show/hide (the filter listener
+             near this file's bottom) — no page reload, no new backend
+             query, since every TSA on the selected team is already
+             server-rendered. Not a submit button, so it doesn't need to
+             be inside <form> for any functional reason — kept there
+             anyway purely so flexbox lays it out in the same row as the
+             controls it visually belongs with. --}}
+        @if($selectedTeam !== 'all' && $selectedTeam !== 'tiktok')
         <input type="text" id="eiTsaNameFilter" placeholder="Filter by TSA name…" autocomplete="off"
                class="w-56 text-xs font-mono px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-ink dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
-    </div>
-    @endif
+        @endif
+    </form>
     <div class="flex items-center gap-3">
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
@@ -744,6 +753,13 @@
                 block.classList.toggle('hidden', query !== '' && !block.dataset.tsaName.includes(query));
             });
         });
+        // Lives inside the same <form> as the team buttons (for flexbox
+        // layout only — see this input's own doc comment above), which
+        // would otherwise GET-submit the whole page (losing the filter,
+        // reloading everything) on Enter the way the real date-range
+        // field next to it is supposed to. This field is purely a client-
+        // side display toggle, never meant to submit anything.
+        tsaNameFilter.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
     }
 })();
 </script>
