@@ -572,57 +572,60 @@ document.addEventListener('click', async (e) => {
     const hiddenDisplays = hiddenForSnapshot.map((el) => el.style.display);
     hiddenForSnapshot.forEach((el) => { el.style.display = 'none'; });
 
-    // html2canvas clips its render against every ANCESTOR's overflow, not
-    // just the captured element's own — so pointing `table` at the full-
-    // width `.w-max` row (above) wasn't enough on its own: the
-    // `overflow-x-auto` scroll container it still lives inside kept
-    // clipping the render to that container's visible scroll width
-    // (confirmed live, 2026-10-08: Sinuxyl/Taguro still cut off after the
-    // `.w-max` fix alone). Walking up from `table` to `target` and
-    // temporarily lifting any `overflow-x`/`overflow` clip removes every
-    // such ancestor's clip for the capture; `scrollLeft` is also reset so
-    // a mid-scroll capture doesn't shift which part of the now-unclipped
-    // content lines up with where html2canvas measures from. All of it
-    // restored in `finally`, same pattern as every other temporary style
-    // change in this handler.
+    // html2canvas clips its render against every ANCESTOR's overflow AND
+    // any height/max-height constraint, not just the captured element's
+    // own — so pointing `table` at the full-content element alone isn't
+    // enough whenever it sits inside a scroll container. Two real,
+    // distinct report layouts hit this:
+    //  - Expected Income's card row: `overflow-x-auto`, horizontal only,
+    //    no height cap (confirmed live, 2026-10-08: Sinuxyl/Taguro cut off
+    //    on the right).
+    //  - Leads Report / TSA Performance's wide tables: `overflow-auto`
+    //    (BOTH axes) + an inline `max-height:calc(100vh - 180px)` on the
+    //    exact same wrapper (confirmed live, 2026-10-09: captured PNGs cut
+    //    off on the TOP, starting mid-row/mid-table — the vertical clip
+    //    this fix's first version never accounted for, only ever checking
+    //    overflowX/scrollLeft).
+    // Walking up from `table` to `target` and lifting EVERY clip source on
+    // each ancestor — overflow (both axes), max-height, and height — plus
+    // resetting both scroll offsets, removes all of it for the capture.
+    // All of it restored in `finally`, same pattern as every other
+    // temporary style change in this handler.
     const restoreOverflow = [];
     for (let el = table; el && el !== target?.parentElement; el = el.parentElement) {
         const cs = getComputedStyle(el);
-        if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowX === 'hidden'
-            || cs.overflow === 'auto' || cs.overflow === 'scroll' || cs.overflow === 'hidden') {
-            restoreOverflow.push([el, el.style.overflow, el.style.overflowX, el.scrollLeft]);
+        const clips = cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowX === 'hidden'
+            || cs.overflowY === 'auto' || cs.overflowY === 'scroll' || cs.overflowY === 'hidden'
+            || cs.maxHeight !== 'none';
+        if (clips) {
+            restoreOverflow.push([el, el.style.overflow, el.style.overflowX, el.style.overflowY, el.style.maxHeight, el.style.height, el.scrollLeft, el.scrollTop]);
             el.style.overflow = 'visible';
             el.style.overflowX = 'visible';
+            el.style.overflowY = 'visible';
+            el.style.maxHeight = 'none';
             el.scrollLeft = 0;
+            el.scrollTop = 0;
         }
         if (el === target) break;
     }
 
     try {
         await loadHtml2Canvas();
-        // html2canvas's DEFAULT capture region is computed from the live
-        // window.scrollX/scrollY + the element's getBoundingClientRect(),
-        // not purely from the target's own internal scrollLeft — so even
-        // with target's overflow lifted and scrollLeft zeroed above, a
-        // stale page-level scroll/layout mismatch at capture time can
-        // still crop one edge (confirmed live, 2026-10-08: left edge of
-        // the TSA card still cut off after the overflow-lift fix alone).
-        // Passing x/y/scrollX/scrollY explicitly, computed fresh from
-        // getBoundingClientRect() right before the call, removes that
-        // ambiguity entirely — html2canvas renders exactly the element's
-        // own box with no dependency on whatever the page's scroll
-        // position happens to be.
-        const rect = table.getBoundingClientRect();
+        // x/y/width/height deliberately NOT overridden — html2canvas's own
+        // documented defaults already derive them from the element's own
+        // getBoundingClientRect() (html2canvas.hertzen.com/configuration:
+        // "Default: Element x-offset" etc.), so passing them explicitly
+        // only risks re-introducing a clip if rect is read at the wrong
+        // moment relative to the overflow-lift reflow above. scrollX/
+        // scrollY:0 is the one override worth keeping — without it
+        // html2canvas falls back to the PAGE's own window.scrollX/scrollY,
+        // which have nothing to do with this element's own (already
+        // zeroed) internal scroll position.
         const tableCanvas = await window.html2canvas(table, {
             backgroundColor: '#ffffff',
             scale: 2,
-            x: rect.left + window.scrollX,
-            y: rect.top + window.scrollY,
             scrollX: 0,
             scrollY: 0,
-            width: rect.width,
-            height: rect.height,
-            windowWidth: document.documentElement.scrollWidth,
         });
 
         // Optional adjacent chart (Leads Report's disposition pie) — composited
@@ -718,10 +721,14 @@ document.addEventListener('click', async (e) => {
     } finally {
         restoreInputs();
         hiddenForSnapshot.forEach((el, i) => { el.style.display = hiddenDisplays[i]; });
-        restoreOverflow.forEach(([el, overflow, overflowX, scrollLeft]) => {
+        restoreOverflow.forEach(([el, overflow, overflowX, overflowY, maxHeight, height, scrollLeft, scrollTop]) => {
             el.style.overflow = overflow;
             el.style.overflowX = overflowX;
+            el.style.overflowY = overflowY;
+            el.style.maxHeight = maxHeight;
+            el.style.height = height;
             el.scrollLeft = scrollLeft;
+            el.scrollTop = scrollTop;
         });
         if (chartPanel && restoreWidth) await animatePanelWidth(restoreWidth);
         if (chartPanel) chartPanel.style.transition = ''; // don't leave the drag handle feeling laggy afterward
