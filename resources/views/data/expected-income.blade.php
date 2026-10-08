@@ -325,12 +325,25 @@
         const delivered = grossSales - cancelled - returns;
         const grossProfit = grossSales - cancelled - returns - taxAllocation - productCost;
 
+        // cod_fee/fulfillment_fee are both already inside SELLING_KEYS
+        // (SELLING_COST_ROWS includes them server-side too — see
+        // ExpectedIncomeCalculator::derive()'s own ->put() comment) but
+        // are computed formulas, never a raw row[key] value — summing
+        // totalSellingCosts DURING the SELLING_KEYS loop below (the bug
+        // this comment replaces) added each once from its stale row[key]
+        // reading, then added the correct formula value AGAIN right
+        // after, double-counting both into every TSA rollup card's Total
+        // Selling Costs (and everything downstream of it) on every
+        // refreshDayOverall() repaint — confirmed live, 2026-10-08.
+        // Mirrors the PHP side's own ->put()-then-->sum() order exactly:
+        // build the complete sellingLines object first (raw values, then
+        // the 2 formulas OVERWRITING their own keys), sum it only once
+        // after every key's final value is settled.
         const sellingLines = {};
-        let totalSellingCosts = 0;
-        SELLING_KEYS.forEach((key) => { sellingLines[key] = Number(row[key]) || 0; totalSellingCosts += sellingLines[key]; });
+        SELLING_KEYS.forEach((key) => { sellingLines[key] = Number(row[key]) || 0; });
         sellingLines.cod_fee = delivered * COD_FEE_RATE_OF_DELIVERED;
         sellingLines.fulfillment_fee = orders * FULFILLMENT_FEE_PER_ORDER;
-        totalSellingCosts += sellingLines.cod_fee + sellingLines.fulfillment_fee;
+        const totalSellingCosts = Object.values(sellingLines).reduce((sum, v) => sum + v, 0);
 
         const operatingLines = {};
         let totalOperatingCosts = 0;
