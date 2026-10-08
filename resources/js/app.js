@@ -572,6 +572,32 @@ document.addEventListener('click', async (e) => {
     const hiddenDisplays = hiddenForSnapshot.map((el) => el.style.display);
     hiddenForSnapshot.forEach((el) => { el.style.display = 'none'; });
 
+    // html2canvas clips its render against every ANCESTOR's overflow, not
+    // just the captured element's own — so pointing `table` at the full-
+    // width `.w-max` row (above) wasn't enough on its own: the
+    // `overflow-x-auto` scroll container it still lives inside kept
+    // clipping the render to that container's visible scroll width
+    // (confirmed live, 2026-10-08: Sinuxyl/Taguro still cut off after the
+    // `.w-max` fix alone). Walking up from `table` to `target` and
+    // temporarily lifting any `overflow-x`/`overflow` clip removes every
+    // such ancestor's clip for the capture; `scrollLeft` is also reset so
+    // a mid-scroll capture doesn't shift which part of the now-unclipped
+    // content lines up with where html2canvas measures from. All of it
+    // restored in `finally`, same pattern as every other temporary style
+    // change in this handler.
+    const restoreOverflow = [];
+    for (let el = table; el && el !== target?.parentElement; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.overflowX === 'auto' || cs.overflowX === 'scroll' || cs.overflowX === 'hidden'
+            || cs.overflow === 'auto' || cs.overflow === 'scroll' || cs.overflow === 'hidden') {
+            restoreOverflow.push([el, el.style.overflow, el.style.overflowX, el.scrollLeft]);
+            el.style.overflow = 'visible';
+            el.style.overflowX = 'visible';
+            el.scrollLeft = 0;
+        }
+        if (el === target) break;
+    }
+
     try {
         await loadHtml2Canvas();
         const tableCanvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
@@ -669,6 +695,11 @@ document.addEventListener('click', async (e) => {
     } finally {
         restoreInputs();
         hiddenForSnapshot.forEach((el, i) => { el.style.display = hiddenDisplays[i]; });
+        restoreOverflow.forEach(([el, overflow, overflowX, scrollLeft]) => {
+            el.style.overflow = overflow;
+            el.style.overflowX = overflowX;
+            el.scrollLeft = scrollLeft;
+        });
         if (chartPanel && restoreWidth) await animatePanelWidth(restoreWidth);
         if (chartPanel) chartPanel.style.transition = ''; // don't leave the drag handle feeling laggy afterward
         if (wasDark) document.documentElement.classList.add('dark');
