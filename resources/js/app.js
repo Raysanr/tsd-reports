@@ -505,6 +505,35 @@ document.addEventListener('click', async (e) => {
     const restoreWidth = chartPanel?.style.width || '';
     const ANIMATE_MS   = 350;
 
+    // The chart panel's own width-transition is a real layout property, not
+    // a GPU-composited transform — unavoidable, since the table sibling
+    // genuinely needs to grow/shrink in sync with it (a pure transform
+    // leaves a visual gap instead, since transforms never move siblings).
+    // BUT that same flex row also contains the table itself — a ~15-column,
+    // 1400px-wide, position:sticky-header table — as a `flex-1 min-w-0`
+    // sibling, which means the BROWSER was recomputing that table's own
+    // full layout (sticky column offsets included) on every single
+    // animation frame too, not just the chart panel's own box. That's the
+    // real source of the visible stutter/overlap (confirmed live,
+    // 2026-10-09 — screen recording showed the table and chart panel
+    // visibly overlapping mid-transition, consistent with layout thrash on
+    // BOTH flex children at once rather than just the one actually meant
+    // to animate). Freezing the table wrapper to its OWN current pixel
+    // width for the animation's duration (inline style briefly overriding
+    // flex-1's auto-sizing) means only the chart panel's own much simpler
+    // box (border + padding + one canvas) has to relayout each frame —
+    // the table visually stays put, same end result once the panel
+    // finishes animating and the freeze is released in `finally`.
+    const restoreTableWidth = target && target.style.width;
+    const freezeTableWidth = () => {
+        if (!target || !chartPanel) return;
+        target.style.width = target.getBoundingClientRect().width + 'px';
+    };
+    const unfreezeTableWidth = () => {
+        if (!target) return;
+        target.style.width = restoreTableWidth || '';
+    };
+
     const animatePanelWidth = (targetWidth) => new Promise((resolve) => {
         if (!chartPanel) return resolve();
         chartPanel.style.transition = `width ${ANIMATE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
@@ -516,6 +545,7 @@ document.addEventListener('click', async (e) => {
         // just stretches as a cheap bitmap scale, then window.__redrawAll
         // PieCharts() does one crisp redraw once it's actually settled.
         window.__pieRedrawPaused = true;
+        freezeTableWidth();
         // Two rAF ticks so the transition property itself is committed
         // before the width changes — setting both in the same tick can get
         // coalesced into an instant jump instead of an animated one.
@@ -524,6 +554,7 @@ document.addEventListener('click', async (e) => {
             setTimeout(() => {
                 window.__pieRedrawPaused = false;
                 window.__redrawAllPieCharts?.();
+                unfreezeTableWidth();
                 resolve();
             }, ANIMATE_MS + 50);
         }));
