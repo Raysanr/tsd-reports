@@ -669,6 +669,32 @@
         <div class="flex items-center justify-end gap-3 flex-wrap lg:flex-nowrap md:justify-self-end">
             @stack('topbar-right')
 
+            {{-- Product name anonymizer (explicit request, 2026-10-09: "when
+                 it is toggle on all in the leads report module is will
+                 display product 1, product 2 in all page of leads report
+                 module like in the dashboard, and others") — ALWAYS present
+                 here (not page-pushed like the controls above), so it's one
+                 single control with one shared on/off state across every
+                 page under this layout, not a separate toggle re-rendered
+                 per page. Admin/config pages (Product Management, TSA
+                 Management) deliberately do NOT extend this toggle's effect
+                 even though they share this same layout — explicit decision,
+                 2026-10-09: those pages need real names to actually manage
+                 data, so their own [data-product-name] spans are never added
+                 (see each reporting page's own template instead). Wired in
+                 app.js's wireProductNameAnonymizer(), which also re-applies
+                 current state after softRefresh/page navigation so a toggle
+                 set on one page is still respected after clicking to
+                 another. --}}
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none shrink-0" title="Hide real product names across this module">
+                <span class="hidden sm:inline text-xs font-mono text-slate-500 dark:text-slate-400">Anonymize products</span>
+                <span class="relative inline-flex items-center">
+                    <input type="checkbox" id="productNameToggle" class="peer sr-only">
+                    <span class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary rounded-full transition-colors"></span>
+                    <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4"></span>
+                </span>
+            </label>
+
             @include('partials.messages-panel')
 
             {{-- Reload — a fixed, always-present control (same reasoning as the dark

@@ -215,9 +215,19 @@ window.softRefresh = async function (url = window.location.href, { pushUrl = fal
         // were just replaced above) left the trigger itself still reading
         // "All Products" (or whatever was selected before) since it's outside
         // <main> and nothing was copying its text over.
+        //
+        // innerHTML, not textContent (2026-10-09 fix) — the label can itself
+        // contain a [data-product-name] span (the product-name anonymizer's
+        // own markup, when a real product is selected) whose data-product-real/
+        // data-product-index attributes a plain textContent copy would
+        // silently discard, leaving a bare text node the anonymizer's own
+        // page:refreshed listener (fired right after this, see below) has
+        // nothing to re-process — confirmed live: toggling ALL↔a team while
+        // anonymized left this ONE label showing the real name even though
+        // every [data-product-name] span inside <main> correctly re-masked.
         const freshProductLabel = doc.querySelector('#productTriggerLabel');
         const currentProductLabel = document.querySelector('#productTriggerLabel');
-        if (freshProductLabel && currentProductLabel) currentProductLabel.textContent = freshProductLabel.textContent;
+        if (freshProductLabel && currentProductLabel) currentProductLabel.innerHTML = freshProductLabel.innerHTML;
 
         // Same staleness problem, but for the topbar filter form's hidden
         // fallback fields (team, product, range, ...) — these carry the actual
@@ -2297,4 +2307,80 @@ document.addEventListener('keydown', (e) => {
     if (!e.target.matches('[data-tss-date-input]')) return;
     if (['Tab', 'Escape'].includes(e.key)) return;
     e.preventDefault();
+});
+
+// ─── Product name anonymizer (Leads Report module-wide) ──────────────────────
+// Explicit request, 2026-10-09: a toggle (layouts/app.blade.php, ALWAYS
+// present there — not page-pushed) that, when on, shows every product as
+// "Product 1" / "Product 2" / etc. instead of its real name, across every
+// page under this layout (Dashboard, Leads Report, TSA Performance x3, RTS
+// Report, Analytics/Charts) — originally built Leads-Report-local, widened
+// here after a direct follow-up ("all in the leads report module ... like
+// in the dashboard, and others") to one shared control/state instead of a
+// per-page one. Admin/config pages (Product Management, TSA Management)
+// share this same layout but deliberately carry NO [data-product-name]
+// spans in their own templates — real names are required there to actually
+// manage data, so this toggle has nothing to act on even though it's
+// visible on those pages too.
+//
+// [data-product-name] + its data-product-real/data-product-index siblings
+// are added per-page (e.g. leads-report.blade.php's Product Summary row and
+// per-product heading) — this function only drives the shared toggle/
+// state, never assumes which pages have the markup.
+const PRODUCT_ANON_STORAGE_KEY = 'productNameAnonymized';
+
+function applyProductNameAnonymizer(anonymized) {
+    document.querySelectorAll('[data-product-name]').forEach((el) => {
+        el.textContent = anonymized ? ('Product ' + el.dataset.productIndex) : el.dataset.productReal;
+    });
+    // A PNG-snapshot export button's own title (app.js's table-actions
+    // export handler reads btn.dataset.exportTitle at CLICK time, not live
+    // DOM text) — kept in sync here too, so an export taken while
+    // anonymized doesn't leak the real name into the downloaded image's own
+    // title bar. Only buttons whose card contains a [data-product-name]
+    // heading are touched — a page's other export buttons (e.g. "Product
+    // Summary"/"Grand Total" on Leads Report, whose titles are generic
+    // strings, never product names) are left alone.
+    document.querySelectorAll('[data-export-png]').forEach((btn) => {
+        const card = btn.closest('.bg-white.dark\\:bg-slate-900.rounded-xl');
+        const heading = card?.querySelector('h2 [data-product-name]');
+        if (heading) {
+            btn.dataset.exportTitle = anonymized ? ('Product ' + heading.dataset.productIndex) : heading.dataset.productReal;
+        }
+    });
+}
+
+function wireProductNameAnonymizer() {
+    const toggle = document.getElementById('productNameToggle');
+    if (!toggle) return;
+
+    let anonymized = false;
+    try { anonymized = localStorage.getItem(PRODUCT_ANON_STORAGE_KEY) === '1'; } catch { /* private window etc. */ }
+    toggle.checked = anonymized;
+    applyProductNameAnonymizer(anonymized);
+
+    // The toggle itself lives in <header>, outside <main> — softRefresh
+    // never touches it, so this listener only needs to attach once, not
+    // re-wire on every page:refreshed the way the [data-product-name]
+    // re-apply below does.
+    if (!toggle.dataset.anonWired) {
+        toggle.dataset.anonWired = '1';
+        toggle.addEventListener('change', () => {
+            applyProductNameAnonymizer(toggle.checked);
+            try { localStorage.setItem(PRODUCT_ANON_STORAGE_KEY, toggle.checked ? '1' : '0'); } catch { /* best-effort */ }
+        });
+    }
+}
+
+document.addEventListener('DOMContentLoaded', wireProductNameAnonymizer);
+// <main>'s own [data-product-name] spans are swapped out wholesale on every
+// softRefresh (team/date/product filter change) — re-apply the CURRENT
+// toggle state against the fresh DOM, same "state lives in the toggle
+// itself, re-stamp after every swap" pattern as initScrollShadows() above.
+// Reads toggle.checked directly rather than localStorage again since
+// they're already in sync (the toggle's own 'change' handler keeps both
+// updated together).
+document.addEventListener('page:refreshed', () => {
+    const toggle = document.getElementById('productNameToggle');
+    if (toggle) applyProductNameAnonymizer(toggle.checked);
 });

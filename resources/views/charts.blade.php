@@ -590,11 +590,51 @@ new Chart(document.getElementById('hourlyChart'), {
     },
 });
 
+/* --- Product name anonymizer (explicit request, 2026-10-09: "all in the
+   leads report module" — the shared toggle in layouts/app.blade.php, wired
+   in app.js's wireProductNameAnonymizer() for every plain-text
+   [data-product-name] span across the module). These 2 charts draw product
+   names onto a <canvas> instead (Chart.js axis labels), which that span-
+   swap approach can't reach — a canvas has no text nodes to find/replace.
+   Labels are computed through this helper at chart-creation time AND
+   re-applied via chart.update() whenever the toggle changes (not rebuilt
+   via a second `new Chart()` on the same canvas — Chart.js tracks one
+   instance per canvas internally; creating a second without destroying the
+   first leaks the old one and can visually double-render). Each row's own
+   array position doubles as its "Product N" index — stable because
+   productRows/salesRows are sorted ONCE above, not re-sorted on toggle. */
+function isProductNameAnonymized() {
+    try { return localStorage.getItem('productNameAnonymized') === '1'; } catch { return false; }
+}
+function productChartLabels(rows) {
+    return isProductNameAnonymized() ? rows.map((p, i) => 'Product ' + (i + 1)) : rows.map(p => p.display_name);
+}
+const productNameAnonymizedCharts = [];
+function reapplyProductChartAnonymization() {
+    productNameAnonymizedCharts.forEach(({ chart, rows }) => {
+        chart.data.labels = productChartLabels(rows);
+        chart.update();
+    });
+}
+// The shared toggle lives in <header>, outside this page's own <main> —
+// survives softRefresh, so this listener only needs to attach once; the
+// toggle itself may not have rendered yet at this point in page load on a
+// slow connection, hence the retry-on-DOMContentLoaded fallback below too.
+(function wireChartAnonymizerListener() {
+    const toggle = document.getElementById('productNameToggle');
+    if (toggle && !toggle.dataset.chartAnonWired) {
+        toggle.dataset.chartAnonWired = '1';
+        toggle.addEventListener('change', reapplyProductChartAnonymization);
+    } else if (!toggle) {
+        document.addEventListener('DOMContentLoaded', wireChartAnonymizerListener, { once: true });
+    }
+})();
+
 /* --- Product Comparison (Upselling Rate, sorted, colored by team) --- */
-new Chart(document.getElementById('productChart'), {
+const productChart = new Chart(document.getElementById('productChart'), {
     type: 'bar',
     data: {
-        labels: productRows.map(p => p.display_name),
+        labels: productChartLabels(productRows),
         datasets: [{
             label: 'Upselling Rate',
             data: productRows.map(p => p.upselling_rate),
@@ -614,13 +654,14 @@ new Chart(document.getElementById('productChart'), {
         },
     },
 });
+productNameAnonymizedCharts.push({ chart: productChart, rows: productRows });
 
 /* --- Total Upsell Sales per product (₱, own sort — revenue order isn't rate order) --- */
 const salesRows = [...productRows].sort((a, b) => b.upsell_sales - a.upsell_sales);
-new Chart(document.getElementById('productSalesChart'), {
+const productSalesChart = new Chart(document.getElementById('productSalesChart'), {
     type: 'bar',
     data: {
-        labels: salesRows.map(p => p.display_name),
+        labels: productChartLabels(salesRows),
         datasets: [{
             label: 'Upsell Sales',
             data: salesRows.map(p => p.upsell_sales),
@@ -640,6 +681,7 @@ new Chart(document.getElementById('productSalesChart'), {
         },
     },
 });
+productNameAnonymizedCharts.push({ chart: productSalesChart, rows: salesRows });
 
 /* --- TSA Rankings: Pick-up/Conversion/Upselling Rate per TSA (each own sort
    — a TSA's best rate can differ per metric, same reasoning as Total Upsell

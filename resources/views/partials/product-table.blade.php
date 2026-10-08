@@ -114,7 +114,7 @@
         @foreach($rows as $row)
         <tr class="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
             <td class="sticky-col sticky-col-body border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200 whitespace-nowrap" data-sort-key="product" data-sort-value="{{ $row['display_name'] }}">
-                {{ $row['display_name'] }}
+                <span data-product-name data-product-real="{{ $row['display_name'] }}" data-product-index="{{ $loop->index + 1 }}">{{ $row['display_name'] }}</span>
                 <div class="text-[10px] font-normal text-slate-400">{{ $row['team'] }}</div>
             </td>
             <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center font-bold text-slate-800 dark:text-slate-100 {{ $row['total'] ? 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/30' : '' }}" data-sort-key="total" data-sort-value="{{ $row['total'] }}"

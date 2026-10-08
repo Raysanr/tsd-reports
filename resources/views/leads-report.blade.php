@@ -512,26 +512,6 @@
         @endforeach
     </div>
 
-    {{-- Product name anonymizer toggle (explicit request, 2026-10-09: "ON"
-         shows Product 1 / Product 2 / etc. instead of real names, "OFF"
-         shows actual names) — a plain, unnamed checkbox, so it submits
-         nothing and can't interfere with this form's own GET params even
-         though it sits inside it (placed here rather than in the shared
-         trailing cluster below, which the page's own comment says stays
-         identical across every report page — this control is Leads-
-         Report-specific). Pure client-side display toggle, same reasoning
-         as Expected Income's TSA name filter. Persisted in localStorage
-         (this page's own script block below) so it survives a reload/
-         filter change instead of silently resetting to OFF every time. --}}
-    <label class="inline-flex items-center gap-2 cursor-pointer select-none" title="Hide real product names">
-        <span class="text-xs font-mono text-slate-500 dark:text-slate-400">Anonymize products</span>
-        <span class="relative inline-flex items-center">
-            <input type="checkbox" id="productNameToggle" class="peer sr-only">
-            <span class="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-checked:bg-primary rounded-full transition-colors"></span>
-            <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4"></span>
-        </span>
-    </label>
-
     {{-- Trailing cluster, same order on every report page: filters, then the date
          icon, then Sync — never split across the layout differently per page. --}}
     @include('partials.date-picker', [
@@ -551,53 +531,10 @@
 </div>
 @endpush
 
-@push('scripts')
-{{-- Product name anonymizer (explicit request, 2026-10-09) — data-rerun so
-     this re-wires correctly after app.js's softRefresh swaps <main> back in
-     on a filter/sync (same convention as every other inline script on this
-     page, e.g. disposition-pie-charts.blade.php's own data-rerun block). --}}
-<script data-rerun>
-(function () {
-    const STORAGE_KEY = 'leadsReportAnonymizeProducts';
-    const toggle = document.getElementById('productNameToggle');
-    if (!toggle) return;
-
-    function applyState(anonymized) {
-        document.querySelectorAll('[data-product-name]').forEach((el) => {
-            el.textContent = anonymized ? ('Product ' + el.dataset.productIndex) : el.dataset.productReal;
-        });
-        // The per-product table's own PNG-snapshot title (app.js reads
-        // btn.dataset.exportTitle at click time, not the live DOM text) —
-        // kept in sync here too, so an export taken while anonymized
-        // doesn't leak the real name into the downloaded image's own
-        // title bar. Only the per-product table-actions buttons carry a
-        // real product name as their title (Product Summary/Grand Total's
-        // titles are generic, untouched by this toggle) — matched via the
-        // same productTable-N id convention the page's own table-actions
-        // include already uses.
-        document.querySelectorAll('[data-export-png]').forEach((btn) => {
-            // The heading's own [data-product-name] lives inside the same
-            // bordered card as this button (both direct descendants of the
-            // per-product section's outer div), not inside the scroller
-            // #productTable-N the button's own `target` points at — walk
-            // up to that shared card ancestor to find it.
-            const card = btn.closest('.bg-white.dark\\:bg-slate-900.rounded-xl');
-            const heading = card?.querySelector('h2 [data-product-name]');
-            if (heading) {
-                btn.dataset.exportTitle = anonymized ? ('Product ' + heading.dataset.productIndex) : heading.dataset.productReal;
-            }
-        });
-    }
-
-    let anonymized = false;
-    try { anonymized = localStorage.getItem(STORAGE_KEY) === '1'; } catch { /* private window etc. */ }
-    toggle.checked = anonymized;
-    applyState(anonymized);
-
-    toggle.addEventListener('change', () => {
-        applyState(toggle.checked);
-        try { localStorage.setItem(STORAGE_KEY, toggle.checked ? '1' : '0'); } catch { /* best-effort */ }
-    });
-})();
-</script>
-@endpush
+{{-- Product name anonymizer toggle + its logic now live in layouts/app.blade.php
+     and app.js's wireProductNameAnonymizer() (moved 2026-10-09, explicit
+     follow-up: "all in the leads report module" — one shared toggle/state
+     across every page under this layout, not a Leads-Report-local one). This
+     page only needs to carry [data-product-name] spans (see the Product
+     Summary row and per-product heading above) — the toggle control and its
+     wiring are shared, not duplicated here. --}}

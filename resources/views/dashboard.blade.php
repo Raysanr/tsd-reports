@@ -472,7 +472,7 @@
             <div class="px-5 py-3 flex items-center gap-4">
                 <span class="w-5 text-xs font-mono font-bold text-slate-300 dark:text-slate-600">{{ $i + 1 }}</span>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 truncate">{{ $row->product }}</p>
+                    <p class="text-sm font-semibold font-mono text-slate-700 dark:text-slate-200 truncate"><span data-product-name data-product-real="{{ $row->product }}" data-product-index="{{ $i + 1 }}">{{ $row->product }}</span></p>
                     <p class="text-xs font-mono text-slate-400 mt-0.5">{{ $row->upsell_count }} {{ \Illuminate\Support\Str::plural('upsell', $row->upsell_count) }}</p>
                 </div>
                 <p class="text-sm font-bold font-mono text-accent shrink-0">₱{{ number_format($row->total_sales, 2) }}</p>
