@@ -51,6 +51,21 @@
             @endforeach
         </div>
     </form>
+
+    {{-- TSA name filter (explicit request, 2026-10-08: "when they filter
+         their name, the only card will be display is their tsa card and
+         product") — only meaningful once a real team is picked, since
+         that's the only state with one data-tsa-block per TSA in the DOM
+         to show/hide; ALL/TikTok render pooled summary cards instead, no
+         per-TSA blocks to filter. Pure client-side show/hide (wireTsaNameFilter
+         below) — no page reload, no new backend query, since every TSA on
+         the selected team is already server-rendered. --}}
+    @if($selectedTeam !== 'all' && $selectedTeam !== 'tiktok')
+    <div class="relative">
+        <input type="text" id="eiTsaNameFilter" placeholder="Filter by TSA name…" autocomplete="off"
+               class="w-56 text-xs font-mono px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-ink dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+    </div>
+    @endif
     <div class="flex items-center gap-3">
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
@@ -181,6 +196,13 @@
     @php
         $tsa = $tsaRow['tsa'];
     @endphp
+    {{-- data-tsa-block + data-tsa-name: the TSA name filter below (explicit
+         request, 2026-10-08: "when they filter their name, the only card
+         will be display is their tsa card and product") shows/hides this
+         whole wrapper as one unit — purely a client-side display toggle
+         over what the team filter already rendered, no new backend query,
+         since every TSA on the selected team is already in the DOM. --}}
+    <div data-tsa-block data-tsa-name="{{ strtolower($tsa->display_name) }}">
     <div class="flex items-center justify-end mb-2">
         @include('partials.table-actions', ['target' => 'eiTsaCard-range-' . $tsa->id, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income', 'title' => $tsa->display_name, 'subtitle' => $snapshotDateLabel, 'pngOnly' => true])
     </div>
@@ -212,6 +234,7 @@
             @endforeach
         </div>
     </div>
+    </div>
     @endforeach
 @else
 @foreach($dates as $date)
@@ -226,6 +249,7 @@
         $tsaDailyByKey = $tsaRow['dailyByKey'];
         $tsaDayOverallTotal = $tsaRow['dailyOverallTotals'][$dateStr];
     @endphp
+    <div data-tsa-block data-tsa-name="{{ strtolower($tsa->display_name) }}">
     <div class="flex items-center justify-end mb-2">
         @include('partials.table-actions', ['target' => 'eiTsaCard-' . $tsa->id . '-' . $dateStr, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income-' . $dateStr, 'title' => $tsa->display_name, 'subtitle' => \Illuminate\Support\Carbon::parse($dateStr)->format('F j, Y'), 'pngOnly' => true])
     </div>
@@ -255,6 +279,7 @@
             @include('data.expected-income._product-card', ['row' => $row, 'tsa' => $tsa, 'dateStr' => $dateStr, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach
         </div>
+    </div>
     </div>
     @endforeach
 @endforeach
@@ -703,6 +728,23 @@
         });
     }
     wireScroller(document.querySelectorAll('.ei-scroller'));
+
+    // TSA name filter (explicit request, 2026-10-08) — shows/hides each
+    // [data-tsa-block] wrapper by a simple substring match against her
+    // name, lowercased on both sides ([data-tsa-name] is already
+    // lowercased server-side). An empty query shows every block again.
+    // No debounce needed — toggling a `hidden` class on a few dozen DOM
+    // nodes per keystroke is cheap, nothing like the 600ms-debounced
+    // autosave fetches elsewhere in this file.
+    const tsaNameFilter = document.getElementById('eiTsaNameFilter');
+    if (tsaNameFilter) {
+        tsaNameFilter.addEventListener('input', () => {
+            const query = tsaNameFilter.value.trim().toLowerCase();
+            document.querySelectorAll('[data-tsa-block]').forEach((block) => {
+                block.classList.toggle('hidden', query !== '' && !block.dataset.tsaName.includes(query));
+            });
+        });
+    }
 })();
 </script>
 @endpush
