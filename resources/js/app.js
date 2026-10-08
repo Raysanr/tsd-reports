@@ -600,7 +600,30 @@ document.addEventListener('click', async (e) => {
 
     try {
         await loadHtml2Canvas();
-        const tableCanvas = await window.html2canvas(table, { backgroundColor: '#ffffff', scale: 2 });
+        // html2canvas's DEFAULT capture region is computed from the live
+        // window.scrollX/scrollY + the element's getBoundingClientRect(),
+        // not purely from the target's own internal scrollLeft — so even
+        // with target's overflow lifted and scrollLeft zeroed above, a
+        // stale page-level scroll/layout mismatch at capture time can
+        // still crop one edge (confirmed live, 2026-10-08: left edge of
+        // the TSA card still cut off after the overflow-lift fix alone).
+        // Passing x/y/scrollX/scrollY explicitly, computed fresh from
+        // getBoundingClientRect() right before the call, removes that
+        // ambiguity entirely — html2canvas renders exactly the element's
+        // own box with no dependency on whatever the page's scroll
+        // position happens to be.
+        const rect = table.getBoundingClientRect();
+        const tableCanvas = await window.html2canvas(table, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+            x: rect.left + window.scrollX,
+            y: rect.top + window.scrollY,
+            scrollX: 0,
+            scrollY: 0,
+            width: rect.width,
+            height: rect.height,
+            windowWidth: document.documentElement.scrollWidth,
+        });
 
         // Optional adjacent chart (Leads Report's disposition pie) — composited
         // beside the table so the exported image matches what's on screen, not
