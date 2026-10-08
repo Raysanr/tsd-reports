@@ -182,11 +182,15 @@
         $tsa = $tsaRow['tsa'];
     @endphp
     <div class="flex items-center justify-end mb-2">
-        @include('partials.table-actions', ['target' => 'eiTsaScroller-range-' . $tsa->id, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income', 'title' => $tsa->display_name, 'subtitle' => $snapshotDateLabel, 'pngOnly' => true])
+        @include('partials.table-actions', ['target' => 'eiTsaCard-range-' . $tsa->id, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income', 'title' => $tsa->display_name, 'subtitle' => $snapshotDateLabel, 'pngOnly' => true])
     </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" id="eiTsaScroller-range-{{ $tsa->id }}">
         <div class="flex items-start gap-5 w-max">
-            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+            {{-- id'd so the snapshot button above (target=eiTsaCard-range-N)
+                 captures ONLY her own rollup card, not the whole scroller's
+                 product cards too (explicit request, 2026-10-08: "the
+                 snapshot is only tsa card only will be saved"). --}}
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" id="eiTsaCard-range-{{ $tsa->id }}" data-out-scope="1">
                 <div class="px-5 py-4" style="background:#fde047;">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
@@ -223,7 +227,7 @@
         $tsaDayOverallTotal = $tsaRow['dailyOverallTotals'][$dateStr];
     @endphp
     <div class="flex items-center justify-end mb-2">
-        @include('partials.table-actions', ['target' => 'eiTsaScroller-' . $tsa->id . '-' . $dateStr, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income-' . $dateStr, 'title' => $tsa->display_name, 'subtitle' => \Illuminate\Support\Carbon::parse($dateStr)->format('F j, Y'), 'pngOnly' => true])
+        @include('partials.table-actions', ['target' => 'eiTsaCard-' . $tsa->id . '-' . $dateStr, 'name' => \Illuminate\Support\Str::slug($tsa->display_name) . '-expected-income-' . $dateStr, 'title' => $tsa->display_name, 'subtitle' => \Illuminate\Support\Carbon::parse($dateStr)->format('F j, Y'), 'pngOnly' => true])
     </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8 ei-day-scroller" data-date="{{ $dateStr }}" id="eiTsaScroller-{{ $tsa->id }}-{{ $dateStr }}">
         <div class="flex items-start gap-5 w-max">
@@ -232,8 +236,12 @@
                  (confirmed live, 2026-09-30: "the yellow is stil has this,
                  it is over all of the individual tsa ... but it is not
                  editable"), same role and full P&L body as the overall
-                 card in the ALL view, just scoped to her own products. --}}
-            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
+                 card in the ALL view, just scoped to her own products.
+                 id'd so the snapshot button above (target=eiTsaCard-N-date)
+                 captures ONLY this card, not the whole scroller's product
+                 cards too (explicit request, 2026-10-08: "the snapshot is
+                 only tsa card only will be saved"). --}}
+            <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" id="eiTsaCard-{{ $tsa->id }}-{{ $dateStr }}" data-out-scope="1">
                 <div class="px-5 py-4" style="background:#fde047;">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
