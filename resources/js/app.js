@@ -428,7 +428,16 @@ document.addEventListener('click', async (e) => {
 
     const btn     = csvBtn || pngBtn;
     const target  = document.getElementById(btn.dataset.exportCsv || btn.dataset.exportPng);
-    const table   = target?.querySelector('table') || target;
+    // Card-based targets (Expected Income's product cards, no <table> at
+    // all) wrap their full-width content in a `.w-max` flex row INSIDE the
+    // `overflow-x-auto` scroll container `target` itself is — capturing
+    // `target` directly (the old fallback) handed html2canvas an element
+    // clipped to its own visible scroll width, so the PNG only showed
+    // whichever cards happened to be in view, not the full row (bug
+    // report, 2026-10-08: Taguro/Sinuxyl cut off on the right edge).
+    // `.w-max` has no overflow of its own, so its full scrollWidth IS its
+    // rendered width — the right element for html2canvas to measure.
+    const table   = target?.querySelector('table') || target?.querySelector(':scope > .w-max') || target;
     if (!table) return;
 
     const name = (btn.dataset.exportName || 'export') + '-' + new Date().toISOString().slice(0, 10);
