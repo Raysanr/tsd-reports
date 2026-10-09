@@ -587,8 +587,24 @@ class SyncPancakeLeads extends Command
 
         if ($dispositionIsOwnedByThisMethod) {
             if ($matchedTag === null) {
-                $lead->update(['disposition' => null]);
-                LeadActivity::log($lead, 'callback_scheduled', 'Unanswered Calls tag cleared — Pancake tags no longer include Not Answering/Unattended/Invalid Number.');
+                // Someone resolved this directly in Pancake, not through
+                // this app's own Log Outcome flow — reassign to whoever
+                // actually cleared the tag (explicit request, 2026-10-09:
+                // "the assignee will change to the one who call that"),
+                // not left on the original TSA who never touched it.
+                $newTsa = $this->resolveUnansweredTagRemover($lead);
+
+                $update = ['disposition' => null];
+                $activityNote = 'Unanswered Calls tag cleared — Pancake tags no longer include Not Answering/Unattended/Invalid Number.';
+                if ($newTsa && $newTsa->id !== $lead->tsa_id) {
+                    $fromLabel = $lead->tsa?->display_name ?? 'Unassigned';
+                    $update['tsa_id'] = $newTsa->id;
+                    $update['assigned_at'] = now();
+                    $activityNote = "Unanswered Calls tag cleared in Pancake by {$newTsa->display_name} — reassigned from {$fromLabel}.";
+                }
+
+                $lead->update($update);
+                LeadActivity::log($lead, 'callback_scheduled', $activityNote);
             }
             return;
         }
@@ -600,6 +616,52 @@ class SyncPancakeLeads extends Command
         $lead->update(['disposition' => $matchedTag]);
 
         LeadActivity::log($lead, 'callback_scheduled', 'Tagged for Unanswered Calls (Pancake tag "' . $matchedTag . '", not a logged Outcome).');
+    }
+
+    /**
+     * Who actually removed this lead's Unanswered Calls trigger tag
+     * (Not Answering/Unattended/Invalid Number) directly in Pancake — the
+     * bulk /orders list endpoint this command otherwise polls carries no
+     * per-change editor identity, only the CURRENT tag list, so finding out
+     * who cleared it needs one extra live call to the order's own detail
+     * endpoint (histories is a field-level diff log with editor_id per
+     * entry — see PancakeOrderTagApi::getOrderDetail()/
+     * PancakeOrderHistoryFormatter's own doc comments for the full shape).
+     * Deliberately only called from the one call site above that already
+     * knows a trigger tag just disappeared — never per-lead on every sync
+     * tick — so this stays a handful of extra requests a minute at most,
+     * not one per already-synced lead.
+     *
+     * Matches the most recent 'tags' diff entry whose OLD list contained a
+     * trigger keyword and whose NEW list doesn't (i.e. the actual removal,
+     * not some earlier add/edit) and resolves its editor_id back to a TSA
+     * via TsaShift::pos_user_id — the same Pancake-POS-user identity link
+     * already used elsewhere to attribute POS-side actions to a TSA
+     * record. Returns null (no reassignment) when the order can't be
+     * fetched, no matching removal is found, or the editor isn't a known
+     * TSA (e.g. an admin or a genuine API actor) — the disposition still
+     * clears either way, same as before this fix, just without a guessed
+     * reassignment.
+     */
+    private function resolveUnansweredTagRemover(Lead $lead): ?TsaShift
+    {
+        $detail = app(PancakeOrderTagApi::class)->getOrderDetail($lead->pancake_order_id);
+        if ($detail === null) return null;
+
+        $keywords = LeadController::UNANSWERED_CALLS_TRIGGER_KEYWORDS;
+        $hasTriggerTag = fn ($tags) => collect($tags)->pluck('name')->filter()
+            ->contains(fn ($name) => collect($keywords)->contains(fn ($kw) => stripos($name, $kw) !== false));
+
+        $removalEntry = collect($detail['histories'] ?? [])
+            ->filter(fn ($entry) => isset($entry['tags']['old'], $entry['tags']['new']))
+            ->filter(fn ($entry) => $hasTriggerTag($entry['tags']['old']) && !$hasTriggerTag($entry['tags']['new']))
+            ->sortByDesc('updated_at')
+            ->first();
+
+        $editorId = $removalEntry['editor_id'] ?? null;
+        if (!$editorId) return null;
+
+        return TsaShift::where('pos_user_id', $editorId)->first();
     }
 
     /**
