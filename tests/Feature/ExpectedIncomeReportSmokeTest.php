@@ -3041,4 +3041,53 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         preg_match('/data-out="number_of_leads"[^>]*>([^<]*)</', $response->getContent(), $matches);
         $this->assertSame('2', $matches[1] ?? null);
     }
+
+    /** Real production bug, root-caused live 2026-10-09 (screenshot, same
+     *  session as the two fixes above): a grouped summary card
+     *  (SINUXYL/SINUXYL 2.0) showed 22 leads when Leads Report showed 17
+     *  (15+2) for the exact same team/date. Cause: an earlier version of
+     *  totalRealLeads() called leadCountsByProductAndDate() with ONLY the
+     *  group's own narrow member list as matchingOrders()'s own
+     *  $teamProducts argument — losing visibility into every OTHER product
+     *  on the page, which starves matchingOrders()'s own stale-tag
+     *  conflict guard (conflictingProduct()) of the sibling products it
+     *  needs to correctly EXCLUDE an order whose real item actually
+     *  belongs to a product outside the group. Reproduces the exact
+     *  LeadsReportStaleTagConflictTest scenario (a Pterygium order
+     *  carrying a stale CLEARSIGHT tag) but inside a group: PTERYGIUM
+     *  grouped with GINSENG SERUM, the stale-tagged order's real item is
+     *  Pterygium — the group card must count it once (toward Pterygium),
+     *  not twice, exactly matching what Leads Report would show for
+     *  Pterygium + CLEARSIGHT's own totals added together (1 + 0). */
+    public function test_a_merged_product_cards_number_of_leads_excludes_a_stale_tagged_conflicting_order(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $pterygium = Product::where('display_name', 'PTERYGIUM')->first();
+        $ginseng = Product::where('display_name', 'GINSENG SERUM')->first();
+        $clearSight = Product::where('display_name', 'CLEARSIGHT')->first();
+        $group = ProductGroup::create(['label' => 'PTERYGIUM/GINSENG SERUM', 'sort_order' => 0]);
+        $group->products()->attach([$pterygium->id, $ginseng->id]);
+        $tsa = TsaShift::where('team', 'Eyecare Team')->first();
+        $today = now()->toDateString();
+
+        // Real item is Pterygium, but still carries a stale CLEARSIGHT tag
+        // from earlier in the conversation — same production pattern as
+        // LeadsReportStaleTagConflictTest's own first test.
+        Order::create([
+            'pancake_order_id' => 'ei-group-stale-tag-1', 'team' => 'Eyecare Team', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CLEARSIGHT', 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        preg_match_all('/data-out="number_of_leads"[^>]*>([^<]*)</', $response->getContent(), $matches);
+        // Exactly one order counted once (toward the group's own
+        // Pterygium member), not twice via the stale CLEARSIGHT tag.
+        $this->assertContains('1', $matches[1]);
+    }
 }

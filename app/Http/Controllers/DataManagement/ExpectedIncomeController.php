@@ -391,6 +391,21 @@ class ExpectedIncomeController extends Controller
     {
         $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
+        // Computed ONCE here with the FULL page $products roster — root-
+        // caused live, 2026-10-09 (screenshot): SINUXYL/SINUXYL 2.0's own
+        // combined card showed 22 leads when Leads Report showed 15+2=17.
+        // matchingOrders()'s own $teamProducts argument (its 3rd) needs the
+        // FULL roster to correctly run its stale-tag conflict guard
+        // (conflictingProduct() — an order whose real item is actually a
+        // DIFFERENT product outside this group, e.g. a sibling "Sinuxyl
+        // Steam Pack", can only be excluded if that sibling is visible in
+        // $teamProducts) — passing just $groupProducts (2 products) to
+        // leadCountsByProductAndDate() per-card, as an earlier version of
+        // this fix did, silently broke that guard and over-counted. See
+        // totalRealLeads()'s own doc comment for how a group's own subset
+        // is now summed from this single full-roster map instead.
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
         // Computed ONCE per request (not once per product card/group) —
         // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
         // the N+1 performance bug this fixes (root-caused live, 2026-10-02:
@@ -436,7 +451,7 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds, $productCardLookups) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $productCardLookups, $leadCounts) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
@@ -468,11 +483,12 @@ class ExpectedIncomeController extends Controller
             // Expected Income entry yet for that product/day was invisible
             // to this card entirely, same class of gap
             // addActiveTsasOverviewOperatingCosts() already solves for
-            // Salaries/Operating Costs/Tax Allocation. Queried directly
-            // here instead, same "every member product, whole range,
-            // scoped to onlyTsaIds or company-wide" rule
-            // leadCountsByProductAndDate() already applies elsewhere.
-            $derived['number_of_leads'] = $this->totalRealLeads($groupProducts, $dates, $dateFrom, $dateTo, $onlyTsaIds);
+            // Salaries/Operating Costs/Tax Allocation. Summed directly
+            // here instead, from the full-roster $leadCounts map computed
+            // once above (see buildSummaryRow()'s own doc comment on why
+            // matchingOrders() needs that full roster, not just this
+            // group's own 2 members).
+            $derived['number_of_leads'] = $this->totalRealLeads($leadCounts, $groupProducts, $onlyTsaIds);
 
             return $derived;
         });
@@ -514,8 +530,11 @@ class ExpectedIncomeController extends Controller
         // Same real-tally fix as $cards above — the TELESALES/per-team
         // rollup's own Number of Leads must be every real lead across
         // every product on the page, not just whatever happened to have a
-        // saved entry row.
-        $overallTotal['number_of_leads'] = $this->totalRealLeads($products, $dates, $dateFrom, $dateTo, $onlyTsaIds);
+        // saved entry row. $products here is already the FULL page
+        // roster, so this is really just leadCounts->sum() restricted to
+        // $onlyTsaIds — totalRealLeads() still goes through its own
+        // product-id filter for consistency with the $cards call above.
+        $overallTotal['number_of_leads'] = $this->totalRealLeads($leadCounts, $products, $onlyTsaIds);
 
         return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
@@ -1237,31 +1256,32 @@ class ExpectedIncomeController extends Controller
     }
 
     /** The real lead total for a SUMMARY card (a product, a product GROUP's
-     *  combined members, or the whole-page rollup) — every matched lead for
-     *  every product in $products, across the whole date range, summed
-     *  across either every real TSA (when $onlyTsaIds is null — the ALL
-     *  view's own rollup/product cards) or just the given team's own TSA
-     *  ids (plus the 'null'/unattributed bucket either way, same "always
-     *  counted in" rule leadCountsByProductAndDate()'s own doc comment
-     *  describes). Built on leadCountsByProductAndDate()'s own per-cell
-     *  map rather than a fresh query — this is called once per card
-     *  (potentially several products deep for a group) plus once more for
-     *  the rollup, so re-querying Order per call here would reintroduce
-     *  the exact N+1 cost addActiveTsasOverviewOperatingCosts()'s own doc
-     *  comment already root-caused on this page (2026-10-02). */
-    private function totalRealLeads($products, $dates, string $dateFrom, string $dateTo, ?array $onlyTsaIds): int
+     *  combined members, or the whole-page rollup) — sums $leadCounts (the
+     *  FULL-roster map from leadCountsByProductAndDate() — see
+     *  buildSummaryRow()'s own doc comment on why this must always be
+     *  computed over the whole page's $products, never a narrowed group)
+     *  down to just the given $products subset's own product ids, further
+     *  restricted to either every real TSA (when $onlyTsaIds is null — the
+     *  ALL view's own rollup/product cards) or just the given team's own
+     *  TSA ids (plus the 'null'/unattributed bucket either way, same
+     *  "always counted in" rule leadCountsByProductAndDate()'s own doc
+     *  comment describes). Takes the pre-computed map rather than querying
+     *  itself — this is called once per card (potentially several products
+     *  deep for a group) plus once more for the rollup, so a fresh query
+     *  per call here would reintroduce the exact N+1 cost
+     *  addActiveTsasOverviewOperatingCosts()'s own doc comment already
+     *  root-caused on this page (2026-10-02). */
+    private function totalRealLeads($leadCounts, $products, ?array $onlyTsaIds): int
     {
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
+        $allowedTsaKeys = $onlyTsaIds === null ? null : collect($onlyTsaIds)->push('null')->map(fn ($id) => (string) $id);
 
-        if ($onlyTsaIds === null) {
-            return (int) $leadCounts->sum();
-        }
-
-        $allowedKeys = collect($onlyTsaIds)->push('null')->map(fn ($id) => (string) $id);
-
-        return (int) $leadCounts->filter(function ($count, $key) use ($allowedKeys) {
-            [$tsaKey] = explode(':', $key, 2);
-            return $allowedKeys->contains($tsaKey);
+        return (int) $leadCounts->filter(function ($count, $key) use ($productIds, $allowedTsaKeys) {
+            [$tsaKey, $productId] = explode(':', $key, 3);
+            if (!$productIds->contains($productId)) {
+                return false;
+            }
+            return $allowedTsaKeys === null || $allowedTsaKeys->contains($tsaKey);
         })->sum();
     }
 
@@ -1861,7 +1881,14 @@ class ExpectedIncomeController extends Controller
         // would silently show the stale stored value (usually 0, since
         // that column is no longer written) instead of the same figure the
         // page's own initial render just showed.
-        $leadCounts = $this->leadCountsByProductAndDate(collect([$entry->product]), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
+        //
+        // The FULL product roster, not just collect([$entry->product]), is
+        // passed as leadCountsByProductAndDate()'s own matching context —
+        // same over-counting bug as buildSummaryRow()'s own fix, same day
+        // (see that method's doc comment): matchingOrders()'s stale-tag
+        // conflict guard needs every sibling product visible to correctly
+        // exclude an order that actually belongs to one of them.
+        $leadCounts = $this->leadCountsByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
         $tsaKey = $tsaId ?? 'null';
         $row['number_of_leads'] = $leadCounts->get("{$tsaKey}:{$entry->product_id}:" . Carbon::parse($entryDate)->toDateString(), 0);
 
