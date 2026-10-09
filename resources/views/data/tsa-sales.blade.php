@@ -442,6 +442,18 @@
                                 $dayUpsellSales = array_sum(array_column($dayRawRows, 'upsell_sales'));
                                 $dayUpsellConfirmation = array_sum(array_column($dayRawRows, 'upsell_confirmation'));
                                 $dayTotal['aov'] = $dayUpsellConfirmation > 0 ? $dayUpsellSales / $dayUpsellConfirmation : 0.0;
+                                // Pick-up/Upselling Rate recomputed from
+                                // summed counts — same fix/reasoning as the
+                                // chunk's own OVERALL TOTAL row below
+                                // (2026-10-09).
+                                $dayRates = \App\Support\ProductPerformance::rates([
+                                    'answered'           => array_sum(array_column($dayRawRows, 'answered')),
+                                    'unanswered'         => array_sum(array_column($dayRawRows, 'unanswered')),
+                                    'confirmed_via_call' => array_sum(array_column($dayRawRows, 'confirmed_via_call')),
+                                    'upsell_confirmation' => $dayUpsellConfirmation,
+                                ]);
+                                $dayTotal['pickup_rate']    = $dayRates['pick_up_rate'] !== null ? $dayRates['pick_up_rate'] / 100 : 0.0;
+                                $dayTotal['upselling_rate'] = $dayRates['upselling_rate'] !== null ? $dayRates['upselling_rate'] / 100 : 0.0;
                             }
                         @endphp
                         @foreach($group['columns'] as $i => $col)
@@ -487,6 +499,27 @@
                             $allUpsellSales = array_sum(array_column($teamDayRawRows->all(), 'upsell_sales'));
                             $allUpsellConfirmation = array_sum(array_column($teamDayRawRows->all(), 'upsell_confirmation'));
                             $allDayTotal['aov'] = $allUpsellConfirmation > 0 ? $allUpsellSales / $allUpsellConfirmation : 0.0;
+                            // Pick-up/Upselling Rate recomputed from SUMMED
+                            // real-team-only counts, same fix as
+                            // TsaSalesReportController::withAutomatedAov()
+                            // (2026-10-09, root-caused live: this daily
+                            // table's own OVERALL TOTAL still showed the
+                            // old 44.65%/44.35% average after the summary
+                            // table above it was already fixed — this is a
+                            // SEPARATE row the controller-side fix never
+                            // reached, since the view builds it directly
+                            // from $dailyGroups rather than going through
+                            // withAutomatedAov()). TikTok's own rows are
+                            // excluded the same way AOV already is above —
+                            // genuinely manual, no tally() counts to sum.
+                            $allRates = \App\Support\ProductPerformance::rates([
+                                'answered'           => array_sum(array_column($teamDayRawRows->all(), 'answered')),
+                                'unanswered'         => array_sum(array_column($teamDayRawRows->all(), 'unanswered')),
+                                'confirmed_via_call' => array_sum(array_column($teamDayRawRows->all(), 'confirmed_via_call')),
+                                'upsell_confirmation' => $allUpsellConfirmation,
+                            ]);
+                            $allDayTotal['pickup_rate']    = $allRates['pick_up_rate'] !== null ? $allRates['pick_up_rate'] / 100 : 0.0;
+                            $allDayTotal['upselling_rate'] = $allRates['upselling_rate'] !== null ? $allRates['upselling_rate'] / 100 : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($allDayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $allDayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"

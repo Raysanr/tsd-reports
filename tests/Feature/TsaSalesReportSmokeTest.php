@@ -912,5 +912,23 @@ class TsaSalesReportSmokeTest extends TestCase
             $perfPct = round((float) ($grandTotal[$perfKey] ?? 0), 1);
             $this->assertEqualsWithDelta($perfPct, $tsrPct, 0.15, "{$tsrKey} mismatch: Summary Sales Report={$tsrPct} vs TSA Performance={$perfPct}");
         }
+
+        // The DAILY table has its own SEPARATE "OVERALL TOTAL" row
+        // (tsr-day-overall-total-row) — a different code path in the view
+        // that builds its own $allDayTotal directly from $dailyGroups
+        // rather than going through TsaSalesReportController::
+        // withAutomatedAov(). Root-caused live, 2026-10-09 (screenshot,
+        // right after the summary-table fix above shipped): this row
+        // still showed the old averaged 44.65%/44.35% even after the
+        // summary table's own row was already correct — confirming the
+        // two rows are genuinely independent and both needed the fix.
+        preg_match('/<tr class="bg-black text-white font-bold tsr-day-overall-total-row">.*?<\/tr>/s', $content, $dayOverallMatch);
+        $this->assertNotEmpty($dayOverallMatch, 'expected to find the daily table\'s own OVERALL TOTAL row');
+        foreach (['pickup_rate' => 'pick_up_rate', 'upselling_rate' => 'upselling_rate'] as $tsrKey => $perfKey) {
+            preg_match('/data-out="' . $tsrKey . '"[^>]*>([^<]*)</', $dayOverallMatch[0], $m);
+            $tsrPct = (float) trim(str_replace('%', '', $m[1] ?? '0'));
+            $perfPct = round((float) ($grandTotal[$perfKey] ?? 0), 1);
+            $this->assertEqualsWithDelta($perfPct, $tsrPct, 0.15, "Daily table OVERALL TOTAL {$tsrKey} mismatch: Summary Sales Report={$tsrPct} vs TSA Performance={$perfPct}");
+        }
     }
 }
