@@ -184,8 +184,36 @@
             </thead>
             <tbody>
                 @foreach($rows as $row)
-                @php $d = $row['derived']; @endphp
-                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="{{ $row['group'] ? 'g'.$row['group']->id : 'p'.$row['products']->first()->id }}">
+                @php
+                    $d = $row['derived'];
+                    // Raw tally() counts summed across EVERY date in the
+                    // selected range for THIS one row — exposed as data-*
+                    // attributes (2026-10-09) so the JS live-recompute can
+                    // sum-then-recompute Pick-up/Conversion/Upselling Rate
+                    // the exact same way the server now does
+                    // ($overallTotal's own fix, same day), instead of
+                    // averaging each row's own already-rendered percentage
+                    // (which went badly wrong the moment a TikTok rate
+                    // OVERRIDE entered the mix — see refreshDayTotal()'s
+                    // own doc comment for the full story).
+                    $rowKeyForCounts = $row['group'] ? 'g'.$row['group']->id : 'p'.$row['products']->first()->id;
+                    $rowRawCounts = ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0];
+                    // $dates isn't in scope here — this is the TOP summary
+                    // table's own section, outside the per-chunk loop
+                    // further down the file that defines it (iterating
+                    // $dateChunks, keying each chunk's own value as
+                    // $dates). $dateChunks->flatten() rebuilds the SAME
+                    // full date range it was built from ($dates->chunk(7)
+                    // in the controller).
+                    foreach ($dateChunks->flatten() as $countDate) {
+                        $countReal = $realByRowKeyAndDate[$rowKeyForCounts . ':' . $countDate->toDateString()] ?? [];
+                        foreach ($rowRawCounts as $countKey => $countVal) {
+                            $rowRawCounts[$countKey] += $countReal[$countKey] ?? 0;
+                        }
+                    }
+                @endphp
+                <tr class="dsppr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-row-key="{{ $rowKeyForCounts }}"
+                    data-answered="{{ $rowRawCounts['answered'] }}" data-unanswered="{{ $rowRawCounts['unanswered'] }}" data-confirmed-via-call="{{ $rowRawCounts['confirmed_via_call'] }}" data-upsell-confirmation="{{ $rowRawCounts['upsell_confirmation'] }}">
                     <td class="dsppr-sticky dsppr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">
                         {{ strtoupper($row['label']) }}
                         @if($row['group'])
@@ -448,7 +476,10 @@
                                 };
                             @endphp
                             <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
-                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
+                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}"
+                                @if(in_array($col['key'], ['pickup_rate', 'conversion_rate', 'upselling_rate'], true))
+                                data-answered="{{ $d['answered'] ?? 0 }}" data-unanswered="{{ $d['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $d['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $d['upsell_confirmation'] ?? 0 }}"
+                                @endif>
                                 {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
                             </td>
                             @endif
@@ -696,6 +727,30 @@
     function fmtPct(n) { return (Number(n) * 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'; }
     function parseMoney(str) { return Number(String(str).replace(/,/g, '')) || 0; }
 
+    // Mirrors ProductPerformance::rates() exactly (PHP, server-side) —
+    // Pick-up Rate = answered / (answered + unanswered); Conversion Rate =
+    // upsell_confirmation / answered; Upselling Rate = upsell_confirmation
+    // / (upsell_confirmation + confirmed_via_call). Added 2026-10-09:
+    // refreshDayTotal()/refreshSummaryRow()/refreshOverallTotal() used to
+    // average each row's own already-rendered percentage (including a
+    // TikTok rate OVERRIDE at full per-row weight) instead — root-caused
+    // live, screenshot: typing "20%" into TikTok's own Pick-up Rate
+    // override spiked the TOTAL row to 87.65%, nowhere near a reasonable
+    // blend, and stayed wrong until a hard reload (the old averaging
+    // logic has no way to "unsee" an override once summed in). The
+    // server's own $overallTotal/TOTAL row switched to sum-then-recompute
+    // the same day (matching Leads Report) — this JS was never updated to
+    // match until now. Returns fractions (0-1), same convention every
+    // other rate in this file uses.
+    function rateFromCounts(answered, unanswered, upsellConfirmation, confirmedViaCall) {
+        const totalCalled = answered + unanswered;
+        const pickupRate = totalCalled > 0 ? answered / totalCalled : 0;
+        const conversionRate = answered > 0 ? upsellConfirmation / answered : 0;
+        const upsellDenominator = upsellConfirmation + confirmedViaCall;
+        const upsellingRate = upsellDenominator > 0 ? upsellConfirmation / upsellDenominator : 0;
+        return { pickup_rate: pickupRate, conversion_rate: conversionRate, upselling_rate: upsellingRate };
+    }
+
     // Same live comma-formatting convention as Projections' own pj.js. A
     // leading '-' is kept (not stripped) — explicit request, 2026-10-01:
     // "in the net income column i want to have like can input negative
@@ -847,8 +902,10 @@
     function refreshDayTotal(table, date) {
         const rows = table.querySelectorAll('tbody .dsppr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0 };
-        let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0, excessLeadsTotal = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
+        let excessLeadsTotal = 0;
         rows.forEach((row) => {
+            const isTiktokRow = row.dataset.rowKey === 'tiktok';
             const grossSales = readRowValue(row, 'gross_sales', date);
             const netIncome = readRowValue(row, 'net_income', date);
             const totalOrders = readRowValue(row, 'total_orders', date);
@@ -861,26 +918,38 @@
             totals.total_leads += totalLeads;
             totals.catered_leads += cateredLeads;
 
-            const pickupOverride = readOverride(row, 'pickup_rate', date, true);
-            const convOverride = readOverride(row, 'conversion_rate', date, true);
-            const upsellOverride = readOverride(row, 'upselling_rate', date, true);
             const excessOverride = readOverride(row, 'excess_leads', date, false);
-
-            pickupSum += pickupOverride ?? (totalLeads > 0 ? cateredLeads / totalLeads : 0);
-            convSum += convOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
-            upsellSum += upsellOverride ?? (cateredLeads > 0 ? totalOrders / cateredLeads : 0);
             excessLeadsTotal += excessOverride ?? Math.max(0, totalLeads - cateredLeads);
-            rowCount += 1;
+
+            // Pick-up/Conversion/Upselling Rate recomputed from SUMMED raw
+            // counts (2026-10-09 — see rateFromCounts()'s own doc comment),
+            // not averaged per-row. TikTok's own rate OVERRIDE never
+            // participates (no raw answered/unanswered counts to
+            // decompose it into — same confirmed server-side scope), but
+            // its real total_leads/total_orders still fold in as
+            // answered/upsell_confirmation counts, matching the server's
+            // own $rawCountTotals build exactly.
+            if (isTiktokRow) {
+                counts.answered += totalLeads;
+                counts.upsell_confirmation += totalOrders;
+            } else {
+                const rateCell = row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`);
+                counts.answered += Number(rateCell?.dataset.answered) || 0;
+                counts.unanswered += Number(rateCell?.dataset.unanswered) || 0;
+                counts.confirmed_via_call += Number(rateCell?.dataset.confirmedViaCall) || 0;
+                counts.upsell_confirmation += Number(rateCell?.dataset.upsellConfirmation) || 0;
+            }
         });
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
             excess_leads: Math.max(0, excessLeadsTotal),
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            conversion_rate: rowCount > 0 ? convSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            conversion_rate: rates.conversion_rate,
+            upselling_rate: rates.upselling_rate,
         };
         const totalRow = table.querySelector('.dsppr-day-total-row');
         if (totalRow) applyDerived(totalRow, date, derived);
@@ -969,30 +1038,43 @@
     // rates" split as everywhere else on this page.
     function refreshOverallTotal(summaryTable) {
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, total_leads: 0, catered_leads: 0, excess_leads: 0 };
-        let pickupSum = 0, convSum = 0, upsellSum = 0, rowCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
 
+        // Pick-up/Conversion/Upselling Rate counts (data-answered etc.)
+        // are only rendered on REAL product rows (see the Blade markup) —
+        // a TikTok row's own dataset reads as undefined here, so its rate
+        // OVERRIDE never participates, same confirmed server-side scope;
+        // its own real total_leads/total_orders still fold in as
+        // answered/upsell_confirmation counts below.
         summaryTable.querySelectorAll('tbody .dsppr-summary-row').forEach((row) => {
+            const isTiktokRow = row.dataset.rowKey === 'tiktok';
             totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
             totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
             totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
             totals.total_leads += parseMoney(row.querySelector('[data-out="total_leads"]').textContent);
             totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
             totals.excess_leads += parseMoney(row.querySelector('[data-out="excess_leads"]').textContent);
-            pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
-            convSum += parseFloat(row.querySelector('[data-out="conversion_rate"]').textContent) / 100;
-            upsellSum += parseFloat(row.querySelector('[data-out="upselling_rate"]').textContent) / 100;
-            rowCount += 1;
+            if (isTiktokRow) {
+                counts.answered += parseMoney(row.querySelector('[data-out="total_leads"]').textContent);
+                counts.upsell_confirmation += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
+            } else {
+                counts.answered += Number(row.dataset.answered) || 0;
+                counts.unanswered += Number(row.dataset.unanswered) || 0;
+                counts.confirmed_via_call += Number(row.dataset.confirmedViaCall) || 0;
+                counts.upsell_confirmation += Number(row.dataset.upsellConfirmation) || 0;
+            }
         });
 
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
         const derived = {
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, total_leads: totals.total_leads, catered_leads: totals.catered_leads,
             excess_leads: totals.excess_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
             aov: totals.total_orders > 0 ? totals.gross_sales / totals.total_orders : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            conversion_rate: rowCount > 0 ? convSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            conversion_rate: rates.conversion_rate,
+            upselling_rate: rates.upselling_rate,
         };
 
         const totalRow = summaryTable.querySelector('.dsppr-overall-total-row');

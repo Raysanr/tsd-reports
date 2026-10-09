@@ -456,6 +456,61 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertEqualsWithDelta(100.0, $pct, 0.15, "Pick-up Rate should be 100% (the one active product's own real rate), got {$pct}");
     }
 
+    /** Real production bug, root-caused live 2026-10-09 (screenshot,
+     *  right after the server-side sum-then-recompute fix was finalized):
+     *  typing "20%" into TikTok Orders' own Pick-up Rate override spiked
+     *  the TOTAL row to 87.65% — nowhere near a reasonable blend — and
+     *  stayed wrong until a full page reload. Cause: the server's own
+     *  $overallTotal/TOTAL row switched to sum-then-recompute (matching
+     *  Leads Report), but this view's own JS live-refresh functions
+     *  (refreshDayTotal()/refreshOverallTotal()) were never updated to
+     *  match — they still averaged each row's own already-rendered
+     *  percentage, including TikTok's own rate OVERRIDE at full per-row
+     *  weight, same bug class already fixed on Summary Sales Report's own
+     *  identical page earlier this session. Fixed by exposing each real
+     *  product row's own raw answered/unanswered/confirmed_via_call/
+     *  upsell_confirmation counts as data-* attributes (on the summary
+     *  table's own dsppr-summary-row, and on the daily table's own
+     *  pickup_rate/conversion_rate/upselling_rate cells) so the JS can
+     *  recompute via the same rateFromCounts() formula instead of
+     *  averaging. This test only confirms the SERVER renders those data-*
+     *  attributes with the correct values (PHPUnit can't execute the JS
+     *  itself) — the live-recompute behavior was re-verified manually in
+     *  the browser. */
+    public function test_summary_row_carries_raw_counts_for_live_recompute(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-raw-counts-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => "{$date} 10:00:00", 'pancake_inserted_at' => "{$date} 10:00:00",
+            'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-raw-counts-2', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'NOT ANSWERING', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'NOT ANSWERING'],
+            'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => "{$date} 11:00:00", 'pancake_inserted_at' => "{$date} 11:00:00",
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]));
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
+        preg_match('/<tr class="dsppr-summary-row[^"]*" data-row-key="p' . $sinuxyl->id . '"[^>]*>/', $content, $rowMatch);
+        $this->assertNotEmpty($rowMatch, 'expected to find the summary row for SINUXYL');
+        $this->assertMatchesRegularExpression('/data-answered="1"/', $rowMatch[0]);
+        $this->assertMatchesRegularExpression('/data-unanswered="1"/', $rowMatch[0]);
+    }
+
     public function test_updating_an_existing_entry_does_not_create_a_duplicate(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
