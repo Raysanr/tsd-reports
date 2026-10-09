@@ -3090,4 +3090,69 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // Pterygium member), not twice via the stale CLEARSIGHT tag.
         $this->assertContains('1', $matches[1]);
     }
+
+    /** Real production bug, root-caused live 2026-10-09 (screenshot, same
+     *  session as the three fixes above): PTERYLIEF/PTERYGIUM's own merged
+     *  summary card on TEAM CLOSING (SH Naturals) showed 58 leads when
+     *  Leads Report's own PTERYLIEF (15) + PTERYGIUM (35) totals for the
+     *  exact same team/date summed to 50 — an 8-lead OVER-count, the
+     *  opposite direction from the earlier undercount fix. Cause:
+     *  leadCountsByProductAndDate() never pre-filtered its own candidate
+     *  Order pool by `team` before running matchingOrders() — it only
+     *  restricted the OUTPUT afterward, by which TSA id the order
+     *  happened to carry. LeadsReportController always filters its own
+     *  candidate pool by `->where('team', $orderTeam)` FIRST. A TSA whose
+     *  own historical orders carry a DIFFERENT Order.team than her
+     *  currently-filtered team — a real, legitimate case
+     *  (matchingOrders()'s own explicit product/base_product/
+     *  bundle_description text match deliberately bypasses the team gate,
+     *  exactly so a genuine cross-team product sale still counts) — had
+     *  those other-team orders silently swept into this team's own
+     *  summary total. Reproduces it directly: a TEAM CLOSING (SH Naturals)
+     *  TSA has one genuine SH Naturals order, plus a second order whose
+     *  own `team` is Eyecare but whose cart item explicitly matches
+     *  PTERYGIUM by name (an explicit text match, bypassing the team gate)
+     *  — same TSA on both. TEAM CLOSING's own summary card must count only
+     *  the ONE real SH-Naturals-team order, matching what Leads Report's
+     *  own team-scoped page would show for that same TSA/team. */
+    public function test_the_summary_rows_number_of_leads_excludes_a_tsas_cross_team_order_not_matching_the_filtered_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
+        $pterygium = Product::where('display_name', 'PTERYGIUM')->first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $today = now()->toDateString();
+
+        // Genuine SH Naturals order — must count toward TEAM CLOSING.
+        Order::create([
+            'pancake_order_id' => 'ei-cross-team-own', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        // Same TSA, but this order's own team is Eyecare (an Eyecare-hour
+        // sale she legitimately worked) — an explicit text match on
+        // Pterygium's own name bypasses matchingOrders()'s team gate, same
+        // as a real cross-team sale would. Must NOT count toward TEAM
+        // CLOSING's own summary, since its real team is Eyecare.
+        Order::create([
+            'pancake_order_id' => 'ei-cross-team-other', 'team' => 'Eyecare Team', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        preg_match_all('/data-out="number_of_leads"[^>]*>([^<]*)</', $response->getContent(), $matches);
+        // The TELESALES rollup (first data-out="number_of_leads" match,
+        // the overview card) must be 1 — only the genuine SH Naturals
+        // order — never 2 (which would mean the Eyecare-team order leaked
+        // in via the TSA-id-only filter the old buggy code used).
+        $this->assertSame('1', $matches[1][0] ?? null);
+    }
 }

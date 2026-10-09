@@ -146,7 +146,7 @@ class ExpectedIncomeController extends Controller
         // below, which also exclude her.
         $summaryData = $selectedTeam === 'tiktok'
             ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
-            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all());
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all(), $selectedTeam === 'all' ? null : $teamsConfig[$selectedTeam]['order_team']);
 
         // The DAILY rows below the summary DO change with the team filter
         // (confirmed by the same screenshot: "in the down the yellow is
@@ -274,7 +274,7 @@ class ExpectedIncomeController extends Controller
         // disagree with the initial page render.
         $summaryData = $selectedTeam === 'tiktok'
             ? ['summaryCards' => collect(), 'summaryOverallTotal' => ExpectedIncomeCalculator::derive([]), 'teamSummaryRows' => collect()]
-            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all());
+            : $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $selectedTeam === 'all' ? null : TsaShift::where('team', $teamsConfig[$selectedTeam]['order_team'])->where('tiktok_upsell', false)->pluck('id')->all(), $selectedTeam === 'all' ? null : $teamsConfig[$selectedTeam]['order_team']);
 
         // TikTok's own site-wide total (explicit request, 2026-10-05) —
         // this fragment is re-rendered after every autosave, including a
@@ -329,10 +329,10 @@ class ExpectedIncomeController extends Controller
      *  ids when a specific team is selected — same parameter
      *  buildSummaryRow() already forwards to rawByProductAndDateAllTsas()
      *  for the per-team black-header rows below. */
-    private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null): array
+    private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null, ?string $onlyOrderTeam = null): array
     {
         ['cards' => $summaryCards, 'overallTotal' => $summaryOverallTotal] =
-            $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
+            $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds, $onlyOrderTeam);
 
         // One row per real team (explicit request, 2026-09-30, from the
         // sheet's own screenshot: "TEAM OPENING SHIFT" / "TEAM CLOSING
@@ -364,7 +364,7 @@ class ExpectedIncomeController extends Controller
             $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->where('tiktok_upsell', false)->pluck('id')->all();
 
             ['cards' => $cards, 'overallTotal' => $overallTotal] =
-                $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds);
+                $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds, $teamConfig['order_team']);
 
             return [
                 'label'        => $teamConfig['name'],
@@ -386,8 +386,12 @@ class ExpectedIncomeController extends Controller
      *  will reflect it to the expected income"), all summed across the
      *  WHOLE selected range. $onlyTsaIds is forwarded as-is to
      *  rawByProductAndDateAllTsas() — see that method's own doc comment
-     *  for exactly what it restricts. */
-    private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds): array
+     *  for exactly what it restricts. $onlyOrderTeam is the matching
+     *  team's own real `order_team` string (e.g. "SH Naturals") or null
+     *  for the ALL view — see leadCountsByProductAndDate()'s own doc
+     *  comment for why Number of Leads needs this SEPARATELY from
+     *  $onlyTsaIds. */
+    private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds, ?string $onlyOrderTeam = null): array
     {
         $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
@@ -404,7 +408,21 @@ class ExpectedIncomeController extends Controller
         // this fix did, silently broke that guard and over-counted. See
         // totalRealLeads()'s own doc comment for how a group's own subset
         // is now summed from this single full-roster map instead.
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        //
+        // $onlyOrderTeam (explicit 3rd fix, same day, root-caused live via
+        // screenshot: PTERYLIEF/PTERYGIUM showed 58 vs Leads Report's
+        // 15+35=50 on TEAM CLOSING) — leadCountsByProductAndDate() must
+        // pre-filter its own candidate Order pool by `team` BEFORE ever
+        // running matchingOrders(), exactly like LeadsReportController's
+        // own `->where('team', $orderTeam)` on its $dayOrders/$matchPool
+        // queries. $onlyTsaIds alone (a post-hoc "which TSA worked it"
+        // filter) is NOT equivalent — a TSA whose own historical orders
+        // carry a DIFFERENT Order.team than her currently-displayed team
+        // (a real, legitimate case: a TSA working a cross-team product, or
+        // one who switched teams) gets her other-team orders swept into
+        // this team's own count too, since nothing here ever excluded them
+        // by Order.team the way Leads Report's own candidate pool does.
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo, $onlyOrderTeam);
 
         // Computed ONCE per request (not once per product card/group) —
         // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
@@ -1222,8 +1240,28 @@ class ExpectedIncomeController extends Controller
      *  $tsaKey lookups), so an unattributed order is visible on the
      *  company-wide product card but correctly absent from every
      *  individual TSA's own card, same as it would be invisible on a
-     *  single-TSA filter of Leads Report itself. */
-    private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
+     *  single-TSA filter of Leads Report itself.
+     *
+     *  $onlyOrderTeam (added same day as a 3rd fix, root-caused live via
+     *  screenshot — PTERYLIEF/PTERYGIUM's own merged card showed 58 on
+     *  TEAM CLOSING vs Leads Report's real 50): when given a real
+     *  `order_team` string (e.g. "SH Naturals"), $dayOrders itself is
+     *  pre-filtered to `where('team', $onlyOrderTeam)` BEFORE
+     *  matchingOrders() ever runs — the exact same candidate-pool
+     *  restriction LeadsReportController always applies
+     *  (`$matchPool`/`$dayOrders` queries, both `->where('team',
+     *  $orderTeam)`). Filtering by $onlyTsaIds alone (a caller restricting
+     *  the OUTPUT to a team's own TSA ids, downstream of this method) is
+     *  NOT equivalent and was the actual bug: a TSA whose own historical
+     *  orders carry a DIFFERENT Order.team than her currently-filtered
+     *  team (a real case — a TSA legitimately working a cross-team
+     *  product, matchingOrders()'s own lenient explicit-text-match/combo
+     *  rules bypass the team gate for exactly this reason) had those
+     *  other-team orders swept into this team's own count, since nothing
+     *  upstream of the TSA-id filter ever excluded them by team the way
+     *  Leads Report's own candidate pool does. Null means every team's
+     *  orders are candidates (the ALL view's own company-wide tally). */
+    private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null)
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $counts = [];
@@ -1233,7 +1271,7 @@ class ExpectedIncomeController extends Controller
             $dayOrders = Order::whereRaw(
                 'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
                 [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
-            )->get();
+            )->when($onlyOrderTeam !== null, fn ($q) => $q->where('team', $onlyOrderTeam))->get();
 
             foreach ($products as $product) {
                 // Same exclusion filter tally() itself applies before
