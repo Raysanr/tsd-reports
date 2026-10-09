@@ -422,7 +422,7 @@ class ExpectedIncomeController extends Controller
         // one who switched teams) gets her other-team orders swept into
         // this team's own count too, since nothing here ever excluded them
         // by Order.team the way Leads Report's own candidate pool does.
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo, $onlyOrderTeam);
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
         // Computed ONCE per request (not once per product card/group) —
         // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
@@ -469,7 +469,7 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $productCardLookups, $leadCounts) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
@@ -505,8 +505,12 @@ class ExpectedIncomeController extends Controller
             // here instead, from the full-roster $leadCounts map computed
             // once above (see buildSummaryRow()'s own doc comment on why
             // matchingOrders() needs that full roster, not just this
-            // group's own 2 members).
-            $derived['number_of_leads'] = $this->totalRealLeads($leadCounts, $groupProducts, $onlyTsaIds);
+            // group's own 2 members). Scoped by $onlyOrderTeam now (4th
+            // fix — see leadCountsByProductAndDate()'s own doc comment),
+            // NOT $onlyTsaIds — the two are different restrictions
+            // ($onlyTsaIds still scopes Salaries/Operating Costs above,
+            // unrelated to which Order.team an order carries).
+            $derived['number_of_leads'] = $this->totalRealLeads($leadCounts, $groupProducts, $onlyOrderTeam);
 
             return $derived;
         });
@@ -550,9 +554,9 @@ class ExpectedIncomeController extends Controller
         // every product on the page, not just whatever happened to have a
         // saved entry row. $products here is already the FULL page
         // roster, so this is really just leadCounts->sum() restricted to
-        // $onlyTsaIds — totalRealLeads() still goes through its own
+        // $onlyOrderTeam — totalRealLeads() still goes through its own
         // product-id filter for consistency with the $cards call above.
-        $overallTotal['number_of_leads'] = $this->totalRealLeads($leadCounts, $products, $onlyTsaIds);
+        $overallTotal['number_of_leads'] = $this->totalRealLeads($leadCounts, $products, $onlyOrderTeam);
 
         return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
@@ -1196,15 +1200,14 @@ class ExpectedIncomeController extends Controller
         // ALL view's own product-level rows — same "all TSAs" meaning
         // leadCountsByProductAndDate() already uses elsewhere on this page.
         $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
-        $tsaKey = $tsaId ?? 'null';
 
-        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $tsaKey) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $tsaKey) {
+        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $tsaId) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $tsaId) {
                 $dateStr = $date->toDateString();
                 $entry = $entries->get($p->id . ':' . $dateStr);
                 $row = $entry ? $entry->toArray() : [];
                 $row = array_merge($row, $customValuesFor($p->id, $dateStr));
-                $row['number_of_leads'] = $leadCounts->get("{$tsaKey}:{$p->id}:{$dateStr}", 0);
+                $row['number_of_leads'] = $this->leadsForTsaProductDate($leadCounts, $tsaId, $p->id, $dateStr);
                 return [$dateStr => $row];
             })];
         });
@@ -1259,33 +1262,70 @@ class ExpectedIncomeController extends Controller
      *  rules bypass the team gate for exactly this reason) had those
      *  other-team orders swept into this team's own count, since nothing
      *  upstream of the TSA-id filter ever excluded them by team the way
-     *  Leads Report's own candidate pool does. Null means every team's
-     *  orders are candidates (the ALL view's own company-wide tally). */
-    private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null)
+     *  Leads Report's own candidate pool does.
+     *
+     *  REBUILT 2026-10-09 (4th same-day fix, after 3 narrower patches each
+     *  missed a different angle of the same underlying mismatch — see
+     *  this file's own class doc comment for the full history) around
+     *  Leads Report's OWN real architecture, confirmed by reading
+     *  LeadsReportController::indexAll() directly rather than guessing
+     *  again: a product's ALL-view total there is NOT one unscoped
+     *  cross-team query — it's the SUM of that product's own count under
+     *  EACH real team's own SEPARATELY team-scoped candidate pool
+     *  ($teamTables, one per Teams::config() entry, each with its own
+     *  `where('team', $orderTeam)` BEFORE matchingOrders() runs), added
+     *  together via ProductPerformance::sumRows() (see indexAll()'s own
+     *  "Combined table above the per-team sections" comment). A single
+     *  team's own page (index()) is just ONE of those same per-team
+     *  computations in isolation. Running matchingOrders() ONCE against
+     *  an unscoped (or differently-scoped) pool is NOT equivalent to
+     *  summing N independently-team-scoped-then-matched runs, because
+     *  matchingOrders()'s own team-gate
+     *  (`if ($o->team !== $product->team && !$explicitMatch) return
+     *  false`) and stale-tag conflict guard behave differently depending
+     *  on which orders are even IN the candidate pool being evaluated —
+     *  this is why every earlier single-query attempt (unscoped, then
+     *  TSA-id-scoped, then single-team-scoped) kept landing on a
+     *  different wrong number instead of converging.
+     *
+     *  This method therefore ALWAYS loops every real team
+     *  (Teams::config()), scoping candidate orders to that team's own
+     *  `order_team` each time — exactly mirroring indexAll()'s own
+     *  $teamTables loop — and keys every count by team too:
+     *  "{orderTeam}:{tsaId}:{productId}:{date}". totalRealLeads() below
+     *  sums either ONE team's own bucket (a single-team filter) or EVERY
+     *  team's own bucket together (the ALL view), matching
+     *  index()/indexAll()'s own exact two cases. */
+    private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
+        $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
         $counts = [];
 
         for ($cursor = Carbon::parse($dateFrom)->startOfDay(); $cursor->lte(Carbon::parse($dateTo)); $cursor->addDay()) {
             $dateStr = $cursor->toDateString();
-            $dayOrders = Order::whereRaw(
-                'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
-                [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
-            )->when($onlyOrderTeam !== null, fn ($q) => $q->where('team', $onlyOrderTeam))->get();
 
-            foreach ($products as $product) {
-                // Same exclusion filter tally() itself applies before
-                // counting 'total' (Deleted orders, excluded-seller/
-                // duplicated-by-logistics upsells) — kept in sync by hand,
-                // same convention countedOrdersFor() already follows for
-                // the identical reason (see that method's own doc comment).
-                $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
-                    ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+            foreach ($orderTeams as $orderTeam) {
+                $dayOrders = Order::whereRaw(
+                    'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+                    [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
+                )->where('team', $orderTeam)->get();
 
-                foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {
-                    $tsaId = $tsaKeyToId->get($tsaName, 'null');
-                    $key = "{$tsaId}:{$product->id}:{$dateStr}";
-                    $counts[$key] = ($counts[$key] ?? 0) + $ordersForTsa->count();
+                foreach ($products as $product) {
+                    // Same exclusion filter tally() itself applies before
+                    // counting 'total' (Deleted orders, excluded-seller/
+                    // duplicated-by-logistics upsells) — kept in sync by
+                    // hand, same convention countedOrdersFor() already
+                    // follows for the identical reason (see that method's
+                    // own doc comment).
+                    $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
+                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+
+                    foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {
+                        $tsaId = $tsaKeyToId->get($tsaName, 'null');
+                        $key = "{$orderTeam}:{$tsaId}:{$product->id}:{$dateStr}";
+                        $counts[$key] = ($counts[$key] ?? 0) + $ordersForTsa->count();
+                    }
                 }
             }
         }
@@ -1295,31 +1335,51 @@ class ExpectedIncomeController extends Controller
 
     /** The real lead total for a SUMMARY card (a product, a product GROUP's
      *  combined members, or the whole-page rollup) — sums $leadCounts (the
-     *  FULL-roster map from leadCountsByProductAndDate() — see
-     *  buildSummaryRow()'s own doc comment on why this must always be
-     *  computed over the whole page's $products, never a narrowed group)
-     *  down to just the given $products subset's own product ids, further
-     *  restricted to either every real TSA (when $onlyTsaIds is null — the
-     *  ALL view's own rollup/product cards) or just the given team's own
-     *  TSA ids (plus the 'null'/unattributed bucket either way, same
-     *  "always counted in" rule leadCountsByProductAndDate()'s own doc
-     *  comment describes). Takes the pre-computed map rather than querying
-     *  itself — this is called once per card (potentially several products
-     *  deep for a group) plus once more for the rollup, so a fresh query
-     *  per call here would reintroduce the exact N+1 cost
-     *  addActiveTsasOverviewOperatingCosts()'s own doc comment already
-     *  root-caused on this page (2026-10-02). */
-    private function totalRealLeads($leadCounts, $products, ?array $onlyTsaIds): int
+     *  FULL-roster, FULL-team map from leadCountsByProductAndDate() — see
+     *  that method's own doc comment for why it always computes every real
+     *  team's own separately-scoped pool) down to just the given $products
+     *  subset's own product ids, further restricted to either ONE team
+     *  (when $onlyOrderTeam is a real `order_team` string — a single-team
+     *  filter, matching LeadsReportController::index()'s own single-pool
+     *  total) or EVERY team summed together (when null — the ALL view,
+     *  matching LeadsReportController::indexAll()'s own
+     *  sum-of-per-team-sections total). Takes the pre-computed map rather
+     *  than querying itself — this is called once per card (potentially
+     *  several products deep for a group) plus once more for the rollup,
+     *  so a fresh query per call here would reintroduce the exact N+1
+     *  cost addActiveTsasOverviewOperatingCosts()'s own doc comment
+     *  already root-caused on this page (2026-10-02). */
+    private function totalRealLeads($leadCounts, $products, ?string $onlyOrderTeam): int
     {
         $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
-        $allowedTsaKeys = $onlyTsaIds === null ? null : collect($onlyTsaIds)->push('null')->map(fn ($id) => (string) $id);
 
-        return (int) $leadCounts->filter(function ($count, $key) use ($productIds, $allowedTsaKeys) {
-            [$tsaKey, $productId] = explode(':', $key, 3);
+        return (int) $leadCounts->filter(function ($count, $key) use ($productIds, $onlyOrderTeam) {
+            [$orderTeam, $tsaKey, $productId] = explode(':', $key, 4);
             if (!$productIds->contains($productId)) {
                 return false;
             }
-            return $allowedTsaKeys === null || $allowedTsaKeys->contains($tsaKey);
+            return $onlyOrderTeam === null || $orderTeam === $onlyOrderTeam;
+        })->sum();
+    }
+
+    /** One TSA's (or null for the ALL view's own product-level rows) real
+     *  lead count for ONE product on ONE day — summed across every real
+     *  team's own bucket in $leadCounts, since a specific TSA's own card
+     *  must show ALL her real leads regardless of which team's hour
+     *  window an individual order fell into (a TSA legitimately working a
+     *  cross-team sale still owns that lead on her own card — this is a
+     *  DIFFERENT rule from totalRealLeads()'s own team-scoped summary
+     *  total, deliberately; see leadCountsByProductAndDate()'s own doc
+     *  comment for why the two differ). Used by rawByProductAndDate() and
+     *  withCustomRowValues(), the two raw-row paths that key by a single
+     *  real TSA (or null) rather than by team. */
+    private function leadsForTsaProductDate($leadCounts, ?int $tsaId, int $productId, string $dateStr): int
+    {
+        $tsaKey = (string) ($tsaId ?? 'null');
+
+        return (int) $leadCounts->filter(function ($count, $key) use ($tsaKey, $productId, $dateStr) {
+            [$orderTeam, $keyTsa, $keyProductId, $keyDate] = explode(':', $key, 4);
+            return $keyTsa === $tsaKey && $keyProductId === (string) $productId && $keyDate === $dateStr;
         })->sum();
     }
 
@@ -1417,8 +1477,7 @@ class ExpectedIncomeController extends Controller
 
                 $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts) {
                     $row = array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id));
-                    $tsaKey = $entry->tsa_id ?? 'null';
-                    $row['number_of_leads'] = $entry->tsa_id === null ? 0 : $leadCounts->get("{$tsaKey}:{$p->id}:{$dateStr}", 0);
+                    $row['number_of_leads'] = $entry->tsa_id === null ? 0 : $this->leadsForTsaProductDate($leadCounts, $entry->tsa_id, $p->id, $dateStr);
                     return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id));
                 });
 
@@ -1927,8 +1986,7 @@ class ExpectedIncomeController extends Controller
         // conflict guard needs every sibling product visible to correctly
         // exclude an order that actually belongs to one of them.
         $leadCounts = $this->leadCountsByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
-        $tsaKey = $tsaId ?? 'null';
-        $row['number_of_leads'] = $leadCounts->get("{$tsaKey}:{$entry->product_id}:" . Carbon::parse($entryDate)->toDateString(), 0);
+        $row['number_of_leads'] = $this->leadsForTsaProductDate($leadCounts, $tsaId, $entry->product_id, Carbon::parse($entryDate)->toDateString());
 
         return $row;
     }

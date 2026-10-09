@@ -3155,4 +3155,85 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // in via the TSA-id-only filter the old buggy code used).
         $this->assertSame('1', $matches[1][0] ?? null);
     }
+
+    /** Real production bug, root-caused live 2026-10-09 (4th same-day fix,
+     *  after /systematic-debugging was invoked following 3 narrower
+     *  patches that each fixed a different wrong angle of this same
+     *  mismatch): PTERYLIEF/PTERYGIUM's own merged summary card on TEAM
+     *  CLOSING showed 53 when Leads Report showed 57 (45+12) for the same
+     *  team/date — an UNDER-count this time. Root cause, confirmed by
+     *  reading LeadsReportController::indexAll() directly: a product's
+     *  Leads Report total on ANY view is never one single query — it's
+     *  always the SUM of that product's own count under EACH real team's
+     *  own SEPARATELY-scoped candidate pool (indexAll()'s own
+     *  $teamTables, each `where('team', $orderTeam)` before matching,
+     *  summed via ProductPerformance::sumRows()). A single-team page
+     *  (index()) is just one of those same per-team computations shown
+     *  alone. leadCountsByProductAndDate() was rebuilt to mirror this
+     *  exactly — always loops every real team, keys its counts by team
+     *  too, and totalRealLeads() sums either ONE team's own bucket (a
+     *  single-team filter) or every team's bucket together (ALL).
+     *
+     *  Reproduces the real scenario this architecture exists for: ONE
+     *  product (PTERYGIUM) genuinely sold under BOTH teams on the same
+     *  day — a real SH Naturals order (Closing's own TSA, Closing hours)
+     *  and a real Eyecare order (Eyecare's own TSA, Eyecare hours).
+     *  TEAM CLOSING's own summary must show only its own 1; TEAM OPENING
+     *  (Eyecare)'s own summary must show only its own 1; ALL must show
+     *  the sum, 2 — all three simultaneously, matching
+     *  index()/index()/indexAll() exactly. */
+    public function test_the_summary_rows_number_of_leads_matches_leads_reports_per_team_and_all_architecture(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $pterygium = Product::where('display_name', 'PTERYGIUM')->first();
+        $shTsa = TsaShift::where('team', 'SH Naturals')->first();
+        $eyeTsa = TsaShift::where('team', 'Eyecare Team')->first();
+        $today = now()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'ei-two-team-sh', 'team' => 'SH Naturals', 'tsa_name' => $shTsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'raw_tags' => [strtoupper($shTsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'ei-two-team-eye', 'team' => 'Eyecare Team', 'tsa_name' => $eyeTsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'raw_tags' => [strtoupper($eyeTsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $closing = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'sh-naturals',
+        ]));
+        $opening = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'eyecare',
+        ]));
+        $all = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'all',
+        ]));
+
+        $closing->assertOk();
+        $opening->assertOk();
+        $all->assertOk();
+
+        preg_match_all('/data-out="number_of_leads"[^>]*>([^<]*)</', $closing->getContent(), $closingMatches);
+        preg_match_all('/data-out="number_of_leads"[^>]*>([^<]*)</', $opening->getContent(), $openingMatches);
+        preg_match_all('/data-out="number_of_leads"[^>]*>([^<]*)</', $all->getContent(), $allMatches);
+
+        $this->assertSame('1', $closingMatches[1][0] ?? null, 'TEAM CLOSING overview should show only its own 1 Pterygium lead');
+        $this->assertSame('1', $openingMatches[1][0] ?? null, 'TEAM OPENING overview should show only its own 1 Pterygium lead');
+        $this->assertSame('2', $allMatches[1][0] ?? null, 'ALL overview should show the sum, 2');
+
+        // Direct cross-reference against Leads Report's own ALL view
+        // (indexAll()) for the SAME product, confirming Expected Income's
+        // ALL rollup equals Leads Report's own real figure, not just the
+        // hardcoded 2 this test's own fixtures happen to produce.
+        $leadsReportAll = $this->actingAs($admin)->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+        $leadsReportAll->assertOk();
+        $pterygiumRow = $leadsReportAll->viewData('productRows')->firstWhere('display_name', 'PTERYGIUM');
+        $this->assertSame((string) $pterygiumRow['total'], $allMatches[1][0] ?? null);
+    }
 }
