@@ -2943,4 +2943,102 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         preg_match('/data-out="number_of_leads"[^>]*>([^<]*)</', $expectedIncome->getContent(), $matches);
         $this->assertSame('2', $matches[1] ?? null);
     }
+
+    /** Real production bug, root-caused live 2026-10-09 (screenshot): the
+     *  top "Telesales Expected Performance" summary row's own product card
+     *  showed Number of Leads 13 for CLEAR SIGHT while Leads Report showed
+     *  20 for the exact same team/date. Cause: buildSummaryRow()'s own
+     *  $cards/$overallTotal used to pool number_of_leads only from
+     *  rawByProductAndDateAllTsas()'s own per-cell rows, and that method
+     *  only ever emits a row for a (product, tsa, day) that ALREADY has a
+     *  saved ExpectedIncomeEntry — so a TSA with real matched orders but no
+     *  saved entry yet for that product/day (the common case on a page she
+     *  hasn't opened/typed into) silently contributed 0, undercounting the
+     *  whole card. Fixed via totalRealLeads(), a direct tally independent
+     *  of entry existence — same role addActiveTsasOverviewOperatingCosts()
+     *  already plays for Salaries/Operating Costs/Tax Allocation on this
+     *  exact row. Seeds TWO TSAs: one with a saved (but empty/0-leads)
+     *  entry, one with NO entry at all — both have real matched orders;
+     *  neither's absence of a "real" entry should matter. */
+    public function test_the_summary_rows_number_of_leads_counts_every_real_order_even_with_no_saved_entry(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $tsas = TsaShift::where('team', 'SH Naturals')->take(2)->get();
+        $tsaWithEntry = $tsas[0];
+        $tsaWithNoEntry = $tsas[1];
+        $today = now()->toDateString();
+
+        // Only one of the two TSAs has ever touched this product's card —
+        // the other's real orders must still count.
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsaWithEntry->id, 'entry_date' => $today,
+        ]);
+
+        foreach ([$tsaWithEntry, $tsaWithNoEntry] as $i => $tsa) {
+            Order::create([
+                'pancake_order_id' => "ei-summary-tally-{$i}", 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+                'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+                'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+                'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+            ]);
+        }
+
+        $expectedIncome = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'sh-naturals',
+        ]));
+        $leadsReport = $this->actingAs($admin)->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $expectedIncome->assertOk();
+        $leadsReport->assertOk();
+
+        // 2 real orders total (one per TSA) — the summary card's own
+        // top-row figure, not a TSA-scoped card.
+        preg_match('/data-out="number_of_leads"[^>]*>([^<]*)</', $expectedIncome->getContent(), $matches);
+        $this->assertSame('2', $matches[1] ?? null);
+    }
+
+    /** Companion to the bug above, same screenshot: a merged/combined
+     *  product card (e.g. "LUMIEYES/CLEAR SIGHT") must show the SUM of
+     *  every member product's own real leads, not just one member's. Group
+     *  cards (ProductGrouping::rows()) pool each member's own raw row via
+     *  flatMap + ExpectedIncomeCalculator::sum(), so this already works
+     *  correctly on this page's per-TSA cards (rawByProductAndDate()
+     *  always computes a real count per product regardless of entry
+     *  existence) — this test covers the TOP summary row specifically,
+     *  which goes through the separately-fixed totalRealLeads() path. */
+    public function test_a_merged_product_cards_number_of_leads_sums_every_member_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $productA = Product::where('display_name', 'LUMIEYES')->first();
+        $productB = Product::where('display_name', 'CLEARSIGHT')->first();
+        $group = ProductGroup::create(['label' => 'LUMIEYES/CLEAR SIGHT', 'sort_order' => 0]);
+        $group->products()->attach([$productA->id, $productB->id]);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $today = now()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'ei-group-tally-a', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => $productA->display_name,
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'ei-group-tally-b', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => $productB->display_name,
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('LUMIEYES/CLEAR SIGHT');
+        preg_match('/data-out="number_of_leads"[^>]*>([^<]*)</', $response->getContent(), $matches);
+        $this->assertSame('2', $matches[1] ?? null);
+    }
 }
