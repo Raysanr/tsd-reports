@@ -862,6 +862,15 @@
         }
     }, true);
 
+    // Select-all-on-focus (explicit request, 2026-10-09: typing "5" into a
+    // field showing "0" was producing "50" — the leading 0 is a real value,
+    // not a placeholder, so with nothing selected a click just drops the
+    // caret next to it instead of replacing it).
+    document.addEventListener('focus', (e) => {
+        const input = e.target.closest('.cb-field');
+        if (input) input.select();
+    }, true);
+
     // Per-product "has cost" checkbox (explicit request, 2026-09-30: "user
     // only can identify what product that has cost") — a plain boolean
     // toggle, saves immediately on change (no debounce needed, unlike a

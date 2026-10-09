@@ -697,6 +697,16 @@
             if (input) saveField(input);
         }, true);
 
+        // Select-all-on-focus (explicit request, 2026-10-09: typing "5" into
+        // a field showing "0" was producing "50" — the leading 0 is a real
+        // value, not a placeholder, and with nothing selected a click just
+        // drops the caret next to it instead of replacing it). Pre-selected
+        // text means the first keystroke always replaces the whole value.
+        scroller.addEventListener('focus', (e) => {
+            const input = e.target.closest('.ei-field');
+            if (input) input.select();
+        }, true);
+
         scroller.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             const input = e.target.closest('.ei-field');
