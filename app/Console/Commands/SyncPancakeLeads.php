@@ -418,6 +418,11 @@ class SyncPancakeLeads extends Command
 
         $this->info("Synced {$synced} new lead(s), skipped {$skipped} (already claimed or already pulled in).");
 
+        $backfilled = $this->backfillMissingProductIds();
+        if ($backfilled > 0) {
+            $this->info("Backfilled product match for {$backfilled} previously-unmatched lead(s).");
+        }
+
         $caughtUp = $this->catchUpUnassignedLeads();
         if ($caughtUp > 0) {
             $this->info("Caught up {$caughtUp} previously-unassigned lead(s) now that a TSA is available.");
@@ -689,6 +694,95 @@ class SyncPancakeLeads extends Command
      * of blocking every product's assignment behind one massive run.
      */
     private const CATCH_UP_BATCH_LIMIT = 200;
+
+    /** How far back backfillMissingProductIds() will look — deliberately
+     *  NOT unbounded (explicit scoping decision, 2026-10-09: "the leads
+     *  should be only today"): a one-off investigation into 2 stuck orders
+     *  (#1378403/#1378467) surfaced 6,352 leads system-wide stuck at
+     *  product_id NULL going back to August 11 — this method's own
+     *  matching logic can resolve every one of them, but letting them ALL
+     *  flow into catchUpUnassignedLeads() on deploy would dump months of
+     *  old leads into today's round-robin alongside genuinely new ones,
+     *  the opposite of what was asked ("redistribute that right once the
+     *  tsa is online" meant TODAY's gap, not a surprise historical
+     *  flood). Today only (Asia/Manila, same calendar-day convention as
+     *  every other "today" cutoff in this app) leaves the pre-existing
+     *  6,352 for a separate, deliberate decision rather than an automatic
+     *  one. */
+    private static function productBackfillCutoff(): Carbon
+    {
+        return Carbon::now('Asia/Manila')->startOfDay();
+    }
+
+    /**
+     * Fills in product_id for a lead that was created with NONE — a real,
+     * confirmed gap (explicit report, 2026-10-09: 2 of 17 "unassigned"
+     * orders, #1378403/#1378467, turned out stuck for this reason while the
+     * other 15 were fine or already manually fixed) rather than a TSA/
+     * roster problem. Root cause: this command polls Pancake by
+     * inserted_at, so it can catch an order within seconds of its own
+     * creation — before Pancake has finished attaching item/product_id data
+     * to it. Both stuck orders' own item/product data WAS correct minutes
+     * later (confirmed via the `orders` table, kept fresh by the separate
+     * SyncTodayOrders job polling by updated_at instead) — this command's
+     * own main loop just never got a second look, since the very next tick
+     * finds the Lead row already exists and skips straight to backfilling
+     * dispositions (see the main loop's `if ($existing) { ...; continue; }`
+     * above), never re-attempting product matching.
+     *
+     * Runs every tick, before catchUpUnassignedLeads() — once this fills in
+     * product_id, that call's own `whereNotNull('product_id')` filter picks
+     * the lead up immediately and assigns it the moment a TSA for that
+     * product is online, same as any other backlog lead (explicit request:
+     * "it should be redistribute that right once the tsa is online" — no
+     * separate assignment path needed here, just unblocking the existing
+     * one).
+     *
+     * Scoped to today only — see productBackfillCutoff()'s own doc comment
+     * for why the much larger pre-existing backlog is deliberately
+     * excluded here.
+     *
+     * Re-reads the CURRENT `orders` row (not the original Pancake payload
+     * this command saw at creation time) since that's exactly the fresher
+     * data that was missing the first time — same ID-then-text matching
+     * priority as the main loop's own product resolution above, just
+     * sourced from Order::pancake_product_ids/product/raw_tags instead of
+     * a raw API payload.
+     */
+    private function backfillMissingProductIds(): int
+    {
+        $leads = Lead::whereNull('product_id')
+            ->where('pancake_created_at', '>=', self::productBackfillCutoff())
+            ->orderBy('pancake_created_at')
+            ->limit(self::CATCH_UP_BATCH_LIMIT)
+            ->get();
+        if ($leads->isEmpty()) return 0;
+
+        $orders = Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id'))
+            ->get()
+            ->keyBy('pancake_order_id');
+        $products = Product::all();
+
+        $backfilled = 0;
+        foreach ($leads as $lead) {
+            $order = $orders->get($lead->pancake_order_id);
+            if (!$order) continue; // not pulled into `orders` yet either — try again next run
+
+            $orderProductIds = collect($order->pancake_product_ids ?? []);
+            $tagNames = collect($order->raw_tags ?? [])->map(fn ($t) => strtoupper($t));
+            $product = $orderProductIds->isNotEmpty()
+                ? $products->first(fn (Product $p) => collect($p->pancake_product_ids ?? [])->intersect($orderProductIds)->isNotEmpty())
+                : null;
+            $product ??= $products->first(fn (Product $p) => $p->matchesText($order->product) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
+            if (!$product) continue; // still no match — order's own data genuinely has nothing to go on yet
+
+            $lead->update(['product_id' => $product->id]);
+            LeadActivity::log($lead, 'product_matched', "Product matched to {$product->display_name} on retry (was unmatched since creation).");
+            $backfilled++;
+        }
+
+        return $backfilled;
+    }
 
     private function catchUpUnassignedLeads(): int
     {
