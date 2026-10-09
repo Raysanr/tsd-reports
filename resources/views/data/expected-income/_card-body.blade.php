@@ -45,7 +45,6 @@
         ['key' => 'roas', 'label' => 'ROAS', 'money' => true],
         ['key' => 'standard_cost_per_message', 'label' => 'Standard Cost Per Message', 'money' => true],
         ['key' => 'actual_cost_per_lead', 'label' => 'Actual Cost Per Message', 'money' => true],
-        ['key' => 'number_of_leads', 'label' => 'Number of Leads', 'int' => true],
     ] as $col)
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">{{ $col['label'] }}</span>
@@ -59,6 +58,17 @@
         @endif
     </div>
     @endforeach
+
+    {{-- Number of Leads is no longer typed in — automated 2026-10-09 to
+         tally the real Lead table count for this TSA/product/day (see
+         ExpectedIncomeController::leadCountsByProductAndDate()'s own doc
+         comment), same always-read-only span every other derived field
+         (Conversion Rate, Returns, Delivered...) already uses on this
+         card, editable or not. --}}
+    <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
+        <span class="text-ink-muted dark:text-slate-400">Number of Leads</span>
+        <span data-out="number_of_leads" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($d['number_of_leads']) }}</span>
+    </div>
 
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">Conversion Rate</span>

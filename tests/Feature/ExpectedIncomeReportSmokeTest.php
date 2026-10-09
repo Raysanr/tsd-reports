@@ -6,6 +6,7 @@ use App\Models\CostBreakdownPool;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\ExpectedIncomeEntry;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\ProjectionColumn;
@@ -2886,5 +2887,60 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
+    }
+
+    /** Explicit request, 2026-10-09: "automate it to tally to the overall
+     *  number of leads per product per tsa" / "it should be tally the
+     *  overall number of leads to the overall leads to the leads report
+     *  module leads report page" — Number of Leads on a TSA's own product
+     *  card is no longer typed in; it must equal Leads Report's own TOTAL
+     *  LEADS figure for that same TSA/product/day. Seeds a real matched
+     *  Order (same raw_tags/status_code pattern
+     *  DashboardTotalLeadsMatchesLeadsReportTest already uses to drive
+     *  ProductPerformance::matchingOrders()) plus a stale manually-saved
+     *  ExpectedIncomeEntry.number_of_leads on the SAME cell, to confirm the
+     *  real tally wins over whatever's stored. */
+    public function test_a_tsas_number_of_leads_tallies_the_same_as_leads_reports_total_leads(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $today = now()->toDateString();
+
+        // A stale manually-typed figure left over from before automation —
+        // must be overridden, not read, by the real tally below.
+        ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => $today,
+            'number_of_leads' => 999,
+        ]);
+
+        Order::create([
+            'pancake_order_id' => 'ei-leads-tally-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'ei-leads-tally-2', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'NOT ANSWERING', 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'NOT ANSWERING'],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => now(), 'synced_at' => now(),
+        ]);
+
+        $expectedIncome = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $today, 'date_to' => $today, 'team' => 'sh-naturals',
+        ]));
+        $leadsReport = $this->actingAs($admin)->get(route('leads-report', [
+            'team' => 'sh-naturals', 'range' => 'dates', 'date_from' => $today, 'date_to' => $today,
+        ]));
+
+        $expectedIncome->assertOk();
+        $leadsReport->assertOk();
+
+        // The real tally (2 matched orders) wins over the stale manually-
+        // saved 999 — matches the exact span _card-body.blade.php renders
+        // Number of Leads into now that it's read-only.
+        preg_match('/data-out="number_of_leads"[^>]*>([^<]*)</', $expectedIncome->getContent(), $matches);
+        $this->assertSame('2', $matches[1] ?? null);
     }
 }

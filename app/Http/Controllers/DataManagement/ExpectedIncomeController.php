@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ExpectedIncomeCustomValue;
 use App\Models\ExpectedIncomeEntry;
 use App\Models\ExpectedIncomeTiktokEntry;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
 use App\Models\TsaShift;
@@ -13,6 +14,7 @@ use App\Support\ActivityLogger;
 use App\Support\DateRangeFilter;
 use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductGrouping;
+use App\Support\ProductPerformance;
 use App\Support\Teams;
 use App\Support\TsaDailyRateService;
 use Illuminate\Http\Request;
@@ -1121,16 +1123,93 @@ class ExpectedIncomeController extends Controller
             return $row;
         };
 
-        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor) {
+        // Number of Leads is no longer a manually-typed figure (explicit
+        // request, 2026-10-09: "automate it to tally to the overall number
+        // of leads per product per tsa" / "tally to the leads report
+        // page") — overridden here with the same real Order-based count
+        // Leads Report's own TOTAL LEADS column shows for this TSA/product/
+        // day, regardless of whatever was last stored on
+        // ExpectedIncomeEntry.number_of_leads itself (that column is kept
+        // for history/rollback only; see leadCountsByProductAndDate()'s own
+        // doc comment for exactly what's counted). $tsaId is null for the
+        // ALL view's own product-level rows — same "all TSAs" meaning
+        // leadCountsByProductAndDate() already uses elsewhere on this page.
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $tsaKey = $tsaId ?? 'null';
+
+        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $tsaKey) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $tsaKey) {
                 $dateStr = $date->toDateString();
                 $entry = $entries->get($p->id . ':' . $dateStr);
                 $row = $entry ? $entry->toArray() : [];
-                return [$dateStr => array_merge($row, $customValuesFor($p->id, $dateStr))];
+                $row = array_merge($row, $customValuesFor($p->id, $dateStr));
+                $row['number_of_leads'] = $leadCounts->get("{$tsaKey}:{$p->id}:{$dateStr}", 0);
+                return [$dateStr => $row];
             })];
         });
 
         return ['raw' => $raw, 'entriesByKey' => $entries];
+    }
+
+    /** Real lead counts per (tsa, product, day) — keyed "tsaId:productId:date"
+     *  ('null' in place of tsaId for an order matched to a product but with
+     *  no recognized tsa_name), 0 for any combination with no leads at all
+     *  rather than a missing key, since every caller merges this straight
+     *  onto a raw row without checking isset() first.
+     *
+     *  Reuses Leads Report's OWN counting logic exactly (explicit request,
+     *  2026-10-09, after an earlier Lead-table-based version was flagged as
+     *  diverging and explicitly rejected in favor of this: "so the Number
+     *  of Leads row will be tally to the leads report page") —
+     *  ProductPerformance::matchingOrders() + tally()['total'] per product
+     *  per day, the SAME two calls LeadsReportController/TSA Performance/
+     *  DSPPR all go through, so a given TSA/product/day here can never
+     *  silently drift from what Leads Report's own TOTAL LEADS column shows
+     *  for that same cell. Candidate orders per day are pulled the same way
+     *  LeadsReportController does (COALESCE(pancake_inserted_at,
+     *  pancake_created_at) within that day's bounds) — NOT team-scoped here
+     *  (unlike Leads Report's own per-team hourly table), since this method
+     *  serves every team's cards on this page from one shared lookup;
+     *  matchingOrders() already trusts an order's own item/tag over which
+     *  team's hours it fell in anyway (see that method's own doc comment).
+     *  A matched order whose own tsa_name doesn't resolve to any real
+     *  TsaShift.tsa_key falls into the 'null' bucket — read by the ALL view's
+     *  own product-level rows only; a real TSA's own card never reads that
+     *  bucket (see rawByProductAndDate()/rawByProductAndDateAllTsas()'s own
+     *  $tsaKey lookups), so an unattributed order is visible on the
+     *  company-wide product card but correctly absent from every
+     *  individual TSA's own card, same as it would be invisible on a
+     *  single-TSA filter of Leads Report itself. */
+    private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
+    {
+        $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
+        $counts = [];
+
+        for ($cursor = Carbon::parse($dateFrom)->startOfDay(); $cursor->lte(Carbon::parse($dateTo)); $cursor->addDay()) {
+            $dateStr = $cursor->toDateString();
+            $dayOrders = Order::whereRaw(
+                'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+                [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
+            )->get();
+
+            foreach ($products as $product) {
+                // Same exclusion filter tally() itself applies before
+                // counting 'total' (Deleted orders, excluded-seller/
+                // duplicated-by-logistics upsells) — kept in sync by hand,
+                // same convention countedOrdersFor() already follows for
+                // the identical reason (see that method's own doc comment).
+                $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
+                    ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+
+                foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {
+                    $tsaId = $tsaKeyToId->get($tsaName, 'null');
+                    $key = "{$tsaId}:{$product->id}:{$dateStr}";
+                    $counts[$key] = ($counts[$key] ?? 0) + $ordersForTsa->count();
+                }
+            }
+        }
+
+        return collect($counts);
     }
 
     /** Same idea as rawByProductAndDate(), but for the top summary's own
@@ -1206,17 +1285,29 @@ class ExpectedIncomeController extends Controller
             ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]
         );
 
-        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor) {
+        // Same real-tally override as rawByProductAndDate() (2026-10-09 —
+        // see leadCountsByProductAndDate()'s own doc comment). Looked up
+        // per REAL tsa_id here (not a single pooled figure) since this
+        // method returns one row per distinct tsa_id per cell, each summed
+        // together by the caller — the shared tsa_id-NULL row is
+        // deliberately given 0 leads rather than any pooled total, since
+        // every real TSA's own row here already carries her own real count;
+        // giving the NULL row a pooled total on top would double it.
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts) {
                 $dateStr = $date->toDateString();
                 $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
 
                 if ($rowsForThisCell->isEmpty()) {
-                    return [$dateStr => collect([array_merge([], $customValuesFor($p->id, $dateStr, null))])];
+                    return [$dateStr => collect([array_merge(['number_of_leads' => 0], $customValuesFor($p->id, $dateStr, null))])];
                 }
 
-                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor) {
+                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts) {
                     $row = array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id));
+                    $tsaKey = $entry->tsa_id ?? 'null';
+                    $row['number_of_leads'] = $entry->tsa_id === null ? 0 : $leadCounts->get("{$tsaKey}:{$p->id}:{$dateStr}", 0);
                     return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id));
                 });
 
@@ -1238,7 +1329,14 @@ class ExpectedIncomeController extends Controller
             'roas'                       => ['sometimes', 'numeric', 'min:0'],
             'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
             'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
-            'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
+            // number_of_leads is no longer a manual field (explicit
+            // request, 2026-10-09: "automate it to tally to the overall
+            // number of leads per product per tsa") — deliberately not
+            // accepted here any more, same "a stray POST can't write a
+            // stale value the view no longer reflects" reasoning as
+            // returns/delivered below; ExpectedIncomeController::
+            // leadCountsByProductAndDate() is the only source for this
+            // field now.
             'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
             'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
             'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
@@ -1699,6 +1797,20 @@ class ExpectedIncomeController extends Controller
         foreach (ExpectedIncomeCalculator::customRowKeys() as $key) {
             $row[$key] = (float) ($customValues->get($key)?->value ?? 0);
         }
+
+        // Same real-tally override every other raw-row builder on this page
+        // applies (2026-10-09 — see leadCountsByProductAndDate()'s own doc
+        // comment) — this is the ONE raw-row assembly path that ISN'T
+        // reached through rawByProductAndDate()/rawByProductAndDateAllTsas()
+        // (derivedForProductOrGroup()'s own live-autosave/lock-toggle
+        // response calls this directly per product), so without this
+        // override a card's own cross-fade-in response after a lock toggle
+        // would silently show the stale stored value (usually 0, since
+        // that column is no longer written) instead of the same figure the
+        // page's own initial render just showed.
+        $leadCounts = $this->leadCountsByProductAndDate(collect([$entry->product]), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
+        $tsaKey = $tsaId ?? 'null';
+        $row['number_of_leads'] = $leadCounts->get("{$tsaKey}:{$entry->product_id}:" . Carbon::parse($entryDate)->toDateString(), 0);
 
         return $row;
     }

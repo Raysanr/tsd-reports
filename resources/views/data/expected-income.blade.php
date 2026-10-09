@@ -471,11 +471,21 @@
             // 'returns'/'delivered' deliberately NOT read here — see
             // derive()'s own doc comment above: both are always derived
             // from gross_sales/cancelled, never a raw data-field input.
-            ['roas', 'actual_cost_per_lead', 'number_of_leads', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'product_cost']
+            ['roas', 'actual_cost_per_lead', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
                 });
+            // Number of Leads is no longer a raw data-field input anywhere
+            // on this page (automated 2026-10-09 — see
+            // ExpectedIncomeController::leadCountsByProductAndDate()'s own
+            // doc comment) — always read its server-rendered read-only
+            // span instead, same "no input, fall back to the span" pattern
+            // Tax Allocation already established right below.
+            (() => {
+                const out = card.querySelector('[data-out="number_of_leads"]');
+                raw.number_of_leads = out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
+            })();
             // Tax Allocation on a TSA-scoped card is LOCKED (explicit
             // request, 2026-10-02: "the tax allocation in tsa cards is
             // should be not editable") — no data-field input at all there,
