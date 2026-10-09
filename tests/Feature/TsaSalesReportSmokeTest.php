@@ -845,4 +845,72 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertNotEmpty($matches, 'expected to find the daily table\'s own OVERALL TOTAL row');
         $this->assertMatchesRegularExpression('/data-out="gross_sales"[^>]*data-date="' . preg_quote($date, '/') . '"[^>]*>\s*5,500\.00/', $matches[0], 'expected 4000 (real team) + 1500 (TikTok) = 5,500.00');
     }
+
+    /** Real production bug, root-caused live 2026-10-09 (screenshot, same
+     *  session as the identical fix already made to DsPprReportController):
+     *  Summary Sales Report's own OVERALL TOTAL showed Pick-up Rate 44.65%/
+     *  Upselling Rate 44.35% while TSA Performance's own Grand Total — the
+     *  exact same underlying order data, same date — showed 63.6%/64.1%.
+     *  Cause: Pick-up/Upselling Rate were automated from real
+     *  ProductPerformance::tally() data 2026-10-03, but
+     *  TsaSalesCalculator::sum()'s own averaging of these 2 fields (a
+     *  deliberate, correct choice back when they were raw manual entry
+     *  with no underlying counts) was never updated to match — averaging
+     *  each TSA's own already-different-sized percentage together doesn't
+     *  equal TSA Performance's own Grand Total, which recomputes the rate
+     *  from summed counts. Fixed via withAutomatedAov() (renamed in
+     *  spirit, not literally — see its own doc comment) now also
+     *  recomputing both rates from summed answered/unanswered/
+     *  confirmed_via_call/upsell_confirmation counts. Seeds several TSAs
+     *  across both real teams with a realistic, non-trivial mix of
+     *  dispositions, then cross-references this page's own OVERALL TOTAL
+     *  directly against TsaPerformanceController's own live Grand Total
+     *  for the identical range. */
+    public function test_the_overall_totals_rates_match_tsa_performances_grand_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $shTsas = TsaShift::where('team', 'SH Naturals')->take(3)->get();
+        $eyeTsas = TsaShift::where('team', 'Eyecare Team')->take(3)->get();
+
+        $dispositions = [
+            ['tsa' => $shTsas[0], 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['tsa' => $shTsas[0], 'disposition' => 'NOT ANSWERING', 'is_upsell' => false],
+            ['tsa' => $shTsas[1], 'disposition' => null, 'is_upsell' => true],
+            ['tsa' => $shTsas[1], 'disposition' => 'CALL BACK', 'is_upsell' => false],
+            ['tsa' => $shTsas[2], 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['tsa' => $eyeTsas[0], 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['tsa' => $eyeTsas[0], 'disposition' => 'UNATTENDED', 'is_upsell' => false],
+            ['tsa' => $eyeTsas[1], 'disposition' => null, 'is_upsell' => true],
+            ['tsa' => $eyeTsas[2], 'disposition' => 'NOT ANSWERING', 'is_upsell' => false],
+        ];
+        foreach ($dispositions as $i => $d) {
+            Order::create([
+                'pancake_order_id' => "tsr-pct-{$i}", 'team' => $d['tsa']->team, 'tsa_name' => $d['tsa']->tsa_key,
+                'disposition' => $d['disposition'], 'is_upsell' => $d['is_upsell'], 'amount' => 500.0,
+                'status_code' => 1,
+                'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+            ]);
+        }
+
+        $tsaSales = $this->actingAs($admin)->get(route('data.tsa-sales', ['date_from' => $date, 'date_to' => $date]));
+        $tsaPerformance = $this->actingAs($admin)->get(route('tsa-performance', ['team' => 'all', 'date_from' => $date, 'date_to' => $date]));
+
+        $tsaSales->assertOk();
+        $tsaPerformance->assertOk();
+
+        $grandTotal = $tsaPerformance->viewData('grandTotal');
+        $content = $tsaSales->getContent();
+
+        $overallTotalStart = strpos($content, 'OVERALL TOTAL');
+        $this->assertNotFalse($overallTotalStart);
+        $overallTotalHtml = substr($content, $overallTotalStart, 2000);
+
+        foreach (['pickup_rate' => 'pick_up_rate', 'upselling_rate' => 'upselling_rate'] as $tsrKey => $perfKey) {
+            preg_match('/data-out="' . $tsrKey . '"[^>]*>([^<]*)</', $overallTotalHtml, $m);
+            $tsrPct = (float) trim(str_replace('%', '', $m[1] ?? '0'));
+            $perfPct = round((float) ($grandTotal[$perfKey] ?? 0), 1);
+            $this->assertEqualsWithDelta($perfPct, $tsrPct, 0.15, "{$tsrKey} mismatch: Summary Sales Report={$tsrPct} vs TSA Performance={$perfPct}");
+        }
+    }
 }

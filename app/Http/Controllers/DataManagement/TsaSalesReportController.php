@@ -54,6 +54,7 @@ class TsaSalesReportController extends Controller
     private const EMPTY_AUTO_FIELDS = [
         'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0,
         'upsell_sales' => 0, 'upsell_confirmation' => 0,
+        'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0,
     ];
 
     /** Every TSA's per-day Total Orders/Catered Leads/Pick-up Rate/
@@ -119,6 +120,23 @@ class TsaSalesReportController extends Controller
                 // the manually-typed Gross Sales figure.
                 'upsell_sales'        => $tally['upsell_sales'],
                 'upsell_confirmation' => $tally['upsell_confirmation'],
+                // Raw tally() counts (added 2026-10-09, same fix as
+                // ProductPerformance::dsPprRow()'s own identical addition
+                // same day) — needed so index()'s own $overallTotal/group
+                // totals can recompute Pick-up/Upselling Rate from SUMMED
+                // counts instead of TsaSalesCalculator::sum()'s own plain
+                // per-row average. See index()'s own doc comment on
+                // $overallTotal for why: these 2 fields were automated
+                // from real tally() data 2026-10-03, but the averaging
+                // convention justified when they were still manual
+                // (TsaSalesCalculator::sum()'s own doc comment — "neither
+                // has a summed denominator to recompute against") was
+                // never updated to match, causing a large, confirmed-live
+                // mismatch against TSA Performance's own Grand Total
+                // (44.65% vs the real 63.6%).
+                'answered'           => $tally['answered'],
+                'unanswered'         => $tally['unanswered'],
+                'confirmed_via_call' => $tally['confirmed_via_call'],
             ]];
         });
     }
@@ -130,7 +148,31 @@ class TsaSalesReportController extends Controller
      *  Gross Sales ÷ Total Orders — that formula stays correct and
      *  unit-tested against the real source sheet for every OTHER
      *  caller of TsaSalesCalculator, so it's overridden here at the
-     *  call site instead of changed at its source. */
+     *  call site instead of changed at its source.
+     *
+     *  ALSO overrides Pick-up Rate/Upselling Rate the same way, added
+     *  2026-10-09 (root-caused live, screenshot: Summary Sales Report's
+     *  own OVERALL TOTAL showed Pick-up 44.65%/Upselling 44.35% while TSA
+     *  Performance's own Grand Total — the exact same underlying data,
+     *  same range — showed 63.6%/64.1%). TsaSalesCalculator::sum()'s own
+     *  averaging of these 2 fields was a deliberate, correct design
+     *  choice back when they were raw manual entry with no underlying
+     *  count columns (see that method's own doc comment) — but they were
+     *  automated from real ProductPerformance::tally() data 2026-10-03,
+     *  and the averaging convention was never updated to match. Real
+     *  counts now exist (answered/unanswered/confirmed_via_call, added to
+     *  perTsaPerDayPerformance()'s own output same day as this fix), so
+     *  this method now recomputes both rates from SUMMED counts via
+     *  ProductPerformance::rates() instead — same "recompute the ratio
+     *  from summed raw numbers, never average a ratio" convention every
+     *  OTHER field on this page already follows, and the exact same fix
+     *  already applied to DsPprReportController's own identical bug,
+     *  same session. The TikTok Upsell section's own group total is
+     *  DELIBERATELY NOT routed through this method (see index()'s own
+     *  $tiktokRowSummaries/$tiktokSummary) — every one of its fields,
+     *  Pick-up/Upselling Rate included, is still genuinely manual with no
+     *  tally() data behind it, so TsaSalesCalculator::sum()'s own
+     *  averaging remains the correct, unchanged behavior there. */
     private function withAutomatedAov(array $derived, array $rawRows): array
     {
         $upsellSales = array_sum(array_column($rawRows, 'upsell_sales'));
@@ -145,6 +187,24 @@ class TsaSalesReportController extends Controller
         // ni_pct/aov.
         $derived['upsell_sales'] = $upsellSales;
         $derived['upsell_confirmation'] = $upsellConfirmation;
+
+        $rawCountTotals = [
+            'answered'           => array_sum(array_column($rawRows, 'answered')),
+            'unanswered'         => array_sum(array_column($rawRows, 'unanswered')),
+            'confirmed_via_call' => array_sum(array_column($rawRows, 'confirmed_via_call')),
+            'upsell_confirmation' => $upsellConfirmation,
+        ];
+        $rates = ProductPerformance::rates($rawCountTotals);
+        $derived['pickup_rate']    = $rates['pick_up_rate'] !== null ? $rates['pick_up_rate'] / 100 : 0.0;
+        $derived['upselling_rate'] = $rates['upselling_rate'] !== null ? $rates['upselling_rate'] / 100 : 0.0;
+        // Carried forward too, same reason as upsell_sales/
+        // upsell_confirmation above — a caller one level up re-sums these
+        // raw counts from this row's own 'derived' array rather than
+        // needing its own separate $rawRows.
+        $derived['answered'] = $rawCountTotals['answered'];
+        $derived['unanswered'] = $rawCountTotals['unanswered'];
+        $derived['confirmed_via_call'] = $rawCountTotals['confirmed_via_call'];
+
         return $derived;
     }
 
@@ -294,6 +354,23 @@ class TsaSalesReportController extends Controller
             'groupTotal' => TsaSalesCalculator::sum($tiktokRowSummaries->pluck('derived')->all()),
         ];
 
+        // $overallTotal's own Pick-up/Upselling Rate (via withAutomatedAov()
+        // below) are recomputed from SUMMED answered/unanswered/
+        // confirmed_via_call/upsell_confirmation counts, carried on every
+        // REAL team TSA's own 'derived' row — see withAutomatedAov()'s own
+        // doc comment. TikTok Upsell's own rows have no such counts (every
+        // field there, including Pick-up/Upselling Rate, is still raw
+        // manual entry with nothing to decompose into answered/unanswered
+        // — unlike DSPPR's own TikTok row, which at least has real
+        // total_leads/total_orders counts to approximate from) —
+        // array_column() inside withAutomatedAov() simply skips a row
+        // missing those keys, so TikTok's own rows are silently excluded
+        // from THIS ONE blended percentage specifically (confirmed
+        // acceptable scope, 2026-10-09 — TikTok Upsell stays fully
+        // separate from the real-team automation everywhere else on this
+        // page too). TikTok's Gross Sales/Net Income/Total Orders/Catered
+        // Leads still fold into every OTHER field of $overallTotal
+        // normally via TsaSalesCalculator::sum() below.
         $overallRows = $groupSummaries->pluck('rows')->flatten(1)->pluck('derived')
             ->merge($tiktokRowSummaries->pluck('derived'))->all();
         $overallTotal = $this->withAutomatedAov(TsaSalesCalculator::sum($overallRows), $overallRows);
