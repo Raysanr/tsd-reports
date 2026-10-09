@@ -416,9 +416,17 @@
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
 
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700">
-            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $leaderboardIsToday ? "Today's TSA Leaderboard" : 'TSA Leaderboard' }}</h2>
-            <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsell sales (₱){{ $leaderboardIsToday ? '' : ' · ' . $leaderboardRangeLabel }}</p>
+        <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-start justify-between gap-3">
+            <div>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">{{ $leaderboardIsToday ? "Today's TSA Leaderboard" : 'TSA Leaderboard' }}</h2>
+                <p class="text-xs font-mono text-slate-400 mt-0.5">Ranked by upsell sales (₱){{ $leaderboardIsToday ? '' : ' · ' . $leaderboardRangeLabel }}</p>
+            </div>
+            {{-- 'target' points at the inner div below, not this whole card —
+                 keeps the snapshot button itself out of its own PNG (same
+                 pattern as Expected Income's TSA cards). --}}
+            @if($tsaLeaderboard->isNotEmpty())
+            @include('partials.table-actions', ['target' => 'tsaLeaderboardList', 'name' => 'tsa-leaderboard', 'title' => $leaderboardIsToday ? "Today's TSA Leaderboard" : 'TSA Leaderboard', 'subtitle' => $leaderboardRangeLabel, 'pngOnly' => true])
+            @endif
         </div>
 
         @if($tsaLeaderboard->isEmpty())
@@ -432,8 +440,10 @@
              and used to stretch this card taller than its neighbor instead
              of scrolling within a matched height. Same max-h-80 convention
              Restocking's own "By TSA" card already uses further down this
-             page. --}}
-        <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-80 overflow-y-auto">
+             page. app.js's overflow-lift logic expands this max-h-80/
+             overflow-y-auto for the snapshot so every row is captured, not
+             just the visible scroll slice. --}}
+        <div class="divide-y divide-slate-100 dark:divide-slate-700 max-h-80 overflow-y-auto" id="tsaLeaderboardList">
             @foreach($tsaLeaderboard as $i => $row)
             <div class="px-5 py-3 flex items-center gap-4">
                 <span class="w-5 text-xs font-mono font-bold text-slate-300 dark:text-slate-600">{{ $i + 1 }}</span>
