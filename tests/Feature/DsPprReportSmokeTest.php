@@ -355,37 +355,85 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertSame('2', trim($totalMatch[1] ?? ''));
     }
 
-    /** REVISED 2026-10-09, same session: an earlier version of this test
-     *  asserted DSPPR's own Overall Total percentages equal Leads
-     *  Report's own Grand Total — that assumption was itself a bug,
-     *  built on a short-lived "recompute from summed counts" version of
-     *  this page's own rate math that directly contradicted an EARLIER,
-     *  already-verified-against-the-real-spreadsheet fact already
-     *  documented on DsPprCalculator::sum() (root-caused 2026-09-24,
-     *  /systematic-debugging): this page's own real source sheet defines
-     *  its OWN TOTAL row's Pick-up/Conversion/Upselling Rate as a plain
-     *  AVERAGE of each row's own percentage, NOT a ratio recomputed from
-     *  summed counts — confirmed exact against the real Sep 14 block
-     *  (55.17% = the average, not 97% from summing). DSPPR and Leads
-     *  Report are allowed to show DIFFERENT percentages for the same
-     *  underlying data; that's correct, not a bug. This test instead
-     *  verifies DSPPR's own INTERNAL consistency + the explicit
-     *  zero-activity-exclusion follow-up ("when 0.00% it is not included
-     *  to the total percentage") — a product with real orders that day
-     *  plus one with ZERO orders that day; the zero-activity product's
-     *  own 0.00% must not drag the average down (confirmed averaging
-     *  only the 1 active product's own 100% pickup rate, not (100%+0%)/2
-     *  = 50%). */
-    public function test_zero_activity_products_are_excluded_from_the_overall_totals_rate_average(): void
+    /** FINAL decision, 2026-10-09 (this flip-flopped twice the same
+     *  session — see DsPprReportController::index()'s own doc comment
+     *  for the full back-and-forth): DSPPR's own OVERALL TOTAL
+     *  Pick-up/Conversion/Upselling Rate must tally to Leads Report's own
+     *  Grand Total for the identical range ("it is still not tally, it
+     *  should be tally the total percentage" / "because it is same
+     *  data"), same sum-then-recompute-from-counts convention Summary
+     *  Sales Report's own identical fix already uses ("same as in the
+     *  sales summary report"). An EARLIER attempt at this exact fix was
+     *  reverted mid-session after a conflicting, spreadsheet-verified doc
+     *  comment was found on `DsPprCalculator::sum()` — that comment
+     *  described the OLD, no-longer-desired behavior; this is the
+     *  standing final direction. Seeds a realistic mixed bag of
+     *  dispositions across 2 products so the rates are genuinely
+     *  non-trivial, then cross-references DSPPR's $overallTotal directly
+     *  against LeadsReportController::indexAll()'s own $grandTotal for
+     *  the same day — only valid while TikTok Orders has no real data (it
+     *  has no Leads Report equivalent, so the two are expected to diverge
+     *  once TikTok carries real figures — confirmed, not a bug). */
+    public function test_the_overall_totals_percentages_match_leads_reports_grand_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $sinuxylTsa = TsaShift::where('team', 'SH Naturals')->first();
+        $pterygiumTsa = TsaShift::where('team', 'Eyecare Team')->first();
+
+        $dispositions = [
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => 'NOT ANSWERING', 'is_upsell' => false],
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => null, 'is_upsell' => true],
+            ['team' => 'Eyecare Team', 'tsa' => $pterygiumTsa, 'product' => 'Pterygium', 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['team' => 'Eyecare Team', 'tsa' => $pterygiumTsa, 'product' => 'Pterygium', 'disposition' => 'CALL BACK', 'is_upsell' => false],
+        ];
+        foreach ($dispositions as $i => $d) {
+            Order::create([
+                'pancake_order_id' => "dsppr-pct-{$i}", 'team' => $d['team'], 'tsa_name' => $d['tsa']->tsa_key,
+                'disposition' => $d['disposition'], 'product' => $d['product'],
+                'raw_tags' => array_filter([strtoupper($d['tsa']->tsa_key), $d['disposition'], $d['is_upsell'] ? 'UPSELL TSD' : null]),
+                'is_upsell' => $d['is_upsell'], 'status_code' => 1,
+                'pancake_created_at' => "{$date} 10:00:00", 'pancake_inserted_at' => "{$date} 10:00:00",
+                'synced_at' => now(),
+            ]);
+        }
+
+        $dsppr = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]));
+        $leadsReport = $this->actingAs($admin)->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $dsppr->assertOk();
+        $leadsReport->assertOk();
+
+        $grandTotal = $leadsReport->viewData('grandTotal');
+        $content = $dsppr->getContent();
+        $overallTotalStart = strpos($content, 'OVERALL TOTAL');
+        $this->assertNotFalse($overallTotalStart);
+        $overallTotalHtml = substr($content, $overallTotalStart, 1500);
+
+        foreach (['pickup_rate' => 'pick_up_rate', 'conversion_rate' => 'conversion_rate', 'upselling_rate' => 'upselling_rate'] as $dsPprKey => $leadsKey) {
+            preg_match('/data-out="' . $dsPprKey . '"[^>]*>([^<]*)</', $overallTotalHtml, $m);
+            $dsPprPct = (float) trim(str_replace('%', '', $m[1] ?? '0'));
+            $leadsPct = round((float) ($grandTotal[$leadsKey] ?? 0), 1);
+            $this->assertEqualsWithDelta($leadsPct, $dsPprPct, 0.15, "{$dsPprKey} mismatch: DSPPR={$dsPprPct} vs Leads Report={$leadsPct}");
+        }
+    }
+
+    /** Companion test: a product with real orders that day plus every
+     *  OTHER product at zero orders (every product now gets a card
+     *  regardless of activity — 2026-10-06 decision) — the sum-then-
+     *  recompute convention above is naturally immune to zero-activity
+     *  dilution (a 0-total_leads product contributes 0/0 to the sum, not
+     *  a diluting literal 0%), unlike the plain-average convention this
+     *  page used to use. */
+    public function test_zero_activity_products_do_not_dilute_the_overall_totals_rate(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $date = today()->toDateString();
         $tsa = TsaShift::where('team', 'SH Naturals')->first();
 
-        // One real, fully-answered order — a genuine 100% Pick-up Rate
-        // for this one product. Every OTHER product on the page has zero
-        // orders that day (every product now gets a card regardless of
-        // activity — 2026-10-06 decision).
         Order::create([
             'pancake_order_id' => 'dsppr-zero-activity-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
             'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Sinuxyl',
@@ -405,8 +453,6 @@ class DsPprReportSmokeTest extends TestCase
         preg_match('/data-out="pickup_rate"[^>]*>([^<]*)</', $overallTotalHtml, $m);
         $pct = (float) trim(str_replace('%', '', $m[1] ?? '0'));
 
-        // 100.00%, not an average dragged down by every zero-activity
-        // product's own 0.00%.
         $this->assertEqualsWithDelta(100.0, $pct, 0.15, "Pick-up Rate should be 100% (the one active product's own real rate), got {$pct}");
     }
 

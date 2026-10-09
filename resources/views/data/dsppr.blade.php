@@ -581,7 +581,7 @@
                             // exactly.
                             $realRows = $rows->map(function ($row) use ($realByRowKeyAndDate, $dateStr) {
                                 $rowKey = $row['group'] ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
-                                return $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? ['total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'pickup_rate' => 0.0, 'conversion_rate' => 0.0, 'upselling_rate' => 0.0];
+                                return $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? ['total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0];
                             });
                             $dayTotal = array_merge(
                                 \App\Support\DsPprCalculator::sum($perProductRows ?: [['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0]]),
@@ -596,46 +596,45 @@
                             // data backs it), so its Gross Sales/Net Income/
                             // Total Orders/Total Leads/Catered Leads all add
                             // straight onto the real-product totals above.
-                            $tiktokRaw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'pickup_rate' => 0.0, 'conversion_rate' => 0.0, 'upselling_rate' => 0.0]);
+                            $tiktokRaw = $tiktokDailyByKey->get($dateStr, ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0]);
                             $dayTotal['gross_sales']   += $tiktokRaw['gross_sales'];
                             $dayTotal['net_income']    += $tiktokRaw['net_income'];
                             $dayTotal['total_orders']  += $tiktokRaw['total_orders'];
                             $dayTotal['total_leads']   += $tiktokRaw['total_leads'];
                             $dayTotal['catered_leads'] += $tiktokRaw['catered_leads'];
                             $dayTotal['excess_leads']  = max(0, $dayTotal['total_leads'] - $dayTotal['catered_leads']);
-                            // Pick-up/Conversion/Upselling Rate are a plain
-                            // AVERAGE of every display row's own rate — same
-                            // convention DsPprCalculator::sum() already
-                            // uses, confirmed exact against the real source
-                            // sheet's own Sep 14 TOTAL row (root-caused
-                            // 2026-09-24, /systematic-debugging: "55.17% =
-                            // average of that day's 8 REAL per-product
-                            // Pick-up Rates" — see that method's own doc
-                            // comment for the full evidence). REVERTED
-                            // 2026-10-09 from a short-lived "recompute from
-                            // summed counts" version that directly
-                            // contradicted this already-verified fact.
-                            //
-                            // Only rows with REAL activity that day count
-                            // toward the average (explicit follow-up,
-                            // 2026-10-09: "when 0.00% it is not included to
-                            // the total percentage") — a product/TikTok row
-                            // with zero total_leads that day never had any
-                            // calls at all, so its "0.00%" is an absence of
-                            // data, not a genuine 0% Pick-up Rate; including
-                            // it would drag the average down the same way a
-                            // 0-weighted row shouldn't count in any mean.
-                            // This is also almost certainly what the real
-                            // sheet's own verified "8" row count already
-                            // meant ("8 REAL per-product rates" — out of a
-                            // larger full product catalog, implying the
-                            // inactive ones were never part of that 8 to
-                            // begin with).
-                            $rateRows = $realRows->push($tiktokRaw)->values()->filter(fn ($r) => ($r['total_leads'] ?? 0) > 0);
-                            $rateRowCount = $rateRows->count();
-                            $dayTotal['pickup_rate']     = $rateRowCount > 0 ? $rateRows->sum('pickup_rate') / $rateRowCount : 0.0;
-                            $dayTotal['conversion_rate'] = $rateRowCount > 0 ? $rateRows->sum('conversion_rate') / $rateRowCount : 0.0;
-                            $dayTotal['upselling_rate']  = $rateRowCount > 0 ? $rateRows->sum('upselling_rate') / $rateRowCount : 0.0;
+                            // Pick-up/Conversion/Upselling Rate are
+                            // recomputed from the SUMMED raw tally() counts
+                            // across every display row (plus TikTok's own
+                            // manual total folded in the same way), NEVER
+                            // averaged per-row — FINAL decision, 2026-10-09
+                            // (flip-flopped twice this same day — see
+                            // DsPprReportController::index()'s own identical
+                            // doc comment for the full back-and-forth):
+                            // explicitly confirmed by direct instruction
+                            // that this row must tally to Leads Report's
+                            // own Grand Total for the same range ("because
+                            // it is same data"), overriding the earlier
+                            // 2026-09-24 spreadsheet-average convention. A
+                            // useful side effect: immune to the earlier
+                            // zero-activity-dilution bug a plain average
+                            // had (a 0-total_leads row contributes 0/0 to
+                            // the sum, never a diluting literal 0%) — no
+                            // separate exclusion filter needed any more.
+                            // Only diverges from Leads Report once TikTok
+                            // Orders has real data in it (Leads Report has
+                            // no TikTok concept at all) — confirmed
+                            // expected, not a bug.
+                            $rawCountTotals = [
+                                'answered' => $realRows->sum('answered') + (float) $tiktokRaw['total_leads'],
+                                'unanswered' => $realRows->sum('unanswered'),
+                                'confirmed_via_call' => $realRows->sum('confirmed_via_call'),
+                                'upsell_confirmation' => $realRows->sum('upsell_confirmation') + (float) $tiktokRaw['total_orders'],
+                            ];
+                            $sumThenRates = \App\Support\ProductPerformance::rates($rawCountTotals);
+                            $dayTotal['pickup_rate']     = $sumThenRates['pick_up_rate'] !== null ? $sumThenRates['pick_up_rate'] / 100 : 0.0;
+                            $dayTotal['conversion_rate'] = $sumThenRates['conversion_rate'] !== null ? $sumThenRates['conversion_rate'] / 100 : 0.0;
+                            $dayTotal['upselling_rate']  = $sumThenRates['upselling_rate'] !== null ? $sumThenRates['upselling_rate'] / 100 : 0.0;
                             $dayTotal['ni_pct'] = $dayTotal['gross_sales'] > 0 ? $dayTotal['net_income'] / $dayTotal['gross_sales'] : 0.0;
                             // AOV depends on total_orders, which the merge
                             // above just overwrote AFTER DsPprCalculator::
