@@ -603,7 +603,7 @@ class TsaSalesReportSmokeTest extends TestCase
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
         $response->assertOk();
 
-        preg_match('/<tr class="tsr-summary-row[^"]*" data-tsa-id="' . $tsa->id . '">.*?<\/tr>/s', $response->getContent(), $matches);
+        preg_match('/<tr class="tsr-summary-row[^"]*" data-tsa-id="' . $tsa->id . '"[^>]*>.*?<\/tr>/s', $response->getContent(), $matches);
         $this->assertNotEmpty($matches, 'expected to find the MTD summary row for this TSA');
         $this->assertMatchesRegularExpression(
             '/data-out="total_orders">\s*3\s*</',
@@ -930,5 +930,53 @@ class TsaSalesReportSmokeTest extends TestCase
             $perfPct = round((float) ($grandTotal[$perfKey] ?? 0), 1);
             $this->assertEqualsWithDelta($perfPct, $tsrPct, 0.15, "Daily table OVERALL TOTAL {$tsrKey} mismatch: Summary Sales Report={$tsrPct} vs TSA Performance={$perfPct}");
         }
+    }
+
+    /** Real production bug, root-caused live 2026-10-09 (screenshot,
+     *  right after the server-side fixes above shipped): typing into ANY
+     *  TikTok Upsell field (which never touches a real team's own rate)
+     *  still live-repainted the summary table's own OVERALL TOTAL back
+     *  to the old wrong averaged percentage — the client-side
+     *  refreshOverallTotal()/refreshGroupTotal()/refreshSummaryRow()/
+     *  refreshDayTotal()/refreshDayOverallTotal() functions all still
+     *  averaged each row's own already-rendered percentage, same bug
+     *  class as the server-side fix, just never applied to the JS. Fixed
+     *  by exposing each row's own raw answered/unanswered/
+     *  confirmed_via_call/upsell_confirmation counts as data-* attributes
+     *  (on the summary table's own tsr-summary-row, and on the daily
+     *  table's own pickup_rate/upselling_rate cells) so the JS can
+     *  recompute via the same rateFromCounts() formula instead of
+     *  averaging. This test only confirms the SERVER renders those
+     *  data-* attributes with the correct values (PHPUnit can't execute
+     *  the JS itself) — the actual live-recompute behavior was
+     *  re-verified manually in the browser. */
+    public function test_summary_row_and_daily_rate_cells_carry_raw_counts_for_live_recompute(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+
+        Order::create([
+            'pancake_order_id' => 'tsr-raw-counts-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'tsr-raw-counts-2', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'disposition' => 'NOT ANSWERING', 'is_upsell' => false, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => "{$date} 11:00:00", 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', ['date_from' => $date, 'date_to' => $date]));
+        $response->assertOk();
+        $content = $response->getContent();
+
+        preg_match('/<tr class="tsr-summary-row[^"]*" data-tsa-id="' . $tsa->id . '"[^>]*>/', $content, $rowMatch);
+        $this->assertNotEmpty($rowMatch, 'expected to find the MTD summary row for this TSA');
+        $this->assertMatchesRegularExpression('/data-answered="1"/', $rowMatch[0]);
+        $this->assertMatchesRegularExpression('/data-unanswered="1"/', $rowMatch[0]);
+
+        preg_match('/data-out="pickup_rate" data-date="' . preg_quote($date, '/') . '"[^>]*data-answered="1"[^>]*>/', $content, $cellMatch);
+        $this->assertNotEmpty($cellMatch, 'expected the daily table\'s own pickup_rate cell to carry the real answered=1 count');
     }
 }

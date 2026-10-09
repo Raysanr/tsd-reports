@@ -157,7 +157,8 @@
             <tbody>
                 @foreach($gs['rows'] as $rs)
                 @php $d = $rs['derived']; @endphp
-                <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
+                <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}"
+                    data-answered="{{ $d['answered'] ?? 0 }}" data-unanswered="{{ $d['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $d['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $d['upsell_confirmation'] ?? 0 }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $niColorClass($d['net_income']) }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
@@ -170,7 +171,8 @@
                 </tr>
                 @endforeach
                 @php $gt = $gs['groupTotal']; @endphp
-                <tr class="tsr-group-total-row bg-slate-800 text-white font-bold" data-group-label="{{ $gs['label'] }}">
+                <tr class="tsr-group-total-row bg-slate-800 text-white font-bold" data-group-label="{{ $gs['label'] }}"
+                    data-answered="{{ $gt['answered'] ?? 0 }}" data-unanswered="{{ $gt['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $gt['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $gt['upsell_confirmation'] ?? 0 }}">
                     <td class="tsr-sticky px-3 py-2.5" style="background-color:#1e293b;">{{ strtoupper($gs['label']) }} TOTAL:</td>
                     <td class="px-3 py-2.5 text-right" data-out="gross_sales">{{ $fmtMoney($gt['gross_sales']) }}</td>
                     <td class="px-3 py-2.5 text-right {{ $niColorClass($gt['net_income'], true) }}" data-out="net_income">{{ $fmtMoney($gt['net_income']) }}</td>
@@ -411,7 +413,10 @@
                                 };
                             @endphp
                             <td class="px-3 py-2 text-right {{ $borderClass }} {{ $cellColor }}"
-                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}">
+                                data-out="{{ $col['key'] }}" data-date="{{ $dateStr }}"
+                                @if(in_array($col['key'], ['pickup_rate', 'upselling_rate'], true))
+                                data-answered="{{ $raw['answered'] ?? 0 }}" data-unanswered="{{ $raw['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $raw['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $raw['upsell_confirmation'] ?? 0 }}"
+                                @endif>
                                 {{ ($col['pct'] ?? false) ? $fmtPct($d[$col['key']]) : (($col['int'] ?? false) ? number_format($d[$col['key']]) : $fmtMoney($d[$col['key']])) }}
                             </td>
                             @endif
@@ -548,6 +553,26 @@
     function parseMoney(str) { return Number(String(str).replace(/,/g, '')) || 0; }
     function parsePercentInput(str) { return (Number(String(str).replace(/,/g, '')) || 0) / 100; }
 
+    // Mirrors ProductPerformance::rates() exactly (PHP, server-side) —
+    // Pick-up Rate = answered / (answered + unanswered); Upselling Rate =
+    // upsell_confirmation / (upsell_confirmation + confirmed_via_call).
+    // Added 2026-10-09: refreshOverallTotal()/refreshGroupTotal() used to
+    // average each row's own already-rendered percentage instead, same
+    // bug class as TsaSalesReportController::withAutomatedAov()'s own
+    // same-day fix — root-caused live, screenshot: typing into ANY
+    // TikTok field (which never even touches a real team's own rate)
+    // still live-repainted the summary table's OVERALL TOTAL back to the
+    // old wrong averaged percentage, overwriting the correct server-
+    // rendered value until a hard refresh. Returns fractions (0-1), same
+    // convention every other rate in this file uses.
+    function rateFromCounts(answered, unanswered, upsellConfirmation, confirmedViaCall) {
+        const totalCalled = answered + unanswered;
+        const pickupRate = totalCalled > 0 ? answered / totalCalled : 0;
+        const upsellDenominator = upsellConfirmation + confirmedViaCall;
+        const upsellingRate = upsellDenominator > 0 ? upsellConfirmation / upsellDenominator : 0;
+        return { pickup_rate: pickupRate, upselling_rate: upsellingRate };
+    }
+
     // A leading '-' is kept (not stripped) — explicit request, 2026-10-03:
     // "i want to make it can input negative amount ... if negative red
     // and if positive it is green like in the dsppr page" — same
@@ -655,7 +680,7 @@
     function refreshDayTotal(scope, date) {
         const rows = scope.querySelectorAll('.tsr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
-        let pickupSum = 0, upsellSum = 0, rowCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
         rows.forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
             totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
@@ -665,10 +690,19 @@
             // comment) — read their rendered text instead.
             totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
             totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
-            pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
-            upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
-            rowCount += 1;
+            // Pick-up/Upselling Rate recomputed from summed raw counts
+            // (2026-10-09 — see rateFromCounts()'s own doc comment), not
+            // averaged from each row's own rendered percentage — the
+            // pickup_rate cell carries this date's own raw counts as
+            // data-* attributes (added same day, see the Blade markup
+            // just above this script).
+            const rateCell = row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`);
+            counts.answered += Number(rateCell?.dataset.answered) || 0;
+            counts.unanswered += Number(rateCell?.dataset.unanswered) || 0;
+            counts.confirmed_via_call += Number(rateCell?.dataset.confirmedViaCall) || 0;
+            counts.upsell_confirmation += Number(rateCell?.dataset.upsellConfirmation) || 0;
         });
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
         // No 'aov' key here — it's automated now (upsell_sales ÷
         // upsell_confirmation, not Gross Sales ÷ Total Orders — see
         // TsaSalesReportController::withAutomatedAov()'s own doc
@@ -680,8 +714,8 @@
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            upselling_rate: rates.upselling_rate,
         };
         const totalRow = scope.querySelector('.tsr-day-total-row');
         if (totalRow) applyDerived(totalRow, date, derived);
@@ -695,7 +729,7 @@
         if (!summaryTable) return;
 
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
-        let pickupSum = 0, upsellSum = 0, dayCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
 
         document.querySelectorAll(`.tsr-days-table .tsr-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
             row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
@@ -704,11 +738,22 @@
                 totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
                 totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
                 totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
-                pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
-                upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
-                dayCount += 1;
+                // Pick-up/Upselling Rate recomputed from this TSA's own
+                // SUMMED raw counts across every date (2026-10-09), not
+                // averaged per day — matches
+                // TsaSalesReportController::withAutomatedAov()'s own fix,
+                // which applies at the per-TSA level too (TsaSalesCalculator
+                // ::sum($tsaRows) there sums one TSA's own days, same as
+                // here).
+                const rateCell = row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`);
+                counts.answered += Number(rateCell?.dataset.answered) || 0;
+                counts.unanswered += Number(rateCell?.dataset.unanswered) || 0;
+                counts.confirmed_via_call += Number(rateCell?.dataset.confirmedViaCall) || 0;
+                counts.upsell_confirmation += Number(rateCell?.dataset.upsellConfirmation) || 0;
             });
         });
+
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
 
         // No 'aov' key — automated now, untouched by a Gross Sales/Net
         // Income edit; see refreshDayTotal()'s own comment above.
@@ -716,8 +761,8 @@
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            pickup_rate: dayCount > 0 ? pickupSum / dayCount : 0,
-            upselling_rate: dayCount > 0 ? upsellSum / dayCount : 0,
+            pickup_rate: rates.pickup_rate,
+            upselling_rate: rates.upselling_rate,
         };
 
         const summaryRow = summaryTable.querySelector(`.tsr-summary-row[data-tsa-id="${tsaId}"]`);
@@ -747,17 +792,30 @@
         if (!groupTotalRow) return;
         const tbody = groupTotalRow.closest('tbody');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
-        let pickupSum = 0, upsellSum = 0, rowCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
 
         tbody.querySelectorAll('.tsr-summary-row').forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
             totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
             totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
             totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
-            pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
-            upsellSum += parseFloat(row.querySelector('[data-out="upselling_rate"]').textContent) / 100;
-            rowCount += 1;
+            // Pick-up/Upselling Rate recomputed from this GROUP's own
+            // summed raw counts (2026-10-09), not averaged per TSA — the
+            // counts live as data-* attributes on the row itself (see the
+            // Blade markup), seeded fresh on every page load but NOT
+            // updated live by refreshSummaryRow() above (that function
+            // only repaints the row's own [data-out] text, never its own
+            // dataset) — acceptable here since Gross Sales/Net Income
+            // edits never change a TSA's own real answered/unanswered
+            // counts, so the dataset seeded at page load stays correct
+            // for the lifetime of the page.
+            counts.answered += Number(row.dataset.answered) || 0;
+            counts.unanswered += Number(row.dataset.unanswered) || 0;
+            counts.confirmed_via_call += Number(row.dataset.confirmedViaCall) || 0;
+            counts.upsell_confirmation += Number(row.dataset.upsellConfirmation) || 0;
         });
+
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
 
         // No 'aov' key — automated now; see refreshDayTotal()'s own
         // comment above.
@@ -765,8 +823,8 @@
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            upselling_rate: rates.upselling_rate,
         };
 
         groupTotalRow.querySelectorAll('[data-out]').forEach((el) => {
@@ -785,21 +843,29 @@
 
     function refreshOverallTotal(summaryTable) {
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
-        let pickupSum = 0, upsellSum = 0, rowCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
 
         // .tsr-summary-row also matches .tsr-tiktok-summary-row (TikTok's
         // rows add that class on top, see the blade markup) — overall
         // total includes TikTok Upsell, same as the server-side
-        // $overallRows merge in TsaSalesReportController::index().
+        // $overallRows merge in TsaSalesReportController::index(). Rate
+        // counts (data-answered etc.) are only rendered on REAL team
+        // rows (see the Blade markup) — a TikTok row's own dataset reads
+        // as undefined/NaN here, which Number(undefined) safely zeroes
+        // out, same "TikTok excluded from this one blended percentage"
+        // rule the server-side fix already applies.
         summaryTable.querySelectorAll('tbody .tsr-summary-row').forEach((row) => {
             totals.gross_sales += parseMoney(row.querySelector('[data-out="gross_sales"]').textContent);
             totals.net_income += parseMoney(row.querySelector('[data-out="net_income"]').textContent);
             totals.total_orders += parseMoney(row.querySelector('[data-out="total_orders"]').textContent);
             totals.catered_leads += parseMoney(row.querySelector('[data-out="catered_leads"]').textContent);
-            pickupSum += parseFloat(row.querySelector('[data-out="pickup_rate"]').textContent) / 100;
-            upsellSum += parseFloat(row.querySelector('[data-out="upselling_rate"]').textContent) / 100;
-            rowCount += 1;
+            counts.answered += Number(row.dataset.answered) || 0;
+            counts.unanswered += Number(row.dataset.unanswered) || 0;
+            counts.confirmed_via_call += Number(row.dataset.confirmedViaCall) || 0;
+            counts.upsell_confirmation += Number(row.dataset.upsellConfirmation) || 0;
         });
+
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
 
         // No 'aov' key — automated now; see refreshDayTotal()'s own
         // comment above.
@@ -807,8 +873,8 @@
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            upselling_rate: rates.upselling_rate,
         };
 
         const totalRow = summaryTable.querySelector('.tsr-overall-total-row');
@@ -870,7 +936,7 @@
     function refreshDayOverallTotal(table, date) {
         const rows = table.querySelectorAll('.tsr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
-        let pickupSum = 0, upsellSum = 0, rowCount = 0;
+        let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
         rows.forEach((row) => {
             const isTiktokRow = row.classList.contains('tsr-tiktok-row');
             totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
@@ -878,16 +944,22 @@
             if (isTiktokRow) {
                 totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
                 totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
-                pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
-                upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
+                // TikTok's own Pick-up/Upselling Rate is excluded from
+                // THIS blended percentage (2026-10-09 — same confirmed
+                // scope as TsaSalesReportController::index()'s own
+                // $teamDayRawRows exclusion: genuinely manual, no raw
+                // answered/unanswered counts to sum).
             } else {
                 totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
                 totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
-                pickupSum += parseFloat(row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`).textContent) / 100;
-                upsellSum += parseFloat(row.querySelector(`[data-out="upselling_rate"][data-date="${date}"]`).textContent) / 100;
+                const rateCell = row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`);
+                counts.answered += Number(rateCell?.dataset.answered) || 0;
+                counts.unanswered += Number(rateCell?.dataset.unanswered) || 0;
+                counts.confirmed_via_call += Number(rateCell?.dataset.confirmedViaCall) || 0;
+                counts.upsell_confirmation += Number(rateCell?.dataset.upsellConfirmation) || 0;
             }
-            rowCount += 1;
         });
+        const rates = rateFromCounts(counts.answered, counts.unanswered, counts.upsell_confirmation, counts.confirmed_via_call);
         // No 'aov' key — same "leave the existing cell untouched, it's
         // automated server-side and doesn't move from a Gross Sales/Net
         // Income edit" reasoning as refreshDayTotal()'s own comment.
@@ -895,8 +967,8 @@
             gross_sales: totals.gross_sales, net_income: totals.net_income,
             total_orders: totals.total_orders, catered_leads: totals.catered_leads,
             ni_pct: totals.gross_sales > 0 ? totals.net_income / totals.gross_sales : 0,
-            pickup_rate: rowCount > 0 ? pickupSum / rowCount : 0,
-            upselling_rate: rowCount > 0 ? upsellSum / rowCount : 0,
+            pickup_rate: rates.pickup_rate,
+            upselling_rate: rates.upselling_rate,
         };
         const totalRow = table.querySelector('.tsr-day-overall-total-row');
         if (totalRow) applyDerived(totalRow, date, derived);

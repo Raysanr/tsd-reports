@@ -106,6 +106,44 @@ class DsPprCalculatorTest extends TestCase
         $this->assertEqualsWithDelta(0.60, $summed['upselling_rate'], 0.0001);
     }
 
+    /** Explicit follow-up, 2026-10-09, same session as the averaging
+     *  convention above was re-confirmed: "when 0.00% it is not included
+     *  to the total percentage" — a row with zero total_leads never had
+     *  any real activity that day/range, so it must not count toward the
+     *  rate average at all (its own implicit 0% would otherwise drag the
+     *  average down). Became newly visible once every product started
+     *  getting a card regardless of activity (2026-10-06 decision) —
+     *  $rows passed into sum() can now genuinely contain zero-activity
+     *  rows where it never used to. */
+    public function test_sum_excludes_zero_activity_rows_from_the_rate_average(): void
+    {
+        $active = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 2, 'total_leads' => 10, 'catered_leads' => 10, 'pickup_rate' => 1.0, 'conversion_rate' => 0.2, 'upselling_rate' => 0.2];
+        $inactive = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'pickup_rate' => 0.0, 'conversion_rate' => 0.0, 'upselling_rate' => 0.0];
+
+        $summed = DsPprCalculator::sum([$active, $inactive, $inactive]);
+
+        // 100% (the one active row's own real rate), NOT (100%+0%+0%)/3 =
+        // 33.3% — the 2 inactive rows must be excluded entirely, not
+        // averaged in as genuine zeros.
+        $this->assertEqualsWithDelta(1.0, $summed['pickup_rate'], 0.0001);
+        $this->assertEqualsWithDelta(0.2, $summed['conversion_rate'], 0.0001);
+        $this->assertEqualsWithDelta(0.2, $summed['upselling_rate'], 0.0001);
+    }
+
+    /** Every row inactive (a day/range with no real activity at all) must
+     *  not divide by zero — falls back to 0%, same as derive()'s own
+     *  empty-row behavior. */
+    public function test_sum_with_every_row_inactive_does_not_divide_by_zero(): void
+    {
+        $inactive = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0];
+
+        $summed = DsPprCalculator::sum([$inactive, $inactive]);
+
+        $this->assertSame(0.0, $summed['pickup_rate']);
+        $this->assertSame(0.0, $summed['conversion_rate']);
+        $this->assertSame(0.0, $summed['upselling_rate']);
+    }
+
     /**
      * Real bug, root-caused 2026-10-05: the summary table's Pick-up/
      * Conversion/Upselling Rate never matched the daily table for the

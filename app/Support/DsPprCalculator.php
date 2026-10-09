@@ -124,15 +124,38 @@ class DsPprCalculator
 
         $summed = self::derive($totals);
 
-        $rowCount = count($rows);
-        if ($rowCount > 0) {
+        // Only rows with REAL activity (total_leads > 0) count toward the
+        // Pick-up/Conversion/Upselling Rate average (explicit follow-up,
+        // 2026-10-09, same day as the averaging convention itself was
+        // re-confirmed: "when 0.00% it is not included to the total
+        // percentage") — a row with zero total_leads never had any real
+        // calls that day/range, so its "0.00%" is an absence of data, not
+        // a genuine 0% rate, and including it drags the average down.
+        // Almost certainly what this method's own earlier "8 REAL
+        // per-product Pick-up Rates" verified evidence already meant (see
+        // this method's own class-level doc comment) — "REAL" implying
+        // only the active ones were ever counted, not every row in the
+        // full product catalog passed in. Every product now gets a card
+        // regardless of activity (2026-10-06 decision), which is what
+        // made this gap newly visible — $rows used to only ever contain
+        // rows with real data to begin with.
+        $activeRateRows = array_values(array_filter($rows, function (array $row) {
+            $totalLeads = array_key_exists('total_leads', $row) ? (float) $row['total_leads'] : self::derive($row)['total_leads'];
+            return $totalLeads > 0;
+        }));
+        $rateRowCount = count($activeRateRows);
+        if ($rateRowCount > 0) {
             $rateOf = fn (array $row, string $key) => array_key_exists($key, $row)
                 ? (float) $row[$key]
                 : self::derive($row)[$key];
 
-            $summed['pickup_rate']     = array_sum(array_map(fn ($row) => $rateOf($row, 'pickup_rate'), $rows)) / $rowCount;
-            $summed['conversion_rate'] = array_sum(array_map(fn ($row) => $rateOf($row, 'conversion_rate'), $rows)) / $rowCount;
-            $summed['upselling_rate']  = array_sum(array_map(fn ($row) => $rateOf($row, 'upselling_rate'), $rows)) / $rowCount;
+            $summed['pickup_rate']     = array_sum(array_map(fn ($row) => $rateOf($row, 'pickup_rate'), $activeRateRows)) / $rateRowCount;
+            $summed['conversion_rate'] = array_sum(array_map(fn ($row) => $rateOf($row, 'conversion_rate'), $activeRateRows)) / $rateRowCount;
+            $summed['upselling_rate']  = array_sum(array_map(fn ($row) => $rateOf($row, 'upselling_rate'), $activeRateRows)) / $rateRowCount;
+        }
+
+        $rowCount = count($rows);
+        if ($rowCount > 0) {
 
             // Excess Leads (explicit request, 2026-10-07, TIKTOK ORDERS'
             // own manual rate-override columns — see
