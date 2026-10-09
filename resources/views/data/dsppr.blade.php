@@ -554,26 +554,42 @@
                                 $entry = $dailyByKey->get($product->id . ':' . $dateStr);
                                 return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
                             })->all();
-                            // Gross Sales/Net Income sum normally across
-                            // every real product's own entry. Total Orders/
-                            // Leads/Catered/Excess/rates do NOT — they come
-                            // from exactly ONE real-data row pooled across
-                            // every real product at once (merged in AFTER
-                            // summing, not summed alongside Gross Sales),
-                            // since every product's own entry would
-                            // otherwise carry an IDENTICAL copy of that same
-                            // pooled figure and summing N identical copies
-                            // inflates it by a factor of N (root-caused
-                            // live, 2026-10-01: a 9-product day showed
-                            // 4,172 Total Orders and 116% rates — a real
-                            // order matched once per product still counts
-                            // once, period, same "a cross-team combo order
-                            // only counts once" reasoning as the
-                            // controller's own doc comment on
-                            // $realByRowKeyAndDate).
+                            // Total Orders/Leads/Catered/Excess/rates are
+                            // SUMMED one display ROW at a time from
+                            // $realByRowKeyAndDate (each row's own already-
+                            // deduped dsPprRow() figure for this date) —
+                            // NOT recomputed by pooling every real product
+                            // into one single dsPprRow() call globally
+                            // (root-caused live, 2026-10-09: the per-day
+                            // TOTAL row showed 298 while the top
+                            // "TELESALES RUNNING PERFORMANCE" summary and
+                            // Leads Report's own Grand Total both showed
+                            // 299 for the exact same day — a real order
+                            // genuinely matching TWO different products'
+                            // own rows, e.g. a cross-team combo, is
+                            // DELIBERATELY counted once per matching row
+                            // everywhere else on this page and on Leads
+                            // Report's own Grand Total ("Grand Total is a
+                            // plain sum of the visible rows" — see
+                            // LeadsReportController's own shift-window
+                            // comment); pooling every product into one
+                            // globally-deduped call here instead silently
+                            // dropped that order's second count, same
+                            // "299 vs 298" 1-order gap). Sum-of-rows here
+                            // now matches $overallTotal's own
+                            // `DsPprCalculator::sum($rows->pluck('derived')...)`
+                            // exactly.
+                            $realRows = $rows->map(function ($row) use ($realByRowKeyAndDate, $dateStr) {
+                                $rowKey = $row['group'] ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
+                                return $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? ['total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0];
+                            });
                             $dayTotal = array_merge(
                                 \App\Support\DsPprCalculator::sum($perProductRows ?: [['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0]]),
-                                \App\Support\ProductPerformance::dsPprRow($allProducts, $ordersByDate[$dateStr] ?? collect())
+                                [
+                                    'total_orders'    => $realRows->sum('total_orders'),
+                                    'total_leads'     => $realRows->sum('total_leads'),
+                                    'catered_leads'   => $realRows->sum('catered_leads'),
+                                ]
                             );
                             // TIKTOK ORDERS row folded in on top — its own
                             // raw numbers are ALL manual (no real Order
@@ -587,6 +603,30 @@
                             $dayTotal['total_leads']   += $tiktokRaw['total_leads'];
                             $dayTotal['catered_leads'] += $tiktokRaw['catered_leads'];
                             $dayTotal['excess_leads']  = max(0, $dayTotal['total_leads'] - $dayTotal['catered_leads']);
+                            // Pick-up/Conversion/Upselling Rate are
+                            // recomputed from the SUMMED raw tally() counts
+                            // across every display row (plus TikTok's own
+                            // manual total folded in the same way the
+                            // controller's own $overallTotal does) — NEVER
+                            // averaged per-row — same definition Leads
+                            // Report's own Grand Total uses
+                            // (ProductPerformance::sumRows()'s own doc
+                            // comment: "averaging percentages across rows
+                            // of different sizes is meaningless"). Matches
+                            // $overallTotal's own identical fix in
+                            // DsPprReportController::index(), so this
+                            // TOTAL row's percentages never disagree with
+                            // the top summary's.
+                            $rawCountTotals = [
+                                'answered' => $realRows->sum('answered') + (float) $tiktokRaw['total_leads'],
+                                'unanswered' => $realRows->sum('unanswered'),
+                                'confirmed_via_call' => $realRows->sum('confirmed_via_call'),
+                                'upsell_confirmation' => $realRows->sum('upsell_confirmation') + (float) $tiktokRaw['total_orders'],
+                            ];
+                            $sumThenRates = \App\Support\ProductPerformance::rates($rawCountTotals);
+                            $dayTotal['pickup_rate']     = $sumThenRates['pick_up_rate'] !== null ? $sumThenRates['pick_up_rate'] / 100 : 0.0;
+                            $dayTotal['conversion_rate'] = $sumThenRates['conversion_rate'] !== null ? $sumThenRates['conversion_rate'] / 100 : 0.0;
+                            $dayTotal['upselling_rate']  = $sumThenRates['upselling_rate'] !== null ? $sumThenRates['upselling_rate'] / 100 : 0.0;
                             $dayTotal['ni_pct'] = $dayTotal['gross_sales'] > 0 ? $dayTotal['net_income'] / $dayTotal['gross_sales'] : 0.0;
                             // AOV depends on total_orders, which the merge
                             // above just overwrote AFTER DsPprCalculator::

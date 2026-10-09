@@ -539,6 +539,20 @@ class ProductPerformance
             'pickup_rate'     => $tally['pick_up_rate'] !== null ? $tally['pick_up_rate'] / 100 : 0.0,
             'conversion_rate' => $tally['conversion_rate'] !== null ? $tally['conversion_rate'] / 100 : 0.0,
             'upselling_rate'  => $tally['upselling_rate'] !== null ? $tally['upselling_rate'] / 100 : 0.0,
+            // Raw tally() counts, not just the 3 derived rates above —
+            // added 2026-10-09 so a caller SUMMING multiple rows (e.g. the
+            // DSPPR daily table's own TOTAL row across every display row)
+            // can recompute rates the SAME way sumRows()'s own Grand Total
+            // does: from the SUMMED counts (rates() applied once, after
+            // summing), never by averaging each row's own already-derived
+            // percentage — "averaging percentages across rows of
+            // different sizes is meaningless" (see sumRows()'s own doc
+            // comment). Additive only; every existing consumer of this
+            // method's return value is unaffected.
+            'answered'           => $tally['answered'],
+            'unanswered'         => $tally['unanswered'],
+            'confirmed_via_call' => $tally['confirmed_via_call'],
+            'upsell_confirmation' => $tally['upsell_confirmation'],
         ];
     }
 

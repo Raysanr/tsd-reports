@@ -293,6 +293,124 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertStringNotContainsString('116.4', $totalRowHtml);
     }
 
+    /** Real production bug, root-caused live 2026-10-09: the per-day TOTAL
+     *  row's own Total Leads (298) disagreed with the top "TELESALES
+     *  RUNNING PERFORMANCE" summary row (299) for the exact same single
+     *  day — a 1-lead gap. Cause: the TOTAL row used to compute Total
+     *  Leads by pooling EVERY real product into ONE
+     *  ProductPerformance::dsPprRow() call and deduping matched orders
+     *  GLOBALLY across the whole pool — but the top summary (and
+     *  LeadsReportController's own ALL-view Grand Total, "a plain sum of
+     *  the visible rows") sums each product/group's own ALREADY-deduped
+     *  count, so a real order genuinely matching TWO different products
+     *  (a cross-team combo bundle) is deliberately counted ONCE PER
+     *  MATCHING ROW everywhere else on this page, but the old TOTAL row
+     *  silently deduped it down to once total. Fixed: the TOTAL row now
+     *  sums $realByRowKeyAndDate's own per-row figures for that date (the
+     *  SAME source every individual row + the top summary already read
+     *  from), not a fresh globally-pooled dsPprRow() call. Reproduces the
+     *  real scenario on the ALL view (no team param, same as
+     *  LeadsReportController::indexAll()'s own cross-team pool): one
+     *  order genuinely bundles both Pterygium and Sinuxyl. */
+    public function test_the_daily_total_row_counts_a_cross_product_combo_order_once_per_matching_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-combo-1', 'team' => 'Eyecare Team',
+            'disposition' => 'CONFIRMED VIA CALL', 'product' => 'Pterygium',
+            'bundle_description' => '10 Pterygium Drops + 10 Sinuxyl',
+            'raw_tags' => ['CONFIRMED VIA CALL'],
+            'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $summaryRowStart = strpos($content, 'TELESALES RUNNING PERFORMANCE');
+        $this->assertNotFalse($summaryRowStart);
+        $overallTotalStart = strpos($content, 'OVERALL TOTAL', $summaryRowStart);
+        $this->assertNotFalse($overallTotalStart);
+        $overallTotalHtml = substr($content, $overallTotalStart, 1500);
+        preg_match('/data-out="total_leads"[^>]*>([^<]*)</', $overallTotalHtml, $summaryMatch);
+
+        $totalRowStart = strpos($content, 'dsppr-day-total-row');
+        $this->assertNotFalse($totalRowStart);
+        $totalRowHtml = substr($content, $totalRowStart, 4000);
+        preg_match('/data-out="total_leads"[^>]*>([^<]*)</', $totalRowHtml, $totalMatch);
+
+        // Both rows must show 2 (the combo order counted once under
+        // Pterygium AND once under Sinuxyl) and must agree with each
+        // other — the actual bug was these two disagreeing (299 vs 298
+        // in production), not either one being wrong in isolation.
+        $this->assertSame('2', trim($summaryMatch[1] ?? ''));
+        $this->assertSame('2', trim($totalMatch[1] ?? ''));
+    }
+
+    /** Follow-up request, 2026-10-09, same session: "the total percentage
+     *  too should be same in the leads report" — DSPPR's own Overall
+     *  Total percentages (Pick-up/Conversion/Upselling Rate) must equal
+     *  Leads Report's own Grand Total percentages for the identical
+     *  range/data, not just the raw counts fixed above. Seeds a realistic
+     *  mixed bag of dispositions across 2 products so the rates are
+     *  genuinely non-trivial (not 0% or 100%, which could pass by
+     *  accident), then cross-references DSPPR's $overallTotal directly
+     *  against LeadsReportController::indexAll()'s own $grandTotal for
+     *  the same day. */
+    public function test_the_overall_totals_percentages_match_leads_reports_grand_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $date = today()->toDateString();
+        $sinuxylTsa = \App\Models\TsaShift::where('team', 'SH Naturals')->first();
+        $pterygiumTsa = \App\Models\TsaShift::where('team', 'Eyecare Team')->first();
+
+        $dispositions = [
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => 'NOT ANSWERING', 'is_upsell' => false],
+            ['team' => 'SH Naturals', 'tsa' => $sinuxylTsa, 'product' => 'Sinuxyl', 'disposition' => null, 'is_upsell' => true],
+            ['team' => 'Eyecare Team', 'tsa' => $pterygiumTsa, 'product' => 'Pterygium', 'disposition' => 'CONFIRMED VIA CALL', 'is_upsell' => false],
+            ['team' => 'Eyecare Team', 'tsa' => $pterygiumTsa, 'product' => 'Pterygium', 'disposition' => 'CALL BACK', 'is_upsell' => false],
+        ];
+        foreach ($dispositions as $i => $d) {
+            Order::create([
+                'pancake_order_id' => "dsppr-pct-{$i}", 'team' => $d['team'], 'tsa_name' => $d['tsa']->tsa_key,
+                'disposition' => $d['disposition'], 'product' => $d['product'],
+                'raw_tags' => array_filter([strtoupper($d['tsa']->tsa_key), $d['disposition'], $d['is_upsell'] ? 'UPSELL TSD' : null]),
+                'is_upsell' => $d['is_upsell'], 'status_code' => 1,
+                'pancake_created_at' => "{$date} 10:00:00", 'pancake_inserted_at' => "{$date} 10:00:00",
+                'synced_at' => now(),
+            ]);
+        }
+
+        $dsppr = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]));
+        $leadsReport = $this->actingAs($admin)->get(route('leads-report', [
+            'team' => 'all', 'range' => 'dates', 'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $dsppr->assertOk();
+        $leadsReport->assertOk();
+
+        $grandTotal = $leadsReport->viewData('grandTotal');
+        $content = $dsppr->getContent();
+        $overallTotalStart = strpos($content, 'OVERALL TOTAL');
+        $this->assertNotFalse($overallTotalStart);
+        $overallTotalHtml = substr($content, $overallTotalStart, 1500);
+
+        foreach (['pickup_rate' => 'pick_up_rate', 'conversion_rate' => 'conversion_rate', 'upselling_rate' => 'upselling_rate'] as $dsPprKey => $leadsKey) {
+            preg_match('/data-out="' . $dsPprKey . '"[^>]*>([^<]*)</', $overallTotalHtml, $m);
+            $dsPprPct = (float) trim(str_replace('%', '', $m[1] ?? '0'));
+            $leadsPct = round((float) ($grandTotal[$leadsKey] ?? 0), 1);
+            $this->assertEqualsWithDelta($leadsPct, $dsPprPct, 0.15, "{$dsPprKey} mismatch: DSPPR={$dsPprPct} vs Leads Report={$leadsPct}");
+        }
+    }
+
     public function test_updating_an_existing_entry_does_not_create_a_duplicate(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

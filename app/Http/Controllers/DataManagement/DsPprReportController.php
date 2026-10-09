@@ -182,6 +182,54 @@ class DsPprReportController extends Controller
             }
         }
 
+        // $overallTotal's own Pick-up/Conversion/Upselling Rate are
+        // recomputed from the SUMMED raw tally() counts across every
+        // display row's own every-date cell — same definition Leads
+        // Report's own Grand Total uses (ProductPerformance::sumRows():
+        // "rate fields are recomputed from the summed totals rather than
+        // averaged — averaging percentages across rows of different sizes
+        // is meaningless") — NOT DsPprCalculator::sum()'s own per-row
+        // average, which is what $overallTotal above still computes for
+        // every OTHER field. Root-caused live, 2026-10-09 (screenshot
+        // request: "the total percentage too should be same in the leads
+        // report") — averaging each product's own already-different-sized
+        // rate together doesn't match Leads Report's own Grand Total
+        // percentage for the same range. Only $overallTotal's rates are
+        // touched here; an individual product/group's own row (which
+        // averages across DAYS of its OWN data, a different and still
+        // valid use of DsPprCalculator::sum()'s averaging) is unaffected.
+        $rawCountTotals = array_fill_keys(['answered', 'unanswered', 'confirmed_via_call', 'upsell_confirmation'], 0);
+        foreach ($realByRowKeyAndDate as $real) {
+            foreach ($rawCountTotals as $key => $value) {
+                $rawCountTotals[$key] += $real[$key] ?? 0;
+            }
+        }
+        // TikTok Orders rows have no real tally() behind them (every field
+        // manual, including its own pickup_rate/conversion_rate/
+        // upselling_rate OVERRIDES — see DsPprTiktokEntry::
+        // toRawRowWithOverrides()) — there's no raw answered/unanswered
+        // breakdown an override like "Upselling Rate = 100%" could be
+        // decomposed back into, so it can't be summed into
+        // $rawCountTotals the way a real product's own tally() can.
+        // Explicit decision, 2026-10-09: TikTok's own total_leads/
+        // total_orders are folded in as answered/upsell_confirmation
+        // counts instead (so TikTok's volume still correctly shifts the
+        // Overall Total's percentage), but a TikTok rate OVERRIDE
+        // specifically is NOT reflected in this one blended percentage —
+        // it still works everywhere else (TikTok's own card, the TOTAL
+        // row's TikTok-only columns if ever added).
+        $tiktokRawCounts = $tiktokDailyByKey->values()->reduce(function ($carry, $row) {
+            $carry['answered'] += (float) ($row['total_leads'] ?? 0);
+            $carry['upsell_confirmation'] += (float) ($row['total_orders'] ?? 0);
+            return $carry;
+        }, ['answered' => 0, 'upsell_confirmation' => 0]);
+        $rawCountTotals['answered'] += $tiktokRawCounts['answered'];
+        $rawCountTotals['upsell_confirmation'] += $tiktokRawCounts['upsell_confirmation'];
+        $sumThenRates = ProductPerformance::rates($rawCountTotals);
+        $overallTotal['pickup_rate']     = $sumThenRates['pick_up_rate'] !== null ? $sumThenRates['pick_up_rate'] / 100 : 0.0;
+        $overallTotal['conversion_rate'] = $sumThenRates['conversion_rate'] !== null ? $sumThenRates['conversion_rate'] / 100 : 0.0;
+        $overallTotal['upselling_rate']  = $sumThenRates['upselling_rate'] !== null ? $sumThenRates['upselling_rate'] / 100 : 0.0;
+
         // Per-day entries for the currently selected products, keyed
         // "productId:date" — the view's own inline-editable inputs need
         // to seed each cell from whatever's already saved for that exact
