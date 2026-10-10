@@ -204,6 +204,33 @@ class ProductPerformance
                 return false;
             }
 
+            // An upsold add-on never gets its own card/count any more — its
+            // full order value belongs entirely to the BASE product it was
+            // upsold onto (explicit reversal, 2026-10-10: order #1378313,
+            // Kathreena Borja — Scar Cream was the actual product sold,
+            // Rose Soap was only ever the upsell riding on that same order;
+            // "it should be the rose soap has no data because it is upsell,
+            // it should fall to the scar cream card"). Previously the
+            // deliberate, documented design (see this method's own class
+            // comment above, "every upsell add-on order carries its real
+            // base product's tag too") was the opposite: the add-on got its
+            // own card via its tag. $product here is excluded from matching
+            // only when it's specifically the order's UPSOLD item (`product`,
+            // set by SyncTodayOrders::extractUpsellProduct() to the add-on's
+            // own name on a genuine upsell) and is NOT also the order's
+            // base_product (a same-product repeat/self upsell must still
+            // match normally) and the order has no real base_product data at
+            // all to fall back on isn't excluded — redirecting it nowhere
+            // would just blackhole its revenue from every card instead of
+            // moving it to the right one.
+            $isUpsoldAddon = Order::isBroadRealUpsell($o)
+                && !empty($o->base_product)
+                && $product->matchesText($o->product)
+                && !$product->matchesText($o->base_product);
+            if ($isUpsoldAddon) {
+                return false;
+            }
+
             // bundle_description is the item's full combo text (e.g. "1 Ginseng
             // Serum + 5 Scar Cream") — `product` alone only ever holds the catalog
             // entry's generic name, which silently hid every other product bundled
