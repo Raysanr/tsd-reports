@@ -741,15 +741,28 @@ class ExpectedIncomeController extends Controller
         // below — completely independent of how many product rows exist.
         $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->flatMap(fn ($rowsForDate) => $rowsForDate))
             ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
-        // Gross Sales/Number of Orders (2026-10-10) — same pre-sum() top-up
-        // as $cards above, same reasoning (both cascade into derive()'s
-        // whole P&L chain, so each must be folded into the raw rows before
-        // sum()/derive() run, not patched onto the already-derived
-        // $overallTotal afterward). $products here is already the FULL
-        // page roster.
-        $realGrossSales = $this->totalRealGrossSales($grossSalesMap, $products, $onlyOrderTeam);
+        // Gross Sales (2026-10-10, CORRECTED same day — see
+        // teamUpsellGrossSales()'s own doc comment for the full root
+        // cause/screenshot story): the ROLLUP's own Gross Sales no longer
+        // reuses totalRealGrossSales($grossSalesMap, ...) — that map is
+        // built from grossSalesByProductAndDate()'s own per-PRODUCT
+        // matchingOrders() step, which silently drops any real upsell
+        // order that doesn't cleanly match a configured Product's own
+        // keyword/ID roster. The rollup has no per-product concept to
+        // begin with, so it now mirrors Summary Sales Report's own
+        // product-agnostic tally() basis exactly via
+        // teamUpsellGrossSales() — guaranteed to match that page's own
+        // TEAM TOTAL figure, not just approximate it.
+        $rollupTsaIds = $onlyTsaIds ?? TsaShift::where('tiktok_upsell', false)->pluck('id')->all();
+        $realGrossSales = $this->teamUpsellGrossSales($rollupTsaIds, $dateFrom, $dateTo);
         $pooledGrossSales = (float) $allRaw->sum('gross_sales');
         $grossSalesGap = $realGrossSales - $pooledGrossSales;
+        // Number of Orders stays on the per-product-matched basis
+        // (totalRealGrossSales($numberOfOrdersMap, ...)) — unlike Gross
+        // Sales, this page has no OTHER page's own total it needs to
+        // tally to, so the per-product gap-fill (same "missing entry ≠
+        // zero" pattern as Number of Leads) remains the correct, only
+        // definition for it here.
         $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $products, $onlyOrderTeam);
         $pooledOrders = (float) $allRaw->sum('number_of_orders');
         $ordersGap = $realOrders - $pooledOrders;
@@ -1629,12 +1642,65 @@ class ExpectedIncomeController extends Controller
         return ['grossSales' => collect($sales), 'numberOfOrders' => collect($orderCounts)];
     }
 
+    /** The TELESALES/per-team rollup's own Gross Sales — explicit
+     *  correction, 2026-10-10, root-caused live via screenshot: Expected
+     *  Income's own TEAM OPENING TELESALES card showed 44,501.00 (ALL
+     *  teams) / a lower per-team figure, while Summary Sales Report's own
+     *  TEAM OPENING TOTAL showed the real 38,700.00 for the exact same
+     *  TSAs/date — "it is opening team" / "it should be all 38,700.00".
+     *
+     *  Root cause: grossSalesByProductAndDate()'s own per-PRODUCT
+     *  matchingOrders() step (used for each individual product card's own
+     *  Gross Sales, which genuinely needs to know which product an order
+     *  was for) silently DROPS a real upsell order whenever its Pancake
+     *  item text/tags don't cleanly match any configured Product's own
+     *  match_keyword/pancake_product_ids — same class of bug
+     *  leadCountsByProductAndDate() already went through 4 rounds of
+     *  fixes for (see that method's own doc comment). The TELESALES
+     *  rollup has NO reason to pay that cost — unlike a product card, it
+     *  doesn't need to know WHICH product an order was for, only whether
+     *  it's a real upsell order for one of this team's own TSAs — so this
+     *  method mirrors TsaSalesReportController::perTsaPerDayPerformance()
+     *  exactly instead: no product matching, no Order.team dependency
+     *  (avoids the second gap that method's own doc comment documents —
+     *  a team-prefiltered query silently skipping any order whose
+     *  Order.team came back null from a timestamp-less Pancake payload),
+     *  just every order for this team's own real tsa_key roster, summed
+     *  via the SAME ProductPerformance::tally()['upsell_sales'] formula
+     *  Summary Sales Report's own Gross Sales already uses — guaranteeing
+     *  the two pages' TEAM TOTAL rows can never structurally diverge
+     *  again, the same way netIncomeByTsaAndDate()/teamNetIncomeByDate()
+     *  already guarantee for Net Income.
+     *
+     *  $tsaIds: the exact real TSA ids to pool (NOT TikTok-flagged —
+     *  callers already pre-filter this, same $onlyTsaIds/$teamTsaIds
+     *  convention buildSummary()/buildSummaryRow() already use for every
+     *  other rollup figure). */
+    private function teamUpsellGrossSales(array $tsaIds, string $dateFrom, string $dateTo): float
+    {
+        if (empty($tsaIds)) {
+            return 0.0;
+        }
+
+        $tsaKeys = TsaShift::whereIn('id', $tsaIds)->pluck('tsa_key');
+
+        $orders = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsaKeys)->get();
+
+        return (float) ProductPerformance::tally($orders)['upsell_sales'];
+    }
+
     /** Gross Sales/Number of Orders equivalent of totalRealLeads() directly
      *  below — same filter/sum shape, works for either map
      *  (grossSalesByProductAndDate()'s own 'grossSales'/'numberOfOrders'
      *  return keys, same 4-segment key format) — see that method's own
      *  doc comment for the full reasoning (team-scoped vs ALL-view
-     *  summing, group-aware via $products). */
+     *  summing, group-aware via $products). STILL used for every
+     *  individual PRODUCT card's own Gross Sales (teamUpsellGrossSales()
+     *  above is ONLY for the TELESALES/per-team rollup, which has no
+     *  per-product concept to begin with). */
     private function totalRealGrossSales($valueMap, $products, ?string $onlyOrderTeam): float
     {
         $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
