@@ -278,7 +278,7 @@ class ExpectedIncomeController extends Controller
      *  method's own per-day values itself, same as Summary Sales Report's
      *  own TsaSalesCalculator::sum() already does for every other
      *  per-day field on that page. */
-    public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -298,21 +298,30 @@ class ExpectedIncomeController extends Controller
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
         $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
 
-        // Computed ONCE for the whole requested range, then reused for
-        // EVERY TSA below — perf fix, 2026-10-11 (root-caused live: a 500
-        // "Maximum execution time of 30 seconds exceeded" on Summary Sales
-        // Report, still happening even after the first fix to
-        // teamNetIncomeByDate()/buildSummaryRow(), because THIS method —
-        // the one perTsaPerDayPerformance() actually calls on every page
-        // load — has its own, separate per-TSA loop calling
-        // rawByProductAndDate(), which was recomputing both maps from
-        // scratch for every TSA: ~12 real TSAs = ~12 full team x product
-        // matchingOrders() passes over the whole range instead of 1). See
-        // buildSummaryRow()'s own precomputed-map parameters' doc comment
-        // for the full story — same root cause, same fix, different call
-        // site.
-        $leadCounts = $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
-        $grossSalesAndOrders = $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (perf fix,
+        // 2026-10-11, PART 4 — see Decisions.md's PART 3 entry for the
+        // index fix that preceded this, and this method's OWN prior
+        // "computed once per TSA, not per TSA/day" fix, PART 2). Root-
+        // caused live AGAIN after both those fixes shipped: Oct 1-5 now
+        // loaded (slow, but under 30s) while Oct 1-9 still timed out — a
+        // clean linear-scaling signature. The remaining redundancy:
+        // TsaSalesReportController::index() calls BOTH this method AND
+        // teamNetIncomeByDate() in the SAME request, and each independently
+        // computed its own fresh copy of both maps for the WHOLE range —
+        // 2 full passes per page load. Callers that already have these
+        // maps (TsaSalesReportController::index(), computing them once for
+        // both calls) now pass them straight through instead of letting
+        // this method redo the work; a caller with no precomputed maps
+        // (e.g. a direct/standalone call) still gets correct behavior via
+        // the fallback. NOT a static-property cache — this app runs
+        // Laravel Octane in WORKER mode (see Dockerfile's own doc comment,
+        // "keeps the whole Laravel app booted in memory between
+        // requests"), where a static property would persist and leak
+        // across unrelated requests instead of resetting per-request like
+        // classic PHP-FPM; explicit parameters avoid that correctness risk
+        // entirely.
+        $leadCounts = $precomputedLeadCounts ?? $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
         $result = collect();
         foreach ($tsas as $tsa) {
@@ -374,7 +383,7 @@ class ExpectedIncomeController extends Controller
      *  (same $teamTsaIds exclusion buildSummary() itself applies), same
      *  scope boundary Summary Sales Report's own TikTok Upsell section
      *  already agrees on. */
-    public static function teamNetIncomeByDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    public static function teamNetIncomeByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -401,8 +410,18 @@ class ExpectedIncomeController extends Controller
         // keyed internally), so hoisting them out of the loop changes
         // nothing about correctness, only how many times the same work
         // gets done.
-        $leadCounts = $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
-        $grossSalesAndOrders = $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        //
+        // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (PART 4,
+        // same day) — accepts an already-computed pair from the caller
+        // (TsaSalesReportController::index() computes these once and
+        // passes the SAME pair to both this method and
+        // netIncomeByTsaAndDate(), which previously each computed their
+        // own copy — 2 full passes per page load instead of 1). See
+        // netIncomeByTsaAndDate()'s own identical parameters' doc comment
+        // for why this is explicit parameters, not a static cache (Octane
+        // worker-mode cross-request leak risk).
+        $leadCounts = $precomputedLeadCounts ?? $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
         $result = collect();
 
@@ -1763,6 +1782,39 @@ class ExpectedIncomeController extends Controller
      *  sums either ONE team's own bucket (a single-team filter) or EVERY
      *  team's own bucket together (the ALL view), matching
      *  index()/indexAll()'s own exact two cases. */
+    /** Public entry point for an EXTERNAL caller (outside this class) that
+     *  needs BOTH leadCountsByProductAndDate()'s and
+     *  grossSalesByProductAndDate()'s own maps computed ONCE for a date
+     *  range, to pass into multiple of this class's own methods that each
+     *  accept a $precomputedLeadCounts/$precomputedGrossSalesAndOrders
+     *  pair (netIncomeByTsaAndDate(), teamNetIncomeByDate(),
+     *  buildSummaryRow(), rawByProductAndDate()) — perf fix, 2026-10-11,
+     *  PART 4. Root-caused live: TsaSalesReportController::index() calls
+     *  BOTH netIncomeByTsaAndDate() AND teamNetIncomeByDate() in the same
+     *  request, and even after both of THOSE methods were fixed to compute
+     *  these maps only ONCE internally (PARTS 1/2), the two methods still
+     *  each computed their OWN separate copy — 2 full O(days) passes per
+     *  page load. Confirmed live: Oct 1-5 loaded (slow, under 30s), Oct 1-9
+     *  still timed out — consistent with still-redundant work on top of
+     *  the non-sargable-query fix (PART 3, see Decisions.md). Lets
+     *  TsaSalesReportController::index() compute this pair exactly once
+     *  and pass the SAME pair into both calls, collapsing 2 passes to 1.
+     *  Uses the full, unfiltered product roster (Product::orderBy('team')
+     *  ->orderBy('sort_order')->get()) — the same roster every internal
+     *  caller already uses — so the returned maps are interchangeable with
+     *  whatever any internal caller would have computed for itself. */
+    public static function leadCountsAndGrossSalesForRange(string $dateFrom, string $dateTo): array
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+        $controller = new self();
+
+        return [
+            'leadCounts' => $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo),
+            'grossSalesAndOrders' => $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo),
+        ];
+    }
+
     private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');

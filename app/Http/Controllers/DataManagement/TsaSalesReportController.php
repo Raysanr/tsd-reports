@@ -101,9 +101,9 @@ class TsaSalesReportController extends Controller
      *  method already loops every date/TSA/product internally the same
      *  way this method's own $orders query does.
      */
-    private function perTsaPerDayPerformance(Collection $tsas, string $dateFrom, string $dateTo): Collection
+    private function perTsaPerDayPerformance(Collection $tsas, string $dateFrom, string $dateTo, ?Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): Collection
     {
-        $netIncomeByKey = ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo);
+        $netIncomeByKey = ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders);
 
         // whereDate() twice (>= and <=) rather than a single BETWEEN —
         // same lexicographic-string-comparison SQLite bug called out
@@ -329,11 +329,28 @@ class TsaSalesReportController extends Controller
             ->get()
             ->keyBy(fn (TsaSalesEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
 
+        // Computed ONCE here, then passed into BOTH perTsaPerDayPerformance()
+        // (which forwards it to ExpectedIncomeController::
+        // netIncomeByTsaAndDate()) AND teamNetIncomeByDate() below — perf
+        // fix, 2026-10-11, PART 4. Root-caused live, AFTER PARTS 1-3 had
+        // already shipped: Oct 1-5 loaded (slow, under 30s), Oct 1-9 still
+        // 500'd with "Maximum execution time of 30 seconds exceeded" — this
+        // page calls BOTH of those ExpectedIncomeController methods in the
+        // same request, and each independently computed its own fresh copy
+        // of these 2 maps for the WHOLE range (a genuinely O(days) cost
+        // each, even post-index) — 2 full passes per page load instead of
+        // 1. See ExpectedIncomeController::leadCountsAndGrossSalesForRange()'s
+        // own doc comment for the full story.
+        $leadCountsAndGrossSales = ExpectedIncomeController::leadCountsAndGrossSalesForRange($dateFrom, $dateTo);
+
         // "tsaId:date" -> ['total_orders' => ..., 'catered_leads' => ...,
         // 'pickup_rate' => ..., 'upselling_rate' => ...], overriding
         // whatever TsaSalesEntry itself has stored for these 4 columns —
         // see perTsaPerDayPerformance()'s own doc comment.
-        $performanceByKey = $this->perTsaPerDayPerformance($tsas, $dateFrom, $dateTo);
+        $performanceByKey = $this->perTsaPerDayPerformance(
+            $tsas, $dateFrom, $dateTo,
+            $leadCountsAndGrossSales['leadCounts'], $leadCountsAndGrossSales['grossSalesAndOrders']
+        );
 
         // Per-day entries, keyed "tsaId:date" — same convention as
         // DsPprReportController's own $dailyByKey, built for EVERY
@@ -363,7 +380,10 @@ class TsaSalesReportController extends Controller
         // POOLED team total, NOT TsaSalesCalculator::sum()'s own sum of
         // individually-costed TSA rows, which double-counts shared
         // Operating Costs/Salaries/Tax Allocation across TSAs).
-        $teamNetIncomeByDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate($dateFrom, $dateTo);
+        $teamNetIncomeByDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate(
+            $dateFrom, $dateTo,
+            $leadCountsAndGrossSales['leadCounts'], $leadCountsAndGrossSales['grossSalesAndOrders']
+        );
 
         // One row per TSA, summed across the whole selected range,
         // grouped by their real team — the sheet's own MTD running
