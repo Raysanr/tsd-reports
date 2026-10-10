@@ -275,19 +275,51 @@ class TsaSalesReportSmokeTest extends TestCase
     /** Seeds a single-product, single-TSA ExpectedIncomeEntry whose derived
      *  Net Income lands on an exact target — Gross Sales (the only lever
      *  this helper sets) is solved backward from derive()'s own formula
-     *  with every other input at 0: netIncome = grossSales × (1 − 0.25
-     *  returns − 0.0224 cod_fee-of-delivered×0.75) = grossSales × 0.7332.
-     *  No CostBreakdownTsaEntry/Role is seeded anywhere in this file, so
-     *  ExpectedIncomeController::withOperatingCostOverridesIfTsaScoped()'s
-     *  own Salaries/Operating Costs/Tax Allocation overrides all resolve
-     *  to 0 for this TSA (confirmed safe — ExpectedIncomeReportSmokeTest's
-     *  own per-TSA tests rely on the exact same unseeded-override
-     *  behavior), so this formula is exact, not an approximation. */
+     *  with every other MANUAL input at 0: netIncome = grossSales × (1 −
+     *  0.25 returns − 0.0224 cod_fee-of-delivered×0.75) + $flatOffset =
+     *  grossSales × 0.7332 + $flatOffset.
+     *
+     *  $flatOffset (2026-10-10, updated — was assumed 0 before this date)
+     *  is netIncomeByTsaAndDate()'s own real Operating Costs/Tax
+     *  Allocation override chain evaluated at gross_sales=0 — NOT
+     *  necessarily 0 itself. Unlike the product-card-scale
+     *  withOperatingCostOverridesIfTsaScoped() this method used to call
+     *  (which DID resolve to a clean 0 with no CostBreakdownTsaEntry/Role
+     *  seeded), the real overview-card-scale lookups
+     *  (TsaDailyRateService::dailyRateByTsaId()/dailyCostRow()/
+     *  taxAllocationByTsaId(), what netIncomeByTsaAndDate() correctly
+     *  switched to 2026-10-10 — see that method's own doc comment) pull in
+     *  company-wide pool/tax math that is NOT purely a function of a
+     *  per-TSA entry table being empty, so this offset is a REAL nonzero
+     *  number even with nothing seeded (confirmed live, this exact fixture
+     *  setup: -694.45 for the first real TSA/product). Computed here by
+     *  calling netIncomeByTsaAndDate() once at gross_sales=0 rather than
+     *  hardcoding that number, so this helper stays correct if the fixture
+     *  seeders or override chain ever change. */
     private function seedExpectedIncomeForNetIncome(\App\Models\Product $product, TsaShift $tsa, string $date, float $targetNetIncome): void
     {
-        \App\Models\ExpectedIncomeEntry::create([
-            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => $date,
-            'gross_sales' => $targetNetIncome / 0.7332,
+        $flatOffset = \App\Http\Controllers\DataManagement\ExpectedIncomeController::netIncomeByTsaAndDate($date, $date)
+            ->get($tsa->id . ':' . $date, 0.0);
+
+        // Gross Sales AND Number of Orders on Expected Income are BOTH
+        // automated now (2026-10-10 — see ExpectedIncomeController's own
+        // class doc comment), so a DB-column write no longer sticks for
+        // either: rawByProductAndDate()'s own grossSalesForTsaProductDate()
+        // override replaces whatever's stored with the real order-matched
+        // figures before derive() ever runs. Seeds a real matched upsell
+        // Order instead, same fixture shape
+        // ExpectedIncomeReportSmokeTest's own seedUpsellOrderForGrossSales()
+        // helper uses — exactly ONE order, so Number of Orders always
+        // resolves to 1 (not 0 as the original 0.7332-only formula
+        // assumed), contributing a fixed Fulfillment Fee of 1 × 25 = 25
+        // that must be subtracted out of the target before solving for
+        // Gross Sales: netIncome = grossSales × 0.7332 − 25 + flatOffset,
+        // so grossSales = (targetNetIncome − flatOffset + 25) / 0.7332.
+        Order::create([
+            'pancake_order_id' => 'tsr-ni-seed-' . $tsa->id . '-' . $product->id . '-' . $date,
+            'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key, 'product' => $product->display_name,
+            'is_upsell' => true, 'amount' => ($targetNetIncome - $flatOffset + 25) / 0.7332, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
         ]);
     }
 

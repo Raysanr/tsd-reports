@@ -203,27 +203,55 @@ class ExpectedIncomeController extends Controller
 
     /** Summary Sales Report's own Net Income source of truth (explicit
      *  request, 2026-10-10: "the net income the basis is in the expected
-     *  income page") — every real (non-TikTok) TSA's own Net Income for
-     *  one day, keyed "tsaId:date", computed the exact same way as her own
-     *  read-only "[TSA NAME]" overview row on THIS page
-     *  (buildTeamDailyRows()'s own $dailyOverallTotals: every one of her
-     *  product rows that day, summed raw, derived once, then her real
-     *  undivided Operating-Costs/Tax-Allocation override applied via
-     *  withOperatingCostOverridesIfTsaScoped() — same chain, not a
-     *  separately re-derived figure that could drift from what this page
-     *  itself shows for her). Loops every real team internally (not scoped
-     *  to one) so Summary Sales Report — which shows both teams at once —
-     *  can read both in a single call; a TikTok-flagged TSA is excluded
-     *  (tiktok_upsell=true), same scope boundary buildTeamDailyRows() and
-     *  Summary Sales Report's own TikTok Upsell section already agree on
-     *  (her Net Income there stays fully manual, untouched by this).
+     *  income page" / follow-up, same date, after a screenshot comparison:
+     *  "the net income that will display to the summary sales report is
+     *  the net income in the tsa cards in the expected income" — confirming
+     *  the real "[TSA NAME]" OVERVIEW card, not a product card) — every
+     *  real (non-TikTok) TSA's own Net Income for one day, keyed
+     *  "tsaId:date", computed the exact same way as her own read-only
+     *  "[TSA NAME]" overview row on THIS page (buildTeamDailyRows()'s own
+     *  $dailyOverallTotals, 1-day case): every one of her product rows
+     *  that day, summed raw, derived once, then her real UNDIVIDED
+     *  Operating-Costs/Tax-Allocation override applied directly via
+     *  ExpectedIncomeCalculator::withOverriddenOperatingCosts()/
+     *  withOverriddenTaxAllocation() — NOT withOperatingCostOverridesIfTsaScoped()
+     *  (that method is a PRODUCT-CARD helper, own doc comment: "product
+     *  cards only, never the overview card" — it divides Salaries/every
+     *  pool by product count again, which this method used at first,
+     *  2026-10-10, and was wrong: confirmed via a live screenshot
+     *  comparison, Gemma's real overview card showed NET INCOME -3,390.37
+     *  while the first version of this method, product-card-scaled,
+     *  produced a far smaller-magnitude number for the same TSA/day —
+     *  root cause was reusing the ÷productCount Salaries/pool figures
+     *  instead of the undivided ones the overview card actually renders).
+     *
+     *  Loops every real team internally (not scoped to one) so Summary
+     *  Sales Report — which shows both teams at once — can read both in a
+     *  single call; a TikTok-flagged TSA is excluded (tiktok_upsell=true),
+     *  same scope boundary buildTeamDailyRows() and Summary Sales Report's
+     *  own TikTok Upsell section already agree on (her Net Income there
+     *  stays fully manual, untouched by this).
      *
      *  Every product counts toward her total regardless of
      *  has_cost_allocation (same as buildTeamDailyRows()'s own
      *  $dailyOverallTotals, which applies no such gate) — only the
      *  Operating Costs/Tax Allocation SHARE a flagged product receives is
-     *  conditional; an unflagged product's own manually-entered Gross
-     *  Sales/Cancelled/Selling Costs still count toward her Net Income. */
+     *  conditional; an unflagged product's own manually-entered/automated
+     *  Gross Sales/Cancelled/Selling Costs still count toward her Net
+     *  Income.
+     *
+     *  Deliberately per-DAY, not range-summed — this is the right grain
+     *  for a caller building one row per (TSA, day) (Summary Sales
+     *  Report's own daily table), unlike buildTeamDailyRows()'s own
+     *  $isRangeSummed branch (its $rangeOverallTotal collapses N days into
+     *  ONE lump-sum figure with overrides pre-multiplied by day count,
+     *  built for a >1-day card stack that can no longer save per-day
+     *  edits — a concept this method has no use for, since each day here
+     *  gets its own override at its own flat daily rate, never multiplied
+     *  by a day count). A caller that needs a range total sums this
+     *  method's own per-day values itself, same as Summary Sales Report's
+     *  own TsaSalesCalculator::sum() already does for every other
+     *  per-day field on that page. */
     public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
     {
         $products = Product::orderBy('team')->orderBy('sort_order')->get();
@@ -234,17 +262,39 @@ class ExpectedIncomeController extends Controller
         $tsas = TsaShift::where('tiktok_upsell', false)->get();
         $controller = new self();
 
+        // Same overview-card sources buildTeamDailyRows() itself reads
+        // (lines ~848-880 there) — UNDIVIDED by product count, unlike the
+        // product-card lookups withOperatingCostOverridesIfTsaScoped()
+        // reads. Computed once for the whole call, not once per TSA/day —
+        // same N+1 guard TsaDailyRateService::allTsas()'s own doc comment
+        // already explains for this exact lookup chain.
+        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        $dailyCostRow = TsaDailyRateService::dailyCostRow();
+        $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
+
         $result = collect();
         foreach ($tsas as $tsa) {
             ['raw' => $rawByProductAndDate] = $controller->rawByProductAndDate(
                 $products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys
             );
 
+            // Same "0-day TSA's own share of every shared pool cost is
+            // zeroed, but Salaries always applies regardless of Days"
+            // rule buildTeamDailyRows() itself follows (2026-10-06 — see
+            // that method's own doc comment) — and the same direct-fallback
+            // for a TSA missing from the pre-built maps (2026-10-03 fix).
+            $overviewCardOverrides = array_merge(
+                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
+                ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+            );
+            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
+
             foreach ($dates as $date) {
                 $dateStr = $date->toDateString();
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
-                $summed = $controller->withOperatingCostOverridesIfTsaScoped($summed, $tsa->id);
+                $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
+                $summed = ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocation);
                 $result[$tsa->id . ':' . $dateStr] = $summed['net_income'];
             }
         }
@@ -474,6 +524,13 @@ class ExpectedIncomeController extends Controller
         // this team's own count too, since nothing here ever excluded them
         // by Order.team the way Leads Report's own candidate pool does.
         $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // Gross Sales/Number of Orders (2026-10-10) — same full-roster,
+        // $onlyOrderTeam-scoped map as $leadCounts directly above, same
+        // reasoning (a group card's own matchingOrders() stale-tag guard
+        // needs the FULL page roster, and candidate orders must be
+        // team-pre-scoped before matching) — see
+        // grossSalesByProductAndDate()'s own doc comment.
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
         // Computed ONCE per request (not once per product card/group) —
         // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
@@ -520,9 +577,40 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
+
+            // Gross Sales/Number of Orders (2026-10-10) — top up
+            // $pooledRaw's own summed gross_sales/number_of_orders BEFORE
+            // sum()/derive() ever runs, not a post-hoc field overwrite
+            // afterward like totalRealLeads() does for Number of Leads:
+            // both cascade into derive()'s whole formula chain (Returns/
+            // Delivered/Gross Profit/Net Income for Gross Sales;
+            // conversion_rate/fulfillment_fee for Number of Orders), so
+            // patching either onto an already-derived row would leave
+            // every one of those stale. Same "missing entry ≠ zero" gap
+            // as Number of Leads (a TSA with real matched upsell orders
+            // but NO saved ExpectedIncomeEntry row anywhere never appears
+            // in $pooledRaw at all — rawByProductAndDateAllTsas()'s own
+            // empty-cell early return) — totalRealGrossSales() computes
+            // the group's REAL total straight from matched orders;
+            // whatever $pooledRaw already summed (from real, saved entry
+            // rows) is the FLOOR that total can never be below, so the gap
+            // (if any) is folded in as one extra synthetic row rather than
+            // replacing the real summed figure outright — preserves every
+            // other field a real entry row might carry (Cancelled, Selling
+            // Costs, etc.) exactly as entered.
+            $realGrossSales = $this->totalRealGrossSales($grossSalesMap, $groupProducts, $onlyOrderTeam);
+            $pooledGrossSales = (float) $pooledRaw->sum('gross_sales');
+            $grossSalesGap = $realGrossSales - $pooledGrossSales;
+            $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $groupProducts, $onlyOrderTeam);
+            $pooledOrders = (float) $pooledRaw->sum('number_of_orders');
+            $ordersGap = $realOrders - $pooledOrders;
+            if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
+                $pooledRaw = $pooledRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap]);
+            }
+
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
             // Every product now gets a card (2026-10-06 — see index()'s
             // own doc comment), but the per-TSA Operating Costs/Tax
@@ -596,9 +684,23 @@ class ExpectedIncomeController extends Controller
         // per TSA per day instead, via addActiveTsasOverviewOperatingCosts()
         // below — completely independent of how many product rows exist.
         $allRaw = $rawByProductAndDate->flatMap(fn ($byDate) => $byDate->flatMap(fn ($rowsForDate) => $rowsForDate))
-            ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row)
-            ->all();
-        $derived = ExpectedIncomeCalculator::sum($allRaw, $sellingKeys, $operatingKeys);
+            ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
+        // Gross Sales/Number of Orders (2026-10-10) — same pre-sum() top-up
+        // as $cards above, same reasoning (both cascade into derive()'s
+        // whole P&L chain, so each must be folded into the raw rows before
+        // sum()/derive() run, not patched onto the already-derived
+        // $overallTotal afterward). $products here is already the FULL
+        // page roster.
+        $realGrossSales = $this->totalRealGrossSales($grossSalesMap, $products, $onlyOrderTeam);
+        $pooledGrossSales = (float) $allRaw->sum('gross_sales');
+        $grossSalesGap = $realGrossSales - $pooledGrossSales;
+        $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $products, $onlyOrderTeam);
+        $pooledOrders = (float) $allRaw->sum('number_of_orders');
+        $ordersGap = $realOrders - $pooledOrders;
+        if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
+            $allRaw = $allRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap]);
+        }
+        $derived = ExpectedIncomeCalculator::sum($allRaw->all(), $sellingKeys, $operatingKeys);
         $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$rollupLookups);
         // Same real-tally fix as $cards above — the TELESALES/per-team
         // rollup's own Number of Leads must be every real lead across
@@ -1252,13 +1354,25 @@ class ExpectedIncomeController extends Controller
         // leadCountsByProductAndDate() already uses elsewhere on this page.
         $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
-        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $tsaId) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $tsaId) {
+        // Gross Sales/Number of Orders are ALSO no longer manually-typed
+        // figures (explicit request, 2026-10-10: "in the expected income
+        // the gross sales is make it automated too", then "the number of
+        // orders is the upsell") — same real per-item Pancake assignee
+        // revenue/order-count basis Summary Sales Report's own Gross
+        // Sales/Total Orders columns use, scoped per product here via
+        // grossSalesByProductAndDate()'s own matchingOrders() step (see
+        // that method's own doc comment).
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
+        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $tsaId) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $tsaId) {
                 $dateStr = $date->toDateString();
                 $entry = $entries->get($p->id . ':' . $dateStr);
                 $row = $entry ? $entry->toArray() : [];
                 $row = array_merge($row, $customValuesFor($p->id, $dateStr));
                 $row['number_of_leads'] = $this->leadsForTsaProductDate($leadCounts, $tsaId, $p->id, $dateStr);
+                $row['gross_sales'] = $this->grossSalesForTsaProductDate($grossSalesMap, $tsaId, $p->id, $dateStr);
+                $row['number_of_orders'] = (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $tsaId, $p->id, $dateStr);
                 return [$dateStr => $row];
             })];
         });
@@ -1382,6 +1496,114 @@ class ExpectedIncomeController extends Controller
         }
 
         return collect($counts);
+    }
+
+    /** Expected Income's own per-(TSA, product, day) Gross Sales AND
+     *  Number of Orders — same "assignee TSA of items" real-revenue/real-
+     *  order basis Summary Sales Report's own Gross Sales/Total Orders
+     *  columns already use (explicit request, 2026-10-10: "in the
+     *  expected income the gross sales is make it automated too", then
+     *  "the number of orders is the upsell"), additionally scoped to ONE
+     *  product here (Expected Income's own cards are per-product, unlike
+     *  Summary Sales Report's single per-TSA-per-day figure). Returns BOTH
+     *  from the SAME matched-order loop pass (one extra accumulator, not a
+     *  second query/matching pass) — Number of Orders was added to an
+     *  already-existing Gross Sales method rather than built as its own
+     *  sibling, specifically to avoid tripling matchingOrders() cost on
+     *  top of leadCountsByProductAndDate()'s own identical team×day×
+     *  product loop.
+     *
+     *  STRUCTURALLY IDENTICAL to leadCountsByProductAndDate() above — same
+     *  team loop, same day-scoping, same matchingOrders()/exclusion
+     *  filter, same 4-segment key shape — kept as a SEPARATE method rather
+     *  than folded into THAT one's own loop so an edit to either one's own
+     *  matching rules can never accidentally change the other's, and so
+     *  this method's own history doesn't get tangled into
+     *  leadCountsByProductAndDate()'s already-long 4-same-day-fix doc
+     *  comment.
+     *
+     *  Gross Sales: sums `Order::realUpsellAmount()` over the
+     *  isBroadRealUpsell-filtered subset of each (team, product, day)'s
+     *  own matched orders — EXACTLY `ProductPerformance::tally()`'s own
+     *  `upsell_sales` formula (`tally()`'s own `$isRealUpsell`/exclusion
+     *  filter, line-for-line). Number of Orders: COUNTS that same
+     *  filtered subset — EXACTLY `tally()`'s own `upsell_confirmation`
+     *  formula (`$orders->filter($isRealUpsell)->count()`) — just
+     *  additionally scoped to one product via matchingOrders() instead of
+     *  tallying a whole team's pool, same relationship Gross Sales already
+     *  has to `tally()`'s own `upsell_sales`.
+     *
+     *  Returns ['grossSales' => Collection, 'numberOfOrders' => Collection],
+     *  both keyed "{orderTeam}:{tsaId}:{productId}:{date}". */
+    private function grossSalesByProductAndDate($products, $dates, string $dateFrom, string $dateTo): array
+    {
+        $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
+        $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
+        $sales = [];
+        $orderCounts = [];
+
+        for ($cursor = Carbon::parse($dateFrom)->startOfDay(); $cursor->lte(Carbon::parse($dateTo)); $cursor->addDay()) {
+            $dateStr = $cursor->toDateString();
+
+            foreach ($orderTeams as $orderTeam) {
+                $dayOrders = Order::whereRaw(
+                    'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+                    [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
+                )->where('team', $orderTeam)->get();
+
+                foreach ($products as $product) {
+                    // Same exclusion filter tally() itself applies before
+                    // computing upsell_sales/upsell_confirmation (see
+                    // leadCountsByProductAndDate()'s own identical filter,
+                    // directly above).
+                    $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
+                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics)
+                        ->filter(fn ($o) => Order::isBroadRealUpsell($o));
+
+                    foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {
+                        $tsaId = $tsaKeyToId->get($tsaName, 'null');
+                        $key = "{$orderTeam}:{$tsaId}:{$product->id}:{$dateStr}";
+                        $sales[$key] = ($sales[$key] ?? 0.0) + $ordersForTsa->sum(fn (Order $o) => $o->realUpsellAmount());
+                        $orderCounts[$key] = ($orderCounts[$key] ?? 0) + $ordersForTsa->count();
+                    }
+                }
+            }
+        }
+
+        return ['grossSales' => collect($sales), 'numberOfOrders' => collect($orderCounts)];
+    }
+
+    /** Gross Sales/Number of Orders equivalent of totalRealLeads() directly
+     *  below — same filter/sum shape, works for either map
+     *  (grossSalesByProductAndDate()'s own 'grossSales'/'numberOfOrders'
+     *  return keys, same 4-segment key format) — see that method's own
+     *  doc comment for the full reasoning (team-scoped vs ALL-view
+     *  summing, group-aware via $products). */
+    private function totalRealGrossSales($valueMap, $products, ?string $onlyOrderTeam): float
+    {
+        $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
+
+        return (float) $valueMap->filter(function ($value, $key) use ($productIds, $onlyOrderTeam) {
+            [$orderTeam, $tsaKey, $productId] = explode(':', $key, 4);
+            if (!$productIds->contains($productId)) {
+                return false;
+            }
+            return $onlyOrderTeam === null || $orderTeam === $onlyOrderTeam;
+        })->sum();
+    }
+
+    /** Gross Sales/Number of Orders equivalent of leadsForTsaProductDate()
+     *  directly below — same filter shape, works for either map — see
+     *  that method's own doc comment for the full reasoning (one TSA's
+     *  own figure, summed across every team's own bucket). */
+    private function grossSalesForTsaProductDate($valueMap, ?int $tsaId, int $productId, string $dateStr): float
+    {
+        $tsaKey = (string) ($tsaId ?? 'null');
+
+        return (float) $valueMap->filter(function ($value, $key) use ($tsaKey, $productId, $dateStr) {
+            [$orderTeam, $keyTsa, $keyProductId, $keyDate] = explode(':', $key, 4);
+            return $keyTsa === $tsaKey && $keyProductId === (string) $productId && $keyDate === $dateStr;
+        })->sum();
     }
 
     /** The real lead total for a SUMMARY card (a product, a product GROUP's
@@ -1516,19 +1738,35 @@ class ExpectedIncomeController extends Controller
         // every real TSA's own row here already carries her own real count;
         // giving the NULL row a pooled total on top would double it.
         $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // Gross Sales/Number of Orders (2026-10-10) — same "real per-
+        // tsa_id figure, NULL row gets 0" rule as Number of Leads directly
+        // above, for the same reason. UNLIKE Number of Leads, these are
+        // NOT redundant for buildSummaryRow()'s own summary-card path —
+        // both cascade into derive()'s whole P&L chain, so that method
+        // needs them summed into $pooledRaw BEFORE sum()/derive() ever
+        // runs, not patched onto an already-derived row afterward the way
+        // totalRealLeads() patches number_of_leads (a display-only stat
+        // with nothing downstream) — see buildSummaryRow()'s own
+        // $pooledGrossSales/$grossSalesGap doc comment for exactly how the
+        // real totals (totalRealGrossSales(), same "missing entry ≠ zero"
+        // gap this file already covers for leads) get folded in before
+        // derive() runs.
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
-        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts) {
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
                 $dateStr = $date->toDateString();
                 $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
 
                 if ($rowsForThisCell->isEmpty()) {
-                    return [$dateStr => collect([array_merge(['number_of_leads' => 0], $customValuesFor($p->id, $dateStr, null))])];
+                    return [$dateStr => collect([array_merge(['number_of_leads' => 0, 'gross_sales' => 0.0, 'number_of_orders' => 0], $customValuesFor($p->id, $dateStr, null))])];
                 }
 
-                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts) {
+                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
                     $row = array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id));
                     $row['number_of_leads'] = $entry->tsa_id === null ? 0 : $this->leadsForTsaProductDate($leadCounts, $entry->tsa_id, $p->id, $dateStr);
+                    $row['gross_sales'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesMap, $entry->tsa_id, $p->id, $dateStr);
+                    $row['number_of_orders'] = $entry->tsa_id === null ? 0 : (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $entry->tsa_id, $p->id, $dateStr);
                     return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id));
                 });
 
@@ -1558,9 +1796,20 @@ class ExpectedIncomeController extends Controller
             // returns/delivered below; ExpectedIncomeController::
             // leadCountsByProductAndDate() is the only source for this
             // field now.
-            'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
+            // number_of_orders is ALSO no longer a manual field (explicit
+            // request, 2026-10-10: "the number of orders is the upsell")
+            // — same reasoning: deliberately not accepted here, same
+            // ExpectedIncomeController::grossSalesByProductAndDate() is
+            // the only source now (it also returns the Number of Orders
+            // map, see that method's own doc comment).
             'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
-            'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
+            // gross_sales is no longer a manual field either (explicit
+            // request, 2026-10-10: "in the expected income the gross
+            // sales is make it automated too") — same reasoning/pattern
+            // as number_of_leads above: deliberately not accepted here so
+            // a stray POST can't write a stale value the view no longer
+            // reflects. ExpectedIncomeController::grossSalesByProductAndDate()
+            // is the only source now.
             'cancelled'            => ['sometimes', 'numeric', 'min:0'],
             // returns/delivered are no longer manual inputs — derived from
             // gross_sales/cancelled instead (explicit correction,
@@ -2038,6 +2287,18 @@ class ExpectedIncomeController extends Controller
         // exclude an order that actually belongs to one of them.
         $leadCounts = $this->leadCountsByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
         $row['number_of_leads'] = $this->leadsForTsaProductDate($leadCounts, $tsaId, $entry->product_id, Carbon::parse($entryDate)->toDateString());
+
+        // Gross Sales/Number of Orders (2026-10-10) — same real-tally
+        // override, same reasoning. Unlike buildSummaryRow()'s own
+        // pre-sum() top-up (this row isn't pooled with any others — it's a
+        // single cell — so a direct field assignment here, before this
+        // row ever reaches derive(), is enough; derive() picks up the
+        // corrected gross_sales/number_of_orders and computes every
+        // cascading figure fresh from them).
+        $dateStr = Carbon::parse($entryDate)->toDateString();
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
+        $row['gross_sales'] = $this->grossSalesForTsaProductDate($grossSalesMap, $tsaId, $entry->product_id, $dateStr);
+        $row['number_of_orders'] = (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $tsaId, $entry->product_id, $dateStr);
 
         return $row;
     }

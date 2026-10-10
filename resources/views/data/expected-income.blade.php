@@ -471,7 +471,7 @@
             // 'returns'/'delivered' deliberately NOT read here — see
             // derive()'s own doc comment above: both are always derived
             // from gross_sales/cancelled, never a raw data-field input.
-            ['roas', 'actual_cost_per_lead', 'number_of_orders', 'average_order_value', 'gross_sales', 'cancelled', 'product_cost']
+            ['roas', 'actual_cost_per_lead', 'average_order_value', 'cancelled', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
@@ -485,6 +485,29 @@
             (() => {
                 const out = card.querySelector('[data-out="number_of_leads"]');
                 raw.number_of_leads = out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
+            })();
+            // Gross Sales/Number of Orders are no longer raw data-field
+            // inputs on a REAL product card (automated 2026-10-10 — see
+            // ExpectedIncomeController::grossSalesByProductAndDate()'s own
+            // doc comment) — but TikTok's own 2 fixed cards STILL have a
+            // real [data-field] for both (stays fully manual, same
+            // selector this forEach scans both card types with) — so,
+            // same "input if present, else span" pattern Tax Allocation
+            // already established right below, not an unconditional span
+            // read (a first version of this fix did that and silently
+            // broke TikTok's own live refresh — its real input value was
+            // never read any more).
+            (() => {
+                const el = card.querySelector('[data-field="gross_sales"]');
+                if (el) { raw.gross_sales = parseMoney(el.value); return; }
+                const out = card.querySelector('[data-out="gross_sales"]');
+                raw.gross_sales = out ? parseMoney(out.textContent) : 0;
+            })();
+            (() => {
+                const el = card.querySelector('[data-field="number_of_orders"]');
+                if (el) { raw.number_of_orders = Number(el.value) || 0; return; }
+                const out = card.querySelector('[data-out="number_of_orders"]');
+                raw.number_of_orders = out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
             })();
             // Tax Allocation on a TSA-scoped card is LOCKED (explicit
             // request, 2026-10-02: "the tax allocation in tsa cards is

@@ -75,9 +75,19 @@
         <span data-out="conversion_rate" class="font-semibold text-ink dark:text-slate-100 text-right">{{ $fmtPct($d['conversion_rate']) }}</span>
     </div>
 
+    {{-- Number of Orders is no longer typed in on a real product card
+         specifically — automated 2026-10-10 ("the number of orders is the
+         upsell") to the same real matched-upsell-order COUNT Gross Sales'
+         own dollar sum uses (ExpectedIncomeController::
+         grossSalesByProductAndDate()'s own 'numberOfOrders' map — same
+         isBroadRealUpsell-filtered matched set, EXACTLY
+         ProductPerformance::tally()'s own upsell_confirmation formula).
+         Gated on $tsaScoped, NOT just $editable, same reasoning as Gross
+         Sales directly above — TikTok's own 2 fixed cards stay fully
+         manual (no real Product/Pancake assignee data behind either). --}}
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
-        @if($editable ?? false)
+        @if(($editable ?? false) && !($tsaScoped ?? false))
             <input type="text" inputmode="numeric" value="{{ $entry?->number_of_orders ?? 0 }}"
                    data-field="number_of_orders" @if($locked ?? false) disabled @endif
                    class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
@@ -98,32 +108,58 @@
 </div>
 
 <div class="px-5 py-4 font-mono text-[13px] space-y-0.5">
-    {{-- Gross Sales/Cancelled: plain manual inputs (explicit request,
-         2026-09-28: "in the expected i want you to make all is manually
-         input"). Projected Returns/Projected Delivered: DERIVED from
-         Gross Sales again (explicit correction, 2026-10-01: "the only
-         auto is Projected Returns / Projected Delivered" — confirmed
-         against the real sheet's own formulas, Returns = Gross Sales ×
-         25%, Delivered = Gross Sales − Cancelled − Returns), so no input
-         for either even on an otherwise-editable card — see
-         ExpectedIncomeCalculator's own doc comment for the confirmed-
-         exact rate. --}}
-    @foreach([
-        ['key' => 'gross_sales', 'label' => 'Gross Sales'],
-        ['key' => 'cancelled', 'label' => 'Cancelled', 'red' => true],
-    ] as $col)
+    {{-- Gross Sales is NO LONGER a manual input on a real product card
+         specifically (explicit request, 2026-10-10: "in the expected
+         income the gross sales is make it automated too") — same real
+         per-item Pancake assignee revenue basis Summary Sales Report's
+         own Gross Sales already uses
+         (ExpectedIncomeController::grossSalesByProductAndDate()), scoped
+         per TSA per PRODUCT per day here. Reversed from the 2026-09-28
+         "make all manually input" decision below, same "automate it,
+         don't keep two independently-typed versions of the same real
+         number" reasoning every other field on this page has already
+         gone through (Number of Leads, 2026-10-09; Net Income's own
+         Summary Sales Report consumer, 2026-10-10). Gated on $tsaScoped,
+         NOT just $editable — $editable alone also covers TikTok's own 2
+         fixed cards (_tiktok-card.blade.php, always tsaScoped=false, no
+         real Product/Pancake assignee data behind either card, STILL
+         fully manual by design), so $tsaScoped is what uniquely
+         identifies "a real per-TSA product card" (_product-card.blade.php
+         is the only caller passing editable=true AND tsaScoped=true —
+         confirmed live, 2026-10-10: a first version of this fix gated on
+         $editable alone and silently removed TikTok's own Gross Sales
+         input too). Cancelled stays manual everywhere — no real
+         per-cancellation attribution signal exists anywhere in this app
+         the way upsell revenue does. Projected Returns/Projected
+         Delivered: DERIVED from Gross Sales (explicit correction,
+         2026-10-01: "the only auto is Projected Returns / Projected
+         Delivered" — confirmed against the real sheet's own formulas,
+         Returns = Gross Sales × 25%, Delivered = Gross Sales − Cancelled
+         − Returns), so no input for either even on an otherwise-editable
+         card — see ExpectedIncomeCalculator's own doc comment for the
+         confirmed-exact rate. --}}
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="{{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
-        @if($editable ?? false)
-            <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
-                   data-field="{{ $col['key'] }}" data-money="1" @if($locked ?? false) disabled @endif
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
+        <span class="text-ink-muted dark:text-slate-400">Gross Sales</span>
+        @if(($editable ?? false) && !($tsaScoped ?? false))
+            <input type="text" inputmode="decimal" value="{{ number_format($entry?->gross_sales ?? 0, 2) }}"
+                   data-field="gross_sales" data-money="1" @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
         @else
-            <span data-out="{{ $col['key'] }}" class="text-right font-semibold {{ ($col['red'] ?? false) ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
+            <span data-out="gross_sales" class="text-right font-semibold text-ink dark:text-slate-100">{{ $fmtMoney($d['gross_sales']) }}</span>
         @endif
-        <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
+        <span data-out="gross_sales_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d['gross_sales_pct']) }}</span>
     </div>
-    @endforeach
+    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
+        <span class="text-red-600 dark:text-red-400">Cancelled</span>
+        @if($editable ?? false)
+            <input type="text" inputmode="decimal" value="{{ number_format($entry?->cancelled ?? 0, 2) }}"
+                   data-field="cancelled" data-money="1" @if($locked ?? false) disabled @endif
+                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-red-600 dark:text-red-400 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
+        @else
+            <span data-out="cancelled" class="text-right font-semibold text-red-600 dark:text-red-400">{{ $fmtMoney($d['cancelled']) }}</span>
+        @endif
+        <span data-out="cancelled_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d['cancelled_pct']) }}</span>
+    </div>
 
     @foreach([
         ['key' => 'returns', 'label' => 'Projected Returns'],
