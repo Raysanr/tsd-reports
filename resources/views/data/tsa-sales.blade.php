@@ -69,13 +69,17 @@
     // real sheet's own Summary - Sales Report tab, 2026-09-24, Ads Spent
     // removed 2026-09-26 per explicit request) — a smaller set than DSPPR
     // - TSM Report's own 13 (no Total Leads, Excess Leads, or Conversion
-    // Rate on THIS sheet). Pick-up Rate and Upselling Rate are editable
-    // here (raw manual entry, unlike DSPPR's read-only versions) — see
-    // TsaSalesCalculator's own doc comment for why neither can be derived
-    // on either sheet.
+    // Rate on THIS sheet).
+    //
+    // Gross Sales/Net Income are NOT manual entry (explicit request,
+    // 2026-10-10 — see TsaSalesReportController's own class doc comment):
+    // Gross Sales = the real per-item-assignee upsell revenue
+    // (upsell_sales), Net Income = Expected Income's own derived P&L for
+    // that TSA/day. Both read-only [data-out] cells now, same pattern as
+    // Total Orders/Pick-up Rate below.
     $dayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
         // Total Orders, Catered Leads, Pick-up Rate, Upselling Rate: all 4
         // auto-computed from TSA Performance's own data now, not manual
@@ -682,12 +686,13 @@
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
         rows.forEach((row) => {
-            totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
-            totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            // Total Orders/Catered Leads/Pick-up/Upselling Rate are
-            // read-only [data-out] cells now, not [data-field] inputs
-            // (auto-computed — see TsaSalesReportController's own doc
-            // comment) — read their rendered text instead.
+            // Gross Sales/Net Income are read-only [data-out] cells now too
+            // (2026-10-10 — automated, see TsaSalesReportController's own
+            // doc comment), same as Total Orders/Catered Leads/Pick-up/
+            // Upselling Rate below — read their rendered text instead of a
+            // [data-field] input's .value.
+            totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+            totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
             totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
             totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
             // Pick-up/Upselling Rate recomputed from summed raw counts
@@ -732,10 +737,16 @@
         let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
 
         document.querySelectorAll(`.tsr-days-table .tsr-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
-            row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
-                const date = el.dataset.date;
-                totals.gross_sales += parseMoney(el.value);
-                totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
+            // Driven off [data-out="pickup_rate"] now, not
+            // [data-field="gross_sales"] (2026-10-10 — Gross Sales/Net
+            // Income are read-only [data-out] cells too now, same as
+            // Total Orders/Catered Leads/Pick-up/Upselling Rate below, so
+            // nothing left in this row is a [data-field] input to drive
+            // this per-date loop off of).
+            row.querySelectorAll('[data-out="pickup_rate"]').forEach((rateCell) => {
+                const date = rateCell.dataset.date;
+                totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+                totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
                 totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
                 totals.catered_leads += parseMoney(row.querySelector(`[data-out="catered_leads"][data-date="${date}"]`).textContent);
                 // Pick-up/Upselling Rate recomputed from this TSA's own
@@ -744,8 +755,9 @@
                 // TsaSalesReportController::withAutomatedAov()'s own fix,
                 // which applies at the per-TSA level too (TsaSalesCalculator
                 // ::sum($tsaRows) there sums one TSA's own days, same as
-                // here).
-                const rateCell = row.querySelector(`[data-out="pickup_rate"][data-date="${date}"]`);
+                // here). rateCell IS this date's own pickup_rate cell —
+                // it's the loop driver itself now (2026-10-10), no need to
+                // re-query it.
                 counts.answered += Number(rateCell?.dataset.answered) || 0;
                 counts.unanswered += Number(rateCell?.dataset.unanswered) || 0;
                 counts.confirmed_via_call += Number(rateCell?.dataset.confirmedViaCall) || 0;
@@ -939,8 +951,18 @@
         let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
         rows.forEach((row) => {
             const isTiktokRow = row.classList.contains('tsr-tiktok-row');
-            totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
-            totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
+            // Gross Sales/Net Income: TikTok rows still have a real
+            // [data-field] input (genuinely manual, untouched — see this
+            // file's own class note above); real-team rows are read-only
+            // [data-out] cells now (2026-10-10), same split
+            // total_orders/catered_leads already make below.
+            if (isTiktokRow) {
+                totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
+                totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
+            } else {
+                totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+                totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
+            }
             if (isTiktokRow) {
                 totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
                 totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;

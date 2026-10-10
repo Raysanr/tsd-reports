@@ -43,9 +43,34 @@ use Illuminate\Support\Collection;
  * itself uses, via perTsaPerDayPerformance() below, and OVERRIDE
  * whatever is stored on TsaSalesEntry for these columns (those columns
  * stay on the model/migration for now — not worth a destructive migration
- * for a report page — but are no longer written to or read from). Gross
- * Sales/Net Income/Ads Spent remain manual entry; AOV stays derived from
- * the now-automated Total Orders via TsaSalesCalculator::derive().
+ * for a report page — but are no longer written to or read from). AOV
+ * stays derived from the now-automated Total Orders via
+ * TsaSalesCalculator::derive().
+ *
+ * Gross Sales and Net Income are ALSO no longer manual entry (explicit
+ * request, 2026-10-10: "i want you to make the Data Management module is
+ * automated / the gross sales and net income / the net income the basis
+ * is in the expected income page / and the gross sales is the basis is
+ * the assignee tsa of items"). Gross Sales = upsell_sales, the same real
+ * per-item-assignee-attributed revenue perTsaPerDayPerformance() already
+ * computes for AOV (ProductPerformance::tally()['upsell_sales'] — traces
+ * back to Pancake's own per-item assigning_seller via
+ * SyncTodayOrders::extractTsaInfo(), the "assignee TSA of items" the
+ * request names; this app has no broader "full order amount by assignee"
+ * figure anywhere, confirmed before building this, so the existing
+ * upsell-attribution figure is the real one, not a new one). Net Income =
+ * ExpectedIncomeController::netIncomeByTsaAndDate()'s own figure for that
+ * TSA/day — the exact same number her read-only "[TSA NAME]" overview row
+ * already shows on the Expected Income page itself (her own product
+ * rows, summed, Operating Costs/Tax Allocation overridden to Cost
+ * Breakdown's real per-TSA figures), not a second, independently-derived
+ * P&L. Both columns are now plain read-only [data-out] cells, same
+ * pattern as Total Orders/Pick-up Rate above — TsaSalesEntry.gross_sales/
+ * net_income stay on the model/migration for history only, no longer
+ * written to or read from for a real team's own rows. TikTok Upsell's own
+ * section is UNCHANGED — still fully manual (no Expected Income/Pancake
+ * assignee data backs that roster), same confirmed scope boundary every
+ * earlier automation on this page already drew.
  */
 class TsaSalesReportController extends Controller
 {
@@ -55,21 +80,31 @@ class TsaSalesReportController extends Controller
         'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0,
         'upsell_sales' => 0, 'upsell_confirmation' => 0,
         'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0,
+        'gross_sales' => 0.0, 'net_income' => 0.0,
     ];
 
     /** Every TSA's per-day Total Orders/Catered Leads/Pick-up Rate/
-     *  Upselling Rate for $dateFrom..$dateTo, keyed "tsaId:date" — same
-     *  shape TsaPerformanceController's own $ordersByTsaNameAcrossTeams
-     *  produces (credit a TSA by tsa_name across EVERY team's orders, not
-     *  just her own team's Order.team column, since a TSA can close a
-     *  lead that landed under a different team — see that controller's
-     *  own doc comment, 2026-09-07, for the full reasoning this reuses
-     *  verbatim). Scoped here to one day at a time (DATE(), not BETWEEN)
-     *  so each day's own entry row gets that day's own tally, not the
-     *  whole range's.
+     *  Upselling Rate/Gross Sales/Net Income for $dateFrom..$dateTo, keyed
+     *  "tsaId:date" — same shape TsaPerformanceController's own
+     *  $ordersByTsaNameAcrossTeams produces (credit a TSA by tsa_name
+     *  across EVERY team's orders, not just her own team's Order.team
+     *  column, since a TSA can close a lead that landed under a different
+     *  team — see that controller's own doc comment, 2026-09-07, for the
+     *  full reasoning this reuses verbatim). Scoped here to one day at a
+     *  time (DATE(), not BETWEEN) so each day's own entry row gets that
+     *  day's own tally, not the whole range's.
+     *
+     *  Gross Sales/Net Income added 2026-10-10 — see this class's own doc
+     *  comment above for the full reasoning. Net Income is looked up ONCE
+     *  for the whole range via ExpectedIncomeController::
+     *  netIncomeByTsaAndDate() (not per-TSA-per-day here) since that
+     *  method already loops every date/TSA/product internally the same
+     *  way this method's own $orders query does.
      */
     private function perTsaPerDayPerformance(Collection $tsas, string $dateFrom, string $dateTo): Collection
     {
+        $netIncomeByKey = ExpectedIncomeController::netIncomeByTsaAndDate($dateFrom, $dateTo);
+
         // whereDate() twice (>= and <=) rather than a single BETWEEN —
         // same lexicographic-string-comparison SQLite bug called out
         // throughout this codebase (see index()'s own whereDate() calls
@@ -85,14 +120,15 @@ class TsaSalesReportController extends Controller
 
         $tsaKeyToId = $tsas->pluck('id', 'tsa_key');
 
-        return $byTsaAndDate->mapWithKeys(function (Collection $dayOrders, string $groupKey) use ($tsaKeyToId) {
+        $performance = $byTsaAndDate->mapWithKeys(function (Collection $dayOrders, string $groupKey) use ($tsaKeyToId, $netIncomeByKey) {
             [$tsaKey, $date] = explode(':', $groupKey, 2);
             $tsaId = $tsaKeyToId->get($tsaKey);
             if ($tsaId === null) return [];
 
             $tally = ProductPerformance::tally($dayOrders);
+            $key = $tsaId . ':' . $date;
 
-            return [$tsaId . ':' . $date => [
+            return [$key => [
                 // Explicit confirmation, 2026-10-03: "the total orders is
                 // confirmation w/ upsell data" — upsell_confirmation, not
                 // $tally['total'] (which would include every non-upsell
@@ -118,8 +154,26 @@ class TsaSalesReportController extends Controller
                 // upsell_sales ÷ upsell_confirmation, real tracked
                 // upsell revenue per upsell order, nothing to do with
                 // the manually-typed Gross Sales figure.
+                //
+                // Gross Sales (2026-10-10) reuses this exact figure — see
+                // this class's own doc comment above for why: the only
+                // real "revenue attributed to this TSA via Pancake's
+                // per-item assignee" figure anywhere in this app.
                 'upsell_sales'        => $tally['upsell_sales'],
+                'gross_sales'         => $tally['upsell_sales'],
                 'upsell_confirmation' => $tally['upsell_confirmation'],
+                // Net Income (2026-10-10) — looked up from the
+                // independent $netIncomeByKey map, NOT derived from this
+                // day's own $tally — a TSA can have a real Expected Income
+                // Net Income (her own Salaries/Operating Costs apply
+                // whether or not she sold anything that day, same
+                // "staffed regardless of sales" rule
+                // addActiveTsasOverviewOperatingCosts() already
+                // documents) independent of whether she has any orders
+                // today at all. See the union merge below this map for
+                // the TSA/date combinations that have Net Income but NO
+                // matching order-based key here at all.
+                'net_income' => $netIncomeByKey->get($key, 0.0),
                 // Raw tally() counts (added 2026-10-09, same fix as
                 // ProductPerformance::dsPprRow()'s own identical addition
                 // same day) — needed so index()'s own $overallTotal/group
@@ -139,6 +193,23 @@ class TsaSalesReportController extends Controller
                 'confirmed_via_call' => $tally['confirmed_via_call'],
             ]];
         });
+
+        // Union in every TSA/date that has a real Expected Income Net
+        // Income figure but NO key above at all (no orders that day) —
+        // same "missing entry ≠ zero" gap this whole module keeps hitting
+        // whenever a field moves from manual to automated (see
+        // leadCountsByProductAndDate()'s/totalRealLeads()'s own 2026-10-09
+        // doc comments on ExpectedIncomeController for the identical class
+        // of bug). Without this, a TSA fully staffed but with zero orders
+        // today would silently show 0.00 Net Income here instead of her
+        // real (possibly negative, from Salaries/Operating Costs with no
+        // Gross Sales to offset them) Expected Income figure.
+        foreach ($netIncomeByKey as $key => $netIncome) {
+            if ($performance->has($key)) continue;
+            $performance->put($key, array_merge(self::EMPTY_AUTO_FIELDS, ['net_income' => $netIncome]));
+        }
+
+        return $performance;
     }
 
     /** AOV = upsell_sales ÷ upsell_confirmation — same formula as
@@ -407,11 +478,16 @@ class TsaSalesReportController extends Controller
         // Total Orders/Catered Leads/Pick-up Rate/Upselling Rate are no
         // longer accepted here — see this class's own doc comment, 2026-
         // 10-03: they're fully automated from TSA Performance's own data
-        // now, not manual entry.
+        // now, not manual entry. Gross Sales/Net Income REMOVED 2026-10-10
+        // (same reasoning, same pattern as Expected Income's own
+        // number_of_leads removal) — both are now fully automated too (see
+        // this class's own doc comment above); a stray PATCH for either is
+        // now silently dropped rather than overwriting a value nothing on
+        // this page reads any more. Every TsaSalesEntry row and its own
+        // gross_sales/net_income columns stay on the model/migration for
+        // history only.
         $data = $request->validate([
-            'gross_sales' => ['sometimes', 'numeric'],
-            'net_income'  => ['sometimes', 'numeric'],
-            'ads_spent'   => ['sometimes', 'numeric', 'min:0'],
+            'ads_spent' => ['sometimes', 'numeric', 'min:0'],
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();

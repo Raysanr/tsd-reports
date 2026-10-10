@@ -153,6 +153,12 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertOk();
     }
 
+    /** Gross Sales/Net Income are no longer manual entry (2026-10-10 — see
+     *  this file's class doc comment); updating them via this endpoint is
+     *  now silently ignored, same as Total Orders/Catered Leads/Pick-up
+     *  Rate/Upselling Rate already are. Replaces this test's own old
+     *  "upserts a TsaSalesEntry row" assertion — ads_spent is the one
+     *  field this endpoint still accepts. */
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -160,13 +166,12 @@ class TsaSalesReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => today()->toDateString()]),
-            ['gross_sales' => 5500, 'net_income' => -1379.95]
+            ['ads_spent' => 1426.33]
         );
 
         $response->assertOk();
-        $response->assertJsonPath('derived.ni_pct', fn ($v) => abs($v - (-1379.95 / 5500)) < 0.0001);
-
-        $this->assertDatabaseHas('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 5500]);
+        $this->assertDatabaseHas('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'ads_spent' => 1426.33]);
+        $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 1426.33]);
     }
 
     public function test_updating_an_existing_entry_does_not_create_a_duplicate(): void
@@ -177,15 +182,15 @@ class TsaSalesReportSmokeTest extends TestCase
 
         $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 1000]
+            ['ads_spent' => 1000]
         );
         $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 2000]
+            ['ads_spent' => 2000]
         );
 
         $this->assertSame(1, TsaSalesEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(2000.0, TsaSalesEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
+        $this->assertSame(2000.0, TsaSalesEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->ads_spent);
     }
 
     public function test_tsas_are_grouped_by_their_real_team(): void
@@ -219,14 +224,25 @@ class TsaSalesReportSmokeTest extends TestCase
 
     /** Same whereBetween()-on-a-datetime-column bug fixed 2026-09-26 in
      *  DsPprReportController/ExpectedIncomeController — see
-     *  DsPprReportSmokeTest's own regression test for the full root cause. */
+     *  DsPprReportSmokeTest's own regression test for the full root cause.
+     *  Gross Sales (2026-10-10, now the real upsell_sales figure, see this
+     *  file's own class doc comment) seeded via real Order rows instead of
+     *  TsaSalesEntry — Order/upsell_sales is what this column reads now. */
     public function test_the_last_day_of_a_selected_range_is_not_dropped_from_the_summary(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
 
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today()->subDay(), 'gross_sales' => 1000]);
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 500]);
+        Order::create([
+            'pancake_order_id' => 'tlod-upsell-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 2,
+            'pancake_created_at' => today()->subDay()->toDateString() . ' 10:00:00', 'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'tlod-upsell-2', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+            'pancake_created_at' => today()->toDateString() . ' 10:00:00', 'synced_at' => now(),
+        ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
             'date_from' => today()->subDay()->toDateString(),
@@ -256,6 +272,25 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertDontSee('Thu, Oct 1');
     }
 
+    /** Seeds a single-product, single-TSA ExpectedIncomeEntry whose derived
+     *  Net Income lands on an exact target — Gross Sales (the only lever
+     *  this helper sets) is solved backward from derive()'s own formula
+     *  with every other input at 0: netIncome = grossSales × (1 − 0.25
+     *  returns − 0.0224 cod_fee-of-delivered×0.75) = grossSales × 0.7332.
+     *  No CostBreakdownTsaEntry/Role is seeded anywhere in this file, so
+     *  ExpectedIncomeController::withOperatingCostOverridesIfTsaScoped()'s
+     *  own Salaries/Operating Costs/Tax Allocation overrides all resolve
+     *  to 0 for this TSA (confirmed safe — ExpectedIncomeReportSmokeTest's
+     *  own per-TSA tests rely on the exact same unseeded-override
+     *  behavior), so this formula is exact, not an approximation. */
+    private function seedExpectedIncomeForNetIncome(\App\Models\Product $product, TsaShift $tsa, string $date, float $targetNetIncome): void
+    {
+        \App\Models\ExpectedIncomeEntry::create([
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => $targetNetIncome / 0.7332,
+        ]);
+    }
+
     /** Explicit request, 2026-09-28: "the net income it should be green if
      *  positive ... and if negative it should be red." */
     /** Explicit request, 2026-10-03: "lahat ng number kapag nilagay ay
@@ -264,21 +299,33 @@ class TsaSalesReportSmokeTest extends TestCase
      *  tapos kapag 1 - 4,199 yung net income stay lang siya sa black" —
      *  3 tiers, not the old plain negative=red/positive=green: negative
      *  stays red, 0–4,199.99 is now BLACK (not green), and green only
-     *  starts at 4,200 itself (confirmed inclusive: >= 4200). Scoped to
-     *  the real <input data-field="net_income"> element (not a bare
-     *  assertSee of a color class, which could pass just because that
-     *  class string happens to appear ANYWHERE else on the page). */
+     *  starts at 4,200 itself (confirmed inclusive: >= 4200).
+     *
+     *  Net Income is now a read-only [data-out="net_income"] span, sourced
+     *  from Expected Income (2026-10-10 — see this file's own class doc
+     *  comment), not a manually-typed <input> — these tests seed a real
+     *  ExpectedIncomeEntry via seedExpectedIncomeForNetIncome() instead of
+     *  TsaSalesEntry, and assert against the rendered span's own class,
+     *  not an <input>'s. */
     public function test_a_net_income_of_4200_or_above_is_rendered_green(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 10000, 'net_income' => 4200]);
+        $product = \App\Models\Product::first();
+        // +0.01, not exactly 4200.0 — seedExpectedIncomeForNetIncome()'s
+        // own backward-solved Gross Sales division is subject to float
+        // rounding (confirmed live: solving for exactly 4200 landed on
+        // 4199.999999999972..., one hair under the >= 4200 threshold,
+        // rendering black instead of green) — a cent above the threshold
+        // avoids that edge without weakening what this test actually
+        // checks (the inclusive >= boundary).
+        $this->seedExpectedIncomeForNetIncome($product, $tsa, today()->toDateString(), 4200.01);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            '/class="[^"]*text-green-600[^"]*"[^>]*data-out="net_income"/',
             $response->getContent(),
             'expected exactly 4,200.00 to be green (inclusive threshold)'
         );
@@ -292,19 +339,20 @@ class TsaSalesReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => 500]);
+        $product = \App\Models\Product::first();
+        $this->seedExpectedIncomeForNetIncome($product, $tsa, today()->toDateString(), 500.0);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $content = $response->getContent();
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-ink[^"]*"/',
+            '/class="[^"]*text-ink[^"]*"[^>]*data-out="net_income"/',
             $content,
             'expected 500.00 (below the 4,200 threshold) to be plain black (text-ink), not green'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            '/class="[^"]*text-green-600[^"]*"[^>]*data-out="net_income"/',
             $content,
             '500.00 must NOT be green — only 4,200 and above should be'
         );
@@ -316,13 +364,14 @@ class TsaSalesReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 10000, 'net_income' => 4199.99]);
+        $product = \App\Models\Product::first();
+        $this->seedExpectedIncomeForNetIncome($product, $tsa, today()->toDateString(), 4199.99);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $this->assertDoesNotMatchRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-green-600[^"]*"/',
+            '/class="[^"]*text-green-600[^"]*"[^>]*data-out="net_income"/',
             $response->getContent(),
             '4,199.99 must NOT be green — the threshold is 4,200 exactly'
         );
@@ -332,32 +381,14 @@ class TsaSalesReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => -500]);
+        $product = \App\Models\Product::first();
+        $this->seedExpectedIncomeForNetIncome($product, $tsa, today()->toDateString(), -500.0);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
-            $response->getContent()
-        );
-    }
-
-    /** Explicit request, 2026-10-03: "i want to make it can input negative
-     *  amount ... if negative red and if positive it is green like in the
-     *  dsppr page" — the Net Income INPUT itself (not just the read-only
-     *  summary spans) is colored by its own saved value. */
-    public function test_the_net_income_input_itself_is_colored_by_its_saved_value(): void
-    {
-        $admin = User::factory()->create(['role' => 'admin']);
-        $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 3800, 'net_income' => -500]);
-
-        $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
-
-        $response->assertOk();
-        $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
+            '/class="[^"]*text-red-600[^"]*"[^>]*data-out="net_income"/',
             $response->getContent()
         );
     }
@@ -367,24 +398,37 @@ class TsaSalesReportSmokeTest extends TestCase
      *  black," reversing the earlier 2026-10-03 decision (recorded in git
      *  history) that had briefly applied Net Income's own 3-tier
      *  red/black/green rule to Gross Sales too. Only Net Income keeps
-     *  that rule now, same as DSPPR's own page. */
+     *  that rule now, same as DSPPR's own page.
+     *
+     *  Gross Sales is now a read-only [data-out="gross_sales"] span,
+     *  sourced from real order upsell revenue (2026-10-10 — see this
+     *  file's own class doc comment), so this seeds a real Order instead
+     *  of TsaSalesEntry.gross_sales directly. upsell_sales/Gross Sales can
+     *  never be negative (it's a real order amount), so this test now
+     *  confirms a LARGE figure stays black instead — the negative-specific
+     *  case no longer applies and is covered by
+     *  test_a_large_gross_sales_stays_black_not_green() below instead. */
     public function test_the_gross_sales_input_is_always_plain_black_regardless_of_value(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => -200, 'net_income' => 500]);
+        Order::create([
+            'pancake_order_id' => 'gs-black-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => true, 'amount' => 9999.0, 'status_code' => 2,
+            'pancake_created_at' => today()->toDateString() . ' 10:00:00', 'synced_at' => now(),
+        ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $content = $response->getContent();
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-ink[^"]*"/',
+            '/class="[^"]*text-ink[^"]*"[^>]*data-out="gross_sales"/',
             $content,
-            'a negative Gross Sales (-200.00) must still render plain black, not red'
+            'a large Gross Sales figure must still render plain black, not colored'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-red-600[^"]*"/',
+            '/class="[^"]*text-red-600[^"]*"[^>]*data-out="gross_sales"/',
             $content
         );
     }
@@ -393,26 +437,35 @@ class TsaSalesReportSmokeTest extends TestCase
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => today(), 'gross_sales' => 4200, 'net_income' => 0]);
+        Order::create([
+            'pancake_order_id' => 'gs-black-2', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => true, 'amount' => 4200.0, 'status_code' => 2,
+            'pancake_created_at' => today()->toDateString() . ' 10:00:00', 'synced_at' => now(),
+        ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
 
         $response->assertOk();
         $content = $response->getContent();
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-ink[^"]*"/',
+            '/class="[^"]*text-ink[^"]*"[^>]*data-out="gross_sales"/',
             $content,
             'expected 4,200.00 Gross Sales to be plain black, not green — the 4,200 threshold only applies to Net Income'
         );
         $this->assertDoesNotMatchRegularExpression(
-            '/<input[^>]*data-field="gross_sales"[^>]*class="[^"]*text-green-600[^"]*"/',
+            '/class="[^"]*text-green-600[^"]*"[^>]*data-out="gross_sales"/',
             $content
         );
     }
 
-    /** gross_sales/net_income accept negative numeric values, not just
-     *  positive — min:0 would silently reject a typed loss/refund. */
-    public function test_negative_gross_sales_and_net_income_save_successfully(): void
+    /** Gross Sales/Net Income are no longer manual entry at all (2026-10-10
+     *  — see this file's class doc comment), so a PATCH for either —
+     *  negative or otherwise — is now silently dropped rather than
+     *  persisted, same as every other automated field on this page. A
+     *  negative Net Income is still a real, correctly-handled VALUE once
+     *  it comes from Expected Income (see test_a_negative_net_income_is_
+     *  rendered_red() above) — only the manual-entry PATH for it is gone. */
+    public function test_negative_gross_sales_and_net_income_are_no_longer_accepted(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -423,8 +476,11 @@ class TsaSalesReportSmokeTest extends TestCase
         );
 
         $response->assertOk();
-        $this->assertDatabaseHas('tsa_sales_entries', [
-            'tsa_shift_id' => $tsa->id, 'gross_sales' => -1500, 'net_income' => -300,
+        $this->assertDatabaseMissing('tsa_sales_entries', [
+            'tsa_shift_id' => $tsa->id, 'gross_sales' => -1500,
+        ]);
+        $this->assertDatabaseMissing('tsa_sales_entries', [
+            'tsa_shift_id' => $tsa->id, 'net_income' => -300,
         ]);
     }
 
@@ -526,8 +582,10 @@ class TsaSalesReportSmokeTest extends TestCase
         }
     }
 
-    /** updateEntry() must reject these 4 fields now (even if a caller
-     *  still sends them) — they're no longer writable at all. */
+    /** updateEntry() must reject every one of these 6 fields now (even if
+     *  a caller still sends them) — all are fully automated, none are
+     *  writable any more (gross_sales/net_income added 2026-10-10 — see
+     *  this file's own class doc comment). */
     public function test_updating_the_automated_fields_is_silently_ignored(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -536,11 +594,12 @@ class TsaSalesReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 1000, 'total_orders' => 777, 'catered_leads' => 777, 'pickup_rate' => 0.77, 'upselling_rate' => 0.77]
+            ['gross_sales' => 1000, 'net_income' => 1000, 'total_orders' => 777, 'catered_leads' => 777, 'pickup_rate' => 0.77, 'upselling_rate' => 0.77]
         );
 
         $response->assertOk();
-        $this->assertDatabaseHas('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 1000]);
+        $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'gross_sales' => 1000]);
+        $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'net_income' => 1000]);
         $this->assertDatabaseMissing('tsa_sales_entries', ['tsa_shift_id' => $tsa->id, 'total_orders' => 777]);
     }
 
@@ -831,7 +890,19 @@ class TsaSalesReportSmokeTest extends TestCase
         $tsa->update(['tiktok_upsell' => true]);
         $date = today()->toDateString();
 
-        TsaSalesEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 4000]);
+        // Gross Sales on her real-team row is no longer TsaSalesEntry
+        // (2026-10-10 — see this file's own class doc comment); seeded via
+        // a real Order's own upsell revenue instead. She's flagged
+        // tiktok_upsell here but STILL appears on her real team's own
+        // table too (TsaSalesReportController::index() doesn't exclude a
+        // TikTok-flagged TSA from the real-team grouping, only from
+        // whether she ALSO gets a TikTok block) — same dual-appearance
+        // this test's own original intent already relied on.
+        Order::create([
+            'pancake_order_id' => 'overall-total-upsell-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'is_upsell' => true, 'amount' => 4000.0, 'status_code' => 2,
+            'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
+        ]);
         TsaTiktokEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 1500]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales', [

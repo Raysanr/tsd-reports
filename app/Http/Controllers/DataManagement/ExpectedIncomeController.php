@@ -201,6 +201,57 @@ class ExpectedIncomeController extends Controller
         ]));
     }
 
+    /** Summary Sales Report's own Net Income source of truth (explicit
+     *  request, 2026-10-10: "the net income the basis is in the expected
+     *  income page") — every real (non-TikTok) TSA's own Net Income for
+     *  one day, keyed "tsaId:date", computed the exact same way as her own
+     *  read-only "[TSA NAME]" overview row on THIS page
+     *  (buildTeamDailyRows()'s own $dailyOverallTotals: every one of her
+     *  product rows that day, summed raw, derived once, then her real
+     *  undivided Operating-Costs/Tax-Allocation override applied via
+     *  withOperatingCostOverridesIfTsaScoped() — same chain, not a
+     *  separately re-derived figure that could drift from what this page
+     *  itself shows for her). Loops every real team internally (not scoped
+     *  to one) so Summary Sales Report — which shows both teams at once —
+     *  can read both in a single call; a TikTok-flagged TSA is excluded
+     *  (tiktok_upsell=true), same scope boundary buildTeamDailyRows() and
+     *  Summary Sales Report's own TikTok Upsell section already agree on
+     *  (her Net Income there stays fully manual, untouched by this).
+     *
+     *  Every product counts toward her total regardless of
+     *  has_cost_allocation (same as buildTeamDailyRows()'s own
+     *  $dailyOverallTotals, which applies no such gate) — only the
+     *  Operating Costs/Tax Allocation SHARE a flagged product receives is
+     *  conditional; an unflagged product's own manually-entered Gross
+     *  Sales/Cancelled/Selling Costs still count toward her Net Income. */
+    public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        $tsas = TsaShift::where('tiktok_upsell', false)->get();
+        $controller = new self();
+
+        $result = collect();
+        foreach ($tsas as $tsa) {
+            ['raw' => $rawByProductAndDate] = $controller->rawByProductAndDate(
+                $products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys
+            );
+
+            foreach ($dates as $date) {
+                $dateStr = $date->toDateString();
+                $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
+                $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
+                $summed = $controller->withOperatingCostOverridesIfTsaScoped($summed, $tsa->id);
+                $result[$tsa->id . ':' . $dateStr] = $summed['net_income'];
+            }
+        }
+
+        return $result;
+    }
+
     /** Remembers the last team filter picked on this page across separate
      *  visits, same "session, keyed per page" convention as
      *  DateRangeFilter::resolve() (explicit request, 2026-10-01: "the
