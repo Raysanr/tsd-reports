@@ -1981,7 +1981,29 @@ class ExpectedIncomeController extends Controller
      *  that 2026-10-07 per-card decision untouched (still governs
      *  $onlyTsaIds/$rollupLookups/every OTHER field) while making Gross
      *  Sales specifically immune to it, same as it's already immune to
-     *  the per-product matching gap. */
+     *  the per-product matching gap.
+     *
+     *  Investigated-and-REJECTED fix, 2026-10-11: briefly excluded
+     *  tiktok_upsell=true TSAs from the $onlyOrderTeam===null (ALL view)
+     *  branch, theorizing her real orders were double-counted against her
+     *  separately-folded-in TikTok card. Reverted after checking Summary
+     *  Sales Report's OWN basis directly: its `perTsaPerDayPerformance()`
+     *  has NO tiktok_upsell filter at all — it already includes a
+     *  TikTok-flagged TSA's real orders in its OVERALL TOTAL (confirmed
+     *  live, Oct 1: her real orders tally EXACTLY 74,703 site-wide,
+     *  INCLUDING her own, and Summary Sales Report's own OVERALL TOTAL of
+     *  76,303.00 = that 74,703 + its own separate TsaTiktokEntry total of
+     *  1,600.00). So excluding her here would have made this method
+     *  diverge FROM Summary Sales Report, not converge with it — the two
+     *  pages are supposed to both include her real orders once; any
+     *  remaining gap between them is `ExpectedIncomeTiktokEntry` (this
+     *  page's own TikTok manual figure) vs `TsaTiktokEntry` (Summary
+     *  Sales Report's own, independently-typed TikTok manual figure)
+     *  simply holding two different manually-entered numbers for the same
+     *  TSA/day — a known, already-documented, ACCEPTED gap (see
+     *  Decisions.md, 2026-10-10: "two entirely separate tables with zero
+     *  shared computation... two independently human-maintained
+     *  numbers"), not a code bug to chase further. */
     private function teamUpsellGrossSales(?string $onlyOrderTeam, string $dateFrom, string $dateTo): float
     {
         $tsaKeys = $onlyOrderTeam === null
