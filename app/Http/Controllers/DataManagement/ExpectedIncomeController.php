@@ -365,6 +365,28 @@ class ExpectedIncomeController extends Controller
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
 
         $controller = new self();
+
+        // Computed ONCE for the WHOLE requested range here, then sliced
+        // per (team, date) below via buildSummaryRow()'s own precomputed-
+        // map parameters — perf fix, 2026-10-11 (root-caused live: Summary
+        // Sales Report 500'd, "Maximum execution time of 30 seconds
+        // exceeded", on a 9-day range). Before this fix, the loop below
+        // called buildSummaryRow() once per (team, date) — e.g. 2 teams x
+        // 9 days = 18 calls — and each call independently re-ran
+        // leadCountsByProductAndDate()/grossSalesByProductAndDate() from
+        // scratch for its own single day, with EACH of those internally
+        // re-matching BOTH real teams' orders regardless of which one
+        // team's result the caller actually kept. That's ~36x the real
+        // matching cost for what should be one pass over the range. Both
+        // maps are pure functions of (products, dates, dateFrom, dateTo)
+        // with no team-scoping of their own (see their own doc comments —
+        // every real team's results are already computed and separately
+        // keyed internally), so hoisting them out of the loop changes
+        // nothing about correctness, only how many times the same work
+        // gets done.
+        $leadCounts = $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
         $result = collect();
 
         foreach (Teams::config() as $teamConfig) {
@@ -375,7 +397,8 @@ class ExpectedIncomeController extends Controller
                 $dateStr = $date->toDateString();
                 $oneDay = collect([$date]);
                 ['overallTotal' => $overallTotal] = $controller->buildSummaryRow(
-                    $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $teamTsaIds, $orderTeam
+                    $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $teamTsaIds, $orderTeam,
+                    $leadCounts, $grossSalesAndOrders
                 );
                 $result["{$orderTeam}:{$dateStr}"] = $overallTotal['net_income'];
             }
@@ -428,13 +451,25 @@ class ExpectedIncomeController extends Controller
             : TsaShift::where('team', $onlyOrderTeam)->where('tiktok_upsell', false)->pluck('id')->all();
 
         $controller = new self();
+
+        // Computed ONCE for the whole requested range — same perf fix as
+        // teamNetIncomeByDate() above, same root cause (this method also
+        // calls buildSummaryRow() once per date in the loop below; without
+        // hoisting these out, a 9-day DSPPR range would re-run full
+        // team x product matchingOrders() 9 separate times instead of
+        // once). See teamNetIncomeByDate()'s own doc comment for the full
+        // story.
+        $leadCounts = $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
         $result = collect();
 
         foreach ($dates as $date) {
             $dateStr = $date->toDateString();
             $oneDay = collect([$date]);
             ['cards' => $cards] = $controller->buildSummaryRow(
-                $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $onlyTsaIds, $onlyOrderTeam
+                $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $onlyTsaIds, $onlyOrderTeam,
+                $leadCounts, $grossSalesAndOrders
             );
 
             foreach ($cards as $row) {
@@ -646,7 +681,7 @@ class ExpectedIncomeController extends Controller
      *  for the ALL view — see leadCountsByProductAndDate()'s own doc
      *  comment for why Number of Leads needs this SEPARATELY from
      *  $onlyTsaIds. */
-    private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds, ?string $onlyOrderTeam = null): array
+    private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds, ?string $onlyOrderTeam = null, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): array
     {
         $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
 
@@ -677,14 +712,27 @@ class ExpectedIncomeController extends Controller
         // one who switched teams) gets her other-team orders swept into
         // this team's own count too, since nothing here ever excluded them
         // by Order.team the way Leads Report's own candidate pool does.
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
-        // Gross Sales/Number of Orders (2026-10-10) — same full-roster,
-        // $onlyOrderTeam-scoped map as $leadCounts directly above, same
-        // reasoning (a group card's own matchingOrders() stale-tag guard
-        // needs the FULL page roster, and candidate orders must be
-        // team-pre-scoped before matching) — see
-        // grossSalesByProductAndDate()'s own doc comment.
-        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (perf fix,
+        // 2026-10-11 — root-caused live: Summary Sales Report 500'd with
+        // "Maximum execution time of 30 seconds exceeded" on any multi-day
+        // range) — leadCountsByProductAndDate()/grossSalesByProductAndDate()
+        // each re-run a full team x day x product matchingOrders() pass
+        // EVERY call, computing BOTH real teams' results even though a
+        // single-team caller only keeps one. teamNetIncomeByDate() and
+        // grossSalesAndNetIncomeByProductAndDate() both call this method
+        // once per (team, date) pair — for a 9-day/2-team range that's 18
+        // calls, each silently redoing the other 17 calls' own matching
+        // work from scratch (effectively ~36x the real cost of one pass
+        // over the whole range). Those two callers now compute both maps
+        // ONCE for the FULL requested range and pass them in here instead
+        // of letting this method recompute its own single-day slice every
+        // time — this method still computes them itself (unchanged
+        // behavior/cost) for its two OTHER callers (buildSummary()'s own
+        // whole-range-in-one-call usage), which were never part of this
+        // bug.
+        $leadCounts = $precomputedLeadCounts ?? $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $grossSalesAndOrders;
 
         // Computed ONCE per request (not once per product card/group) —
         // see addActiveTsasOverviewOperatingCosts()'s own doc comment for
