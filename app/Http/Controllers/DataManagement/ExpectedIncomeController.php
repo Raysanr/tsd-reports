@@ -298,10 +298,27 @@ class ExpectedIncomeController extends Controller
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
         $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
 
+        // Computed ONCE for the whole requested range, then reused for
+        // EVERY TSA below — perf fix, 2026-10-11 (root-caused live: a 500
+        // "Maximum execution time of 30 seconds exceeded" on Summary Sales
+        // Report, still happening even after the first fix to
+        // teamNetIncomeByDate()/buildSummaryRow(), because THIS method —
+        // the one perTsaPerDayPerformance() actually calls on every page
+        // load — has its own, separate per-TSA loop calling
+        // rawByProductAndDate(), which was recomputing both maps from
+        // scratch for every TSA: ~12 real TSAs = ~12 full team x product
+        // matchingOrders() passes over the whole range instead of 1). See
+        // buildSummaryRow()'s own precomputed-map parameters' doc comment
+        // for the full story — same root cause, same fix, different call
+        // site.
+        $leadCounts = $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
         $result = collect();
         foreach ($tsas as $tsa) {
             ['raw' => $rawByProductAndDate] = $controller->rawByProductAndDate(
-                $products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys
+                $products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys,
+                $leadCounts, $grossSalesAndOrders
             );
 
             // Same "0-day TSA's own share of every shared pool cost is
@@ -1214,6 +1231,16 @@ class ExpectedIncomeController extends Controller
         $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
         $dailyCostRow = TsaDailyRateService::dailyCostRow();
 
+        // Computed ONCE for the whole requested range, then reused for
+        // EVERY TSA's own card stack below — perf fix, 2026-10-11, same
+        // root cause/fix as netIncomeByTsaAndDate()'s own identical
+        // change (see that method's own doc comment): without this,
+        // rawByProductAndDate() below would recompute both maps from
+        // scratch per TSA (~12 real TSAs = ~12 full team x product
+        // matchingOrders() passes over the whole range instead of 1).
+        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+
         // A multi-day range sums into ONE read-only block per TSA instead
         // of one editable block per day (explicit decision, 2026-10-02:
         // "it should be adding oct 1 and 2 data right?"). Can't just ALSO
@@ -1225,8 +1252,8 @@ class ExpectedIncomeController extends Controller
         // view (see buildAllDailyRows()'s own doc comment on this).
         $isRangeSummed = $dates->count() > 1;
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId, $isRangeSummed) {
-            ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId, $isRangeSummed, $leadCounts, $grossSalesAndOrders) {
+            ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $leadCounts, $grossSalesAndOrders);
             // A 0-day TSA's own share of every shared pool cost is zeroed
             // here too (2026-10-06, follow-up to the Salaries-only fix
             // above — "the salaries is will stay but the other costs will
@@ -1577,7 +1604,7 @@ class ExpectedIncomeController extends Controller
      *  than whatever rows happen to exist, guarantees every cell in the
      *  selected range is represented regardless of which table (or
      *  neither) actually has a row for it. */
-    private function rawByProductAndDate($products, ?int $tsaId, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys)
+    private function rawByProductAndDate($products, ?int $tsaId, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null)
     {
         // whereDate() >=/<=, not a raw whereBetween() on the date-cast
         // column — root-caused 2026-09-26: entry_date is stored as a full
@@ -1623,17 +1650,21 @@ class ExpectedIncomeController extends Controller
         // doc comment for exactly what's counted). $tsaId is null for the
         // ALL view's own product-level rows — same "all TSAs" meaning
         // leadCountsByProductAndDate() already uses elsewhere on this page.
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
-
-        // Gross Sales/Number of Orders are ALSO no longer manually-typed
-        // figures (explicit request, 2026-10-10: "in the expected income
-        // the gross sales is make it automated too", then "the number of
-        // orders is the upsell") — same real per-item Pancake assignee
-        // revenue/order-count basis Summary Sales Report's own Gross
-        // Sales/Total Orders columns use, scoped per product here via
-        // grossSalesByProductAndDate()'s own matchingOrders() step (see
-        // that method's own doc comment).
-        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (perf fix,
+        // 2026-10-11 — see buildSummaryRow()'s own identical parameters'
+        // doc comment for the full story). netIncomeByTsaAndDate() and
+        // buildTeamDailyRows() each call this method once PER TSA — with
+        // ~12 real TSAs, that's 12 full team x product matchingOrders()
+        // passes over the whole range instead of 1, on EVERY Summary Sales
+        // Report page load (not just wide ranges) since
+        // perTsaPerDayPerformance() always calls netIncomeByTsaAndDate().
+        // This is what was still timing out even after the
+        // teamNetIncomeByDate()/buildSummaryRow() fix — that fix addressed
+        // a DIFFERENT call chain; this is the one perTsaPerDayPerformance()
+        // actually goes through on every page load.
+        $leadCounts = $precomputedLeadCounts ?? $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $grossSalesAndOrders;
 
         $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $tsaId) {
             return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $tsaId) {
