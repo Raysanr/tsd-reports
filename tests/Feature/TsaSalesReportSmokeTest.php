@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ExpectedIncomeTiktokEntry;
 use App\Models\Order;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaShift;
@@ -715,10 +716,18 @@ class TsaSalesReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $tsa->update(['tiktok_upsell' => true]);
 
+        // Gross Sales/Net Income/Total Orders are automated now (2026-10-11
+        // — sourced from Expected Income's own TikTok cards, not typed
+        // directly into TsaTiktokEntry) — see
+        // ExpectedIncomeController::tiktokTotalsByTsaAndDate()'s own doc
+        // comment. Catered Leads/Pick-up Rate/Upselling Rate stay manual.
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 6000,
+        ]);
         TsaTiktokEntry::create([
             'tsa_shift_id' => $tsa->id, 'entry_date' => today(),
-            'gross_sales' => 6000, 'net_income' => 753.94,
-            'total_orders' => 5, 'catered_leads' => 10, 'pickup_rate' => 0.50, 'upselling_rate' => 0.50,
+            'catered_leads' => 10, 'pickup_rate' => 0.50, 'upselling_rate' => 0.50,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
@@ -743,10 +752,13 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('No TSAs in TikTok Upsell yet');
     }
 
-    /** Unlike updateEntry(), Total Orders/Catered Leads/Pick-up Rate/
-     *  Upselling Rate ARE accepted and persisted here — every field in
-     *  the TikTok Upsell section is manual entry (see
-     *  create_tsa_tiktok_entries_table migration's own doc comment). */
+    /** Catered Leads/Pick-up Rate/Upselling Rate ARE accepted and
+     *  persisted here — still manual entry. Gross Sales/Net Income/Total
+     *  Orders are NO LONGER accepted (2026-10-11 — automated from
+     *  Expected Income's own TikTok cards instead, see
+     *  TsaSalesReportController::updateTiktokEntry()'s own doc comment);
+     *  the response's own 'derived' still reflects the real automated
+     *  Gross Sales figure. */
     public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -754,16 +766,25 @@ class TsaSalesReportSmokeTest extends TestCase
         $tsa->update(['tiktok_upsell' => true]);
         $date = today()->toDateString();
 
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 6000,
+        ]);
+
         $response = $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 6000, 'net_income' => 753.94, 'total_orders' => 5, 'catered_leads' => 10, 'pickup_rate' => 0.5, 'upselling_rate' => 0.5]
+            ['catered_leads' => 10, 'pickup_rate' => 0.5, 'upselling_rate' => 0.5]
         );
 
         $response->assertOk();
-        $response->assertJsonPath('derived.ni_pct', fn ($v) => abs($v - (753.94 / 6000)) < 0.0001);
+        $response->assertJsonPath('derived.gross_sales', fn ($v) => abs($v - 6000) < 0.01);
         $this->assertDatabaseHas('tsa_tiktok_entries', [
-            'tsa_shift_id' => $tsa->id, 'gross_sales' => 6000, 'total_orders' => 5, 'catered_leads' => 10,
+            'tsa_shift_id' => $tsa->id, 'catered_leads' => 10,
         ]);
+        // Gross Sales/Net Income/Total Orders were never submitted and
+        // never written to TsaTiktokEntry's own stored columns (kept on
+        // the model/migration for history only).
+        $this->assertSame(0.0, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
     }
 
     public function test_updating_an_existing_tiktok_entry_does_not_create_a_duplicate(): void
@@ -775,28 +796,30 @@ class TsaSalesReportSmokeTest extends TestCase
 
         $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 1000]
+            ['catered_leads' => 5]
         );
         $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 2000]
+            ['catered_leads' => 10]
         );
 
         $this->assertSame(1, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(2000.0, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
+        $this->assertSame(10, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()->catered_leads);
     }
 
     /** TikTok Upsell's own totals must fold into the page's OVERALL TOTAL
-     *  row — same as every real team already does. */
+     *  row — same as every real team already does. Gross Sales now comes
+     *  from Expected Income's own TikTok card (2026-10-11), not a direct
+     *  TsaTiktokEntry value. */
     public function test_tiktok_upsell_totals_are_included_in_the_overall_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
         $tsa->update(['tiktok_upsell' => true]);
 
-        TsaTiktokEntry::create([
-            'tsa_shift_id' => $tsa->id, 'entry_date' => today(),
-            'gross_sales' => 6000, 'net_income' => 753.94,
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => today(),
+            'gross_sales' => 6000,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
@@ -805,6 +828,112 @@ class TsaSalesReportSmokeTest extends TestCase
         preg_match('/<tr class="bg-black text-white font-bold tsr-overall-total-row">.*?<\/tr>/s', $response->getContent(), $matches);
         $this->assertNotEmpty($matches, 'expected to find the OVERALL TOTAL row');
         $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*6,000\.00\s*</', $matches[0]);
+    }
+
+    /** Root-caused live, 2026-10-11 (screenshot comparison, Oct 1): this
+     *  page's own TikTok Upsell Gross Sales showed a different number
+     *  than Expected Income's own TikTok card for the identical TSA/day —
+     *  traced to two independently-typed manual tables (TsaTiktokEntry
+     *  vs ExpectedIncomeTiktokEntry) with zero shared computation.
+     *  Reproduces that exact scenario: a stale TsaTiktokEntry.gross_sales
+     *  value left over from BEFORE the automation (e.g. typed in while
+     *  this field was still manual) must now be completely ignored —
+     *  the page shows Expected Income's own figure instead, every time,
+     *  regardless of what TsaTiktokEntry itself still has stored. */
+    public function test_tiktok_gross_sales_reads_from_expected_incomes_tiktok_card_not_the_stale_manual_value(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        // A stale, pre-automation manual value — must be ignored entirely.
+        TsaTiktokEntry::create([
+            'tsa_shift_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 1600, 'net_income' => 0, 'total_orders' => 0,
+            'catered_leads' => 7, 'pickup_rate' => 0.60, 'upselling_rate' => 0.60,
+        ]);
+        // Expected Income's own TikTok card — now the real source.
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 6000,
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee('6,000.00');
+        $response->assertDontSee('1,600.00');
+        // Catered Leads stays manual — her stale TsaTiktokEntry value for
+        // THAT field is still the real one, confirming only Gross Sales/
+        // Net Income/Total Orders switched to automated, not the whole row.
+        $response->assertSee('7');
+    }
+
+    /** Confirms the 3 now-automated fields render as read-only [data-out]
+     *  cells (same convention every other automated field on this page
+     *  already uses), not editable [data-field] inputs — and that
+     *  Catered Leads/Pick-up Rate/Upselling Rate stay genuine inputs. */
+    public function test_tiktok_automated_fields_render_as_read_only_not_inputs(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+
+        $this->assertMatchesRegularExpression('/data-out="gross_sales" data-date="' . preg_quote($date, '/') . '"/', $content);
+        $this->assertMatchesRegularExpression('/data-out="net_income" data-date="' . preg_quote($date, '/') . '"/', $content);
+        $this->assertMatchesRegularExpression('/data-out="total_orders" data-date="' . preg_quote($date, '/') . '"/', $content);
+        // Checks for an actual <input ... data-field="..."> TAG, not just
+        // the substring anywhere in the page — this page's own inline
+        // <script> comments legitimately mention "[data-field="gross_sales"]"
+        // in prose explaining the OLD behavior, and that JS comment text
+        // is sent to the browser verbatim (comments aren't stripped from
+        // <script> blocks), so a bare substring check would false-positive
+        // on that prose instead of checking real markup.
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]*data-field="gross_sales"/', $content);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]*data-field="net_income"/', $content);
+        $this->assertDoesNotMatchRegularExpression('/<input[^>]*data-field="total_orders"/', $content);
+        // Catered Leads/Pick-up Rate/Upselling Rate stay editable.
+        $this->assertMatchesRegularExpression('/<input[^>]*data-field="catered_leads"/', $content);
+        $this->assertMatchesRegularExpression('/<input[^>]*data-field="pickup_rate"/', $content);
+        $this->assertMatchesRegularExpression('/<input[^>]*data-field="upselling_rate"/', $content);
+    }
+
+    /** updateTiktokEntry() must silently ignore gross_sales/net_income/
+     *  total_orders in the request payload (same "validation rule
+     *  removed" pattern as updateEntry() for the real-team columns) —
+     *  the response's own 'derived' must still reflect the REAL automated
+     *  figure, not echo back whatever was (wrongly) submitted. */
+    public function test_updating_the_tiktok_automated_fields_is_silently_ignored(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 6000,
+        ]);
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
+            ['gross_sales' => 99999, 'net_income' => 99999, 'total_orders' => 999]
+        );
+
+        $response->assertOk();
+        $response->assertJsonPath('derived.gross_sales', fn ($v) => abs($v - 6000) < 0.01);
+        $this->assertSame(0.0, TsaTiktokEntry::where('tsa_shift_id', $tsa->id)->whereDate('entry_date', $date)->first()?->gross_sales ?? 0.0);
     }
 
     /**
@@ -935,7 +1064,14 @@ class TsaSalesReportSmokeTest extends TestCase
             'is_upsell' => true, 'amount' => 4000.0, 'status_code' => 2,
             'pancake_created_at' => "{$date} 10:00:00", 'synced_at' => now(),
         ]);
-        TsaTiktokEntry::create(['tsa_shift_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 1500]);
+        // TikTok's own Gross Sales is automated now (2026-10-11), sourced
+        // from Expected Income's own TikTok card — see
+        // ExpectedIncomeController::tiktokTotalsByTsaAndDate()'s own doc
+        // comment.
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 1500,
+        ]);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
             'date_from' => $date, 'date_to' => $date,

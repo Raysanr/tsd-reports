@@ -426,34 +426,53 @@ class TsaSalesReportController extends Controller
             ];
         })->values();
 
-        // TikTok Upsell — a manually-run section (explicit request,
-        // 2026-10-05), entirely separate from the real team system above:
-        // its own roster (TsaShift.tiktok_upsell flag, managed via TSA
-        // Management, NOT TsaShift.team — see the add_tiktok_upsell_to_
-        // tsa_shifts_table migration's own doc comment) and its own raw
-        // numbers (TsaTiktokEntry, NOT TsaSalesEntry) — every field here
-        // is manual, including Total Orders/Catered Leads/Pick-up Rate/
-        // Upselling Rate, which stay automated everywhere else on this
-        // page. Reuses TsaSalesCalculator::sum()/derive() as-is since the
-        // column shape (gross_sales/net_income/total_orders/
-        // catered_leads/pickup_rate/upselling_rate -> ni_pct/aov) is
-        // identical — just every input is manual instead of some being
-        // derived from Order/ProductPerformance data.
+        // TikTok Upsell — its own roster (TsaShift.tiktok_upsell flag,
+        // managed via TSA Management, NOT TsaShift.team — see the
+        // add_tiktok_upsell_to_tsa_shifts_table migration's own doc
+        // comment). Gross Sales/Net Income/Total Orders are now
+        // AUTOMATED (explicit request, 2026-10-11: "do it" — Expected
+        // Income's own TikTok cards became the one real data-entry
+        // point for these 3 fields, closing the gap between this page's
+        // own TsaTiktokEntry figures and Expected Income's own
+        // ExpectedIncomeTiktokEntry figures, which were previously two
+        // independently-typed manual tables with zero shared
+        // computation — see ExpectedIncomeController::
+        // tiktokTotalsByTsaAndDate()'s own doc comment for the full
+        // story). Catered Leads/Pick-up Rate/Upselling Rate STAY manual
+        // (TsaTiktokEntry, unchanged) — ExpectedIncomeTiktokEntry has no
+        // equivalent data for those 3 fields. Reuses
+        // TsaSalesCalculator::sum()/derive() as before since the column
+        // shape (gross_sales/net_income/total_orders/catered_leads/
+        // pickup_rate/upselling_rate -> ni_pct/aov) is unchanged, just
+        // 3 of its 6 inputs are automated now instead of typed in.
         $tiktokTsas = $tsas->where('tiktok_upsell', true)->values();
         $tiktokRawEntriesByKey = TsaTiktokEntry::whereIn('tsa_shift_id', $tiktokTsas->pluck('id'))
             ->whereDate('entry_date', '>=', $dateFrom)
             ->whereDate('entry_date', '<=', $dateTo)
             ->get()
             ->keyBy(fn (TsaTiktokEntry $e) => $e->tsa_shift_id . ':' . $e->entry_date->toDateString());
+        $tiktokAutomatedByKey = \App\Http\Controllers\DataManagement\ExpectedIncomeController::tiktokTotalsByTsaAndDate($dateFrom, $dateTo);
 
         $emptyTiktokFields = ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0];
         $tiktokDailyByKey = collect();
         foreach ($tiktokTsas as $tsa) {
             foreach ($dates as $date) {
                 $key = $tsa->id . ':' . $date->toDateString();
-                $tiktokDailyByKey->put($key, $tiktokRawEntriesByKey->has($key)
-                    ? $tiktokRawEntriesByKey->get($key)->toArray()
-                    : $emptyTiktokFields);
+                // Catered Leads/Pick-up Rate/Upselling Rate still read
+                // from the manual TsaTiktokEntry row (or all-zero if
+                // never saved); Gross Sales/Net Income/Total Orders are
+                // OVERWRITTEN with the automated figure regardless of
+                // whatever TsaTiktokEntry itself has stored for those 3
+                // columns (kept on the model/migration for history only,
+                // same "no longer written to or read from" pattern this
+                // page's own real-team columns already established).
+                $manual = $tiktokRawEntriesByKey->has($key) ? $tiktokRawEntriesByKey->get($key)->toArray() : $emptyTiktokFields;
+                $auto = $tiktokAutomatedByKey->get($key, $emptyTiktokFields);
+                $tiktokDailyByKey->put($key, array_merge($manual, [
+                    'gross_sales'  => $auto['gross_sales'],
+                    'net_income'   => $auto['net_income'],
+                    'total_orders' => $auto['total_orders'],
+                ]));
             }
         }
 
@@ -588,17 +607,16 @@ class TsaSalesReportController extends Controller
     }
 
     /** Same auto-save shape as updateEntry() above, for the TikTok Upsell
-     *  section's own TsaTiktokEntry — every field here is manual entry
-     *  (see create_tsa_tiktok_entries_table migration's own doc comment),
-     *  so unlike updateEntry() this accepts Total Orders/Catered Leads/
-     *  Pick-up Rate/Upselling Rate directly instead of deriving them from
-     *  TSA Performance data. */
+     *  section's own TsaTiktokEntry. Gross Sales/Net Income/Total Orders
+     *  are NO LONGER accepted here (explicit request, 2026-10-11 — see
+     *  index()'s own $tiktokAutomatedByKey doc comment) — automated from
+     *  Expected Income's own TikTok cards instead, same "removed from
+     *  validation, no longer written to or read from" pattern the real
+     *  team columns already established. Catered Leads/Pick-up Rate/
+     *  Upselling Rate stay manual entry, written here as before. */
     public function updateTiktokEntry(Request $request, TsaShift $tsaShift, string $date)
     {
         $data = $request->validate([
-            'gross_sales'    => ['sometimes', 'numeric'],
-            'net_income'     => ['sometimes', 'numeric'],
-            'total_orders'   => ['sometimes', 'integer', 'min:0'],
             'catered_leads'  => ['sometimes', 'integer', 'min:0'],
             'pickup_rate'    => ['sometimes', 'numeric', 'min:0', 'max:1'],
             'upselling_rate' => ['sometimes', 'numeric', 'min:0', 'max:1'],
@@ -626,7 +644,19 @@ class TsaSalesReportController extends Controller
             ActivityLogger::logFieldUpdate('tsa_sales.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $context, $formatter);
         }
 
-        $derived = TsaSalesCalculator::derive($entry->toArray());
+        // Gross Sales/Net Income/Total Orders are overwritten with the
+        // SAME automated figure index() itself uses — this response's
+        // own 'derived' feeds the live-refresh JS (saveField()), which
+        // must never show a stale/zero value for these 3 fields after a
+        // Catered Leads/Pick-up Rate/Upselling Rate save.
+        $automated = \App\Http\Controllers\DataManagement\ExpectedIncomeController::tiktokTotalsByTsaAndDate($entryDate, $entryDate)
+            ->get($tsaShift->id . ':' . $entryDate, ['gross_sales' => 0, 'net_income' => 0, 'total_orders' => 0]);
+        $raw = array_merge($entry->toArray(), [
+            'gross_sales'  => $automated['gross_sales'],
+            'net_income'   => $automated['net_income'],
+            'total_orders' => $automated['total_orders'],
+        ]);
+        $derived = TsaSalesCalculator::derive($raw);
 
         return response()->json([
             'success' => true,

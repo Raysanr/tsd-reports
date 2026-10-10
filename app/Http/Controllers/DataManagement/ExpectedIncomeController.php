@@ -354,6 +354,81 @@ class ExpectedIncomeController extends Controller
         return $result;
     }
 
+    /** Summary Sales Report's own TikTok Upsell section's source of truth
+     *  (explicit request, 2026-10-11: after confirming the Gross Sales gap
+     *  between the two pages' TikTok totals was two independently-typed
+     *  manual tables — ExpectedIncomeTiktokEntry vs TsaTiktokEntry — with
+     *  no shared computation, "do it" — Expected Income's own TikTok cards
+     *  become the one real data-entry point, same pattern already used for
+     *  the real-team rows on this page via netIncomeByTsaAndDate()).
+     *
+     *  Every flagged (tiktok_upsell=true) TSA's own pooled-across-her-2-
+     *  cards (SH NATURALS + NATUREVA) Gross Sales/Net Income/Number of
+     *  Orders for ONE day, keyed "tsaId:date" — same per-day grain as
+     *  netIncomeByTsaAndDate() above (a caller needing a range total sums
+     *  these per-day values itself, same convention). Mirrors
+     *  buildTiktokRows()'s own per-TSA $overallTotal exactly (both her
+     *  cards' raw rows summed, her real UNDIVIDED Daily Rate folded in as
+     *  Salaries — see that method's own doc comment for why undivided is
+     *  the correct overview-card scale, not the ÷2-per-card figure each
+     *  individual TikTok card shows) — just computed per DAY here instead
+     *  of once for the whole range, so TsaTiktokEntry's own per-day
+     *  columns (TsaSalesReportController's own $tiktokDailyByKey) have
+     *  something to read.
+     *
+     *  Catered Leads/Pick-up Rate/Upselling Rate have NO equivalent in
+     *  ExpectedIncomeTiktokEntry at all (that table only ever tracked
+     *  number_of_leads/number_of_orders, no call-disposition breakdown) —
+     *  returned as 0 for those 3 fields, same "field this source table
+     *  can't represent stays 0" convention TsaTiktokEntry itself already
+     *  uses for fields it has no formula for. */
+    public static function tiktokTotalsByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+        $flaggedTsas = TsaShift::where('tiktok_upsell', true)->get();
+
+        if ($flaggedTsas->isEmpty()) {
+            return collect();
+        }
+
+        $entriesByKey = ExpectedIncomeTiktokEntry::whereIn('tsa_id', $flaggedTsas->pluck('id'))
+            ->whereDate('entry_date', '>=', $dateFrom)
+            ->whereDate('entry_date', '<=', $dateTo)
+            ->get()
+            ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
+
+        // Same undivided-Daily-Rate-as-Salaries overview scale
+        // buildTiktokRows()'s own $overallTotal uses — see that method's
+        // own doc comment.
+        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+
+        $result = collect();
+        foreach ($flaggedTsas as $tsa) {
+            foreach ($dates as $date) {
+                $dateStr = $date->toDateString();
+                $rawRows = collect(ExpectedIncomeTiktokEntry::CARDS)->keys()->map(
+                    fn ($cardKey) => $entriesByKey->get("{$tsa->id}:{$cardKey}:{$dateStr}")?->toArray() ?? []
+                )->all();
+
+                $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                    ExpectedIncomeCalculator::sum($rawRows),
+                    ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+                );
+
+                $result[$tsa->id . ':' . $dateStr] = [
+                    'gross_sales'    => (float) $derived['gross_sales'],
+                    'net_income'     => (float) $derived['net_income'],
+                    'total_orders'   => (int) $derived['number_of_orders'],
+                    'catered_leads'  => 0,
+                    'pickup_rate'    => 0,
+                    'upselling_rate' => 0,
+                ];
+            }
+        }
+
+        return $result;
+    }
+
     /** Summary Sales Report's own TEAM TOTAL row — the real, POOLED
      *  team-level Net Income (the exact figure this page's own TELESALES
      *  card shows for one real team), NOT a sum of individually-costed

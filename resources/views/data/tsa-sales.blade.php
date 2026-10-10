@@ -94,16 +94,25 @@
     $emptyRaw = ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0, 'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0, 'upsell_sales' => 0, 'upsell_confirmation' => 0];
 
     // TikTok Upsell's own column set (explicit request, 2026-10-05) —
-    // same 8 columns/order as $dayColumns above, but EVERY field is
-    // manual entry here (no TSA Performance automation backs this
-    // section) except NI%/AOV, which stay derived the same way
-    // TsaSalesCalculator::derive() always computes them from whatever
-    // raw numbers are typed in.
+    // same 8 columns/order as $dayColumns above. Gross Sales/Net Income/
+    // Total Orders are now READ-ONLY (explicit request, 2026-10-11: "do
+    // it" — after confirming the Gross Sales gap between this page and
+    // Expected Income's own TikTok cards was two independently-typed
+    // manual tables with zero shared computation, Expected Income's
+    // TikTok cards become the one real data-entry point, same
+    // automation pattern the real-team columns above already use via
+    // ExpectedIncomeController::netIncomeByTsaAndDate()/
+    // tiktokTotalsByTsaAndDate()). Catered Leads/Pick-up Rate/Upselling
+    // Rate stay manual — ExpectedIncomeTiktokEntry has no equivalent
+    // data for those 3 fields at all (see
+    // tiktokTotalsByTsaAndDate()'s own doc comment). NI%/AOV stay
+    // derived the same way TsaSalesCalculator::derive() always computes
+    // them from whatever raw numbers are now automated/typed in.
     $tiktokDayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -944,9 +953,15 @@
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let pickupSum = 0, upsellSum = 0, rowCount = 0;
         rows.forEach((row) => {
-            totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
-            totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
+            // Gross Sales/Net Income/Total Orders are read-only [data-out]
+            // cells now (2026-10-11 — automated from Expected Income's own
+            // TikTok cards, see TsaSalesReportController::index()'s own
+            // $tiktokAutomatedByKey doc comment), same shape the real-team
+            // rows already use. Catered Leads/Pick-up Rate/Upselling Rate
+            // stay genuine [data-field] inputs (still manual entry).
+            totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+            totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
+            totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
             totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
             pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
             upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
@@ -966,33 +981,25 @@
 
     // Chunk's own OVERALL TOTAL row (2026-10-06, same follow-up as the
     // merge itself: "and there's overall total") — pools EVERY row in
-    // the table for this date, real-team AND TikTok alike. Reads each
-    // row by whichever shape it actually has (team rows: total_orders/
-    // catered_leads/pickup_rate/upselling_rate are read-only [data-out]
-    // cells; TikTok rows: every field is a [data-field] input — same
-    // distinction refreshDayTotal()/refreshTiktokDayTotal() each handle
-    // separately, now reconciled into one pass here via each row's own
-    // .tsr-tiktok-row marker class).
+    // the table for this date, real-team AND TikTok alike. Gross Sales/
+    // Net Income/Total Orders are read-only [data-out] cells on BOTH row
+    // kinds now (2026-10-11 — TikTok's own 3 fields became automated
+    // too, see refreshTiktokDayTotal()'s own doc comment), so this no
+    // longer needs the isTiktokRow branch for those 3 fields — only
+    // Catered Leads/Pick-up Rate/Upselling Rate still differ (TikTok
+    // rows: genuine [data-field] inputs, still manual; real-team rows:
+    // read-only [data-out] cells, via each row's own .tsr-tiktok-row
+    // marker class).
     function refreshDayOverallTotal(table, date) {
         const rows = table.querySelectorAll('.tsr-row');
         let totals = { gross_sales: 0, net_income: 0, total_orders: 0, catered_leads: 0 };
         let counts = { answered: 0, unanswered: 0, confirmed_via_call: 0, upsell_confirmation: 0 };
         rows.forEach((row) => {
             const isTiktokRow = row.classList.contains('tsr-tiktok-row');
-            // Gross Sales/Net Income: TikTok rows still have a real
-            // [data-field] input (genuinely manual, untouched — see this
-            // file's own class note above); real-team rows are read-only
-            // [data-out] cells now (2026-10-10), same split
-            // total_orders/catered_leads already make below.
+            totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+            totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
+            totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
             if (isTiktokRow) {
-                totals.gross_sales += parseMoney(row.querySelector(`[data-field="gross_sales"][data-date="${date}"]`).value);
-                totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-            } else {
-                totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
-                totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
-            }
-            if (isTiktokRow) {
-                totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
                 totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
                 // TikTok's own Pick-up/Upselling Rate is excluded from
                 // THIS blended percentage (2026-10-09 — same confirmed
@@ -1038,14 +1045,19 @@
         // '.tsr-tiktok-row', not the removed '.tsr-tiktok-days-table'
         // wrapper (2026-10-06 — TikTok rows now share the same
         // table/tbody element type as the real teams', so a dedicated
-        // row-level marker is what tells them apart now).
+        // row-level marker is what tells them apart now). Anchored on
+        // [data-field="catered_leads"] (2026-10-11 — Gross Sales/Net
+        // Income/Total Orders no longer have an input to anchor on at
+        // all, now that they're automated read-only [data-out] cells;
+        // Catered Leads stays a genuine input on every date, same as
+        // Pick-up/Upselling Rate).
         document.querySelectorAll(`.tsr-tiktok-row[data-tsa-id="${tsaId}"]`).forEach((row) => {
-            row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
+            row.querySelectorAll('[data-field="catered_leads"]').forEach((el) => {
                 const date = el.dataset.date;
-                totals.gross_sales += parseMoney(el.value);
-                totals.net_income += parseMoney(row.querySelector(`[data-field="net_income"][data-date="${date}"]`).value);
-                totals.total_orders += Number(row.querySelector(`[data-field="total_orders"][data-date="${date}"]`).value) || 0;
-                totals.catered_leads += Number(row.querySelector(`[data-field="catered_leads"][data-date="${date}"]`).value) || 0;
+                totals.gross_sales += parseMoney(row.querySelector(`[data-out="gross_sales"][data-date="${date}"]`).textContent);
+                totals.net_income += parseMoney(row.querySelector(`[data-out="net_income"][data-date="${date}"]`).textContent);
+                totals.total_orders += parseMoney(row.querySelector(`[data-out="total_orders"][data-date="${date}"]`).textContent);
+                totals.catered_leads += Number(el.value) || 0;
                 pickupSum += parsePercentInput(row.querySelector(`[data-field="pickup_rate"][data-date="${date}"]`).value);
                 upsellSum += parsePercentInput(row.querySelector(`[data-field="upselling_rate"][data-date="${date}"]`).value);
                 dayCount += 1;
