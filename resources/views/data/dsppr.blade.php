@@ -79,9 +79,15 @@
     // same as Excess Leads/Pick-up/Conversion/Upselling Rate already
     // were, computed from real Order data via
     // ProductPerformance::dsPprRow().
+    // Gross Sales/Net Income (2026-10-10, explicit request: "i want to
+    // make it the gross sales and net income is automated and the basis
+    // is from the expected income") — now the last 2 of this page's own
+    // real-product columns to go read-only, pulled from Expected Income's
+    // own per-product-per-day figures (see $realByRowKeyAndDate in the
+    // controller) rather than the no-longer-written DsPprEntry columns.
     $dayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
         ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
         ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
@@ -574,16 +580,18 @@
                     @foreach($dates as $date)
                         @php
                             $dateStr = $date->toDateString();
-                            // Every REAL product across every display row
-                            // (a group row's own $row['products'] lists
-                            // more than one) — flatten first so Gross
-                            // Sales/Net Income sum each real product
-                            // exactly once, whether it's shown standalone
-                            // or inside a group.
+                            // Ads Spent is the only field left that's still
+                            // genuinely manual per real product (Gross
+                            // Sales/Net Income moved to $realByRowKeyAndDate
+                            // below, 2026-10-10) — summed across every real
+                            // product (flattened out of every display row,
+                            // including a group's own multiple members) so
+                            // it's never double/under-counted regardless of
+                            // grouping.
                             $allProducts = $rows->flatMap(fn ($row) => $row['products']);
                             $perProductRows = $allProducts->map(function ($product) use ($dailyByKey, $dateStr) {
                                 $entry = $dailyByKey->get($product->id . ':' . $dateStr);
-                                return $entry ? $entry->toArray() : ['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0];
+                                return $entry ? $entry->toArray() : ['ads_spent' => 0];
                             })->all();
                             // Total Orders/Leads/Catered/Excess/rates are
                             // SUMMED one display ROW at a time from
@@ -612,11 +620,26 @@
                             // exactly.
                             $realRows = $rows->map(function ($row) use ($realByRowKeyAndDate, $dateStr) {
                                 $rowKey = $row['group'] ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
-                                return $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? ['total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0];
+                                return $realByRowKeyAndDate[$rowKey . ':' . $dateStr] ?? ['total_orders' => 0, 'total_leads' => 0, 'catered_leads' => 0, 'answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0, 'gross_sales' => 0.0, 'net_income' => 0.0];
                             });
+                            // Gross Sales/Net Income (2026-10-10) — summed
+                            // ONE DISPLAY ROW AT A TIME from
+                            // $realByRowKeyAndDate, same "sum each row's
+                            // own already-deduped figure, never pool every
+                            // real product into one fresh call" rule
+                            // Total Orders/Leads/Catered just below already
+                            // follow (see this block's own 2026-10-09 doc
+                            // comment above for the original root cause —
+                            // a per-PRODUCT sum here would double-count a
+                            // grouped row's own figure once per member,
+                            // since grossSalesAndNetIncomeByProductAndDate()
+                            // stores the group's single pooled total under
+                            // EVERY member's own id).
                             $dayTotal = array_merge(
-                                \App\Support\DsPprCalculator::sum($perProductRows ?: [['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0]]),
+                                \App\Support\DsPprCalculator::sum($perProductRows ?: [['ads_spent' => 0]]),
                                 [
+                                    'gross_sales'     => $realRows->sum('gross_sales'),
+                                    'net_income'      => $realRows->sum('net_income'),
                                     'total_orders'    => $realRows->sum('total_orders'),
                                     'total_leads'     => $realRows->sum('total_leads'),
                                     'catered_leads'   => $realRows->sum('catered_leads'),
@@ -970,13 +993,26 @@
         let pickupSum = 0, convSum = 0, upsellSum = 0, dayCount = 0, excessLeadsTotal = 0;
 
         document.querySelectorAll(`.dsppr-days-table .dsppr-row[data-row-key="${rowKey}"]`).forEach((row) => {
-            row.querySelectorAll('[data-field="gross_sales"]').forEach((el) => {
+            // Driven by total_orders' own date cells, NOT gross_sales'
+            // (2026-10-10 fix — Gross Sales/Net Income are now read-only
+            // [data-out] for every real product row, same as Total
+            // Orders/Leads/Catered already were, so a [data-field=
+            // "gross_sales"] selector here would only ever find TikTok's
+            // own still-editable input, silently skipping every real
+            // product's own dates entirely — same "driver element no
+            // longer exists" bug class Summary Sales Report's own
+            // refreshSummaryRow() hit the same day, re-driven there off
+            // [data-out="pickup_rate"] for the identical reason). Both a
+            // real row's [data-out="total_orders"] and TikTok's own
+            // [data-field="total_orders"] carry [data-date] unconditionally.
+            row.querySelectorAll('[data-field="total_orders"], [data-out="total_orders"]').forEach((el) => {
                 const date = el.dataset.date;
-                const grossSales = parseMoney(el.value);
                 // Same readRowValue() helper as refreshDayTotal() above —
                 // handles both a real product's read-only [data-out]
-                // Total Orders/Leads/Catered AND the TIKTOK ORDERS row's
-                // own [data-field] inputs for those same 3 fields.
+                // Gross Sales/Net Income/Total Orders/Leads/Catered AND
+                // the TIKTOK ORDERS row's own [data-field] inputs for all
+                // of those same fields.
+                const grossSales = readRowValue(row, 'gross_sales', date);
                 const netIncome = readRowValue(row, 'net_income', date);
                 const totalOrders = readRowValue(row, 'total_orders', date);
                 const totalLeads = readRowValue(row, 'total_leads', date);

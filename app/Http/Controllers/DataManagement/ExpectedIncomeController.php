@@ -384,6 +384,73 @@ class ExpectedIncomeController extends Controller
         return $result;
     }
 
+    /** DSPPR - TSM Report's own Gross Sales/Net Income automation basis
+     *  (explicit request, 2026-10-10: "i want to make it the gross sales
+     *  and net income is automated and the basis is from the expected
+     *  income") — the SAME per-product/group figures already shown on
+     *  this page's own "Telesales Expected Performance" summary cards for
+     *  that one day (buildSummaryRow()'s own $cards, one call PER DATE),
+     *  not a second, independently re-derived number. Per-day, not
+     *  range-summed — DSPPR's own daily detail table stores one Gross
+     *  Sales/Net Income PER (product, calendar day), same shape as
+     *  Expected Income's own per-day product cards, so a single
+     *  range-summed figure wouldn't fit its own per-date columns; DSPPR's
+     *  own range TOTALS are computed by summing these per-day values
+     *  itself, the same way it already sums Total Orders/Leads per day
+     *  (see DsPprCalculator::sum()).
+     *
+     *  Keyed `"{productId}:{dateStr}"` — mirrors DsPprReportController's
+     *  own `$dailyByKey`/`$realByRowKeyAndDate` convention directly, so the
+     *  caller can look this up the exact same way. A grouped row's figure
+     *  is stored under EVERY member product's own id (not just the
+     *  group's first member) — DSPPR's own per-day table reads a group's
+     *  row via `$row['products']->first()->id` only (same "first member
+     *  is the row's real editable identity" convention its own daily-table
+     *  comment documents), but Expected Income has no concept of DSPPR's
+     *  product groups at all (ProductGroup is itself shared, but
+     *  buildSummaryRow() groups independently) — storing under every
+     *  member avoids a silent mismatch if the two pages' own grouping
+     *  ever diverges for some reason.
+     *
+     *  $onlyOrderTeam: one real team's own `order_team` string to match
+     *  DSPPR's own per-team filter, or null for DSPPR's own ALL view
+     *  (every real TSA site-wide, mirroring buildSummaryRow()'s own
+     *  main/team-independent row). */
+    public static function grossSalesAndNetIncomeByProductAndDate(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        $onlyTsaIds = $onlyOrderTeam === null
+            ? null
+            : TsaShift::where('team', $onlyOrderTeam)->where('tiktok_upsell', false)->pluck('id')->all();
+
+        $controller = new self();
+        $result = collect();
+
+        foreach ($dates as $date) {
+            $dateStr = $date->toDateString();
+            $oneDay = collect([$date]);
+            ['cards' => $cards] = $controller->buildSummaryRow(
+                $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $onlyTsaIds, $onlyOrderTeam
+            );
+
+            foreach ($cards as $row) {
+                $value = [
+                    'gross_sales' => (float) $row['derived']['gross_sales'],
+                    'net_income'  => (float) $row['derived']['net_income'],
+                ];
+                foreach ($row['products'] as $memberProduct) {
+                    $result["{$memberProduct->id}:{$dateStr}"] = $value;
+                }
+            }
+        }
+
+        return $result;
+    }
+
     /** Remembers the last team filter picked on this page across separate
      *  visits, same "session, keyed per page" convention as
      *  DateRangeFilter::resolve() (explicit request, 2026-10-01: "the

@@ -93,6 +93,21 @@ class DsPprReportController extends Controller
             return [$date->toDateString() => $dayOrders];
         });
 
+        // Gross Sales/Net Income are no longer manually typed for a real
+        // product (explicit request, 2026-10-10: "i want to make it the
+        // gross sales and net income is automated and the basis is from
+        // the expected income") — reuses Expected Income's own per-
+        // product-per-day derived figures (the exact same numbers its own
+        // "Telesales Expected Performance" cards show), not a second,
+        // independently re-derived calculation. $onlyOrderTeam mirrors
+        // $ordersByDate's own team scoping directly above (same
+        // `$teams[$teamSlug]['order_team']` resolution) — null for the
+        // ALL-teams view. TikTok Orders stays fully manual, untouched
+        // (same confirmed scope boundary as every other DSPPR/Expected
+        // Income automation — no real Product/Order data backs that row).
+        $onlyOrderTeam = ($teamSlug && $teams->has($teamSlug)) ? ($teams[$teamSlug]['order_team'] ?? null) : null;
+        $expectedIncomeByProductAndDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::grossSalesAndNetIncomeByProductAndDate($dateFrom, $dateTo, $onlyOrderTeam);
+
         // One row per product (or per product GROUP — explicit request,
         // 2026-09-26: "drag the TO-01 to TO-02 ... it is only combine"),
         // summed across the whole selected range — "Monthly Running Sales
@@ -113,15 +128,27 @@ class DsPprReportController extends Controller
         // countedOrdersFor()'s own doc comment gives; summing two
         // members' already-deduped counts could double-count one real
         // order matched to both.
-        $rows = ProductGrouping::rows($products, function ($groupProducts) use ($entries, $dates, $ordersByDate) {
+        $rows = ProductGrouping::rows($products, function ($groupProducts) use ($entries, $dates, $ordersByDate, $expectedIncomeByProductAndDate) {
             $entriesByDate = $groupProducts->flatMap(fn (Product $p) => $entries->get($p->id, collect()))
                 ->keyBy(fn (DsPprEntry $e) => $e->entry_date->toDateString());
 
-            $merged = $dates->map(function ($date) use ($entriesByDate, $groupProducts, $ordersByDate) {
+            $merged = $dates->map(function ($date) use ($entriesByDate, $groupProducts, $ordersByDate, $expectedIncomeByProductAndDate) {
                 $dateStr = $date->toDateString();
                 $base = $entriesByDate->get($dateStr)?->toArray() ?? [];
                 $real = ProductPerformance::dsPprRow($groupProducts, $ordersByDate[$dateStr]);
-                return array_merge($base, $real);
+                // Gross Sales/Net Income (2026-10-10) — same override
+                // pattern as $real just above: Expected Income's own
+                // figure for the group's FIRST member product on this day
+                // wins over $base's stored (now unused) DsPprEntry value.
+                // The first member only, not summed across every group
+                // member — grossSalesAndNetIncomeByProductAndDate() stores
+                // the group's already-pooled figure under EVERY member's
+                // own id (see that method's own doc comment), so reading
+                // any one member here is equivalent to reading the whole
+                // group's total once; summing all members would double
+                // (or N-tuple) count it.
+                $expectedIncomeFigure = $expectedIncomeByProductAndDate->get($groupProducts->first()->id . ':' . $dateStr, ['gross_sales' => 0.0, 'net_income' => 0.0]);
+                return array_merge($base, $real, $expectedIncomeFigure);
             })->all();
 
             return DsPprCalculator::sum($merged);
@@ -177,8 +204,20 @@ class DsPprReportController extends Controller
         $realByRowKeyAndDate = [];
         foreach ($rows as $row) {
             $rowKey = $row['group'] ? 'g' . $row['group']->id : 'p' . $row['products']->first()->id;
+            $firstMemberId = $row['products']->first()->id;
             foreach ($dates as $date) {
-                $realByRowKeyAndDate[$rowKey . ':' . $date->toDateString()] = ProductPerformance::dsPprRow($row['products'], $ordersByDate[$date->toDateString()]);
+                $dateStr = $date->toDateString();
+                $real = ProductPerformance::dsPprRow($row['products'], $ordersByDate[$dateStr]);
+                // Gross Sales/Net Income (2026-10-10) — same source as the
+                // range-summed $rows above (Expected Income's own
+                // per-product-per-day figures), merged in here too so the
+                // DAILY detail table's own read-only cells (dsppr.blade.php
+                // reads these via $realByRowKeyAndDate, NOT $dailyByKey —
+                // see that view's own per-column editable/read-only split)
+                // show the identical automated figure, not the no-longer-
+                // written DsPprEntry value $dailyByKey still carries.
+                $real = array_merge($real, $expectedIncomeByProductAndDate->get($firstMemberId . ':' . $dateStr, ['gross_sales' => 0.0, 'net_income' => 0.0]));
+                $realByRowKeyAndDate[$rowKey . ':' . $dateStr] = $real;
             }
         }
 
@@ -300,9 +339,12 @@ class DsPprReportController extends Controller
         // report page in TSD LEADS REPORT"), computed fresh below from
         // real Order data instead. A stray POST carrying one of these
         // can't write a stale value the view no longer reflects.
+        // gross_sales/net_income REMOVED the same way (explicit request,
+        // 2026-10-10: "i want to make it the gross sales and net income
+        // is automated and the basis is from the expected income") — the
+        // DB columns still exist but are no longer written; a stray POST
+        // for either is silently dropped, same convention.
         $data = $request->validate([
-            'gross_sales'   => ['sometimes', 'numeric'],
-            'net_income'    => ['sometimes', 'numeric'],
             'ads_spent'     => ['sometimes', 'numeric', 'min:0'],
         ]);
 
@@ -375,6 +417,24 @@ class DsPprReportController extends Controller
         } else {
             $derived = DsPprCalculator::derive(array_merge($entry->toArray(), $real));
         }
+
+        // Gross Sales/Net Income (2026-10-10) — same automation basis as
+        // index()'s own $expectedIncomeByProductAndDate, looked up fresh
+        // here (one product/day, not the whole page's range) so a live
+        // PATCH response (e.g. editing Ads Spent) reflects the real
+        // automated figure instead of falling back to $entry's own
+        // no-longer-written stored value. Applied AFTER sum()/derive()
+        // above, NOT merged onto $real before pooling — that method
+        // already stores the group's single pooled figure under EVERY
+        // member's own id (see its own doc comment), so merging it onto
+        // $real first would have DsPprCalculator::sum() add that same
+        // figure once per group member, N-tupling it (root-caused via a
+        // failing test: a 2-member group returned 3,000 instead of the
+        // real 1,500).
+        $expectedIncomeFigure = \App\Http\Controllers\DataManagement\ExpectedIncomeController::grossSalesAndNetIncomeByProductAndDate($entryDate, $entryDate)->get($product->id . ':' . $entryDate, ['gross_sales' => 0.0, 'net_income' => 0.0]);
+        $derived = array_merge($derived, $expectedIncomeFigure);
+        $derived['ni_pct'] = $derived['gross_sales'] > 0 ? $derived['net_income'] / $derived['gross_sales'] : 0.0;
+        $derived['aov'] = $derived['total_orders'] > 0 ? $derived['gross_sales'] / $derived['total_orders'] : 0.0;
 
         return response()->json([
             'success' => true,

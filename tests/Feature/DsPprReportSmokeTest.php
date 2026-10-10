@@ -160,6 +160,15 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertOk();
     }
 
+    /** gross_sales/net_income are no longer accepted by this endpoint
+     *  (2026-10-10 — see DsPprReportController::update()'s own doc
+     *  comment) — ads_spent is the only real-product field still
+     *  manually writable, used here as the write-mechanics proxy (upsert
+     *  + recomputed-response), same pattern Expected Income's own
+     *  smoke tests already use for their analogous automated fields. The
+     *  response's own Gross Sales/Net Income still reflect the real
+     *  automated figure (0.00 here — no Order fixture seeded) rather
+     *  than the no-longer-written stored value. */
     public function test_updating_a_cell_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -167,23 +176,62 @@ class DsPprReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.dsppr.update', ['product' => $product->id, 'date' => today()->toDateString()]),
-            ['gross_sales' => 3800, 'net_income' => -8208.10]
+            ['ads_spent' => 150.00]
         );
 
         $response->assertOk();
-        $response->assertJsonPath('derived.ni_pct', fn ($v) => abs($v - (-8208.10 / 3800)) < 0.0001);
+        $response->assertJsonPath('derived.gross_sales', fn ($v) => (float) $v === 0.0);
+        $response->assertJsonPath('derived.net_income', fn ($v) => (float) $v === 0.0);
 
         $this->assertDatabaseHas('dsppr_entries', [
             'product_id' => $product->id,
-            'gross_sales' => 3800,
+            'ads_spent' => 150.00,
         ]);
+    }
+
+    /** Gross Sales/Net Income on a real product's own daily cell now come
+     *  from Expected Income's own per-product-per-day figures (explicit
+     *  request, 2026-10-10: "i want to make it the gross sales and net
+     *  income is automated and the basis is from the expected income"),
+     *  not a manually-typed DsPprEntry value — a seeded Order with a
+     *  genuine upsell tag is what actually drives it now. */
+    public function test_gross_sales_and_net_income_are_automated_from_expected_income(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-ei-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $rows = $response->viewData('rows');
+        $productRow = $rows->first(fn ($row) => $row['products']->first()->id === $product->id);
+
+        $this->assertEquals(500.0, $productRow['derived']['gross_sales']);
     }
 
     /** Total Orders/Total Leads/Catered Leads are no longer manual inputs
      *  (explicit request, 2026-10-01: "i want to make it automated based
      *  on the leads report page in TSD LEADS REPORT") — no editable
-     *  <input> for any of the 3 anywhere on the page, even though Gross
-     *  Sales/Net Income/Ads Spent stay editable. */
+     *  <input> for any of the 3 anywhere on a real product's own row.
+     *  Gross Sales/Net Income joined them as read-only 2026-10-10
+     *  (explicit request: "i want to make it the gross sales and net
+     *  income is automated and the basis is from the expected income")
+     *  — every one of this page's own $dayColumns is now read-only for a
+     *  real product (Ads Spent is still writable via update()'s own
+     *  validation array, but isn't one of the 11 rendered $dayColumns at
+     *  all, same as before this change — removed from display entirely
+     *  2026-09-26). */
     /** Scoped to a real product's own row only — the TIKTOK ORDERS row
      *  added 2026-10-05 is an intentional exception (no real Order data
      *  backs it, so every field there IS editable, Total Orders/Total
@@ -202,7 +250,8 @@ class DsPprReportSmokeTest extends TestCase
         $response->assertOk();
         preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="p' . $product->id . '".*?<\/tr>/s', $response->getContent(), $matches);
         $this->assertNotEmpty($matches, 'expected to find the real product\'s own daily row');
-        $this->assertStringContainsString('data-field="gross_sales"', $matches[0]);
+        $this->assertStringNotContainsString('data-field="gross_sales"', $matches[0]);
+        $this->assertStringNotContainsString('data-field="net_income"', $matches[0]);
         $this->assertStringNotContainsString('data-field="total_orders"', $matches[0]);
         $this->assertStringNotContainsString('data-field="total_leads"', $matches[0]);
         $this->assertStringNotContainsString('data-field="catered_leads"', $matches[0]);
@@ -519,15 +568,15 @@ class DsPprReportSmokeTest extends TestCase
 
         $this->actingAs($admin)->patchJson(
             route('data.dsppr.update', ['product' => $product->id, 'date' => $date]),
-            ['gross_sales' => 1000]
+            ['ads_spent' => 100]
         );
         $this->actingAs($admin)->patchJson(
             route('data.dsppr.update', ['product' => $product->id, 'date' => $date]),
-            ['gross_sales' => 2000]
+            ['ads_spent' => 200]
         );
 
         $this->assertSame(1, DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(2000.0, DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->gross_sales);
+        $this->assertSame(200.0, DsPprEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->ads_spent);
     }
 
     /**
@@ -543,19 +592,32 @@ class DsPprReportSmokeTest extends TestCase
     public function test_the_last_day_of_a_selected_range_is_not_dropped_from_the_summary(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $yesterday = today()->subDay()->toDateString();
+        $todayStr = today()->toDateString();
 
-        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today()->subDay(), 'gross_sales' => 1000, 'total_orders' => 1]);
-        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-lastday-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 1,
+            'pancake_created_at' => $yesterday . ' 10:00:00', 'pancake_inserted_at' => $yesterday . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-lastday-2', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $todayStr . ' 10:00:00', 'pancake_inserted_at' => $todayStr . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->subDay()->toDateString(),
-            'date_to' => today()->toDateString(),
+            'date_from' => $yesterday,
+            'date_to' => $todayStr,
         ]));
 
         $response->assertOk();
         // 1,000 + 500 = 1,500 summed Gross Sales across both days — would
-        // read 1,000.00 (today's entry silently dropped) if the bug regressed.
+        // read 1,000.00 (today's order silently dropped) if the bug regressed.
         $response->assertSee('1,500.00');
     }
 
@@ -590,11 +652,26 @@ class DsPprReportSmokeTest extends TestCase
     public function test_combining_two_products_shows_one_summed_row(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $productA = Product::orderBy('id')->first();
-        $productB = Product::orderBy('id')->skip(1)->first();
+        // Explicit real products (not orderBy('id')->first()/skip(1) —
+        // Gross Sales now needs each one matchable via a real Order fixture,
+        // so both must be genuine, differently-keyworded catalog products).
+        $productA = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $productB = Product::where('display_name', 'AUDICURE')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
 
-        DsPprEntry::create(['product_id' => $productA->id, 'entry_date' => today(), 'gross_sales' => 1000, 'total_orders' => 1]);
-        DsPprEntry::create(['product_id' => $productB->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-combine-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-combine-2', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['AUDICURE'], 'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 11:00:00', 'pancake_inserted_at' => $date . ' 11:00:00',
+            'synced_at' => now(),
+        ]);
 
         $storeResponse = $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
             'label' => 'TO',
@@ -604,8 +681,8 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertDatabaseHas('product_groups', ['label' => 'TO']);
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(),
-            'date_to' => today()->toDateString(),
+            'date_from' => $date,
+            'date_to' => $date,
         ]));
 
         $response->assertOk();
@@ -669,15 +746,19 @@ class DsPprReportSmokeTest extends TestCase
             'product_ids' => [$productA->id, $productB->id],
         ])->assertOk();
 
+        // ads_spent is the only real-product field still manually
+        // writable here (gross_sales/net_income removed 2026-10-10 — see
+        // update()'s own doc comment) — same write-mechanics proxy as
+        // every other rewritten test in this file.
         $response = $this->actingAs($admin)->patchJson(
             route('data.dsppr.update', ['product' => $productA->id, 'date' => $today]),
-            ['gross_sales' => 2000, 'total_orders' => 2]
+            ['ads_spent' => 300]
         );
 
         $response->assertOk();
         $this->assertDatabaseHas('dsppr_entries', [
             'product_id' => $productA->id,
-            'gross_sales' => 2000,
+            'ads_spent' => 300,
         ]);
     }
 
@@ -688,27 +769,46 @@ class DsPprReportSmokeTest extends TestCase
     public function test_updating_a_grouped_products_cell_returns_the_full_group_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $productA = Product::orderBy('id')->first();
-        $productB = Product::orderBy('id')->skip(1)->first();
+        $productA = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $productB = Product::where('display_name', 'AUDICURE')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
         $today = today()->toDateString();
 
-        // productB already has its own real, separately-saved data.
-        DsPprEntry::create(['product_id' => $productB->id, 'entry_date' => $today, 'gross_sales' => 500, 'total_orders' => 1]);
+        // Both products' own real matched orders — Gross Sales is now
+        // automated from Expected Income (2026-10-10), not a manually
+        // saved DsPprEntry value.
+        Order::create([
+            'pancake_order_id' => 'dsppr-grouptotal-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 1,
+            'pancake_created_at' => $today . ' 10:00:00', 'pancake_inserted_at' => $today . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+        Order::create([
+            'pancake_order_id' => 'dsppr-grouptotal-2', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['AUDICURE'], 'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $today . ' 11:00:00', 'pancake_inserted_at' => $today . ' 11:00:00',
+            'synced_at' => now(),
+        ]);
 
         $this->actingAs($admin)->postJson(route('data.product-groups.store'), [
             'label' => 'TO',
             'product_ids' => [$productA->id, $productB->id],
         ])->assertOk();
 
+        // ads_spent is the only real-product field still manually
+        // writable here (see test_updating_a_grouped_products_cell_
+        // saves_to_its_first_member()'s own identical note) — the
+        // response's own derived.gross_sales must still reflect the
+        // FULL group total (both members' real orders), not just
+        // productA's own.
         $response = $this->actingAs($admin)->patchJson(
             route('data.dsppr.update', ['product' => $productA->id, 'date' => $today]),
-            ['gross_sales' => 1000, 'total_orders' => 1]
+            ['ads_spent' => 50]
         );
 
         $response->assertOk();
-        // 1,000 (just-edited productA) + 500 (productB's own untouched
-        // data) = 1,500 — the group's TRUE combined total, not just
-        // productA's own 1,000.
+        // 1,000 (productA's own real order) + 500 (productB's own real
+        // order) = 1,500 — the group's TRUE combined total.
         $response->assertJsonPath('derived.gross_sales', fn ($v) => (float) $v === 1500.0);
     }
 
@@ -756,11 +856,23 @@ class DsPprReportSmokeTest extends TestCase
     public function test_a_third_product_can_join_an_existing_group(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $products = Product::orderBy('id')->limit(3)->get();
+        $products = collect([
+            Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail(),
+            Product::where('display_name', 'AUDICURE')->where('team', 'SH Naturals')->firstOrFail(),
+            Product::where('display_name', 'GINSENG SERUM')->where('team', 'SH Naturals')->firstOrFail(),
+        ]);
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+        $amounts = [1000.0, 500.0, 250.0];
 
-        DsPprEntry::create(['product_id' => $products[0]->id, 'entry_date' => today(), 'gross_sales' => 1000, 'total_orders' => 1]);
-        DsPprEntry::create(['product_id' => $products[1]->id, 'entry_date' => today(), 'gross_sales' => 500, 'total_orders' => 1]);
-        DsPprEntry::create(['product_id' => $products[2]->id, 'entry_date' => today(), 'gross_sales' => 250, 'total_orders' => 1]);
+        foreach ($products as $i => $product) {
+            Order::create([
+                'pancake_order_id' => "dsppr-thirdjoin-{$i}", 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+                'raw_tags' => [$product->keywords_array[0]], 'is_upsell' => true, 'amount' => $amounts[$i], 'status_code' => 1,
+                'pancake_created_at' => "{$date} " . (10 + $i) . ':00:00', 'pancake_inserted_at' => "{$date} " . (10 + $i) . ':00:00',
+                'synced_at' => now(),
+            ]);
+        }
 
         $group = ProductGroup::create(['label' => 'TO', 'sort_order' => 0]);
         $group->products()->attach([$products[0]->id, $products[1]->id]);
@@ -774,8 +886,8 @@ class DsPprReportSmokeTest extends TestCase
         $this->assertDatabaseHas('product_group_members', ['product_group_id' => $group->id, 'product_id' => $products[2]->id]);
 
         $indexResponse = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(),
-            'date_to' => today()->toDateString(),
+            'date_from' => $date,
+            'date_to' => $date,
         ]));
         $indexResponse->assertOk();
         $indexResponse->assertDontSee(strtoupper($products[2]->display_name));
@@ -808,76 +920,85 @@ class DsPprReportSmokeTest extends TestCase
      *  Income now stays plain ink (black), same as every other number on
      *  this page, with no green tier at all (unlike Summary Sales
      *  Report's own 3-tier black/red/green rule, which this page
-     *  deliberately does NOT get). Scoped to the specific Net Income
-     *  cell via regex, not a bare assertSee(), since 'text-ink' appears
-     *  elsewhere on the page regardless. */
+     *  deliberately does NOT get).
+     *
+     *  Net Income is read-only for a real product since 2026-10-10 (see
+     *  this file's own class-level automation notes) — rewritten from
+     *  asserting an editable <input>'s own color to the real read-only
+     *  [data-out="net_income"] span's color instead, scoped to the real
+     *  product's own daily row specifically (NOT a bare page-wide
+     *  assertSee(), and NOT TikTok's own still-editable input — a prior
+     *  version of this test accidentally passed by matching TikTok's row
+     *  instead of the real product's, since TikTok's own net_income
+     *  input also renders with the same default ink color). A real
+     *  matched upsell order drives a genuinely positive Net Income here
+     *  (Gross Sales with no Operating Costs seeded nets positive). */
     public function test_a_positive_net_income_stays_black_not_green(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
-        DsPprEntry::create([
-            'product_id' => $product->id, 'entry_date' => today(),
-            'gross_sales' => 3800, 'net_income' => 500,
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => 'dsppr-posni-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 500.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
-        ]));
-
-        $response->assertOk();
-        $this->assertStringNotContainsString('text-green-600', $response->getContent());
-        $this->assertStringNotContainsString('text-green-400', $response->getContent());
-        $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-ink[^"]*"/',
-            $response->getContent(),
-            'a positive Net Income input should render in plain ink color, not green'
-        );
-    }
-
-    /** Same feature, the negative case — already-existing red-on-negative
-     *  behavior, confirmed still correct alongside the new green case. */
-    public function test_a_negative_net_income_is_rendered_red(): void
-    {
-        $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
-        DsPprEntry::create([
-            'product_id' => $product->id, 'entry_date' => today(),
-            'gross_sales' => 3800, 'net_income' => -500,
-        ]);
-
-        $response = $this->actingAs($admin)->get(route('data.dsppr'));
-
-        $response->assertOk();
-        $response->assertSee('text-red-600');
-    }
-
-    /** The EDITABLE Net Income <input> itself carries red/green coloring,
-     *  not just the read-only derived spans elsewhere on the page
-     *  (explicit request, 2026-10-01: "in the net income column i want to
-     *  have like can input negative number and if negative is color red
-     *  and if positive it is green" — the input previously always
-     *  rendered in plain ink color regardless of its saved value, and
-     *  silently stripped a leading '-' client-side if the user tried to
-     *  type one). */
-    public function test_the_net_income_input_itself_is_colored_by_its_saved_value(): void
-    {
-        $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
-        DsPprEntry::create([
-            'product_id' => $product->id, 'entry_date' => today(),
-            'gross_sales' => 3800, 'net_income' => -500,
-        ]);
-
-        $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'date_from' => $date, 'date_to' => $date,
         ]));
 
         $response->assertOk();
         $content = $response->getContent();
+        preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="p' . $product->id . '".*?<\/tr>/s', $content, $matches);
+        $this->assertNotEmpty($matches, 'expected to find the real product\'s own daily row');
+        $this->assertStringNotContainsString('text-green-600', $matches[0]);
+        $this->assertStringNotContainsString('text-green-400', $matches[0]);
         $this->assertMatchesRegularExpression(
-            '/<input[^>]*data-field="net_income"[^>]*class="[^"]*text-red-600[^"]*"/',
-            $content
+            '/data-out="net_income"[^>]*text-ink[^>]*>|class="[^"]*text-ink[^"]*"[^>]*data-out="net_income"/',
+            $matches[0],
+            'a positive Net Income should render in plain ink color, not green'
         );
+    }
+
+    /** Same feature, the negative case — already-existing red-on-negative
+     *  behavior, confirmed still correct alongside the new black case.
+     *  Scoped to the real product's own row (see
+     *  test_a_positive_net_income_stays_black_not_green()'s own doc
+     *  comment for why a bare assertSee() isn't specific enough on its
+     *  own — kept here too since 'text-red-600' genuinely only appears
+     *  on this one row for this fixture, but scoped for consistency). */
+    public function test_a_negative_net_income_is_rendered_red(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::where('display_name', 'SINUXYL')->where('team', 'SH Naturals')->firstOrFail();
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        // A small isolated upsell amount (₱10) nets genuinely negative
+        // through Expected Income's own derive() formula with no manual
+        // cost overrides seeded — the fixed Fulfillment Fee (Orders ×
+        // 25) alone already exceeds this Gross Sales figure, confirmed
+        // directly (₱10 Gross Sales → -17.67 Net Income).
+        Order::create([
+            'pancake_order_id' => 'dsppr-negni-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 10.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.dsppr', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        preg_match('/<tr class="dsppr-row[^"]*"\s+data-row-key="p' . $product->id . '".*?<\/tr>/s', $content, $matches);
+        $this->assertNotEmpty($matches, 'expected to find the real product\'s own daily row');
+        $this->assertStringContainsString('text-red-600', $matches[0]);
     }
 
     /** TIKTOK ORDERS — explicit request, 2026-10-05: a manual-only row at
@@ -1062,12 +1183,22 @@ class DsPprReportSmokeTest extends TestCase
     public function test_tiktok_orders_totals_are_included_in_the_overall_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        $product = Product::first();
-        DsPprEntry::create(['product_id' => $product->id, 'entry_date' => today(), 'gross_sales' => 1000, 'net_income' => 100]);
-        \App\Models\DsPprTiktokEntry::create(['entry_date' => today(), 'gross_sales' => 6000, 'net_income' => 500]);
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $date = today()->toDateString();
+
+        // Real product's own Gross Sales is now automated from Expected
+        // Income (2026-10-10) — a real matched upsell order replaces the
+        // old DsPprEntry::create(['gross_sales' => 1000]) seed.
+        Order::create([
+            'pancake_order_id' => 'dsppr-ovtotal-1', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'raw_tags' => ['SINUXYL'], 'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 1,
+            'pancake_created_at' => $date . ' 10:00:00', 'pancake_inserted_at' => $date . ' 10:00:00',
+            'synced_at' => now(),
+        ]);
+        \App\Models\DsPprTiktokEntry::create(['entry_date' => $date, 'gross_sales' => 6000, 'net_income' => 500]);
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'date_from' => $date, 'date_to' => $date,
         ]));
         $response->assertOk();
 
