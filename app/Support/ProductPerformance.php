@@ -164,6 +164,52 @@ class ProductPerformance
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
         return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
+            // An upsold add-on never gets its own card/count any more — its
+            // full order value belongs entirely to the BASE product it was
+            // upsold onto (explicit reversal, 2026-10-10: order #1378313,
+            // Kathreena Borja — Scar Cream was the actual product sold,
+            // Rose Soap was only ever the upsell riding on that same order;
+            // "it should be the rose soap has no data because it is upsell,
+            // it should fall to the scar cream card"). Previously the
+            // deliberate, documented design (see this method's own class
+            // comment above, "every upsell add-on order carries its real
+            // base product's tag too") was the opposite: the add-on got its
+            // own card via its tag.
+            //
+            // $product is excluded from matching only when it's specifically
+            // the order's UPSOLD item and is NOT also the order's
+            // base_product (a same-product repeat/self upsell must still
+            // match normally), and the order has a real base_product to fall
+            // back on — an upsell with no identifiable base isn't excluded,
+            // since redirecting it nowhere would just blackhole its revenue
+            // from every card instead of moving it to the right one.
+            //
+            // MUST run first, before the ID-matching branch below — root-
+            // caused via /systematic-debugging after 2 failed fix attempts
+            // (product-only, then +bundle_description) both silently did
+            // nothing for order #1378313 in production: its own real,
+            // mapped pancake_product_ids ALSO matched Rose Soap's catalog
+            // ID (SyncTodayOrders populates an order's pancake_product_ids
+            // from EVERY line item's own product_id, base AND add-on
+            // alike), so the ID-matching branch's own early `return`
+            // (3 lines below) fired and returned true for Rose Soap before
+            // either text-based fix was ever reached — both were dead code
+            // for any upsold add-on that has its own real catalog mapping.
+            // Checks `product` AND `bundle_description` (bundle_description
+            // is set from the SAME upsold-item variation_info display_id
+            // `product` itself comes from, see
+            // SyncTodayOrders::extractUpsellProduct()) — NOT raw_tags; the
+            // add-on's own name tag is excluded structurally instead, by
+            // returning false unconditionally below and never reaching the
+            // tag loop or the ID-matching branch at all.
+            $isUpsoldAddon = Order::isBroadRealUpsell($o)
+                && !empty($o->base_product)
+                && !$product->matchesText($o->base_product)
+                && ($product->matchesText($o->product) || $product->matchesText($o->bundle_description));
+            if ($isUpsoldAddon) {
+                return false;
+            }
+
             // A SEPARATE PARCEL upsell order's own line item IS the upsold
             // add-on itself (e.g. "Turmeric Soap"), shipped as its own
             // sibling Pancake order — its real product ID genuinely belongs
@@ -201,47 +247,6 @@ class ProductPerformance
             // text alone ("PTERYGIUM") never contains the exclude keyword
             // ("PTERYLIEF") — only the order's own item name does.
             if ($product->isExcludedByItemName($o->product) || $product->isExcludedByItemName($o->base_product) || $product->isExcludedByItemName($o->bundle_description)) {
-                return false;
-            }
-
-            // An upsold add-on never gets its own card/count any more — its
-            // full order value belongs entirely to the BASE product it was
-            // upsold onto (explicit reversal, 2026-10-10: order #1378313,
-            // Kathreena Borja — Scar Cream was the actual product sold,
-            // Rose Soap was only ever the upsell riding on that same order;
-            // "it should be the rose soap has no data because it is upsell,
-            // it should fall to the scar cream card"). Previously the
-            // deliberate, documented design (see this method's own class
-            // comment above, "every upsell add-on order carries its real
-            // base product's tag too") was the opposite: the add-on got its
-            // own card via its tag.
-            //
-            // $product is excluded from matching only when it's specifically
-            // the order's UPSOLD item and is NOT also the order's
-            // base_product (a same-product repeat/self upsell must still
-            // match normally), and the order has a real base_product to fall
-            // back on — an upsell with no identifiable base isn't excluded,
-            // since redirecting it nowhere would just blackhole its revenue
-            // from every card instead of moving it to the right one.
-            //
-            // Checks `product` AND `bundle_description` — not `product`
-            // alone (first version, same day, caught live: order #1378313
-            // still showed on Rose Soap's own card in production even after
-            // this fix shipped, since bundle_description is set from the
-            // SAME upsold-item variation_info display_id `product` itself
-            // comes from, see SyncTodayOrders::extractUpsellProduct(); the
-            // tag loop below and $explicitMatch's own bundle_description
-            // term could still match Rose Soap even when the `product`-only
-            // check above already excluded it). Deliberately does NOT also
-            // check raw_tags here — the add-on's own name tag (e.g. a bare
-            // "ROSE SOAP" tag, or "UPSELL TSD - ROSE SOAP") is excluded
-            // structurally instead, by returning false unconditionally
-            // below and never reaching the tag loop at all.
-            $isUpsoldAddon = Order::isBroadRealUpsell($o)
-                && !empty($o->base_product)
-                && !$product->matchesText($o->base_product)
-                && ($product->matchesText($o->product) || $product->matchesText($o->bundle_description));
-            if ($isUpsoldAddon) {
                 return false;
             }
 

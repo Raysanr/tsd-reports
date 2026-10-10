@@ -223,6 +223,61 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
         $this->assertCount(1, $matchingScarCream, 'a genuine non-upsell combo must still count toward both bundled products');
     }
 
+    /** ROOT CAUSE, found via /systematic-debugging after 2 failed fix
+     *  attempts both targeted the wrong branch: matchingOrders()'s own
+     *  ID-priority check (line ~189, "ID matching is authoritative and
+     *  skips every text heuristic below entirely") `return`s BEFORE the
+     *  upsold-add-on exclusion guard is ever reached, whenever BOTH the
+     *  product's own catalog pancake_product_ids AND the order's own
+     *  pancake_product_ids are non-empty. SyncTodayOrders populates an
+     *  order's pancake_product_ids from EVERY line item's own product_id
+     *  (array_column($raw['items'], 'product_id')) — for a 2-item order
+     *  (Scar Cream + Rose Soap), that's BOTH items' real IDs, regardless
+     *  of which one is the base and which is the upsold add-on. Checking
+     *  Rose Soap's own ID against that list finds a match (Rose Soap's ID
+     *  IS one of the order's 2 item IDs) and returns true immediately —
+     *  completely bypassing the text-based exclusion guard below it. Both
+     *  prior fixes (product-only, then +bundle_description) only ever
+     *  touched that unreachable text-matching path; neither could work
+     *  for an order whose add-on has its own real mapped catalog ID
+     *  (exactly order #1378313's case, confirmed live in production both
+     *  times). The fix must live in the ID-matching branch itself. */
+    public function test_an_upsold_addon_with_its_own_mapped_catalog_id_is_still_excluded(): void
+    {
+        $scarCream = $this->product([
+            'display_name'        => 'Scar Cream',
+            'match_keyword'       => 'SCAR CREAM',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['scar-cream-real-id'],
+        ]);
+        $roseSoap = $this->product([
+            'display_name'        => 'Rose Soap',
+            'match_keyword'       => 'ROSE SOAP',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['rose-soap-real-id'],
+        ]);
+
+        $order = $this->order([
+            'team'                => 'SH Naturals',
+            'product'             => 'Rose Soap',
+            'base_product'        => 'Scar Cream',
+            'bundle_description'  => 'Rose Soap',
+            'raw_tags'            => ['GRACE', 'UPSELL TSD - ROSE SOAP', 'SCAR CREAM'],
+            'is_upsell'           => true,
+            'amount'              => 800,
+            // Both line items' own real catalog IDs, same as
+            // SyncTodayOrders::array_column($raw['items'], 'product_id')
+            // produces for a real 2-item order.
+            'pancake_product_ids' => ['scar-cream-real-id', 'rose-soap-real-id'],
+        ]);
+
+        $matchingRoseSoap = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$scarCream, $roseSoap]));
+        $this->assertCount(0, $matchingRoseSoap, 'an upsold add-on with its own mapped catalog ID must still be excluded from its own card');
+
+        $matchingScarCream = ProductPerformance::matchingOrders($scarCream, collect([$order]), new Collection([$scarCream, $roseSoap]));
+        $this->assertCount(1, $matchingScarCream, 'the base product must still match via its own ID');
+    }
+
     /** An upsell order with NO identifiable base_product at all (e.g. a
      *  SEPARATE PARCEL order whose own item IS the add-on, see
      *  ProductPerformanceCanceledUpsellTest's own equivalent case) must NOT
