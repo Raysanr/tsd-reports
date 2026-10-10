@@ -2463,6 +2463,76 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Explicit reversal, 2026-10-10, same day as the test directly above
+     *  (which only proves Gross Sales folds in) — first root-caused live:
+     *  a TikTok-flagged TSA's REAL auto-computed Salaries (from Cost
+     *  Breakdown, via buildTiktokRows()'s own $totalOverviewSalaries)
+     *  folded into the ALL-view TELESALES total, but Summary Sales
+     *  Report's own OVERALL TOTAL has no equivalent (its own TikTok
+     *  Upsell section is a separate, 100%-manually-typed table with no
+     *  Salaries formula at all) — the two could never tally while this
+     *  page kept adding a cost the other has no way to represent. First
+     *  decision: keep it, accept the gap. REVERSED minutes later,
+     *  explicit instruction: "Yes, make them tally now" — her Salaries
+     *  contribution to the ALL-view TELESALES total is now forced to 0. */
+    public function test_telesales_on_all_excludes_a_tiktok_flagged_tsas_real_salaries(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+
+        \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
+
+        $fetchTelesalesHtml = function () use ($admin, $date) {
+            $response = $this->actingAs($admin)->get(route('data.expected-income', [
+                'date_from' => $date, 'date_to' => $date, 'team' => 'all',
+            ]));
+            $response->assertOk();
+            $content = $response->getContent();
+            $telesalesPos = strpos($content, '>TELESALES<');
+            $this->assertNotFalse($telesalesPos);
+
+            return substr($content, $telesalesPos, 6000);
+        };
+
+        // Baseline: her real, nonzero base salary.
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 24000.00]);
+        $dailyRateAt24k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertGreaterThan(0, $dailyRateAt24k, 'test setup: expected a real nonzero Daily Rate for this TSA');
+        $htmlAt24k = $fetchTelesalesHtml();
+
+        // Her real Daily Rate must NOT appear as a Salaries line on the
+        // ALL-view TELESALES card — it would otherwise show up verbatim
+        // as data-out="salaries".
+        $this->assertDoesNotMatchRegularExpression(
+            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dailyRateAt24k, 2), '/') . '/',
+            $htmlAt24k,
+            'a TikTok-flagged TSA\'s real auto-computed Salaries must NOT fold into the ALL-view TELESALES total'
+        );
+
+        // Double her base salary — since the shared team overhead refs
+        // stay the same, her Daily Rate must genuinely change. If her
+        // Salaries are truly excluded from the ALL-view TELESALES
+        // fold-in, the whole card (Net Income included) must still
+        // render byte-for-byte identically, since nothing else about
+        // her Cost Breakdown changed.
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
+        $dailyRateAt48k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertNotEquals($dailyRateAt24k, $dailyRateAt48k, 'test setup: expected her Daily Rate to actually change with her base salary');
+        $htmlAt48k = $fetchTelesalesHtml();
+
+        $this->assertSame(
+            $htmlAt24k,
+            $htmlAt48k,
+            'the ALL-view TELESALES card must be unaffected by a TikTok-flagged TSA\'s Salaries, regardless of her base salary'
+        );
+    }
+
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

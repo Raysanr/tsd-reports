@@ -185,9 +185,35 @@ class ExpectedIncomeController extends Controller
         // card; TELESALES becomes the true site-wide figure instead. Only
         // on ALL/TIKTOK TEAM, same scope the removed card itself used to
         // have (a REAL team's own summary row never included TikTok).
+        //
+        // Salaries stripped from the folded-in figure specifically
+        // (explicit reversal, 2026-10-10 — first root-caused live via
+        // screenshot: a TikTok-flagged TSA's REAL auto-computed Salaries/
+        // Operating Costs, via buildTiktokRows()'s own
+        // $totalOverviewSalaries override, folded into this ALL-view
+        // TELESALES total but had no equivalent on Summary Sales Report's
+        // own OVERALL TOTAL — its own TikTok Upsell section sums a
+        // completely separate, 100%-manually-typed table
+        // (TsaTiktokEntry, no Salaries formula at all), so the two could
+        // never tally while this page kept adding a real cost the other
+        // page has no way to represent. First decision, same day: keep
+        // Expected Income's fuller P&L, accept the gap as by-design.
+        // REVERSED minutes later, explicit instruction: "Yes, make them
+        // tally now" — her Salaries/Operating Costs contribution to the
+        // ALL-view TELESALES total is now forced to 0, matching Summary
+        // Sales Report's own manual-only TikTok total exactly, while her
+        // manually-typed Gross Sales/Selling Costs/etc. still fold in
+        // normally). tiktokOverallTotal's own real auto-computed Salaries
+        // stays untouched everywhere ELSE (the TIKTOK TEAM filter's own
+        // daily blocks/cards still show her real cost) — this override
+        // only affects what gets folded into the ALL-view TELESALES
+        // total specifically.
         if (in_array($selectedTeam, ['all', 'tiktok'], true)) {
+            $tiktokOverallTotalForFoldIn = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                $tiktokData['tiktokOverallTotal'], ['salaries' => 0.0]
+            );
             $summaryData['summaryOverallTotal'] = ExpectedIncomeCalculator::addDerivedTotals(
-                $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $sellingKeys, $operatingKeys
+                $summaryData['summaryOverallTotal'], $tiktokOverallTotalForFoldIn, $sellingKeys, $operatingKeys
             );
         }
 
@@ -444,10 +470,15 @@ class ExpectedIncomeController extends Controller
         // TELESALES folds TikTok's own site-wide total in on top of every
         // real product's own total (2026-10-06 — see index()'s own
         // identical fold/doc comment; this AJAX fragment must never
-        // disagree with the initial page render).
+        // disagree with the initial page render). Salaries stripped from
+        // the folded-in figure here too, same as index() — see that
+        // method's own $tiktokOverallTotalForFoldIn doc comment.
         if (in_array($selectedTeam, ['all', 'tiktok'], true)) {
+            $tiktokOverallTotalForFoldIn = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
+                $tiktokData['tiktokOverallTotal'], ['salaries' => 0.0]
+            );
             $summaryData['summaryOverallTotal'] = ExpectedIncomeCalculator::addDerivedTotals(
-                $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $sellingKeys, $operatingKeys
+                $summaryData['summaryOverallTotal'], $tiktokOverallTotalForFoldIn, $sellingKeys, $operatingKeys
             );
         }
 
