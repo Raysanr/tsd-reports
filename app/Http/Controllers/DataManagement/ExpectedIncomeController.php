@@ -847,7 +847,26 @@ class ExpectedIncomeController extends Controller
      *  N+1 cost — a 1-day/few-product local test never surfaced it). */
     private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, array $dailyRateByTsaId, array $dailyCostRow, array $taxAllocationByTsaId): array
     {
-        $activeTsaIds = $onlyTsaIds !== null ? collect($onlyTsaIds) : TsaShift::pluck('id');
+        // $onlyTsaIds === null fallback EXCLUDES tiktok_upsell=true TSAs
+        // (explicit fix, 2026-10-10, root-caused live via screenshot: "sa
+        // overall tally sa gross sales pero sa net income hindi na" —
+        // Expected Income's own ALL-view TELESALES card showed Net Income
+        // 10,304.63 vs Summary Sales Report's real OVERALL TOTAL
+        // 11,841.25). This fallback only ever runs for the ALL view
+        // (every other caller passes a real, already-scoped $onlyTsaIds —
+        // see buildSummary()'s own $teamTsaIds, always tiktok-excluded).
+        // Before this fix, the ALL-view rollup silently subtracted a
+        // TikTok-flagged TSA's REAL Salaries/Operating Costs/Tax
+        // Allocation here — a cost Summary Sales Report's own OVERALL
+        // TOTAL never subtracts anywhere (she's folded in there
+        // EXCLUSIVELY via the separate, fully-manual TikTok Upsell card,
+        // same as teamNetIncomeByDate()/netIncomeByTsaAndDate() already
+        // treat her per-team). Every OTHER ALL-view-adjacent TSA roster
+        // on this page already excludes her (teamUpsellGrossSales()'s own
+        // null-$onlyOrderTeam branch, teamNetIncomeByDate(),
+        // netIncomeByTsaAndDate()) — this was the one place that still
+        // didn't, a structural inconsistency, not a deliberate choice.
+        $activeTsaIds = $onlyTsaIds !== null ? collect($onlyTsaIds) : TsaShift::where('tiktok_upsell', false)->pluck('id');
 
         if ($activeTsaIds->isEmpty()) {
             return $derived;
@@ -1810,20 +1829,41 @@ class ExpectedIncomeController extends Controller
      *  every (product, day) pair to be present.
      *
      *  $onlyTsaIds restricts which real TSAs' rows get pooled in — null
-     *  (the main "TELESALES" overall card) means every TSA, an array of
-     *  ids (one team's own summary card, added 2026-09-30 per the sheet's
-     *  own "TEAM OPENING SHIFT"/"TEAM CLOSING SHIFT" cards) means only
-     *  those TSAs. The product-level (tsa_id NULL) row is ALWAYS included
-     *  either way — explicit decision, 2026-09-30: a team card is "that
-     *  team's own TSAs plus the shared product-level entries", the same
-     *  shared figure folded into every team's own card, not divided
-     *  between them. */
+     *  (the main "TELESALES" overall card) means every NON-TIKTOK TSA
+     *  (explicit fix, 2026-10-10 — see $effectiveTsaIds' own doc comment
+     *  just below for the full root cause; this null case used to mean
+     *  LITERALLY every TSA including tiktok_upsell=true ones), an array
+     *  of ids (one team's own summary card, added 2026-09-30 per the
+     *  sheet's own "TEAM OPENING SHIFT"/"TEAM CLOSING SHIFT" cards) means
+     *  only those TSAs. The product-level (tsa_id NULL) row is ALWAYS
+     *  included either way — explicit decision, 2026-09-30: a team card
+     *  is "that team's own TSAs plus the shared product-level entries",
+     *  the same shared figure folded into every team's own card, not
+     *  divided between them. */
     private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null)
     {
+        // $onlyTsaIds === null ("every TSA") still excludes tiktok_upsell
+        // TSAs — explicit fix, 2026-10-10, same root cause as
+        // addActiveTsasOverviewOperatingCosts()'s own identical fix
+        // earlier the same day: a TikTok-flagged TSA who happens to have
+        // real ExpectedIncomeEntry rows saved on a real product card
+        // (e.g. from before she was flagged, or by accident) was still
+        // pooled into the ALL-view TELESALES rollup's own raw rows here —
+        // her Gross Sales got silently corrected by teamUpsellGrossSales()'s
+        // own gap-fill override downstream, but her Cancelled/Selling
+        // Costs/other manually-entered lines had no equivalent override,
+        // so they kept dragging the rollup's Net Income down with nothing
+        // on Summary Sales Report's side to match (she's represented
+        // there EXCLUSIVELY via the separate, fully-manual TikTok Upsell
+        // section). Resolved to the real non-tiktok roster explicitly
+        // here, same as every other "$onlyTsaIds === null" fallback on
+        // this page now does.
+        $effectiveTsaIds = $onlyTsaIds ?? TsaShift::where('tiktok_upsell', false)->pluck('id')->all();
+
         $entries = ExpectedIncomeEntry::whereIn('product_id', $products->pluck('id'))
             ->whereDate('entry_date', '>=', $dateFrom)
             ->whereDate('entry_date', '<=', $dateTo)
-            ->when($onlyTsaIds !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('tsa_id')->orWhereIn('tsa_id', $onlyTsaIds)))
+            ->where(fn ($q2) => $q2->whereNull('tsa_id')->orWhereIn('tsa_id', $effectiveTsaIds))
             ->get()
             ->groupBy(fn (ExpectedIncomeEntry $e) => $e->product_id . ':' . $e->entry_date->toDateString());
 
