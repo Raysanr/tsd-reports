@@ -151,6 +151,78 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
         $this->assertCount(1, $matching);
     }
 
+    /** Production gap caught live right after the first version of this fix
+     *  shipped — order #1378313 still showed on Rose Soap's own card even
+     *  after the `product`-only guard was deployed. Cause: bundle_description
+     *  is set from the SAME upsold-item variation_info display_id `product`
+     *  itself comes from (SyncTodayOrders::extractUpsellProduct()), so
+     *  $explicitMatch's own bundle_description term (and the tag loop) could
+     *  still match Rose Soap even when the product-only check had already
+     *  excluded it. The guard must also check bundle_description. */
+    public function test_an_upsold_addon_matching_only_via_bundle_description_is_still_excluded(): void
+    {
+        $scarCream = $this->product([
+            'display_name'  => 'Scar Cream',
+            'match_keyword' => 'SCAR CREAM',
+            'team'          => 'SH Naturals',
+        ]);
+        $roseSoap = $this->product([
+            'display_name'  => 'Rose Soap',
+            'match_keyword' => 'ROSE SOAP',
+            'team'          => 'SH Naturals',
+        ]);
+
+        $order = $this->order([
+            'team'               => 'SH Naturals',
+            'product'            => 'Rose Soap',
+            'base_product'       => 'Scar Cream',
+            'bundle_description' => 'Rose Soap',
+            'raw_tags'           => ['GRACE', 'UPSELL TSD - ROSE SOAP', 'SCAR CREAM'],
+            'is_upsell'          => true,
+            'amount'             => 800,
+        ]);
+
+        $matchingRoseSoap = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$scarCream, $roseSoap]));
+        $this->assertCount(0, $matchingRoseSoap, 'bundle_description naming the add-on must not bypass the exclusion');
+
+        $matchingScarCream = ProductPerformance::matchingOrders($scarCream, collect([$order]), new Collection([$scarCream, $roseSoap]));
+        $this->assertCount(1, $matchingScarCream);
+    }
+
+    /** A genuine, non-upsell multi-product combo SKU (e.g. "Ginseng Serum +
+     *  Scar Cream", both legitimately purchased together, no upsell tag at
+     *  all) must still let BOTH products count — the exclusion only ever
+     *  fires for a genuine upsell (Order::isBroadRealUpsell()), which a
+     *  plain combo purchase is not. */
+    public function test_a_non_upsell_combo_order_still_counts_toward_both_products(): void
+    {
+        $ginsengSerum = $this->product([
+            'display_name'  => 'Ginseng Serum',
+            'match_keyword' => 'GINSENG',
+            'team'          => 'SH Naturals',
+        ]);
+        $scarCream = $this->product([
+            'display_name'  => 'Scar Cream',
+            'match_keyword' => 'SCAR CREAM',
+            'team'          => 'SH Naturals',
+        ]);
+
+        $comboOrder = $this->order([
+            'team'               => 'SH Naturals',
+            'product'            => 'Ginseng Serum',
+            'base_product'       => 'Ginseng Serum',
+            'bundle_description' => '1 Ginseng Serum + 5 Scar Cream',
+            'raw_tags'           => ['GINSENG', 'SCAR CREAM'],
+            'amount'             => 2500,
+        ]);
+
+        $matchingGinseng = ProductPerformance::matchingOrders($ginsengSerum, collect([$comboOrder]), new Collection([$ginsengSerum, $scarCream]));
+        $this->assertCount(1, $matchingGinseng);
+
+        $matchingScarCream = ProductPerformance::matchingOrders($scarCream, collect([$comboOrder]), new Collection([$ginsengSerum, $scarCream]));
+        $this->assertCount(1, $matchingScarCream, 'a genuine non-upsell combo must still count toward both bundled products');
+    }
+
     /** An upsell order with NO identifiable base_product at all (e.g. a
      *  SEPARATE PARCEL order whose own item IS the add-on, see
      *  ProductPerformanceCanceledUpsellTest's own equivalent case) must NOT

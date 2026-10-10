@@ -214,19 +214,33 @@ class ProductPerformance
             // deliberate, documented design (see this method's own class
             // comment above, "every upsell add-on order carries its real
             // base product's tag too") was the opposite: the add-on got its
-            // own card via its tag. $product here is excluded from matching
-            // only when it's specifically the order's UPSOLD item (`product`,
-            // set by SyncTodayOrders::extractUpsellProduct() to the add-on's
-            // own name on a genuine upsell) and is NOT also the order's
+            // own card via its tag.
+            //
+            // $product is excluded from matching only when it's specifically
+            // the order's UPSOLD item and is NOT also the order's
             // base_product (a same-product repeat/self upsell must still
-            // match normally) and the order has no real base_product data at
-            // all to fall back on isn't excluded — redirecting it nowhere
-            // would just blackhole its revenue from every card instead of
-            // moving it to the right one.
+            // match normally), and the order has a real base_product to fall
+            // back on — an upsell with no identifiable base isn't excluded,
+            // since redirecting it nowhere would just blackhole its revenue
+            // from every card instead of moving it to the right one.
+            //
+            // Checks `product` AND `bundle_description` — not `product`
+            // alone (first version, same day, caught live: order #1378313
+            // still showed on Rose Soap's own card in production even after
+            // this fix shipped, since bundle_description is set from the
+            // SAME upsold-item variation_info display_id `product` itself
+            // comes from, see SyncTodayOrders::extractUpsellProduct(); the
+            // tag loop below and $explicitMatch's own bundle_description
+            // term could still match Rose Soap even when the `product`-only
+            // check above already excluded it). Deliberately does NOT also
+            // check raw_tags here — the add-on's own name tag (e.g. a bare
+            // "ROSE SOAP" tag, or "UPSELL TSD - ROSE SOAP") is excluded
+            // structurally instead, by returning false unconditionally
+            // below and never reaching the tag loop at all.
             $isUpsoldAddon = Order::isBroadRealUpsell($o)
                 && !empty($o->base_product)
-                && $product->matchesText($o->product)
-                && !$product->matchesText($o->base_product);
+                && !$product->matchesText($o->base_product)
+                && ($product->matchesText($o->product) || $product->matchesText($o->bundle_description));
             if ($isUpsoldAddon) {
                 return false;
             }
