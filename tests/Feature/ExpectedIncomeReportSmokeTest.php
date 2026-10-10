@@ -350,7 +350,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['number_of_leads' => 647, 'average_order_value' => 804.46]
+            ['number_of_leads' => 647, 'cancelled' => 50]
         );
 
         $response->assertOk();
@@ -359,10 +359,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // of orders is the upsell"), real matched-upsell-order COUNT, not
         // a manual write — 1 real order seeded above.
         $response->assertJsonPath('derived.number_of_orders', 1);
+        // Average Order Value is ALSO automated now (2026-10-10 — "the
+        // average order value (AOV) i want to make it automated too") —
+        // Gross Sales ÷ Number of Orders = 90,099.52 ÷ 1.
+        $response->assertJsonPath('derived.average_order_value', fn ($v) => abs($v - 90099.52) < 1.0);
 
         $this->assertDatabaseHas('expected_income_entries', [
             'product_id' => $product->id,
-            'average_order_value' => 804.46,
+            'cancelled' => 50,
         ]);
     }
 
@@ -372,20 +376,22 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $product = Product::first();
         $date = today()->toDateString();
 
-        // Number of Orders is no longer writable (automated 2026-10-10 —
-        // "the number of orders is the upsell"), so average_order_value
-        // proves the same upsert mechanics here instead.
+        // Number of Orders/Average Order Value are no longer writable
+        // (both automated 2026-10-10 — "the number of orders is the
+        // upsell" / "the average order value (AOV) i want to make it
+        // automated too"), so `cancelled` proves the same upsert
+        // mechanics here instead.
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['average_order_value' => 100]
+            ['cancelled' => 100]
         );
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['average_order_value' => 200]
+            ['cancelled' => 200]
         );
 
         $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(200.0, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->average_order_value);
+        $this->assertSame(200.0, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->cancelled);
     }
 
     public function test_summary_row_sums_every_day_in_the_selected_range(): void

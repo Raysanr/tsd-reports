@@ -95,15 +95,23 @@
             <span data-out="number_of_orders" class="font-semibold text-ink dark:text-slate-100 text-right">{{ number_format($d['number_of_orders']) }}</span>
         @endif
     </div>
+    {{-- Average Order Value is no longer a manual input ANYWHERE on this
+         page, including TikTok's own 2 fixed cards (explicit request,
+         2026-10-10: "the average order value (AOV) i want to make it
+         automated too in the expected income") — ExpectedIncomeCalculator
+         ::derive() now UNCONDITIONALLY computes it from Gross Sales ÷
+         Number of Orders for every row it's given, real product card or
+         TikTok card alike (TikTok's own Gross Sales/Number of Orders stay
+         genuinely manual, so her own AOV becomes a real ratio of HER OWN
+         typed numbers, not automation data — but the formula itself is
+         not conditional on card type, so a left-over editable AOV input
+         here would silently never reflect whatever a user typed into it
+         once saved, the exact "stray input the page secretly ignores"
+         class of bug already fixed for Gross Sales/Number of Orders
+         above — removed rather than left stale). --}}
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">Average Order Value</span>
-        @if($editable ?? false)
-            <input type="text" inputmode="decimal" value="{{ number_format($entry?->average_order_value ?? 0, 2) }}"
-                   data-field="average_order_value" data-money="1" @if($locked ?? false) disabled @endif
-                   class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
-        @else
-            <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ $fmtMoney($d['average_order_value']) }}</span>
-        @endif
+        <span data-out="average_order_value" class="font-semibold text-ink dark:text-slate-100 text-right">{{ $fmtMoney($d['average_order_value']) }}</span>
     </div>
 </div>
 

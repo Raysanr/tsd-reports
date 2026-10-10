@@ -22,9 +22,20 @@ use App\Models\ProjectionCustomRow;
  * Returns (Gross Sales × 25%) and Projected Delivered (Gross Sales −
  * Cancelled − Returns) are derived again, same rates as before. Tax
  * Allocation/Product Cost/ROAS/Actual Cost Per Lead/every Selling &
- * Marketing & Operating Costs row stay manual — only Returns/Delivered
- * came back. Average Order Value is still a plain display-only stat with
- * nothing downstream reading it.
+ * Marketing & Operating Costs row stay manual.
+ *
+ * Gross Sales and Number of Orders were BOTH separately automated
+ * 2026-10-10 (real per-item Pancake assignee revenue/order-count basis,
+ * via ExpectedIncomeController::grossSalesByProductAndDate()) — once both
+ * were real automated figures rather than independently-typed numbers,
+ * Average Order Value stopped being a "plain display-only stat with
+ * nothing downstream reading it" and became derive()'s own Gross Sales ÷
+ * Number of Orders instead (explicit request, same day: "the average
+ * order value (AOV) i want to make it automated too"), the exact inverse
+ * of the OLD "Gross Sales = Orders × AOV" relationship this comment's own
+ * history above describes — same real-ratio basis Summary Sales Report's
+ * own AOV automation already uses (TsaSalesReportController::
+ * withAutomatedAov(), upsell_sales ÷ upsell_confirmation).
  *
  * Takes a plain array of raw fields (not an ExpectedIncomeEntry model
  * directly) so the same math works for a single product row AND a summed
@@ -202,7 +213,6 @@ class ExpectedIncomeCalculator
         $actualCostPerLead  = (float) ($row['actual_cost_per_lead'] ?? 0);
         $leads              = (float) ($row['number_of_leads'] ?? 0);
         $orders             = (float) ($row['number_of_orders'] ?? 0);
-        $aov                = (float) ($row['average_order_value'] ?? 0);
         $taxAllocation      = (float) ($row['tax_allocation'] ?? 0);
         $productCost        = (float) ($row['product_cost'] ?? 0);
 
@@ -221,6 +231,24 @@ class ExpectedIncomeCalculator
         // class's own doc comment for the confirmed-exact 5%/25% rates.
         $conversionRate = $leads > 0 ? $orders / $leads : 0.0;
         $grossSales     = (float) ($row['gross_sales'] ?? 0);
+        // Average Order Value is no longer a manual field (explicit
+        // request, 2026-10-10: "the average order value (AOV) i want to
+        // make it automated too in the expected income") — same real
+        // Gross Sales ÷ Number of Orders basis Summary Sales Report's own
+        // AOV already uses (TsaSalesReportController::withAutomatedAov(),
+        // upsell_sales ÷ upsell_confirmation — the identical two real,
+        // already-automated figures, Gross Sales/Number of Orders, both
+        // automated here on this page 2026-10-10 earlier the same day via
+        // ExpectedIncomeController::grossSalesByProductAndDate()). Reads
+        // straight off $grossSales/$orders, both already real/automated
+        // by the time this runs — no new data source needed. sum()'s own
+        // $totals passthrough means a pooled row's AOV is recomputed from
+        // SUMMED Gross Sales/Orders here too, same "recompute the ratio
+        // from summed raw numbers, never average a ratio" convention
+        // every other page's own AOV automation already follows (see
+        // sum()'s own doc comment, which no longer special-cases this
+        // field as a plain per-row average).
+        $aov            = $orders > 0 ? $grossSales / $orders : 0.0;
         $cancelled      = (float) ($row['cancelled'] ?? 0);
         $returns        = $grossSales * self::PROJECTED_RETURNS_RATE;
         $delivered      = $grossSales - $cancelled - $returns;
@@ -429,11 +457,16 @@ class ExpectedIncomeCalculator
             }
         }
 
-        // Average Order Value is now a plain display-only stat (Gross Sales
-        // is a manual field of its own as of 2026-09-28, no longer Orders ×
-        // AOV) — a summed row averages it across its own member rows, same
-        // "not meaningfully summed" reasoning as ROAS/Actual Cost Per Lead
-        // below, rather than back-solving it from Gross Sales ÷ Orders.
+        // Average Order Value is no longer a plain display-only stat
+        // (automated 2026-10-10 — see derive()'s own doc comment) — it's
+        // now a real ratio of two summed dollar/count totals, so
+        // self::derive($totals, ...) below already recomputes it
+        // correctly from the SUMMED gross_sales/number_of_orders, same
+        // "recompute the ratio from summed raw numbers" convention as
+        // every other real ratio on this page (ni_pct, cancelled_pct,
+        // etc.) — no longer averaged per-row alongside ROAS/Actual Cost
+        // Per Lead below, which genuinely have no summed denominator to
+        // recompute against.
         $summed = self::derive($totals, $sellingKeys, $operatingKeys);
 
         $rowCount = count($rows);
@@ -442,7 +475,6 @@ class ExpectedIncomeCalculator
             $summed['roas'] = array_sum(array_column($perRow, 'roas')) / $rowCount;
             $summed['standard_cost_per_message'] = array_sum(array_column($perRow, 'standard_cost_per_message')) / $rowCount;
             $summed['actual_cost_per_lead'] = array_sum(array_column($perRow, 'actual_cost_per_lead')) / $rowCount;
-            $summed['average_order_value'] = array_sum(array_column($perRow, 'average_order_value')) / $rowCount;
         }
 
         return $summed;

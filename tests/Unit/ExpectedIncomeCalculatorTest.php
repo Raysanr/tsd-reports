@@ -107,6 +107,41 @@ class ExpectedIncomeCalculatorTest extends TestCase
         $this->assertSame(0.0, $d['net_income']);
     }
 
+    /** Average Order Value is no longer a manual input (explicit request,
+     *  2026-10-10: "the average order value (AOV) i want to make it
+     *  automated too in the expected income") — derived from Gross Sales ÷
+     *  Number of Orders, the exact inverse of the OLD "Gross Sales =
+     *  Orders × AOV" relationship this file's own class doc comment
+     *  describes. A stray 'average_order_value' key in the raw row (as
+     *  CLEARSIGHT's own fixture still carries, for historical reasons) is
+     *  no longer read at all — 90,100.00 ÷ 112 ≈ 804.46 happens to match
+     *  that stale fixture value exactly, confirming the real sheet's own
+     *  numbers were internally consistent with this formula even before
+     *  it was automated. */
+    public function test_average_order_value_is_derived_from_gross_sales_and_orders(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(self::CLEARSIGHT);
+
+        $this->assertEqualsWithDelta(90100.00 / 112, $d['average_order_value'], 0.01);
+    }
+
+    /** A stray/stale 'average_order_value' value in the raw row is
+     *  silently ignored now — only Gross Sales ÷ Orders ever determines
+     *  the derived figure. */
+    public function test_a_stale_average_order_value_in_the_raw_row_is_ignored(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(['gross_sales' => 1000.0, 'number_of_orders' => 10, 'average_order_value' => 99999.0]);
+
+        $this->assertSame(100.0, $d['average_order_value']);
+    }
+
+    public function test_average_order_value_is_zero_with_no_orders(): void
+    {
+        $d = ExpectedIncomeCalculator::derive(['gross_sales' => 1000.0, 'number_of_orders' => 0]);
+
+        $this->assertSame(0.0, $d['average_order_value']);
+    }
+
     public function test_sum_matches_team_eyecare_against_the_real_sheet_exactly(): void
     {
         $clearsight = self::CLEARSIGHT;
@@ -127,6 +162,13 @@ class ExpectedIncomeCalculatorTest extends TestCase
 
         $this->assertEqualsWithDelta(518795.00, $summed['gross_sales'], 1.0);
         $this->assertEqualsWithDelta(22395.83, $summed['tax_allocation'], 0.5);
+        // Average Order Value recomputed from SUMMED Gross Sales ÷ SUMMED
+        // Orders (518,795.00 ÷ (112+433+75)=620), NOT a plain average of
+        // each product's own 804.46/871.82/682.64 — confirms sum() no
+        // longer special-cases this field as a per-row average (same
+        // "recompute the ratio from summed raw numbers" fix as every
+        // other real ratio on this page).
+        $this->assertEqualsWithDelta(518795.00 / 620, $summed['average_order_value'], 0.01);
     }
 
     public function test_sum_averages_roas_and_actual_cost_per_lead_across_rows(): void

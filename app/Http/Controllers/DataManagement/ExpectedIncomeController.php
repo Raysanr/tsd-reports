@@ -1986,7 +1986,12 @@ class ExpectedIncomeController extends Controller
             // ExpectedIncomeController::grossSalesByProductAndDate() is
             // the only source now (it also returns the Number of Orders
             // map, see that method's own doc comment).
-            'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
+            // average_order_value is ALSO no longer a manual field
+            // (explicit request, 2026-10-10: "the average order value
+            // (AOV) i want to make it automated too") — same reasoning:
+            // deliberately not accepted here any more. Derived inside
+            // ExpectedIncomeCalculator::derive() from Gross Sales ÷
+            // Number of Orders, both already real/automated.
             // gross_sales is no longer a manual field either (explicit
             // request, 2026-10-10: "in the expected income the gross
             // sales is make it automated too") — same reasoning/pattern
@@ -2118,7 +2123,16 @@ class ExpectedIncomeController extends Controller
             'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
             'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
             'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
-            'average_order_value'  => ['sometimes', 'numeric', 'min:0'],
+            // average_order_value is no longer accepted here either
+            // (explicit request, 2026-10-10: "the average order value
+            // (AOV) i want to make it automated too") — unlike Gross
+            // Sales/Number of Orders, which stay genuinely manual on
+            // TikTok's own 2 fixed cards, AOV is now UNCONDITIONALLY
+            // derived (Gross Sales ÷ Number of Orders) inside
+            // ExpectedIncomeCalculator::derive() itself, real product
+            // card or TikTok card alike — see that method's own doc
+            // comment. A stray POST here would silently never be
+            // reflected anywhere.
             'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
             'cancelled'            => ['sometimes', 'numeric', 'min:0'],
             'tax_allocation'       => ['sometimes', 'numeric', 'min:0'],

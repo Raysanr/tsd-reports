@@ -342,7 +342,6 @@
     function derive(row) {
         const leads = Number(row.number_of_leads) || 0;
         const orders = Number(row.number_of_orders) || 0;
-        const aov = Number(row.average_order_value) || 0;
         const taxAllocation = Number(row.tax_allocation) || 0;
         const productCost = Number(row.product_cost) || 0;
 
@@ -362,6 +361,14 @@
         // product-card edit until a full page reload re-fetched the
         // server's own correct figures.
         const grossSales = Number(row.gross_sales) || 0;
+        // Average Order Value is no longer a raw manual input on a real
+        // product card (automated 2026-10-10 — see
+        // ExpectedIncomeCalculator::derive()'s own doc comment) — same
+        // real Gross Sales ÷ Number of Orders ratio the PHP side now
+        // computes, mirrored here so a live repaint matches a fresh page
+        // load (same "mirror the PHP formula client-side" convention
+        // Returns/Delivered below already follow).
+        const aov = orders > 0 ? grossSales / orders : 0;
         const cancelled = Number(row.cancelled) || 0;
         const returns = grossSales * PROJECTED_RETURNS_RATE;
         const delivered = grossSales - cancelled - returns;
@@ -471,7 +478,15 @@
             // 'returns'/'delivered' deliberately NOT read here — see
             // derive()'s own doc comment above: both are always derived
             // from gross_sales/cancelled, never a raw data-field input.
-            ['roas', 'actual_cost_per_lead', 'average_order_value', 'cancelled', 'product_cost']
+            // Average Order Value deliberately NOT read here — it's no
+            // longer a raw data-field input anywhere on this page
+            // (automated 2026-10-10, unconditionally, even on TikTok's
+            // own cards — see ExpectedIncomeCalculator::derive()'s own
+            // doc comment) — derive(raw) below computes it fresh from
+            // raw.gross_sales/raw.number_of_orders instead, same
+            // "mirror the PHP formula, don't read a vanished input"
+            // convention Returns/Delivered already follow.
+            ['roas', 'actual_cost_per_lead', 'cancelled', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
@@ -544,7 +559,6 @@
 
         const totals = { number_of_leads: 0, number_of_orders: 0, gross_sales: 0, cancelled: 0, tax_allocation: 0, product_cost: 0 };
         SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] = 0; });
-        let aovSum = 0;
         rawRows.forEach((raw) => {
             totals.number_of_leads += raw.number_of_leads;
             totals.number_of_orders += raw.number_of_orders;
@@ -553,15 +567,19 @@
             totals.tax_allocation += raw.tax_allocation;
             totals.product_cost += raw.product_cost;
             SELLING_KEYS.concat(OPERATING_KEYS).forEach((key) => { totals[key] += raw[key]; });
-            aovSum += raw.average_order_value;
         });
 
+        // Average Order Value is no longer averaged per-row here — derive
+        // (totals) below already recomputes it fresh from SUMMED Gross
+        // Sales ÷ SUMMED Number of Orders (automated 2026-10-10 — same
+        // "recompute the ratio from summed raw numbers" convention ROAS/
+        // Actual Cost Per Lead below still correctly use, since THOSE
+        // genuinely have no summed denominator to recompute against).
         const summed = derive(totals);
         const rowCount = rawRows.length;
         if (rowCount > 0) {
             summed.roas = roasSum / rowCount;
             summed.actual_cost_per_lead = costPerLeadSum / rowCount;
-            summed.average_order_value = aovSum / rowCount;
         }
 
         applyDerived(overallCard, summed);
