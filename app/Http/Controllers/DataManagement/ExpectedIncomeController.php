@@ -302,6 +302,62 @@ class ExpectedIncomeController extends Controller
         return $result;
     }
 
+    /** Summary Sales Report's own TEAM TOTAL row — the real, POOLED
+     *  team-level Net Income (the exact figure this page's own TELESALES
+     *  card shows for one real team), NOT a sum of individually-costed
+     *  TSA overview cards. Explicit reversal, 2026-10-10, same day as
+     *  netIncomeByTsaAndDate() above: the user first confirmed "sum of
+     *  individual tsa" was correct, then corrected again minutes later —
+     *  "i WANT THE NET INCOME SHOULD BE 3,840.30" / "BECAUSE THAT IS THE
+     *  NET INCOME" — pointing at a live screenshot of this page's own
+     *  per-team "TELESALES" card (buildSummary()'s own $teamSummaryRows),
+     *  confirming the TEAM TOTAL row must match that pooled figure, not
+     *  TsaSalesCalculator::sum()'s own per-TSA-row total (20,923.62 in
+     *  that same screenshot — the two differ because Operating Costs/
+     *  Salaries/Tax Allocation are real per-TSA costs: summing 6
+     *  individually-complete P&Ls double-counts shared-pool costs a
+     *  single team-level pooling only ever subtracts once).
+     *
+     *  Reuses buildSummaryRow() itself — the EXACT method
+     *  $teamSummaryRows already calls (buildSummary(), line ~467) — one
+     *  call per real team PER DAY (not range-summed in one call, so the
+     *  per-day grain matches netIncomeByTsaAndDate()'s own above; a
+     *  caller needing a range total sums these per-day values itself,
+     *  same convention that method's own doc comment already settled).
+     *  Keyed "{orderTeam}:{date}" (the real `order_team` string, e.g. "SH
+     *  Naturals" — NOT the config slug, since TsaSalesReportController's
+     *  own $team['order_team'] is what's in scope there). A TikTok-
+     *  flagged TSA is excluded from her real team's own pool here too
+     *  (same $teamTsaIds exclusion buildSummary() itself applies), same
+     *  scope boundary Summary Sales Report's own TikTok Upsell section
+     *  already agrees on. */
+    public static function teamNetIncomeByDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        $controller = new self();
+        $result = collect();
+
+        foreach (Teams::config() as $teamConfig) {
+            $orderTeam = $teamConfig['order_team'];
+            $teamTsaIds = TsaShift::where('team', $orderTeam)->where('tiktok_upsell', false)->pluck('id')->all();
+
+            foreach ($dates as $date) {
+                $dateStr = $date->toDateString();
+                $oneDay = collect([$date]);
+                ['overallTotal' => $overallTotal] = $controller->buildSummaryRow(
+                    $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $teamTsaIds, $orderTeam
+                );
+                $result["{$orderTeam}:{$dateStr}"] = $overallTotal['net_income'];
+            }
+        }
+
+        return $result;
+    }
+
     /** Remembers the last team filter picked on this page across separate
      *  visits, same "session, keyed per page" convention as
      *  DateRangeFilter::resolve() (explicit request, 2026-10-01: "the

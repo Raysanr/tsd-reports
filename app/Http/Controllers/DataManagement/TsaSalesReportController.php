@@ -354,13 +354,24 @@ class TsaSalesReportController extends Controller
             }
         }
 
+        // Real team-level pooled Net Income per date, keyed "orderTeam:date"
+        // — the exact figure Expected Income's own "TELESALES" card shows
+        // for one real team (ExpectedIncomeController::
+        // teamNetIncomeByDate()'s own doc comment has the full story:
+        // explicit reversal, 2026-10-10, same day — "i WANT THE NET INCOME
+        // SHOULD BE 3,840.30" / "BECAUSE THAT IS THE NET INCOME" — a real
+        // POOLED team total, NOT TsaSalesCalculator::sum()'s own sum of
+        // individually-costed TSA rows, which double-counts shared
+        // Operating Costs/Salaries/Tax Allocation across TSAs).
+        $teamNetIncomeByDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate($dateFrom, $dateTo);
+
         // One row per TSA, summed across the whole selected range,
         // grouped by their real team — the sheet's own MTD running
         // total is the same idea, just always MTD there where this page
         // lets any range be picked. Sums every date in range via
         // $dailyByKey (built above), not just dates with a saved entry —
         // same reasoning as $dailyByKey's own doc comment.
-        $groupSummaries = $teams->map(function (array $team, string $slug) use ($tsas, $dates, $dailyByKey) {
+        $groupSummaries = $teams->map(function (array $team, string $slug) use ($tsas, $dates, $dailyByKey, $teamNetIncomeByDate) {
             $teamTsas = $tsas->where('team', $team['order_team'] ?? '__none__')->values();
 
             $rowSummaries = $teamTsas->map(function (TsaShift $tsa) use ($dates, $dailyByKey) {
@@ -371,14 +382,27 @@ class TsaSalesReportController extends Controller
                 ];
             });
 
+            $groupTotal = $this->withAutomatedAov(
+                TsaSalesCalculator::sum($rowSummaries->pluck('derived')->all()),
+                $rowSummaries->pluck('derived')->all()
+            );
+            // Net Income/NI% overridden to the real pooled team total —
+            // every OTHER field (Gross Sales, Total Orders, Pick-up Rate,
+            // etc.) stays the sum-of-TSAs figure TsaSalesCalculator::sum()
+            // already computed above, untouched by this.
+            $orderTeam = $team['order_team'] ?? null;
+            if ($orderTeam !== null) {
+                $pooledNetIncome = (float) $dates->sum(fn ($date) => $teamNetIncomeByDate->get("{$orderTeam}:{$date->toDateString()}", 0.0));
+                $groupTotal['net_income'] = $pooledNetIncome;
+                $groupTotal['ni_pct'] = $groupTotal['gross_sales'] > 0 ? $pooledNetIncome / $groupTotal['gross_sales'] : 0.0;
+            }
+
             return [
                 'label'      => $team['name'] ?? $slug,
+                'orderTeam'  => $orderTeam,
                 'tsas'       => $teamTsas,
                 'rows'       => $rowSummaries,
-                'groupTotal' => $this->withAutomatedAov(
-                    TsaSalesCalculator::sum($rowSummaries->pluck('derived')->all()),
-                    $rowSummaries->pluck('derived')->all()
-                ),
+                'groupTotal' => $groupTotal,
             ];
         })->values();
 
@@ -445,6 +469,17 @@ class TsaSalesReportController extends Controller
         $overallRows = $groupSummaries->pluck('rows')->flatten(1)->pluck('derived')
             ->merge($tiktokRowSummaries->pluck('derived'))->all();
         $overallTotal = $this->withAutomatedAov(TsaSalesCalculator::sum($overallRows), $overallRows);
+        // Net Income/NI% overridden the same way each group's own
+        // groupTotal was above — the real SUM of both real teams' own
+        // pooled TELESALES figures (not TsaSalesCalculator::sum()'s own
+        // sum-of-every-individual-row total, same double-counted-shared-
+        // costs issue). TikTok Upsell's own Net Income stays genuinely
+        // manual and folds in as a plain addition, same as it already did
+        // via $overallRows above.
+        $pooledNetIncome = (float) $groupSummaries->sum(fn ($g) => $g['groupTotal']['net_income'])
+            + (float) $tiktokRowSummaries->pluck('derived')->sum('net_income');
+        $overallTotal['net_income'] = $pooledNetIncome;
+        $overallTotal['ni_pct'] = $overallTotal['gross_sales'] > 0 ? $pooledNetIncome / $overallTotal['gross_sales'] : 0.0;
 
         // Per-date lock (explicit request, 2026-10-07: "add lock icon
         // like in the dsppr") — same set-of-locked-date-strings shape as
@@ -466,6 +501,14 @@ class TsaSalesReportController extends Controller
             'dailyByKey'     => $dailyByKey,
             'tiktokDailyByKey' => $tiktokDailyByKey,
             'lockedDates'    => $lockedDates,
+            // Real pooled per-team Net Income, keyed "orderTeam:date" — the
+            // daily table's own SEPARATE TOTAL/OVERALL TOTAL rows (built
+            // directly in the view from $dailyGroups, not through
+            // $groupSummaries' own groupTotal above) need this too, same
+            // "two independent rendering paths for the same total" pattern
+            // this page has hit before — see ExpectedIncomeController::
+            // teamNetIncomeByDate()'s own doc comment for the full story.
+            'teamNetIncomeByDate' => $teamNetIncomeByDate,
         ]);
     }
 

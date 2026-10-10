@@ -259,14 +259,14 @@
      to the specific tbody being edited instead. --}}
 @php
     $dailyGroups = $groupSummaries->map(fn ($gs) => [
-        'label' => $gs['label'], 'tsas' => $gs['tsas'],
+        'label' => $gs['label'], 'orderTeam' => $gs['orderTeam'], 'tsas' => $gs['tsas'],
         'columns' => $dayColumns, 'lastColIndex' => $lastColIndex,
         'dailyByKey' => $dailyByKey, 'emptyRaw' => $emptyRaw,
         'isTiktok' => false,
         'updateUrlTemplate' => route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']),
         'emptyMessage' => 'No TSAs on this team yet — add one via TSA Management.',
     ])->push([
-        'label' => $tiktokSummary['label'], 'tsas' => $tiktokSummary['tsas'],
+        'label' => $tiktokSummary['label'], 'orderTeam' => null, 'tsas' => $tiktokSummary['tsas'],
         'columns' => $tiktokDayColumns, 'lastColIndex' => $tiktokLastColIndex,
         'dailyByKey' => $tiktokDailyByKey, 'emptyRaw' => $emptyTiktokRaw,
         'isTiktok' => true,
@@ -463,6 +463,19 @@
                                 ]);
                                 $dayTotal['pickup_rate']    = $dayRates['pick_up_rate'] !== null ? $dayRates['pick_up_rate'] / 100 : 0.0;
                                 $dayTotal['upselling_rate'] = $dayRates['upselling_rate'] !== null ? $dayRates['upselling_rate'] / 100 : 0.0;
+                                // Net Income — real POOLED team total for
+                                // THIS one day (explicit reversal, 2026-10-10:
+                                // "i WANT THE NET INCOME SHOULD BE 3,840.30" /
+                                // "BECAUSE THAT IS THE NET INCOME" — same fix
+                                // as the summary table's own groupTotal
+                                // override, applied here too since this is a
+                                // SEPARATE rendering path for the same kind
+                                // of total — see
+                                // ExpectedIncomeController::teamNetIncomeByDate()'s
+                                // own doc comment for the full story).
+                                $dayPooledNetIncome = (float) ($teamNetIncomeByDate->get($group['orderTeam'] . ':' . $dateStr) ?? 0.0);
+                                $dayTotal['net_income'] = $dayPooledNetIncome;
+                                $dayTotal['ni_pct'] = $dayTotal['gross_sales'] > 0 ? $dayPooledNetIncome / $dayTotal['gross_sales'] : 0.0;
                             }
                         @endphp
                         @foreach($group['columns'] as $i => $col)
@@ -529,6 +542,21 @@
                             ]);
                             $allDayTotal['pickup_rate']    = $allRates['pick_up_rate'] !== null ? $allRates['pick_up_rate'] / 100 : 0.0;
                             $allDayTotal['upselling_rate'] = $allRates['upselling_rate'] !== null ? $allRates['upselling_rate'] / 100 : 0.0;
+                            // Net Income — real POOLED total for THIS one
+                            // day, summed across both real teams' own
+                            // pooled figures, plus TikTok's own genuinely
+                            // manual net_income (its own raw rows, pulled
+                            // straight from $allDayRawRows minus the
+                            // real-team ones already isolated in
+                            // $teamDayRawRows above) — same reasoning as
+                            // the group TOTAL row's own identical override.
+                            $tiktokDayRawRows = $dailyGroups->firstWhere('isTiktok', true);
+                            $tiktokDayRawRows = $tiktokDayRawRows['tsas']->map(fn ($tsa) => $tiktokDayRawRows['dailyByKey']->get($tsa->id . ':' . $dateStr, $tiktokDayRawRows['emptyRaw']))->all();
+                            $allDayPooledNetIncome = $dailyGroups->reject(fn ($g) => $g['isTiktok'])
+                                ->sum(fn ($g) => (float) ($teamNetIncomeByDate->get($g['orderTeam'] . ':' . $dateStr) ?? 0.0))
+                                + (float) array_sum(array_column($tiktokDayRawRows, 'net_income'));
+                            $allDayTotal['net_income'] = $allDayPooledNetIncome;
+                            $allDayTotal['ni_pct'] = $allDayTotal['gross_sales'] > 0 ? $allDayPooledNetIncome / $allDayTotal['gross_sales'] : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                         <td class="px-3 py-2.5 text-right {{ $i === $lastColIndex ? 'tsr-day-end' : '' }} {{ $col['key'] === 'net_income' ? $niColorClass($allDayTotal['net_income'], true) : '' }} {{ $col['key'] === 'ni_pct' && $allDayTotal['ni_pct'] < 0 ? 'text-red-400' : '' }}"
