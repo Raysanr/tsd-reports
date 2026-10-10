@@ -1134,8 +1134,18 @@ class ExpectedIncomeController extends Controller
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $productCardOverridesForRange);
                     return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $productCardTaxAllocationForRange);
                 });
-                $rangeOverallTotal = (function () use ($products, $dates, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverridesForRange, $overviewCardTaxAllocationForRange) {
+                // Gross Sales (2026-10-10) — same pre-sum() top-up as
+                // $dailyOverallTotals' own identical fix below (the
+                // single-day case), same reasoning, just for the whole
+                // selected range at once via a plain BETWEEN query instead
+                // of one call per date.
+                $rangeOverallTotal = (function () use ($products, $dates, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverridesForRange, $overviewCardTaxAllocationForRange, $tsa, $dateFrom, $dateTo) {
                     $rangeRaw = $products->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())))->all();
+                    $pooledGrossSales = (float) array_sum(array_column($rangeRaw, 'gross_sales'));
+                    $grossSalesGap = $this->tsaUpsellGrossSales($tsa, $dateFrom, $dateTo) - $pooledGrossSales;
+                    if (abs($grossSalesGap) > 0.005) {
+                        $rangeRaw[] = ['gross_sales' => $grossSalesGap];
+                    }
                     $summed = ExpectedIncomeCalculator::sum($rangeRaw, $sellingKeys, $operatingKeys);
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverridesForRange);
                     return ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocationForRange);
@@ -1177,9 +1187,37 @@ class ExpectedIncomeController extends Controller
             // as buildAllDailyRows()'s own $dailyOverallTotals. Uses
             // $overviewCardOverrides, NOT $productCardOverrides — see this
             // method's own doc comment above on why the two diverge.
-            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverrides, $overviewCardTaxAllocation) {
+            //
+            // Gross Sales (2026-10-10, explicit fix, root-caused live via
+            // screenshot: Katherine Chua's own overview card showed
+            // 3,638.00 while Dashboard/Summary Sales Report both showed
+            // her real 2,319.00) — same pre-sum() top-up as
+            // buildSummaryRow()'s own TEAM rollup fix earlier the same
+            // day: $dayRaw's own per-product rows (via
+            // grossSalesByProductAndDate()'s own per-product
+            // matchingOrders() step) can silently drop a real order that
+            // doesn't cleanly match any of her flagged products' own
+            // keyword/ID roster — invisible to EVERY one of her product
+            // cards, and therefore to their sum here too. Her real,
+            // product-agnostic total (tsaUpsellGrossSales(), same
+            // tally()['upsell_sales'] basis Dashboard/Summary Sales Report
+            // already use) is the floor that total can never be below;
+            // the gap (if any) is folded in as one extra synthetic row
+            // before sum()/derive() runs, same "can't patch Gross Sales
+            // onto an already-derived row, it cascades into the whole P&L"
+            // reasoning as the team rollup fix. Computed PER DATE inside
+            // the loop below (not once for the whole range) since each
+            // date needs its own day-specific real total, same "DATE(),
+            // not BETWEEN, for a single day's own figure" convention this
+            // page already follows elsewhere.
+            $dailyOverallTotals = $dates->mapWithKeys(function ($date) use ($products, $rawByProductAndDate, $sellingKeys, $operatingKeys, $overviewCardOverrides, $overviewCardTaxAllocation, $tsa) {
                 $dateStr = $date->toDateString();
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
+                $pooledGrossSales = (float) array_sum(array_column($dayRaw, 'gross_sales'));
+                $grossSalesGap = $this->tsaUpsellGrossSales($tsa, $dateStr, $dateStr) - $pooledGrossSales;
+                if (abs($grossSalesGap) > 0.005) {
+                    $dayRaw[] = ['gross_sales' => $grossSalesGap];
+                }
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
                 $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
                 return [$dateStr => ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocation)];
@@ -1721,6 +1759,41 @@ class ExpectedIncomeController extends Controller
             ? TsaShift::pluck('tsa_key')
             : TsaShift::where('team', $onlyOrderTeam)->pluck('tsa_key');
 
+        return $this->upsellGrossSalesForTsaKeys($tsaKeys, $dateFrom, $dateTo);
+    }
+
+    /** ONE TSA's own real, product-agnostic Gross Sales for a date range —
+     *  same tally()['upsell_sales'] basis as teamUpsellGrossSales() above,
+     *  just scoped to a single TSA's own tsa_key instead of a whole
+     *  team's roster. Explicit fix, 2026-10-10, same day — root-caused
+     *  live via screenshot: Katherine Chua's own "[TSA NAME]" overview
+     *  card in Expected Income showed Gross Sales 3,638.00 while
+     *  Dashboard's own Leaderboard AND Summary Sales Report's own per-TSA
+     *  row both showed her real 2,319.00. Her own overview card
+     *  (buildTeamDailyRows()'s own $dailyOverallTotals/$rangeOverallTotal)
+     *  was built by SUMMING her own per-PRODUCT cards' raw rows — each one
+     *  individually subject to grossSalesByProductAndDate()'s own
+     *  per-product matchingOrders() drop (same root cause already fixed
+     *  for the TEAM rollup, 2026-10-10 earlier the same day) — so any real
+     *  order whose item text didn't cleanly match one of HER flagged
+     *  products' own keyword/ID roster was invisible to every one of her
+     *  product cards, and therefore to their sum too. Her own PRODUCT
+     *  cards correctly keep per-product matching (that's the whole point
+     *  of a product-scoped card) — only her OVERVIEW card (a plain rollup,
+     *  not itself product-scoped) needed this product-agnostic basis
+     *  instead, same reasoning teamUpsellGrossSales() already established
+     *  for the team-level rollup. */
+    private function tsaUpsellGrossSales(TsaShift $tsa, string $dateFrom, string $dateTo): float
+    {
+        return $this->upsellGrossSalesForTsaKeys(collect([$tsa->tsa_key]), $dateFrom, $dateTo);
+    }
+
+    /** Shared by teamUpsellGrossSales()/tsaUpsellGrossSales() above — real
+     *  upsell revenue for whichever tsa_key(s) are given, product-
+     *  agnostic (ProductPerformance::tally()'s own upsell_sales formula,
+     *  no matchingOrders() involved at all). */
+    private function upsellGrossSalesForTsaKeys($tsaKeys, string $dateFrom, string $dateTo): float
+    {
         if ($tsaKeys->isEmpty()) {
             return 0.0;
         }
