@@ -753,8 +753,7 @@ class ExpectedIncomeController extends Controller
         // product-agnostic tally() basis exactly via
         // teamUpsellGrossSales() — guaranteed to match that page's own
         // TEAM TOTAL figure, not just approximate it.
-        $rollupTsaIds = $onlyTsaIds ?? TsaShift::where('tiktok_upsell', false)->pluck('id')->all();
-        $realGrossSales = $this->teamUpsellGrossSales($rollupTsaIds, $dateFrom, $dateTo);
+        $realGrossSales = $this->teamUpsellGrossSales($onlyOrderTeam, $dateFrom, $dateTo);
         $pooledGrossSales = (float) $allRaw->sum('gross_sales');
         $grossSalesGap = $realGrossSales - $pooledGrossSales;
         // Number of Orders stays on the per-product-matched basis
@@ -1672,17 +1671,40 @@ class ExpectedIncomeController extends Controller
      *  again, the same way netIncomeByTsaAndDate()/teamNetIncomeByDate()
      *  already guarantee for Net Income.
      *
-     *  $tsaIds: the exact real TSA ids to pool (NOT TikTok-flagged —
-     *  callers already pre-filter this, same $onlyTsaIds/$teamTsaIds
-     *  convention buildSummary()/buildSummaryRow() already use for every
-     *  other rollup figure). */
-    private function teamUpsellGrossSales(array $tsaIds, string $dateFrom, string $dateTo): float
+     *  $onlyOrderTeam: the real `order_team` string (e.g. "Eyecare Team")
+     *  for a single team's own rollup, or null for the ALL view (every
+     *  real TSA site-wide). Deliberately does NOT take a caller-supplied
+     *  TSA id list — resolves its OWN roster here instead, same as
+     *  TsaSalesReportController's own `$tsas = TsaShift::orderBy(
+     *  'sort_order')->get()` (NO tiktok_upsell filter anywhere in that
+     *  controller's real-team grouping). This was a second, independent
+     *  bug found live, 2026-10-10, same day — after the per-product-
+     *  matching fix above shipped, the user reported a NEW, smaller gap
+     *  (Expected Income's TEAM CLOSING TELESALES card showing 40,604.00
+     *  vs Summary Sales Report's real 41,604.00 — short by exactly
+     *  1,000): the first version of this method took its $tsaIds straight
+     *  from buildSummaryRow()'s own $onlyTsaIds, which buildSummary()
+     *  deliberately pre-filters to tiktok_upsell=false (explicit
+     *  2026-10-07 decision — "when she is in the tiktok the team opening
+     *  or closing in the expected income the tsa card ... will be gone").
+     *  That decision was scoped to the per-TSA CARD (hide HER card from
+     *  the real-team view, she gets her own card under the TIKTOK filter
+     *  instead) — it was never meant to also exclude her real revenue
+     *  from the TEAM TOTAL, and Summary Sales Report's own team total
+     *  never excludes her. Resolving the roster independently here keeps
+     *  that 2026-10-07 per-card decision untouched (still governs
+     *  $onlyTsaIds/$rollupLookups/every OTHER field) while making Gross
+     *  Sales specifically immune to it, same as it's already immune to
+     *  the per-product matching gap. */
+    private function teamUpsellGrossSales(?string $onlyOrderTeam, string $dateFrom, string $dateTo): float
     {
-        if (empty($tsaIds)) {
+        $tsaKeys = $onlyOrderTeam === null
+            ? TsaShift::pluck('tsa_key')
+            : TsaShift::where('team', $onlyOrderTeam)->pluck('tsa_key');
+
+        if ($tsaKeys->isEmpty()) {
             return 0.0;
         }
-
-        $tsaKeys = TsaShift::whereIn('id', $tsaIds)->pluck('tsa_key');
 
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
