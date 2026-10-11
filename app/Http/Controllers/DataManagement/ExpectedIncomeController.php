@@ -1886,20 +1886,36 @@ class ExpectedIncomeController extends Controller
         ];
     }
 
+    /** $dayOrdersByTeamAndDate: ONE query for the whole range (see
+     *  ordersByTeamAndDate()'s own doc comment) — perf fix, 2026-10-11,
+     *  PART 5 (THE real dominant cost; PARTS 1-4 in Decisions.md all
+     *  addressed real, measured redundancy but Oct 1-9 still 500'd after
+     *  every one of them shipped). Root cause: this method and
+     *  grossSalesByProductAndDate() below each ran ONE Order query PER
+     *  (day × team) — a 9-day/2-team range issuing 18 separate queries
+     *  EACH, 36 total, every one pulling a full day's worth of rows just
+     *  to immediately re-filter by team in PHP. PARTS 1/2/4 eliminated
+     *  redundant CALLS to these two methods across sibling call chains;
+     *  PART 3 fixed the non-sargable COALESCE() those per-day queries
+     *  used. None of them touched the fact that each call still issued
+     *  O(days × teams) queries of its own. Grouping once into
+     *  $dayOrdersByTeamAndDate (a single whereRaw() BETWEEN the whole
+     *  range, grouped by "{team}:{date}" in PHP afterward) turns that
+     *  into exactly 1 query regardless of range length, matching the
+     *  same "fetch once, group in memory" shape PART 1's hoisting
+     *  already established for the surrounding per-day loops. */
     private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
+        $dayOrdersByTeamAndDate = $this->ordersByTeamAndDate($orderTeams, $dates, $dateFrom, $dateTo);
         $counts = [];
 
-        for ($cursor = Carbon::parse($dateFrom)->startOfDay(); $cursor->lte(Carbon::parse($dateTo)); $cursor->addDay()) {
-            $dateStr = $cursor->toDateString();
+        foreach ($dates as $date) {
+            $dateStr = $date->toDateString();
 
             foreach ($orderTeams as $orderTeam) {
-                $dayOrders = Order::whereRaw(
-                    'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
-                    [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
-                )->where('team', $orderTeam)->get();
+                $dayOrders = $dayOrdersByTeamAndDate->get("{$orderTeam}:{$dateStr}", collect());
 
                 foreach ($products as $product) {
                     // Same exclusion filter tally() itself applies before
@@ -1921,6 +1937,32 @@ class ExpectedIncomeController extends Controller
         }
 
         return collect($counts);
+    }
+
+    /** Shared by leadCountsByProductAndDate()/grossSalesByProductAndDate()
+     *  above/below — every real team's own Order rows for the WHOLE
+     *  requested range, fetched in ONE query (not one per day per team),
+     *  then grouped into day-sized, team-scoped buckets in PHP so the
+     *  per-day/per-team loop in each caller reads an already-sliced
+     *  Collection instead of re-querying. Keyed "{orderTeam}:{date}" to
+     *  match those callers' own loop variables directly. Still uses
+     *  whereRaw(COALESCE(...)) — PART 3's own expression index
+     *  (migration add_coalesce_order_date_index) makes that sargable
+     *  again, so one big BETWEEN scan here costs about the same per-row
+     *  as the N small ones it replaces, just without the N multiplier. */
+    private function ordersByTeamAndDate($orderTeams, $dates, string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $rangeStart = Carbon::parse($dateFrom)->startOfDay();
+        $rangeEnd = Carbon::parse($dateTo)->endOfDay();
+
+        return Order::whereRaw(
+            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+            [$rangeStart, $rangeEnd]
+        )->whereIn('team', $orderTeams)->get()
+            ->groupBy(function (Order $o) {
+                $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
+                return $o->team . ':' . ($ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString());
+            });
     }
 
     /** Expected Income's own per-(TSA, product, day) Gross Sales AND
@@ -1960,21 +2002,23 @@ class ExpectedIncomeController extends Controller
      *
      *  Returns ['grossSales' => Collection, 'numberOfOrders' => Collection],
      *  both keyed "{orderTeam}:{tsaId}:{productId}:{date}". */
+    /** $dayOrdersByTeamAndDate — same ordersByTeamAndDate()-powered "one
+     *  query for the whole range" fix as leadCountsByProductAndDate()'s
+     *  own identical doc comment above (PART 5) — this method had the
+     *  exact same per-(day × team) query loop, independently. */
     private function grossSalesByProductAndDate($products, $dates, string $dateFrom, string $dateTo): array
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
+        $dayOrdersByTeamAndDate = $this->ordersByTeamAndDate($orderTeams, $dates, $dateFrom, $dateTo);
         $sales = [];
         $orderCounts = [];
 
-        for ($cursor = Carbon::parse($dateFrom)->startOfDay(); $cursor->lte(Carbon::parse($dateTo)); $cursor->addDay()) {
-            $dateStr = $cursor->toDateString();
+        foreach ($dates as $date) {
+            $dateStr = $date->toDateString();
 
             foreach ($orderTeams as $orderTeam) {
-                $dayOrders = Order::whereRaw(
-                    'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
-                    [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()]
-                )->where('team', $orderTeam)->get();
+                $dayOrders = $dayOrdersByTeamAndDate->get("{$orderTeam}:{$dateStr}", collect());
 
                 foreach ($products as $product) {
                     // Same exclusion filter tally() itself applies before
