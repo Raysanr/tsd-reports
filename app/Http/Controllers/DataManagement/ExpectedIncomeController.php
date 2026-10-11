@@ -886,7 +886,7 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
 
@@ -910,10 +910,10 @@ class ExpectedIncomeController extends Controller
             // replacing the real summed figure outright — preserves every
             // other field a real entry row might carry (Cancelled, Selling
             // Costs, etc.) exactly as entered.
-            $realGrossSales = $this->totalRealGrossSales($grossSalesMap, $groupProducts, $onlyOrderTeam);
+            $realGrossSales = $this->totalRealGrossSales($grossSalesMap, $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo);
             $pooledGrossSales = (float) $pooledRaw->sum('gross_sales');
             $grossSalesGap = $realGrossSales - $pooledGrossSales;
-            $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $groupProducts, $onlyOrderTeam);
+            $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo);
             $pooledOrders = (float) $pooledRaw->sum('number_of_orders');
             $ordersGap = $realOrders - $pooledOrders;
             if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
@@ -958,7 +958,7 @@ class ExpectedIncomeController extends Controller
             // NOT $onlyTsaIds — the two are different restrictions
             // ($onlyTsaIds still scopes Salaries/Operating Costs above,
             // unrelated to which Order.team an order carries).
-            $derived['number_of_leads'] = $this->totalRealLeads($leadCounts, $groupProducts, $onlyOrderTeam);
+            $derived['number_of_leads'] = $this->totalRealLeads($leadCounts, $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo);
 
             return $derived;
         });
@@ -1015,7 +1015,7 @@ class ExpectedIncomeController extends Controller
         // tally to, so the per-product gap-fill (same "missing entry ≠
         // zero" pattern as Number of Leads) remains the correct, only
         // definition for it here.
-        $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $products, $onlyOrderTeam);
+        $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $products, $onlyOrderTeam, $dateFrom, $dateTo);
         $pooledOrders = (float) $allRaw->sum('number_of_orders');
         $ordersGap = $realOrders - $pooledOrders;
         if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
@@ -1030,7 +1030,7 @@ class ExpectedIncomeController extends Controller
         // roster, so this is really just leadCounts->sum() restricted to
         // $onlyOrderTeam — totalRealLeads() still goes through its own
         // product-id filter for consistency with the $cards call above.
-        $overallTotal['number_of_leads'] = $this->totalRealLeads($leadCounts, $products, $onlyOrderTeam);
+        $overallTotal['number_of_leads'] = $this->totalRealLeads($leadCounts, $products, $onlyOrderTeam, $dateFrom, $dateTo);
 
         return ['cards' => $cards, 'overallTotal' => $overallTotal];
     }
@@ -2136,14 +2136,34 @@ class ExpectedIncomeController extends Controller
      *  summing, group-aware via $products). STILL used for every
      *  individual PRODUCT card's own Gross Sales (teamUpsellGrossSales()
      *  above is ONLY for the TELESALES/per-team rollup, which has no
-     *  per-product concept to begin with). */
-    private function totalRealGrossSales($valueMap, $products, ?string $onlyOrderTeam): float
+     *  per-product concept to begin with).
+     *
+     *  $dateFrom/$dateTo (bug fix, 2026-10-11): the map's own 4th key
+     *  segment (date) was previously dropped by `explode(':', $key, 4)`
+     *  destructuring into only 3 variables, so this summed EVERY date
+     *  present in $valueMap, not just the caller's own date window. Not
+     *  a problem before the same-day precomputed-map perf fix (each
+     *  buildSummaryRow() call built its own single-day map internally,
+     *  so the map only ever held one date's keys) — but
+     *  teamNetIncomeByDate()/grossSalesAndNetIncomeByProductAndDate() now
+     *  pass a precomputed map spanning the WHOLE requested range into
+     *  every one of their own per-day buildSummaryRow() calls, so every
+     *  day silently summed the full range's total instead of its own day
+     *  (root-caused live, 2026-10-11: Summary Sales Report's per-day
+     *  columns went flat/identical across every date once a 2+ day range
+     *  was selected). Filtered the same way
+     *  grossSalesForTsaProductDate()/leadsForTsaProductDate() below
+     *  already correctly do. */
+    private function totalRealGrossSales($valueMap, $products, ?string $onlyOrderTeam, string $dateFrom, string $dateTo): float
     {
         $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
 
-        return (float) $valueMap->filter(function ($value, $key) use ($productIds, $onlyOrderTeam) {
-            [$orderTeam, $tsaKey, $productId] = explode(':', $key, 4);
+        return (float) $valueMap->filter(function ($value, $key) use ($productIds, $onlyOrderTeam, $dateFrom, $dateTo) {
+            [$orderTeam, $tsaKey, $productId, $dateStr] = explode(':', $key, 4);
             if (!$productIds->contains($productId)) {
+                return false;
+            }
+            if ($dateStr < $dateFrom || $dateStr > $dateTo) {
                 return false;
             }
             return $onlyOrderTeam === null || $orderTeam === $onlyOrderTeam;
@@ -2179,14 +2199,21 @@ class ExpectedIncomeController extends Controller
      *  several products deep for a group) plus once more for the rollup,
      *  so a fresh query per call here would reintroduce the exact N+1
      *  cost addActiveTsasOverviewOperatingCosts()'s own doc comment
-     *  already root-caused on this page (2026-10-02). */
-    private function totalRealLeads($leadCounts, $products, ?string $onlyOrderTeam): int
+     *  already root-caused on this page (2026-10-02).
+     *
+     *  $dateFrom/$dateTo (bug fix, 2026-10-11) — same dropped-4th-segment
+     *  bug and same fix as totalRealGrossSales()'s own identical doc
+     *  comment above; see that one for the full root cause. */
+    private function totalRealLeads($leadCounts, $products, ?string $onlyOrderTeam, string $dateFrom, string $dateTo): int
     {
         $productIds = $products->pluck('id')->map(fn ($id) => (string) $id);
 
-        return (int) $leadCounts->filter(function ($count, $key) use ($productIds, $onlyOrderTeam) {
-            [$orderTeam, $tsaKey, $productId] = explode(':', $key, 4);
+        return (int) $leadCounts->filter(function ($count, $key) use ($productIds, $onlyOrderTeam, $dateFrom, $dateTo) {
+            [$orderTeam, $tsaKey, $productId, $dateStr] = explode(':', $key, 4);
             if (!$productIds->contains($productId)) {
+                return false;
+            }
+            if ($dateStr < $dateFrom || $dateStr > $dateTo) {
                 return false;
             }
             return $onlyOrderTeam === null || $orderTeam === $onlyOrderTeam;

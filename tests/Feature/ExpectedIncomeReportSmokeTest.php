@@ -558,6 +558,69 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertEqualsWithDelta($oneDaySalaries * 2, $twoDaySalaries, 0.02);
     }
 
+    /** Regression test, root-caused live 2026-10-11 (screenshot): Summary
+     *  Sales Report's own per-day TEAM OPENING TOTAL/OVERALL TOTAL columns
+     *  went flat/identical across every date once a 2+ day range was
+     *  selected, even though each day's own real orders clearly differed.
+     *
+     *  Root cause: totalRealGrossSales()/totalRealLeads() destructured
+     *  their value map's key (shape
+     *  "{orderTeam}:{tsaId}:{productId}:{date}") via
+     *  `explode(':', $key, 4)` into only 3 variables, silently dropping
+     *  the trailing date segment — so neither method ever filtered by
+     *  date at all. This went unnoticed before the SAME-DAY
+     *  precomputed-map perf fix (teamNetIncomeByDate()/
+     *  grossSalesAndNetIncomeByProductAndDate() now compute
+     *  leadCounts/grossSalesAndOrders ONCE for the whole requested range
+     *  and pass that single map into every one of their own per-day
+     *  buildSummaryRow() calls) — before that fix, each call built its
+     *  own single-day map internally, so the map only ever held one
+     *  date's keys and the missing filter had nothing to over-sum. After
+     *  it, every per-day call silently summed the ENTIRE range's total
+     *  into each individual day.
+     *
+     *  Two real orders, two different days, two different amounts —
+     *  teamNetIncomeByDate() must return each day's own distinct net
+     *  income when queried as part of a multi-day range, matching
+     *  exactly what that same single day returns in isolation. */
+    public function test_team_net_income_by_date_does_not_collapse_across_a_multi_day_range(): void
+    {
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $product = Product::where('team', 'SH Naturals')->first();
+
+        // Product-MATCHED upsell orders (seedUpsellOrderForGrossSales(),
+        // same fixture every other Gross-Sales-automation test in this
+        // file already uses) — a different order count/amount per day so
+        // $grossSalesMap/$numberOfOrdersMap (totalRealGrossSales()'s own
+        // inputs) actually carry real, date-distinct entries. A plain
+        // unmatched Order (no recognized product) would leave those maps
+        // empty and silently mask the date-blind bug this test guards
+        // against — Fulfillment Fee (number_of_orders × a fixed per-order
+        // rate) only varies between days if $numberOfOrdersMap has real,
+        // correctly date-scoped data for this test to catch.
+        $this->seedUpsellOrderForGrossSales($product, $tsa, '2026-10-01', 9800.0, 'range-collapse-oct1-a');
+        $this->seedUpsellOrderForGrossSales($product, $tsa, '2026-10-01', 9800.0, 'range-collapse-oct1-b');
+        $this->seedUpsellOrderForGrossSales($product, $tsa, '2026-10-02', 6400.0, 'range-collapse-oct2-a');
+
+        $oct1Alone = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate('2026-10-01', '2026-10-01');
+        $oct2Alone = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate('2026-10-02', '2026-10-02');
+        $asRange = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate('2026-10-01', '2026-10-02');
+
+        $this->assertNotEquals(
+            $asRange->get('SH Naturals:2026-10-01'),
+            $asRange->get('SH Naturals:2026-10-02'),
+            'Oct 1 and Oct 2 have different real orders, so their pooled net income must differ within the same range query'
+        );
+        $this->assertEqualsWithDelta(
+            $oct1Alone->get('SH Naturals:2026-10-01'), $asRange->get('SH Naturals:2026-10-01'), 0.01,
+            "Oct 1's own net income must be the same whether queried alone or as part of a 2-day range"
+        );
+        $this->assertEqualsWithDelta(
+            $oct2Alone->get('SH Naturals:2026-10-02'), $asRange->get('SH Naturals:2026-10-02'), 0.01,
+            "Oct 2's own net income must be the same whether queried alone or as part of a 2-day range"
+        );
+    }
+
     /** Explicit request, 2026-10-02: "can you create lock icon too in
      *  this, like in the projections" — one lock PER PRODUCT CARD
      *  (explicit decision, same day), same "when it is lock it can't
