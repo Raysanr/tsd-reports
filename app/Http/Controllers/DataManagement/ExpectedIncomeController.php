@@ -366,15 +366,16 @@ class ExpectedIncomeController extends Controller
      *  cards (SH NATURALS + NATUREVA) Gross Sales/Net Income/Number of
      *  Orders for ONE day, keyed "tsaId:date" — same per-day grain as
      *  netIncomeByTsaAndDate() above (a caller needing a range total sums
-     *  these per-day values itself, same convention). Mirrors
-     *  buildTiktokRows()'s own per-TSA $overallTotal exactly (both her
-     *  cards' raw rows summed, her real UNDIVIDED Daily Rate folded in as
-     *  Salaries — see that method's own doc comment for why undivided is
-     *  the correct overview-card scale, not the ÷2-per-card figure each
-     *  individual TikTok card shows) — just computed per DAY here instead
-     *  of once for the whole range, so TsaTiktokEntry's own per-day
-     *  columns (TsaSalesReportController's own $tiktokDailyByKey) have
-     *  something to read.
+     *  these per-day values itself, same convention).
+     *
+     *  Salaries is forced to 0 here (not her real Daily Rate) — same
+     *  override index()/summary() apply when folding TikTok into the
+     *  TELESALES card (2026-10-10 fix, fea38d3). This method feeds BOTH
+     *  that fold-in AND TsaSalesReportController's OVERALL TOTAL, so both
+     *  consumers must agree; leaving her real Salaries in here while
+     *  index() zeroed it there was the exact cause of Expected Income's
+     *  TELESALES Net Income and Summary Sales Report's OVERALL TOTAL
+     *  disagreeing by her Daily Rate (found 2026-10-11).
      *
      *  Catered Leads/Pick-up Rate/Upselling Rate have NO equivalent in
      *  ExpectedIncomeTiktokEntry at all (that table only ever tracked
@@ -397,11 +398,6 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
 
-        // Same undivided-Daily-Rate-as-Salaries overview scale
-        // buildTiktokRows()'s own $overallTotal uses — see that method's
-        // own doc comment.
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
-
         $result = collect();
         foreach ($flaggedTsas as $tsa) {
             foreach ($dates as $date) {
@@ -412,7 +408,7 @@ class ExpectedIncomeController extends Controller
 
                 $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
                     ExpectedIncomeCalculator::sum($rawRows),
-                    ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+                    ['salaries' => 0.0]
                 );
 
                 $result[$tsa->id . ':' . $dateStr] = [
