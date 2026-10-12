@@ -11,18 +11,43 @@
      tsa_sales.*, expected_income.*, cost_breakdown.*) via
      DataManagement\ActivityLogController. A normal user's own query
      there already excludes cost_breakdown.* server-side, so the module
-     filter pills below never even render that option for her. --}}
-<div class="mb-4 flex items-center gap-2 flex-wrap">
-    <a href="{{ route('data.activity-log') }}"
-       class="px-3 py-1.5 rounded-full text-xs font-mono font-semibold border {{ $module === '' ? 'bg-ink text-white dark:bg-slate-100 dark:text-slate-900 border-transparent' : 'border-line dark:border-slate-700 text-ink-muted dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
-        All
-    </a>
-    @foreach($modules as $slug => $label)
-    <a href="{{ route('data.activity-log', ['module' => $slug]) }}"
-       class="px-3 py-1.5 rounded-full text-xs font-mono font-semibold border {{ $module === $slug ? 'bg-ink text-white dark:bg-slate-100 dark:text-slate-900 border-transparent' : 'border-line dark:border-slate-700 text-ink-muted dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
-        {{ $label }}
-    </a>
-    @endforeach
+     filter pills below never even render that option for her.
+
+     Date range filter added 2026-10-12 (explicit request: "i want you to
+     have date picker too like in the other page") — same shared
+     DateRangeFilter/_date-range-filter widget every other Data
+     Management report page (DSPPR, Summary Sales Report, Expected
+     Income) already uses, including its own "remember the last range
+     picked on THIS page" session behavior. The module pills and search
+     form below both carry the CURRENT date_from/date_to as query
+     params/hidden fields so clicking a module pill or typing a search
+     term never silently resets the date range back to today (and
+     conversely, picking a new date range re-submits tsrFilterForm's
+     own module/q hidden fields so the OTHER two filters survive too) —
+     same "every filter preserves every other filter" contract
+     DsPprReportController's own filter bar already follows. --}}
+<div class="mb-4 flex items-end justify-between gap-4 flex-wrap">
+    <form method="GET" class="flex items-end gap-3 flex-wrap" id="dataActivityLogFilterForm">
+        @if($module !== '')
+        <input type="hidden" name="module" value="{{ $module }}">
+        @endif
+        @if($query !== '')
+        <input type="hidden" name="q" value="{{ $query }}">
+        @endif
+        @include('data._date-range-filter', ['fromName' => 'date_from', 'toName' => 'date_to', 'fromValue' => $dateFrom, 'toValue' => $dateTo])
+    </form>
+    <div class="flex items-center gap-2 flex-wrap">
+        <a href="{{ route('data.activity-log', ['date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+           class="px-3 py-1.5 rounded-full text-xs font-mono font-semibold border {{ $module === '' ? 'bg-ink text-white dark:bg-slate-100 dark:text-slate-900 border-transparent' : 'border-line dark:border-slate-700 text-ink-muted dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+            All
+        </a>
+        @foreach($modules as $slug => $label)
+        <a href="{{ route('data.activity-log', ['module' => $slug, 'date_from' => $dateFrom, 'date_to' => $dateTo]) }}"
+           class="px-3 py-1.5 rounded-full text-xs font-mono font-semibold border {{ $module === $slug ? 'bg-ink text-white dark:bg-slate-100 dark:text-slate-900 border-transparent' : 'border-line dark:border-slate-700 text-ink-muted dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800' }}">
+            {{ $label }}
+        </a>
+        @endforeach
+    </div>
 </div>
 
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-line dark:border-slate-700 shadow-sm overflow-hidden">
@@ -43,6 +68,8 @@
                 @if($module !== '')
                 <input type="hidden" name="module" value="{{ $module }}">
                 @endif
+                <input type="hidden" name="date_from" value="{{ $dateFrom }}">
+                <input type="hidden" name="date_to" value="{{ $dateTo }}">
                 <input type="text" name="q" value="{{ $query }}" placeholder="Filter…" aria-label="Filter activity log"
                        id="dataActivityLogSearchInput"
                        class="w-40 rounded-lg border border-line dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono text-ink dark:text-slate-100 placeholder-ink-muted/60 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/40">

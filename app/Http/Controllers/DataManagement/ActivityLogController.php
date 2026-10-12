@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Support\DateRangeFilter;
 use Illuminate\Http\Request;
 
 /**
@@ -44,6 +45,18 @@ class ActivityLogController extends Controller
         $module = $request->query('module', '');
         $module = array_key_exists($module, self::MODULES) ? $module : '';
 
+        // Same shared "remember the last range picked on THIS page" filter
+        // every other Data Management report page already uses (explicit
+        // request, 2026-10-12: "i want you to have date picker too like in
+        // the other page") — defaults to "today only" on a brand-new
+        // session, same convention DSPPR/Summary Sales Report/Expected
+        // Income all settled on 2026-09-30, for consistency across every
+        // page in this module rather than this one page alone behaving
+        // differently.
+        $range = DateRangeFilter::resolve($request, 'activity-log');
+        $dateFrom = $range['from'];
+        $dateTo   = $range['to'];
+
         $isAdmin = auth()->user()->isAtLeastAdmin();
         $visibleModules = $isAdmin ? self::MODULES : collect(self::MODULES)->except('cost_breakdown')->all();
 
@@ -55,6 +68,13 @@ class ActivityLogController extends Controller
             })
             ->when($module !== '', fn ($q) => $q->where('action', 'like', "{$module}.%"))
             ->when($query !== '', fn ($q) => $q->where('description', 'like', "%{$query}%"))
+            // whereDate() >=/<=, not a raw whereBetween() on created_at
+            // directly — same lexicographic-string-comparison bug called
+            // out throughout this module (see DsPprReportController's own
+            // doc comment) applies to any plain BETWEEN bound compared
+            // against a full datetime column.
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
             ->orderByDesc('created_at')
             ->paginate(30)
             ->withQueryString();
@@ -64,6 +84,8 @@ class ActivityLogController extends Controller
             'query' => $query,
             'module' => $module,
             'modules' => $visibleModules,
+            'dateFrom' => $dateFrom,
+            'dateTo' => $dateTo,
         ]);
     }
 }

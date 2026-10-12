@@ -126,6 +126,46 @@ class DataManagementActivityLogTest extends TestCase
         $response->assertOk();
     }
 
+    /** Date range filter (explicit request, 2026-10-12: "i want you to
+     *  have date picker too like in the other page") — same shared
+     *  DateRangeFilter every other Data Management report page already
+     *  uses. An entry outside the selected range must not show, even
+     *  though it would otherwise match every other filter. */
+    public function test_the_date_range_filter_narrows_the_results(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        // created_at isn't fillable (ActivityLog is append-only, UPDATED_AT
+        // disabled) — create() would silently drop it and Eloquent auto-
+        // stamps "now" instead, so it's forced in afterward via a plain
+        // update() query (bypassing Eloquent's own timestamp management).
+        $old = ActivityLog::create([
+            'action' => 'projection.field_updated', 'description' => 'Updated something old (88,888)',
+            'actor_name' => $admin->name,
+        ]);
+        ActivityLog::whereKey($old->id)->update(['created_at' => now()->subDays(10)]);
+
+        ActivityLog::create([
+            'action' => 'projection.field_updated', 'description' => 'Updated something recent (99,999)',
+            'actor_name' => $admin->name,
+        ]);
+
+        // Default (no date_from/date_to on the URL) is "today only" —
+        // same first-visit convention as every other report page.
+        $defaultView = $this->actingAs($admin)->get(route('data.activity-log'));
+        $defaultView->assertOk();
+        $defaultView->assertSee('99,999');
+        $defaultView->assertDontSee('88,888');
+
+        // Explicit range covering the old entry too.
+        $widerView = $this->actingAs($admin)->get(route('data.activity-log', [
+            'date_from' => now()->subDays(15)->toDateString(), 'date_to' => now()->toDateString(),
+        ]));
+        $widerView->assertOk();
+        $widerView->assertSee('99,999');
+        $widerView->assertSee('88,888');
+    }
+
     public function test_a_normal_user_cannot_filter_by_cost_breakdown(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
