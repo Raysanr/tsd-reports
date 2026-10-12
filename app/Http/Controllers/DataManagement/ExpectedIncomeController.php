@@ -1009,13 +1009,15 @@ class ExpectedIncomeController extends Controller
         $realGrossSales = $this->teamUpsellGrossSales($onlyOrderTeam, $dateFrom, $dateTo);
         $pooledGrossSales = (float) $allRaw->sum('gross_sales');
         $grossSalesGap = $realGrossSales - $pooledGrossSales;
-        // Number of Orders stays on the per-product-matched basis
-        // (totalRealGrossSales($numberOfOrdersMap, ...)) — unlike Gross
-        // Sales, this page has no OTHER page's own total it needs to
-        // tally to, so the per-product gap-fill (same "missing entry ≠
-        // zero" pattern as Number of Leads) remains the correct, only
-        // definition for it here.
-        $realOrders = $this->totalRealGrossSales($numberOfOrdersMap, $products, $onlyOrderTeam, $dateFrom, $dateTo);
+        // Number of Orders (2026-10-12, reversed — see
+        // teamUpsellOrderCount()'s own doc comment for the full root
+        // cause/screenshot story) — now mirrors Gross Sales' identical
+        // product-agnostic, team-roster-scoped basis instead of staying
+        // on totalRealGrossSales($numberOfOrdersMap, ...)'s own per-
+        // product-matched one. The "no other page needs it to tally"
+        // assumption this used to rest on no longer holds (Dashboard's
+        // own "Total Cross-Sell Sales" card order count).
+        $realOrders = $this->teamUpsellOrderCount($onlyOrderTeam, $dateFrom, $dateTo);
         $pooledOrders = (float) $allRaw->sum('number_of_orders');
         $ordersGap = $realOrders - $pooledOrders;
         if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
@@ -2128,6 +2130,37 @@ class ExpectedIncomeController extends Controller
         return $this->upsellGrossSalesForTsaKeys($tsaKeys, $dateFrom, $dateTo);
     }
 
+    /** Number of Orders equivalent of teamUpsellGrossSales() above — same
+     *  product-agnostic, team-roster-scoped tally() basis (this time its
+     *  'upsell_confirmation' figure instead of 'upsell_sales'), applied
+     *  the SAME way and for the SAME reason: explicit fix, 2026-10-12,
+     *  root-caused live via screenshot comparison against Dashboard's own
+     *  "Total Cross-Sell Sales" card — TEAM CLOSING showed 37 here vs
+     *  Dashboard's real 47 for the same date/team (an UNDER-count), while
+     *  TEAM OPENING showed 58 here vs Dashboard's real 49 (an OVER-count)
+     *  — both directions confirm the same root cause as Gross Sales'
+     *  original 2026-10-10 fix: totalRealGrossSales($numberOfOrdersMap,
+     *  ...)'s per-PRODUCT matchingOrders() basis can both silently drop a
+     *  real order that doesn't cleanly match any configured product
+     *  (undercount) and double-count one order across more than one
+     *  product's own match (overcount) — neither failure mode is
+     *  possible with a single team-roster-scoped tally() call, which
+     *  counts each real order exactly once regardless of product.
+     *  Deliberately NOT applied to the per-PRODUCT card's own Number of
+     *  Orders (totalRealGrossSales() itself, still used there) — a
+     *  product card's whole purpose is per-product attribution, same
+     *  reasoning tsaUpsellGrossSales()'s own doc comment already
+     *  established for Gross Sales on an individual TSA's product cards
+     *  vs her overview card. */
+    private function teamUpsellOrderCount(?string $onlyOrderTeam, string $dateFrom, string $dateTo): int
+    {
+        $tsaKeys = $onlyOrderTeam === null
+            ? TsaShift::pluck('tsa_key')
+            : TsaShift::where('team', $onlyOrderTeam)->pluck('tsa_key');
+
+        return $this->upsellOrderCountForTsaKeys($tsaKeys, $dateFrom, $dateTo);
+    }
+
     /** ONE TSA's own real, product-agnostic Gross Sales for a date range —
      *  same tally()['upsell_sales'] basis as teamUpsellGrossSales() above,
      *  just scoped to a single TSA's own tsa_key instead of a whole
@@ -2170,6 +2203,24 @@ class ExpectedIncomeController extends Controller
         )->whereIn('tsa_name', $tsaKeys)->get();
 
         return (float) ProductPerformance::tally($orders)['upsell_sales'];
+    }
+
+    /** Number of Orders equivalent of upsellGrossSalesForTsaKeys() directly
+     *  above — identical query/scope, just reads tally()'s own
+     *  'upsell_confirmation' count instead of 'upsell_sales'. Shared by
+     *  teamUpsellOrderCount() above. */
+    private function upsellOrderCountForTsaKeys($tsaKeys, string $dateFrom, string $dateTo): int
+    {
+        if ($tsaKeys->isEmpty()) {
+            return 0;
+        }
+
+        $orders = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsaKeys)->get();
+
+        return (int) ProductPerformance::tally($orders)['upsell_confirmation'];
     }
 
     /** Gross Sales/Number of Orders equivalent of totalRealLeads() directly

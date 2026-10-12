@@ -621,6 +621,65 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, root-caused live 2026-10-12 (screenshot comparison
+     *  against Dashboard): the TELESALES/per-team rollup's own Number of
+     *  Orders disagreed with Dashboard's "Total Cross-Sell Sales" card for
+     *  the SAME team/date in BOTH directions — TEAM CLOSING showed 37 here
+     *  vs Dashboard's real 47 (undercount), TEAM OPENING showed 58 vs
+     *  Dashboard's real 49 (overcount). Root cause: the rollup's Number of
+     *  Orders stayed on totalRealGrossSales($numberOfOrdersMap, ...)'s own
+     *  per-PRODUCT matchingOrders() basis (an explicit 2026-10-10 decision,
+     *  on the reasoning "no other page needs it to tally") even after Gross
+     *  Sales was fixed to a product-agnostic, team-roster-scoped tally()
+     *  basis (teamUpsellGrossSales()) the SAME day, for the identical
+     *  reason. Per-product matching can silently DROP a real order with no
+     *  clean product match (undercount) — this test's own unmatched order
+     *  below — while ALSO being able to double-count one order across more
+     *  than one product's own match in other data shapes (the overcount
+     *  direction, not separately reproduced here since the fix is the same
+     *  either way: don't sum per-product counts for a page-level rollup
+     *  that was never product-scoped to begin with).
+     *
+     *  Fixed via teamUpsellOrderCount()/upsellOrderCountForTsaKeys() — same
+     *  tally() call teamUpsellGrossSales() already makes, just reading its
+     *  'upsell_confirmation' count instead of 'upsell_sales'. */
+    public function test_rollup_number_of_orders_counts_a_real_order_that_matches_no_configured_product(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $product = Product::where('team', 'SH Naturals')->first();
+        $date = '2026-10-01';
+
+        // One order that DOES cleanly match a real product — counted by
+        // both the old per-product basis and the new team-roster basis.
+        $this->seedUpsellOrderForGrossSales($product, $tsa, $date, 500.0, 'rollup-order-count-matched');
+
+        // One real upsell order whose item text/tags match NO configured
+        // product at all — matchingOrders() drops it from every one of
+        // this team's product cards (same exclusion the class doc comment
+        // on ProductPerformance::matchingOrders() documents), but it's
+        // still a real order Dashboard's own tally()-based count includes.
+        Order::create([
+            'pancake_order_id' => 'rollup-order-count-unmatched',
+            'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Totally Unconfigured Item', 'raw_tags' => [strtoupper($tsa->tsa_key)],
+            'is_upsell' => true, 'amount' => 750.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 11:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'sh-naturals',
+        ]));
+        $response->assertOk();
+
+        // The real tally() basis: 2 real orders total, matched + unmatched.
+        $this->assertMatchesRegularExpression(
+            '/data-out="number_of_orders"[^>]*>\s*2\s*</',
+            $response->getContent(),
+            'Expected the TEAM OPENING/CLOSING rollup Number of Orders to count BOTH real orders (2), including the one with no configured product match'
+        );
+    }
+
     /** Explicit request, 2026-10-02: "can you create lock icon too in
      *  this, like in the projections" — one lock PER PRODUCT CARD
      *  (explicit decision, same day), same "when it is lock it can't
