@@ -904,6 +904,58 @@
             </div>`;
     }
 
+    // Per-product (DSPPR) section — collapsible, default-collapsed since
+    // the product list can run long and most visits only care whether
+    // everything passed (explicit follow-up request, 2026-10-12:
+    // "include the dsppr to the tally checker like for every products").
+    function renderProductRow(p) {
+        const nl = p.numberOfLeads, no = p.numberOfOrders;
+        const rowOk = nl.tallies && no.tallies;
+        return `
+            <div class="flex items-center justify-between gap-3 py-2 border-t border-line dark:border-slate-700 first:border-t-0">
+                <span class="text-xs font-mono text-ink dark:text-slate-200 truncate">${p.product}</span>
+                <div class="flex items-center gap-4 shrink-0">
+                    <span class="text-[11px] font-mono ${nl.tallies ? 'text-ink-muted dark:text-slate-500' : 'text-red-600 dark:text-red-400 font-semibold'}" title="Number of Leads">
+                        Leads: ${fmtInt(nl.shared)} <span class="text-ink-muted/50 dark:text-slate-600">vs</span> ${fmtInt(nl.independent)}
+                    </span>
+                    <span class="text-[11px] font-mono ${no.tallies ? 'text-ink-muted dark:text-slate-500' : 'text-red-600 dark:text-red-400 font-semibold'}" title="Number of Orders">
+                        Orders: ${fmtInt(no.shared)} <span class="text-ink-muted/50 dark:text-slate-600">vs</span> ${fmtInt(no.independent)}
+                    </span>
+                    ${rowOk
+                        ? '<svg class="w-3.5 h-3.5 text-green-600 dark:text-green-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+                        : '<svg class="w-3.5 h-3.5 text-red-600 dark:text-red-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>'}
+                </div>
+            </div>`;
+    }
+
+    function renderProductsSection(products) {
+        if (!products.length) {
+            return `
+                <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                    <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400 mb-1">Per Product (DSPPR - TSM Report)</h4>
+                    <p class="text-xs font-mono text-ink-muted dark:text-slate-400 py-2">No real product activity in this range.</p>
+                </div>`;
+        }
+
+        const mismatchCount = products.filter((p) => !p.numberOfLeads.tallies || !p.numberOfOrders.tallies).length;
+        const summaryColor = mismatchCount === 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+        const summaryText = mismatchCount === 0
+            ? `All ${products.length} products tally against DSPPR - TSM Report.`
+            : `${mismatchCount} of ${products.length} products mismatch against DSPPR - TSM Report.`;
+
+        return `
+            <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                <button type="button" id="eiTallyProductsToggle" class="w-full flex items-center justify-between gap-3 cursor-pointer">
+                    <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400">Per Product (DSPPR - TSM Report)</h4>
+                    <svg id="eiTallyProductsChevron" class="w-3.5 h-3.5 text-ink-muted dark:text-slate-500 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <p class="text-xs font-mono ${summaryColor} mt-1">${summaryText}</p>
+                <div id="eiTallyProductsList" class="hidden mt-2">
+                    ${products.map(renderProductRow).join('')}
+                </div>
+            </div>`;
+    }
+
     function openTallyModal() {
         tallyModal.classList.remove('hidden');
         tallyBody.innerHTML = '<div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>';
@@ -919,16 +971,28 @@
                     ? data.dateFrom
                     : `${data.dateFrom} – ${data.dateTo}`;
 
-                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies);
+                const productsAllTally = data.products.every((p) => p.numberOfLeads.tallies && p.numberOfOrders.tallies);
+                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally;
 
                 tallyBody.innerHTML = `
                     <div class="mb-4 px-3 py-2.5 rounded-lg ${allTally ? 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'} text-xs font-mono font-semibold">
-                        ${allTally ? 'Everything tallies — Gross Sales, Orders, and Number of Leads all agree across Expected Income and Summary Sales Report / Leads Report.' : 'Mismatch found below — a real figure disagrees between the two independent ways it was computed.'}
+                        ${allTally ? 'Everything tallies — Gross Sales, Orders, and Number of Leads all agree across Expected Income, Summary Sales Report, Leads Report, and DSPPR - TSM Report.' : 'Mismatch found below — a real figure disagrees between the two independent ways it was computed.'}
                     </div>
                     ${data.teams.map(renderTallyTeam).join('')}
+                    ${renderProductsSection(data.products)}
                     <p class="text-[11px] font-mono text-ink-muted/70 dark:text-slate-500 mt-2 pt-3 border-t border-line dark:border-slate-700">
-                        "Shared" = the figure every page's own real-team card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does) — shown for reference only, not a pass/fail.
+                        "Shared" = the figure every page's own real-team/product card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does, and DSPPR's own Gross Sales/Net Income per product read the same source too) — shown for reference only, not a pass/fail.
                     </p>`;
+
+                const productsToggle = document.getElementById('eiTallyProductsToggle');
+                if (productsToggle) {
+                    productsToggle.addEventListener('click', () => {
+                        const list = document.getElementById('eiTallyProductsList');
+                        const chevron = document.getElementById('eiTallyProductsChevron');
+                        list.classList.toggle('hidden');
+                        chevron.classList.toggle('rotate-180');
+                    });
+                }
             })
             .catch(() => {
                 tallyBody.innerHTML = '<div class="py-10 text-center text-sm font-mono text-red-600 dark:text-red-400">Could not run the Tally Checker — try again.</div>';

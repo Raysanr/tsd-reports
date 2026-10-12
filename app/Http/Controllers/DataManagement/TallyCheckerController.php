@@ -62,6 +62,14 @@ use Illuminate\Support\Carbon;
  * Shown as informational ("single shared source — both pages read this
  * directly") rather than a pass/fail, so the checker never claims to
  * have verified something it structurally can't.
+ *
+ * Per-PRODUCT (DSPPR - TSM Report), added 2026-10-12 as an explicit
+ * follow-up request ("include the dsppr to the tally checker like for
+ * every products") — see checkProducts()'s own doc comment for the full
+ * per-product reasoning (Number of Leads/Number of Orders checked the
+ * same two-independent-paths way; Gross Sales/Net Income skipped
+ * per-product for the same "already the same shared source, not a
+ * second code path" reason Net Income is skipped at the team level).
  */
 class TallyCheckerController extends Controller
 {
@@ -88,7 +96,109 @@ class TallyCheckerController extends Controller
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
             'teams' => $results,
+            'products' => $this->checkProducts($dateFrom, $dateTo),
         ]);
+    }
+
+    /** Per-PRODUCT extension (explicit follow-up request, 2026-10-12:
+     *  "include the dsppr to the tally checker like for every products")
+     *  — compares Expected Income's own per-product Number of
+     *  Leads/Number of Orders against DSPPR - TSM Report's own per-
+     *  product Total Leads/Total Orders, for the SAME product across the
+     *  WHOLE page (every real team pooled, matching how DSPPR itself
+     *  renders one row per product with no team split — unlike the
+     *  team-level checks above, which are deliberately per-team).
+     *
+     *  Gross Sales/Net Income are deliberately NOT compared per product
+     *  — DsPprReportController::index() already reads BOTH of those
+     *  directly from ExpectedIncomeController::
+     *  grossSalesAndNetIncomeByProductAndDate() (confirmed via that
+     *  controller's own $realByRowKeyAndDate merge), so DSPPR's own
+     *  Gross Sales/Net Income for a product is not a second code path —
+     *  it's the literal same number by construction, same reasoning
+     *  Net Income already has at the team level above.
+     *
+     *  Number of Leads: shared = leadCountsByProductAndDate()'s own
+     *  summed output for this product across every team (the exact
+     *  basis Expected Income's own product cards read). Independent =
+     *  a fresh per-product ProductPerformance::matchingOrders() pass
+     *  built here from scratch, pooling every real team's own orders for
+     *  the whole range — mirroring DsPprReportController::index()'s own
+     *  $ordersByDate/ProductPerformance::dsPprRow() call shape (one
+     *  tally() over every matched order for this product, this is what
+     *  DSPPR's own "Total Leads" column literally counts — $tally['total'],
+     *  not a disposition-filtered subset) without calling dsPprRow()
+     *  itself, so the two sides never share code.
+     *
+     *  Number of Orders: same shared/independent split, reading
+     *  'upsell_confirmation' instead of 'total' — the exact basis
+     *  DSPPR's own "Total Orders" column uses (dsPprRow()'s own
+     *  $tally['upsell_confirmation']) and the same field Expected
+     *  Income's own grossSalesByProductAndDate() already names
+     *  'numberOfOrders'.
+     *
+     *  Hidden products (Product.is_hidden) are skipped — DSPPR's own
+     *  index() excludes a hidden product with zero activity in range
+     *  (see that controller's own doc comment), so including one here
+     *  with a trivial 0-vs-0 "pass" would just be noise. */
+    private function checkProducts(string $dateFrom, string $dateTo): array
+    {
+        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        ['leadCounts' => $leadCounts, 'grossSalesAndOrders' => $grossSalesAndOrders] =
+            \App\Http\Controllers\DataManagement\ExpectedIncomeController::leadCountsAndGrossSalesForRange($dateFrom, $dateTo);
+        $numberOfOrdersMap = $grossSalesAndOrders['numberOfOrders'];
+
+        $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
+        $rangeStart = Carbon::parse($dateFrom)->startOfDay();
+        $rangeEnd = Carbon::parse($dateTo)->endOfDay();
+        $allOrders = Order::whereRaw(
+            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+            [$rangeStart, $rangeEnd]
+        )->whereIn('team', $orderTeams)->get();
+
+        $results = [];
+        foreach ($products as $product) {
+            if ($product->is_hidden) {
+                continue;
+            }
+
+            $sharedLeads = (int) $leadCounts->filter(function ($count, $key) use ($product, $dateFrom, $dateTo) {
+                [, , $productId, $dateStr] = explode(':', $key, 4);
+                return $productId === (string) $product->id && $dateStr >= $dateFrom && $dateStr <= $dateTo;
+            })->sum();
+
+            $sharedOrders = (int) $numberOfOrdersMap->filter(function ($count, $key) use ($product, $dateFrom, $dateTo) {
+                [, , $productId, $dateStr] = explode(':', $key, 4);
+                return $productId === (string) $product->id && $dateStr >= $dateFrom && $dateStr <= $dateTo;
+            })->sum();
+
+            $matched = ProductPerformance::matchingOrders($product, $allOrders, $products)
+                ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+            $independentLeads = $matched->count();
+            $independentOrders = $matched->filter(fn (Order $o) => Order::isBroadRealUpsell($o))->count();
+
+            if ($sharedLeads === 0 && $independentLeads === 0 && $sharedOrders === 0 && $independentOrders === 0) {
+                continue;
+            }
+
+            $results[] = [
+                'product' => $product->display_name,
+                'numberOfLeads' => [
+                    'shared' => $sharedLeads,
+                    'independent' => $independentLeads,
+                    'tallies' => $sharedLeads === $independentLeads,
+                ],
+                'numberOfOrders' => [
+                    'shared' => $sharedOrders,
+                    'independent' => $independentOrders,
+                    'tallies' => $sharedOrders === $independentOrders,
+                ],
+            ];
+        }
+
+        return $results;
     }
 
     /** Path 1: the shared ProductPerformance::tally() basis every page's

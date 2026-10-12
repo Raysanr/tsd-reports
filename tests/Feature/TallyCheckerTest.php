@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -132,5 +133,58 @@ class TallyCheckerTest extends TestCase
         $this->assertArrayHasKey('netIncome', $team);
         $this->assertArrayHasKey('value', $team['netIncome']);
         $this->assertArrayNotHasKey('tallies', $team['netIncome']);
+    }
+
+    /** Per-product extension (explicit follow-up request, 2026-10-12:
+     *  "include the dsppr to the tally checker like for every products")
+     *  — a real order matching one configured product must tally for
+     *  Number of Leads/Number of Orders, pooled across every team (DSPPR
+     *  itself has no team split — one row per product). */
+    public function test_a_products_number_of_leads_and_orders_tally(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $product = Product::where('team', 'SH Naturals')->first();
+        $date = '2026-10-10';
+
+        Order::create([
+            'pancake_order_id' => 'tally-checker-product-1',
+            'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => $product->display_name,
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $productResult = collect($response->json('products'))->firstWhere('product', $product->display_name);
+        $this->assertNotNull($productResult, 'expected the product to appear in the per-product results');
+        $this->assertTrue($productResult['numberOfLeads']['tallies']);
+        $this->assertTrue($productResult['numberOfOrders']['tallies']);
+        $this->assertSame(1, $productResult['numberOfLeads']['shared']);
+        $this->assertSame(1, $productResult['numberOfLeads']['independent']);
+        $this->assertSame(1, $productResult['numberOfOrders']['shared']);
+        $this->assertSame(1, $productResult['numberOfOrders']['independent']);
+    }
+
+    /** A product with zero activity in range is skipped entirely, not
+     *  shown as a trivial 0-vs-0 "pass" — same "no noise for inactive
+     *  products" reasoning DsPprReportController's own hidden-product
+     *  exclusion already follows. */
+    public function test_a_product_with_no_activity_is_omitted_from_results(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => '2026-10-10', 'date_to' => '2026-10-10',
+        ]));
+
+        $response->assertOk();
+        $productResult = collect($response->json('products'))->firstWhere('product', $product->display_name);
+        $this->assertNull($productResult);
     }
 }
