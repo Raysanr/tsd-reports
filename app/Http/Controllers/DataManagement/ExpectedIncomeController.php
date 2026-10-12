@@ -1988,6 +1988,65 @@ class ExpectedIncomeController extends Controller
             });
     }
 
+    /** Sibling of ordersByTeamAndDate() above, for grossSalesByProductAndDate()
+     *  only — root-caused live, 2026-10-12 (user screenshot: TEAM CLOSING's
+     *  own Gross Sales card showed 40,721.00, the real team-agnostic total
+     *  confirmed against Leads Report/Dashboard, while summing every
+     *  product card under it only reached 34,420.00, a 6,301.00 gap).
+     *
+     *  Order.team is NOT "which team's TSA worked this order" — it's the
+     *  order's own ARRIVAL HOUR window (TeamShiftWindow::forHour(),
+     *  explicit 2026-09-07 redesign: Opening/Eyecare Team = 00:00-14:59,
+     *  Closing/SH Naturals = 15:00-23:59), completely independent of which
+     *  TSA actually closed the sale. ordersByTeamAndDate()'s own
+     *  Order.team-filtered candidate pool is CORRECT for
+     *  leadCountsByProductAndDate() (Number of Leads deliberately mirrors
+     *  LeadsReportController::indexAll()'s own hour-windowed per-team
+     *  pooling, confirmed via that method's own 2026-10-09 doc comment —
+     *  NOT changed here) but WRONG for Gross Sales specifically, which has
+     *  no such Leads-Report-parity requirement and whose own team-level
+     *  rollup (teamUpsellTotals()) already scopes by TSA roster, not
+     *  Order.team. Confirmed live via a production query: 7 real orders
+     *  worked by SH Naturals TSAs (Angelica/Kathleen/Lika/Mariel) arrived
+     *  before 3pm, so Order.team recorded "Eyecare Team" for them — every
+     *  one of grossSalesByProductAndDate()'s own product cards excluded
+     *  them from its candidate pool before matching ever ran, since that
+     *  pool was built from Order.team = 'SH Naturals' only. Fixed by
+     *  scoping the candidate pool to each TSA's own real team (TsaShift.team)
+     *  instead — same roster basis teamUpsellTotals()/teamUpsellOrderCount()
+     *  already use, which is exactly why they never had this gap.
+     *
+     *  Falls back to the order's own Order.team (hour window) whenever
+     *  tsa_name doesn't match any real TsaShift — bug caught by
+     *  test_saving_gross_sales_recomputes_returns_and_delivered() (ALL
+     *  view's own product-level cards seed an order with no recognized
+     *  tsa_name at all, e.g. 'unrecognized-tsa'/null): an EARLIER version
+     *  of this method pre-filtered candidates to whereIn('tsa_name',
+     *  $realTsaKeys) ONLY, silently dropping every order with no
+     *  recognized TSA — $tsaTeamByKey->get() returns null for those, so
+     *  without this fallback they'd vanish from every team's own bucket
+     *  entirely instead of landing in whichever bucket Order.team already
+     *  correctly placed them (same behavior ordersByTeamAndDate() always
+     *  had for exactly this case). */
+    private function ordersByTsaTeamAndDate($dates, string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $rangeStart = Carbon::parse($dateFrom)->startOfDay();
+        $rangeEnd = Carbon::parse($dateTo)->endOfDay();
+
+        $tsaTeamByKey = TsaShift::pluck('team', 'tsa_key');
+
+        return Order::whereRaw(
+            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+            [$rangeStart, $rangeEnd]
+        )->get()
+            ->groupBy(function (Order $o) use ($tsaTeamByKey) {
+                $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
+                $dateStr = $ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString();
+                $team = $tsaTeamByKey->get($o->tsa_name) ?? $o->team;
+                return $team . ':' . $dateStr;
+            });
+    }
+
     /** Expected Income's own per-(TSA, product, day) Gross Sales AND
      *  Number of Orders — same "assignee TSA of items" real-revenue/real-
      *  order basis Summary Sales Report's own Gross Sales/Total Orders
@@ -2033,7 +2092,10 @@ class ExpectedIncomeController extends Controller
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
-        $dayOrdersByTeamAndDate = $this->ordersByTeamAndDate($orderTeams, $dates, $dateFrom, $dateTo);
+        // TSA-roster-scoped candidate pool, NOT ordersByTeamAndDate()'s own
+        // Order.team (arrival-hour-window) one — see ordersByTsaTeamAndDate()'s
+        // own doc comment for the full root cause/fix story, 2026-10-12.
+        $dayOrdersByTsaTeamAndDate = $this->ordersByTsaTeamAndDate($dates, $dateFrom, $dateTo);
         $sales = [];
         $orderCounts = [];
 
@@ -2041,7 +2103,7 @@ class ExpectedIncomeController extends Controller
             $dateStr = $date->toDateString();
 
             foreach ($orderTeams as $orderTeam) {
-                $dayOrders = $dayOrdersByTeamAndDate->get("{$orderTeam}:{$dateStr}", collect());
+                $dayOrders = $dayOrdersByTsaTeamAndDate->get("{$orderTeam}:{$dateStr}", collect());
 
                 foreach ($products as $product) {
                     // Same exclusion filter tally() itself applies before

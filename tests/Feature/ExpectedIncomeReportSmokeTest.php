@@ -680,6 +680,60 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
+    /** Regression test, root-caused live 2026-10-12 (user screenshot
+     *  comparison): a team's own product cards' Gross Sales summed to
+     *  34,420.00 while the TEAM CLOSING rollup card itself showed the
+     *  real 40,721.00 (confirmed against Leads Report/Dashboard) — a
+     *  6,301.00 gap. Root cause: grossSalesByProductAndDate()'s own
+     *  candidate-order pool was built from ordersByTeamAndDate(), which
+     *  filters by Order.team — NOT "which team's TSA worked this order"
+     *  but the order's own ARRIVAL HOUR window
+     *  (App\Support\TeamShiftWindow::forHour(), explicit 2026-09-07
+     *  redesign: Opening/Eyecare Team = 00:00-14:59, Closing/SH Naturals
+     *  = 15:00-23:59). A real order worked by an SH Naturals TSA but
+     *  arriving before 3pm carries Order.team='Eyecare Team' — every one
+     *  of grossSalesByProductAndDate()'s own product cards excluded it
+     *  from its candidate pool before ProductPerformance::matchingOrders()
+     *  ever ran, even though teamUpsellTotals() (the rollup's own basis)
+     *  correctly counts it via the TSA's real roster instead. Fixed via
+     *  new ordersByTsaTeamAndDate() — candidates now scoped by each
+     *  order's resolved TSA's own TsaShift.team, falling back to
+     *  Order.team only when tsa_name matches no real TsaShift (the ALL
+     *  view's own product-level, TSA-less orders — see that method's own
+     *  doc comment for why the fallback is required, caught by
+     *  test_saving_gross_sales_recomputes_returns_and_delivered() during
+     *  this same fix). */
+    public function test_a_product_cards_gross_sales_counts_a_real_order_that_arrived_during_the_other_teams_hour_window(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $product = Product::where('team', 'SH Naturals')->first();
+        $date = '2026-10-01';
+
+        // A real order this TSA worked, but Order.team is the OTHER
+        // team's string (same shape TeamShiftWindow::forHour() produces
+        // for any order arriving before 3pm, regardless of which team's
+        // TSA eventually closed it).
+        Order::create([
+            'pancake_order_id' => 'cross-hour-gross-sales-1',
+            'team' => 'Eyecare Team', 'tsa_name' => $tsa->tsa_key,
+            'product' => $product->display_name,
+            'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'sh-naturals',
+        ]));
+        $response->assertOk();
+
+        $this->assertMatchesRegularExpression(
+            '/data-out="gross_sales"[^>]*>\s*1,000\.00/',
+            $response->getContent(),
+            "Expected {$product->display_name}'s own card to count a real order worked by her own team's TSA, even though it arrived during the other team's hour window"
+        );
+    }
+
     /** Explicit request, 2026-10-02: "can you create lock icon too in
      *  this, like in the projections" — one lock PER PRODUCT CARD
      *  (explicit decision, same day), same "when it is lock it can't
