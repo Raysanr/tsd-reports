@@ -2585,19 +2585,20 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Explicit reversal, 2026-10-10, same day as the test directly above
-     *  (which only proves Gross Sales folds in) — first root-caused live:
-     *  a TikTok-flagged TSA's REAL auto-computed Salaries (from Cost
-     *  Breakdown, via buildTiktokRows()'s own $totalOverviewSalaries)
-     *  folded into the ALL-view TELESALES total, but Summary Sales
-     *  Report's own OVERALL TOTAL has no equivalent (its own TikTok
-     *  Upsell section is a separate, 100%-manually-typed table with no
-     *  Salaries formula at all) — the two could never tally while this
-     *  page kept adding a cost the other has no way to represent. First
-     *  decision: keep it, accept the gap. REVERSED minutes later,
-     *  explicit instruction: "Yes, make them tally now" — her Salaries
-     *  contribution to the ALL-view TELESALES total is now forced to 0. */
-    public function test_telesales_on_all_excludes_a_tiktok_flagged_tsas_real_salaries(): void
+    /** Explicit reversal, 2026-10-12 (this test used to assert the
+     *  OPPOSITE — see git history for the 2026-10-10 version this
+     *  replaces). Direct instruction: "not just salaries, include all of
+     *  the tiktok all data" — root-caused live via screenshot: the
+     *  ALL-view TELESALES card's own Salaries line exactly equalled Team
+     *  Opening + Team Closing's own Salaries with nothing added for a
+     *  TikTok-flagged TSA, even though her real Daily Rate is a real cost.
+     *  Her Salaries now fold into the ALL-view TELESALES total unmodified
+     *  (index()'s own $tiktokData['tiktokOverallTotal'] fold-in, no more
+     *  ['salaries' => 0.0] override) — Summary Sales Report's own OVERALL
+     *  TOTAL was updated the SAME commit (tiktokTotalsByTsaAndDate()'s own
+     *  doc comment) to restore her real Salaries there too, so the two
+     *  pages keep tallying instead of diverging again. */
+    public function test_telesales_on_all_includes_a_tiktok_flagged_tsas_real_salaries(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -2618,8 +2619,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             $content = $response->getContent();
             $telesalesPos = strpos($content, '>TELESALES<');
             $this->assertNotFalse($telesalesPos);
+            $nextCardPos = strpos($content, 'class="ei-card', $telesalesPos + 500);
+            $nextCardPos = $nextCardPos !== false ? $nextCardPos : ($telesalesPos + 20000);
 
-            return substr($content, $telesalesPos, 6000);
+            return substr($content, $telesalesPos, $nextCardPos - $telesalesPos);
         };
 
         // Baseline: her real, nonzero base salary.
@@ -2627,31 +2630,33 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $dailyRateAt24k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
         $this->assertGreaterThan(0, $dailyRateAt24k, 'test setup: expected a real nonzero Daily Rate for this TSA');
         $htmlAt24k = $fetchTelesalesHtml();
+        $this->assertStringContainsString('data-out="salaries"', $htmlAt24k, 'test setup: expected to find a Salaries line in the TELESALES card');
 
-        // Her real Daily Rate must NOT appear as a Salaries line on the
-        // ALL-view TELESALES card — it would otherwise show up verbatim
-        // as data-out="salaries".
-        $this->assertDoesNotMatchRegularExpression(
-            '/data-out="salaries"[^>]*>\s*' . preg_quote(number_format($dailyRateAt24k, 2), '/') . '/',
-            $htmlAt24k,
-            'a TikTok-flagged TSA\'s real auto-computed Salaries must NOT fold into the ALL-view TELESALES total'
+        // Her real Daily Rate MUST now appear folded INTO the ALL-view
+        // TELESALES card's own Salaries total (Team Opening + Team
+        // Closing's own real Salaries PLUS hers), not excluded from it.
+        preg_match('/data-out="salaries"[^>]*>\s*([\d,.]+)/', $htmlAt24k, $m);
+        $this->assertNotEmpty($m, 'expected a parseable Salaries figure on the TELESALES card');
+        $renderedSalaries = (float) str_replace(',', '', $m[1]);
+        $this->assertGreaterThanOrEqual(
+            $dailyRateAt24k - 0.01, $renderedSalaries,
+            'a TikTok-flagged TSA\'s real auto-computed Salaries must fold INTO the ALL-view TELESALES total, not be excluded from it'
         );
 
-        // Double her base salary — since the shared team overhead refs
-        // stay the same, her Daily Rate must genuinely change. If her
-        // Salaries are truly excluded from the ALL-view TELESALES
-        // fold-in, the whole card (Net Income included) must still
-        // render byte-for-byte identically, since nothing else about
-        // her Cost Breakdown changed.
+        // Double her base salary — the rendered TELESALES Salaries total
+        // must move by exactly the resulting Daily Rate delta, proving her
+        // real cost is genuinely included (not masked by some unrelated
+        // figure that happens to already be nonzero).
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
         $dailyRateAt48k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
         $this->assertNotEquals($dailyRateAt24k, $dailyRateAt48k, 'test setup: expected her Daily Rate to actually change with her base salary');
         $htmlAt48k = $fetchTelesalesHtml();
+        preg_match('/data-out="salaries"[^>]*>\s*([\d,.]+)/', $htmlAt48k, $m48);
+        $renderedSalariesAt48k = (float) str_replace(',', '', $m48[1]);
 
-        $this->assertSame(
-            $htmlAt24k,
-            $htmlAt48k,
-            'the ALL-view TELESALES card must be unaffected by a TikTok-flagged TSA\'s Salaries, regardless of her base salary'
+        $this->assertEqualsWithDelta(
+            $renderedSalaries + ($dailyRateAt48k - $dailyRateAt24k), $renderedSalariesAt48k, 0.02,
+            'the ALL-view TELESALES Salaries total must move by exactly her Daily Rate delta when her base salary changes'
         );
     }
 
