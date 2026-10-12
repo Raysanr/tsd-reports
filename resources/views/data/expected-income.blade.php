@@ -80,7 +80,43 @@
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
             Drag/scroll right to see more products
         </span>
+        {{-- Tally Checker (explicit request, 2026-10-12: "add TALLY CHECKER
+             BUTTON ... show is all tally in the expected income, summary
+             sales report, leads report module") — opens a modal, fetches
+             data.tally-checker for the CURRENTLY SELECTED date range (see
+             DateRangeFilter::resolve()'s own session-key, 'tally-checker',
+             independent of this page's own 'expected-income' key so
+             picking a range here doesn't silently change what the
+             checker defaults to next time, or vice versa — the button
+             below always passes this page's own $dateFrom/$dateTo
+             explicitly as query params anyway, so the session default
+             only matters if someone opens the checker with none). --}}
+        <button type="button" id="eiTallyCheckerBtn"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-mono font-semibold text-ink dark:text-slate-100 hover:border-primary/50 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-colors cursor-pointer">
+            <svg class="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Tally Checker
+        </button>
         <span id="eiSaveStatus" class="text-xs font-mono text-slate-400 dark:text-slate-500 min-h-[1.25rem]"></span>
+    </div>
+</div>
+
+{{-- Tally Checker modal — markup always present, hidden by default;
+     populated/shown by eiTallyCheckerBtn's own click handler near this
+     file's bottom. --}}
+<div id="eiTallyCheckerModal" class="hidden fixed inset-0 z-[70] flex items-start sm:items-center justify-center bg-slate-900/40 px-4 py-8 overflow-y-auto">
+    <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-3xl">
+        <div class="flex items-center justify-between px-5 py-4 border-b border-line dark:border-slate-700">
+            <div>
+                <h3 class="text-sm font-bold text-ink dark:text-slate-100 font-mono">Tally Checker</h3>
+                <p id="eiTallyCheckerDateLabel" class="text-xs font-mono text-ink-muted dark:text-slate-400 mt-0.5"></p>
+            </div>
+            <button type="button" id="eiTallyCheckerClose" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div id="eiTallyCheckerBody" class="px-5 py-5 max-h-[70vh] overflow-y-auto">
+            <div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>
+        </div>
     </div>
 </div>
 
@@ -821,6 +857,89 @@
         // field next to it is supposed to. This field is purely a client-
         // side display toggle, never meant to submit anything.
         tsaNameFilter.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    }
+
+    // Tally Checker (explicit request, 2026-10-12) — fetches
+    // data.tally-checker for THIS page's own currently-rendered
+    // $dateFrom/$dateTo (read straight off the date-range field's own
+    // data-from/data-to attributes, same source of truth the page
+    // itself was rendered with, rather than re-deriving/trusting
+    // whatever the session default might be).
+    const tallyBtn = document.getElementById('eiTallyCheckerBtn');
+    const tallyModal = document.getElementById('eiTallyCheckerModal');
+    const tallyClose = document.getElementById('eiTallyCheckerClose');
+    const tallyBody = document.getElementById('eiTallyCheckerBody');
+    const tallyDateLabel = document.getElementById('eiTallyCheckerDateLabel');
+
+    function closeTallyModal() { tallyModal.classList.add('hidden'); }
+
+    function renderTallyRow(label, shared, independent, tallies, extra) {
+        const icon = tallies
+            ? '<svg class="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+            : '<svg class="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>';
+        return `
+            <div class="flex items-center justify-between gap-3 py-2.5 ${extra ? '' : 'border-t border-line dark:border-slate-700'}">
+                <div class="flex items-center gap-2 min-w-0">
+                    ${icon}
+                    <span class="text-xs font-mono font-semibold text-ink dark:text-slate-200">${label}</span>
+                </div>
+                <div class="text-right text-xs font-mono ${tallies ? 'text-ink-muted dark:text-slate-400' : 'text-red-600 dark:text-red-400 font-semibold'}">
+                    ${shared} <span class="text-ink-muted/50 dark:text-slate-600">vs</span> ${independent}
+                </div>
+            </div>`;
+    }
+
+    function renderTallyTeam(team) {
+        const gs = team.grossSales, nl = team.numberOfLeads, ni = team.netIncome;
+        return `
+            <div class="mb-5 last:mb-0">
+                <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400 mb-1">${team.team}</h4>
+                ${renderTallyRow('Gross Sales', fmtMoney(gs.shared), fmtMoney(gs.independent), gs.tallies, true)}
+                ${renderTallyRow('Number of Orders', fmtInt(gs.sharedOrders), fmtInt(gs.independentOrders), gs.sharedOrders === gs.independentOrders)}
+                ${renderTallyRow('Number of Leads', fmtInt(nl.shared), fmtInt(nl.independent), nl.tallies)}
+                <div class="flex items-center justify-between gap-3 py-2.5 border-t border-line dark:border-slate-700">
+                    <span class="text-xs font-mono font-semibold text-ink-muted dark:text-slate-500">Net Income (shared source, both pages read this directly — see info below)</span>
+                    <span class="text-xs font-mono text-ink-muted dark:text-slate-400">${fmtMoney(ni.value)}</span>
+                </div>
+            </div>`;
+    }
+
+    function openTallyModal() {
+        tallyModal.classList.remove('hidden');
+        tallyBody.innerHTML = '<div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>';
+
+        const dateField = document.querySelector('.date-range-field');
+        const dateFrom = dateField?.dataset.from || '{{ $dateFrom }}';
+        const dateTo = dateField?.dataset.to || '{{ $dateTo }}';
+
+        fetch(`{{ route('data.tally-checker') }}?date_from=${encodeURIComponent(dateFrom)}&date_to=${encodeURIComponent(dateTo)}`)
+            .then((r) => r.json())
+            .then((data) => {
+                tallyDateLabel.textContent = data.dateFrom === data.dateTo
+                    ? data.dateFrom
+                    : `${data.dateFrom} – ${data.dateTo}`;
+
+                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies);
+
+                tallyBody.innerHTML = `
+                    <div class="mb-4 px-3 py-2.5 rounded-lg ${allTally ? 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'} text-xs font-mono font-semibold">
+                        ${allTally ? 'Everything tallies — Gross Sales, Orders, and Number of Leads all agree across Expected Income and Summary Sales Report / Leads Report.' : 'Mismatch found below — a real figure disagrees between the two independent ways it was computed.'}
+                    </div>
+                    ${data.teams.map(renderTallyTeam).join('')}
+                    <p class="text-[11px] font-mono text-ink-muted/70 dark:text-slate-500 mt-2 pt-3 border-t border-line dark:border-slate-700">
+                        "Shared" = the figure every page's own real-team card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does) — shown for reference only, not a pass/fail.
+                    </p>`;
+            })
+            .catch(() => {
+                tallyBody.innerHTML = '<div class="py-10 text-center text-sm font-mono text-red-600 dark:text-red-400">Could not run the Tally Checker — try again.</div>';
+            });
+    }
+
+    if (tallyBtn) {
+        tallyBtn.addEventListener('click', openTallyModal);
+        tallyClose.addEventListener('click', closeTallyModal);
+        tallyModal.addEventListener('click', (e) => { if (e.target === tallyModal) closeTallyModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tallyModal.classList.contains('hidden')) closeTallyModal(); });
     }
 })();
 </script>

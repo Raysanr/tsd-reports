@@ -293,6 +293,14 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // reads across all 5 pages at once, not scoped to one.
         Route::get('/activity-log', [\App\Http\Controllers\DataManagement\ActivityLogController::class, 'index'])->name('activity-log');
 
+        // Tally Checker (explicit request, 2026-10-12: "add TALLY CHECKER
+        // BUTTON ... show is all tally in the expected income, summary
+        // sales report, leads report module") — AJAX JSON endpoint only,
+        // triggered from Expected Income's own topbar button into a modal;
+        // no dedicated page. See TallyCheckerController's own class doc
+        // comment for exactly what it checks and why.
+        Route::get('/tally-checker', [\App\Http\Controllers\DataManagement\TallyCheckerController::class, 'check'])->name('tally-checker');
+
         Route::get('/projections', [\App\Http\Controllers\DataManagement\ProjectionController::class, 'index'])->name('projections');
         // /rates registered BEFORE the {projectionColumn} wildcard — PATCH
         // routes match in registration order, and the wildcard would

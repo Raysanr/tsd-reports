@@ -2274,6 +2274,25 @@ class ExpectedIncomeController extends Controller
         return ['grossSales' => (float) $tally['upsell_sales'], 'orders' => (int) $tally['upsell_confirmation']];
     }
 
+    /** Public wrapper around teamUpsellTotals() — built for
+     *  TallyCheckerController (explicit request, 2026-10-12: "add TALLY
+     *  CHECKER BUTTON ... show is all tally in the expected income,
+     *  summary sales report, leads report module"). This is the single
+     *  source-of-truth figure every other page's own team-level Gross
+     *  Sales/Total Orders SHOULD already equal by construction — Summary
+     *  Sales Report's own perTsaPerDayPerformance() and Dashboard's own
+     *  Total Cross-Sell Sales both independently tally() the same
+     *  TSA-roster-scoped order set (see this class's own 2026-10-10/
+     *  2026-10-12 doc comments for the history of making sure they do) —
+     *  kept as a thin public wrapper rather than making teamUpsellTotals()
+     *  itself public, so that private method's own calling contract
+     *  (called from inside buildSummaryRow() with $onlyOrderTeam already
+     *  resolved) stays unchanged for its existing callers. */
+    public static function teamGrossSalesAndOrders(?string $onlyOrderTeam, string $dateFrom, string $dateTo): array
+    {
+        return (new self())->teamUpsellTotals($onlyOrderTeam, $dateFrom, $dateTo);
+    }
+
     /** ONE TSA's own real, product-agnostic Gross Sales for a date range —
      *  same tally()['upsell_sales'] basis as teamUpsellGrossSales() above,
      *  just scoped to a single TSA's own tsa_key instead of a whole

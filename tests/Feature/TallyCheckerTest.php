@@ -1,0 +1,136 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Order;
+use App\Models\TsaShift;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * Data Management's own Tally Checker (explicit request, 2026-10-12:
+ * "add TALLY CHECKER BUTTON ... show is all tally in the expected
+ * income, summary sales report, leads report module"). See
+ * TallyCheckerController's own class doc comment for exactly what each
+ * check does and why Net Income is informational-only, not a pass/fail.
+ */
+class TallyCheckerTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_a_normal_user_can_run_the_check(): void
+    {
+        $normal = User::factory()->create(['role' => 'normal']);
+
+        $response = $this->actingAs($normal)->getJson(route('data.tally-checker', [
+            'date_from' => '2026-10-10', 'date_to' => '2026-10-10',
+        ]));
+
+        $response->assertOk();
+        $response->assertJsonStructure(['dateFrom', 'dateTo', 'teams']);
+    }
+
+    /** With no real orders seeded, every check trivially tallies (0 vs 0)
+     *  — confirms the baseline shape/keys of the response for every real
+     *  team configured, not just that the endpoint doesn't 500. */
+    public function test_an_empty_range_tallies_trivially_for_every_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => '2026-10-10', 'date_to' => '2026-10-10',
+        ]));
+
+        $response->assertOk();
+        $teams = $response->json('teams');
+        $this->assertNotEmpty($teams);
+        foreach ($teams as $team) {
+            $this->assertTrue($team['grossSales']['tallies']);
+            $this->assertTrue($team['numberOfLeads']['tallies']);
+            $this->assertEquals(0.0, $team['grossSales']['shared']);
+            $this->assertEquals(0.0, $team['grossSales']['independent']);
+        }
+    }
+
+    /** A real order worked by a team's own TSA must tally between the
+     *  shared teamGrossSalesAndOrders() basis and the independent raw
+     *  query built fresh in the controller — the exact regression class
+     *  this checker exists to catch (same shape as the Oct-12
+     *  cross-hour-window Gross Sales bug this session already found and
+     *  fixed independently of this checker). */
+    public function test_a_real_order_tallies_for_gross_sales_and_orders(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $date = '2026-10-10';
+
+        Order::create([
+            'pancake_order_id' => 'tally-checker-order-1',
+            'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Some Product',
+            'is_upsell' => true, 'amount' => 1500.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $shNaturals = collect($response->json('teams'))->firstWhere('orderTeam', 'SH Naturals');
+        $this->assertNotNull($shNaturals);
+        $this->assertTrue($shNaturals['grossSales']['tallies']);
+        $this->assertEqualsWithDelta(1500.0, $shNaturals['grossSales']['shared'], 0.01);
+        $this->assertEqualsWithDelta(1500.0, $shNaturals['grossSales']['independent'], 0.01);
+        $this->assertSame(1, $shNaturals['grossSales']['sharedOrders']);
+        $this->assertSame(1, $shNaturals['grossSales']['independentOrders']);
+    }
+
+    /** Regression coverage for the exact bug class this checker exists
+     *  to catch: an order worked by this team's own TSA but arriving
+     *  during the OTHER team's hour window (Order.team = 'Eyecare Team')
+     *  — both the shared and independent Gross Sales paths are TSA-
+     *  roster-scoped (not Order.team-scoped, see
+     *  ExpectedIncomeController::ordersByTsaTeamAndDate()'s own doc
+     *  comment), so both must still count it and still tally against
+     *  each other. */
+    public function test_a_cross_hour_window_order_still_tallies(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $date = '2026-10-10';
+
+        Order::create([
+            'pancake_order_id' => 'tally-checker-cross-hour-1',
+            'team' => 'Eyecare Team', 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Some Product',
+            'is_upsell' => true, 'amount' => 1000.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $shNaturals = collect($response->json('teams'))->firstWhere('orderTeam', 'SH Naturals');
+        $this->assertTrue($shNaturals['grossSales']['tallies']);
+        $this->assertEqualsWithDelta(1000.0, $shNaturals['grossSales']['shared'], 0.01);
+    }
+
+    public function test_net_income_is_present_but_not_a_pass_fail_field(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => '2026-10-10', 'date_to' => '2026-10-10',
+        ]));
+
+        $response->assertOk();
+        $team = $response->json('teams.0');
+        $this->assertArrayHasKey('netIncome', $team);
+        $this->assertArrayHasKey('value', $team['netIncome']);
+        $this->assertArrayNotHasKey('tallies', $team['netIncome']);
+    }
+}
