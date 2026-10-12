@@ -662,13 +662,23 @@ class SyncPancakeLeadsTest extends TestCase
         $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
         $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
 
-        // More unassigned leads than the batch limit, oldest first.
+        // More unassigned leads than the batch limit, oldest first. Seeded
+        // TODAY (not 2 days ago, as an earlier version of this test did) —
+        // 2026-10-12 fix: catchUpUnassignedLeads() now scopes to today only
+        // (same productBackfillCutoff() backfillMissingProductIds() already
+        // used), root-caused live after a 7-week-old backlog (145 leads
+        // dating back to 2026-08-24) permanently occupied this method's
+        // own 200-row batch, starving same-day leads on a DIFFERENT,
+        // fully-staffed product from ever being considered at all. A lead
+        // older than today is now deliberately excluded from this sweep —
+        // this test's own seed must reflect that, or it'd be testing
+        // behavior the fix intentionally removed.
         $total = 210;
         for ($i = 0; $i < $total; $i++) {
             Lead::create([
                 'pancake_order_id' => "batch-{$i}", 'customer_name' => "Backlog {$i}",
                 'product_id' => $product->id, 'status' => 'unassigned',
-                'pancake_created_at' => now()->subDays(2)->addMinutes($i),
+                'pancake_created_at' => now()->startOfDay()->addMinutes($i),
             ]);
         }
 
@@ -705,6 +715,75 @@ class SyncPancakeLeadsTest extends TestCase
         $marielCount = Lead::where('tsa_id', $mariel->id)->whereIn('pancake_order_id', array_map(fn ($i) => "batch-{$i}", range(0, $total - 1)))->count();
         $this->assertGreaterThan(0, $gemmaCount);
         $this->assertGreaterThan(0, $marielCount);
+    }
+
+    /** Regression test for the real 2026-10-12 production incident: order
+     *  #1379785 (Clear Sight) sat unassigned for 108 minutes/108
+     *  consecutive successful sync runs, despite its own eligible roster
+     *  being continuously online the whole time — root-caused via a
+     *  production data investigation to a 7-week-old, 145-lead backlog on
+     *  OTHER products permanently occupying catchUpUnassignedLeads()'s own
+     *  200-row LIMIT (oldest-first, system-wide, no per-product split), so
+     *  the new same-day lead on a DIFFERENT, fully-staffed product never
+     *  even made it into the query at all. Reproduces the exact shape: a
+     *  huge old (yesterday) backlog on SINUXYL, whose own roster has NO
+     *  eligible TSA (so it would never clear on its own even if
+     *  considered), must not prevent a single today's lead on AUDICURE —
+     *  a completely different, fully-staffed product — from being
+     *  assigned the same run. */
+    public function test_an_old_backlog_on_one_product_does_not_block_todays_lead_on_another(): void
+    {
+        $sinuxyl  = Product::where('display_name', 'SINUXYL')->first();
+        $audicure = Product::where('display_name', 'AUDICURE')->first();
+        $gemma    = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        // SINUXYL's own roster has nobody eligible — these leads would
+        // never clear via next() even if considered; they exist purely to
+        // occupy the old-fashioned global LIMIT 200 ahead of today's real
+        // lead, same shape as the real incident's own 145-lead pileup.
+        foreach (Product::where('display_name', 'SINUXYL')->first()->tsas as $tsa) {
+            $tsa->update(['status' => 'logout']);
+        }
+        for ($i = 0; $i < 210; $i++) {
+            Lead::create([
+                'pancake_order_id' => "old-backlog-{$i}", 'customer_name' => "Old Backlog {$i}",
+                'product_id' => $sinuxyl->id, 'status' => 'unassigned',
+                // Yesterday — this is the exact condition the 2026-10-12
+                // fix excludes from catchUpUnassignedLeads() entirely.
+                'pancake_created_at' => now()->subDay()->startOfDay()->addMinutes($i),
+            ]);
+        }
+
+        // AUDICURE's own roster IS eligible, and this one lead was created
+        // TODAY — it must be assigned this run regardless of SINUXYL's own
+        // huge backlog existing in the same leads table.
+        foreach ($audicure->tsas as $tsa) {
+            $tsa->update(['status' => 'login']);
+        }
+        $todayLead = Lead::create([
+            'pancake_order_id' => 'todays-real-lead', 'customer_name' => 'Todays Real Lead',
+            'product_id' => $audicure->id, 'status' => 'unassigned',
+            'pancake_created_at' => now(),
+        ]);
+
+        RoundRobinState::updateOrCreate(
+            ['product_id' => $audicure->id],
+            ['roster_available_since' => now()->subMinutes(10)]
+        );
+
+        Http::fake(['pos.pages.fm/api/v1/*' => Http::response(['success' => true], 200)]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $todayLead->refresh();
+        $this->assertSame('assigned', $todayLead->status, "today's lead on a fully-staffed product must not be starved by an old backlog on a different, unstaffed product");
+        $this->assertSame($gemma->id, $todayLead->tsa_id);
+
+        // The old backlog itself is untouched — still unassigned, since
+        // it's outside today's own window now (same "a real config gap,
+        // not something this sweep retries forever" reasoning the fix's
+        // own doc comment describes).
+        $this->assertSame(210, Lead::where('product_id', $sinuxyl->id)->where('status', 'unassigned')->count());
     }
 
     /**

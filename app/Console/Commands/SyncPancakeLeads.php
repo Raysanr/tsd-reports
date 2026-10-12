@@ -846,41 +846,53 @@ class SyncPancakeLeads extends Command
         return $backfilled;
     }
 
-    /** Diagnostic logging added 2026-10-12 (explicit request — root-caused
-     *  live: order #1379785, product Clear Sight, sat unassigned for 108
-     *  minutes/108 consecutive successful sync runs despite its own
-     *  eligible roster (Julie Francisco/Joana Caluag) being continuously
-     *  online the ENTIRE time — every documented gate (sync uptime,
-     *  RoundRobinAssigner::isPastHandoverBuffer(), eligibleRoster()
-     *  emptiness, CATCH_UP_BATCH_LIMIT) was independently verified NOT
-     *  to be the blocker via a production data investigation, yet the
-     *  real behavior still doesn't match what the code says it should
-     *  do. Root cause not yet found from data alone — this logs every
-     *  lead this method actually CONSIDERS each run, and exactly why it
-     *  was skipped or assigned, so the next occurrence is traceable from
-     *  these logs directly instead of reconstructing from
-     *  TsaStatusLog/LeadActivity after the fact. Remove once the real
-     *  cause is found and fixed — not meant to be permanent. */
+    /** Root-caused live, 2026-10-12 (order #1379785, product Clear Sight —
+     *  sat unassigned for 108 minutes/108 consecutive successful sync runs
+     *  despite its own eligible roster, Julie Francisco/Joana Caluag,
+     *  being continuously online the ENTIRE time). Every PER-LEAD gate
+     *  (RoundRobinAssigner::isPastHandoverBuffer(), eligibleRoster()
+     *  emptiness) was individually ruled out via a production data
+     *  investigation — the real cause was the query's own scope: oldest
+     *  200 unassigned leads SYSTEM-WIDE (no per-product split), confirmed
+     *  live via a production query that 145 leads dating back to
+     *  2026-08-24 (7 weeks old) occupied the ENTIRE batch continuously
+     *  between 13:23 and 15:06, so #1379785 (and 2 sibling leads) never
+     *  even made it into $leads at all — not a per-lead gate failing, the
+     *  lead was never considered in the first place. Confirmed the exact
+     *  same root-cause SHAPE as the 2026-09-14 incident this method's own
+     *  CATCH_UP_BATCH_LIMIT doc comment already describes ("why mariel is
+     *  currently online today but no leads") — that fix bounded total
+     *  RUN TIME but never addressed one product's old backlog crowding
+     *  out every OTHER product's own new leads from the batch.
+     *
+     *  Fixed the same way backfillMissingProductIds() already scopes
+     *  itself (explicit decision, 2026-10-09, see that method's own doc
+     *  comment — "the leads should be only today"): restricted to TODAY's
+     *  own leads only (reuses the same productBackfillCutoff()). A lead
+     *  from a prior day that's still genuinely stuck (an empty-roster
+     *  product like Sinuxyl 2.0, or a product nobody's ever online for)
+     *  is a real config gap to fix directly, not something this sweep
+     *  should keep silently trying to clear forever — and critically, it
+     *  must never again be allowed to sit in the query ahead of today's
+     *  genuinely-ready leads. This also makes CATCH_UP_BATCH_LIMIT's own
+     *  200-cap far less likely to ever bind again in practice (a single
+     *  day's own backlog is a small fraction of the multi-week pileup
+     *  that caused this incident), though the cap itself is left in
+     *  place unchanged as a real safety bound against a single-day
+     *  backlog genuinely growing that large. */
     private function catchUpUnassignedLeads(): int
     {
         $leads = Lead::where('status', 'unassigned')
             ->whereNotNull('product_id')
+            ->where('pancake_created_at', '>=', self::productBackfillCutoff())
             ->with('product')
             ->orderBy('pancake_created_at')
             ->limit(self::CATCH_UP_BATCH_LIMIT)
             ->get();
 
-        Log::info('catchUpUnassignedLeads: run start', [
-            'considered' => $leads->count(),
-            'oldest_pancake_created_at' => $leads->first()?->pancake_created_at?->toDateTimeString(),
-        ]);
-
         $caughtUp = 0;
         foreach ($leads as $lead) {
-            if (!$lead->product) {
-                Log::info('catchUpUnassignedLeads: skipped, product missing', ['order_id' => $lead->pancake_order_id]);
-                continue; // product deleted since — nothing to rotate against
-            }
+            if (!$lead->product) continue; // product deleted since — nothing to rotate against
 
             // Handover buffer (explicit request, 2026-09-17) — hold off on
             // THIS product's backlog until its roster has been continuously
@@ -890,34 +902,10 @@ class SyncPancakeLeads extends Command
             // first. Checked per-lead (not once per product up front) since
             // $leads spans every product in one query — a product past its
             // buffer shouldn't wait on a different product still inside it.
-            if (!RoundRobinAssigner::isPastHandoverBuffer($lead->product)) {
-                $state = \App\Models\RoundRobinState::where('product_id', $lead->product_id)->first();
-                Log::info('catchUpUnassignedLeads: skipped, not past handover buffer', [
-                    'order_id' => $lead->pancake_order_id,
-                    'product' => $lead->product->display_name,
-                    'pancake_created_at' => $lead->pancake_created_at?->toDateTimeString(),
-                    'roster_available_since' => $state?->roster_available_since?->toDateTimeString(),
-                    'eligible_roster_now' => RoundRobinAssigner::eligibleRoster($lead->product)->pluck('display_name')->all(),
-                ]);
-                continue;
-            }
+            if (!RoundRobinAssigner::isPastHandoverBuffer($lead->product)) continue;
 
             $tsa = RoundRobinAssigner::next($lead->product);
-            if (!$tsa) {
-                Log::info('catchUpUnassignedLeads: skipped, no eligible TSA from next()', [
-                    'order_id' => $lead->pancake_order_id,
-                    'product' => $lead->product->display_name,
-                    'eligible_roster_now' => RoundRobinAssigner::eligibleRoster($lead->product)->pluck('display_name')->all(),
-                ]);
-                continue; // still nobody eligible for this product — try again next run
-            }
-
-            Log::info('catchUpUnassignedLeads: assigning', [
-                'order_id' => $lead->pancake_order_id,
-                'product' => $lead->product->display_name,
-                'tsa' => $tsa->display_name,
-                'pancake_created_at' => $lead->pancake_created_at?->toDateTimeString(),
-            ]);
+            if (!$tsa) continue; // still nobody eligible for this product — try again next run
 
             // assigned_at = now(), not backdated to when the order actually
             // came in — same reasoning LeadController::transfer() already
