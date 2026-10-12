@@ -169,6 +169,18 @@
             @foreach($groupSummaries as $gs)
             <tbody>
                 @foreach($gs['rows'] as $rs)
+                {{-- A TikTok-flagged TSA still has a real row here (her
+                     TsaShift.team column never gets cleared when flagged —
+                     see TsaSalesReportController::index()'s own $groupTotal
+                     doc comment for why her real orders still count toward
+                     this group's own TOTAL and the page's OVERALL TOTAL),
+                     but she already has her own row in the TIKTOK UPSELL
+                     section below — explicit report, 2026-10-12, screenshot:
+                     Anne Pascua showed an all-zero duplicate row under TEAM
+                     CLOSING. Skipped here, DISPLAY ONLY — $gs['groupTotal']
+                     below is computed in the controller from the FULL
+                     roster and is unaffected by this skip. --}}
+                @continue($rs['tsa']->tiktok_upsell)
                 @php $d = $rs['derived']; @endphp
                 <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}"
                     data-answered="{{ $d['answered'] ?? 0 }}" data-unanswered="{{ $d['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $d['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $d['upsell_confirmation'] ?? 0 }}">
@@ -348,6 +360,18 @@
                     </td>
                 </tr>
                 @forelse($group['tsas'] as $tsa)
+                {{-- Same display-only skip as the summary table above
+                     (explicit report, 2026-10-12) — a TikTok-flagged TSA
+                     still belongs in $group['tsas'] here (her real orders,
+                     if any, still feed this table's own OVERALL TOTAL via
+                     the separate <tfoot> block below, which reads
+                     $group['tsas'] directly and is UNAFFECTED by this
+                     @continue), but her own real-team row would otherwise
+                     duplicate her already-shown TIKTOK UPSELL row. Guarded
+                     by !$group['isTiktok'] since the TikTok group's own
+                     loop (this same @forelse, $group['isTiktok'] === true)
+                     must still show her. --}}
+                @continue(!$group['isTiktok'] && $tsa->tiktok_upsell)
                 <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60 {{ $group['isTiktok'] ? 'tsr-tiktok-row' : '' }}" data-tsa-id="{{ $tsa->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($tsa->display_name) }}</td>
                     @foreach($dates as $date)
