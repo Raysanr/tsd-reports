@@ -2648,6 +2648,26 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // real cost is genuinely included (not masked by some unrelated
         // figure that happens to already be nonzero).
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
+        // TsaDailyRateService::dailyRateByTsaId() memoizes CostBreakdownTsaEntry
+        // per-request via an ad-hoc app()->scoped('tsa_daily_rate....', ...)
+        // string key (perf fix, 2026-10-12, PART 5 — same pattern allTsas()/
+        // departmentTaxAllocationPerShift() already use) — correct for a
+        // REAL page load (one HTTP request = one fresh container in
+        // Octane, with an entirely fresh $bindings array), but this
+        // feature test's two $fetchTelesalesHtml() calls above/below share
+        // ONE container for the whole test method, never rebooting between
+        // them. Neither forgetScopedInstances() NOR forgetInstance() alone
+        // is enough here: scoped()'s own registered concrete is a Closure
+        // that already closed over the FIRST call's $entriesByTsaId value
+        // (`fn () => $entriesByTsaId`, captured by value) — clearing just
+        // the resolved $instances entry still re-resolves that same frozen
+        // closure on next access, returning the stale baseline forever
+        // within one container. offsetUnset() clears the binding itself
+        // (not just the cached instance), forcing costBreakdownTsaEntriesByTsaId()
+        // to rebuild its closure fresh off the current DB state — the same
+        // reset a brand-new Octane request gets automatically via a brand
+        // new container.
+        app()->offsetUnset('tsa_daily_rate.cost_breakdown_tsa_entries');
         $dailyRateAt48k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
         $this->assertNotEquals($dailyRateAt24k, $dailyRateAt48k, 'test setup: expected her Daily Rate to actually change with her base salary');
         $htmlAt48k = $fetchTelesalesHtml();

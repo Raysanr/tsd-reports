@@ -782,7 +782,14 @@ class ExpectedIncomeController extends Controller
      *  $onlyTsaIds. */
     private function buildSummaryRow($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds, ?string $onlyOrderTeam = null, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): array
     {
-        $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds);
+        // Threaded straight through to rawByProductAndDateAllTsas() below
+        // (perf fix, 2026-10-12, PART 5 — see that method's own doc
+        // comment) — this is computed/resolved again just below via
+        // $leadCounts/$grossSalesAndOrders for the REST of this method's
+        // own use, but rawByProductAndDateAllTsas() needs its own copy
+        // BEFORE that point, so both are passed here first, unresolved,
+        // to avoid computing the fallback twice when neither is precomputed.
+        $rawByProductAndDate = $this->rawByProductAndDateAllTsas($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $onlyTsaIds, $precomputedLeadCounts, $precomputedGrossSalesAndOrders);
 
         // Computed ONCE here with the FULL page $products roster — root-
         // caused live, 2026-10-09 (screenshot): SINUXYL/SINUXYL 2.0's own
@@ -998,18 +1005,24 @@ class ExpectedIncomeController extends Controller
         // product-agnostic tally() basis exactly via
         // teamUpsellGrossSales() — guaranteed to match that page's own
         // TEAM TOTAL figure, not just approximate it.
-        $realGrossSales = $this->teamUpsellGrossSales($onlyOrderTeam, $dateFrom, $dateTo);
+        // Gross Sales + Number of Orders fetched/tallied together in ONE
+        // Order query (perf fix, 2026-10-12, PART 5 — see
+        // rawByProductAndDateAllTsas()'s own doc comment for the sibling
+        // fix same pass) — teamUpsellGrossSales()/teamUpsellOrderCount()
+        // used to each independently re-fetch and re-tally() the exact
+        // same team-roster-scoped order set for the exact same
+        // ($onlyOrderTeam, $dateFrom, $dateTo), called back-to-back right
+        // here with identical arguments. teamNetIncomeByDate() calls
+        // buildSummaryRow() once PER TEAM PER DAY, so this doubled query
+        // was itself doubled again across the whole range (9 days × 2
+        // teams = 18 calls × 2 queries = 36 Order-table round trips just
+        // for this one pair of figures). Both values still come from the
+        // SAME tally() call teamUpsellGrossSales()/teamUpsellOrderCount()
+        // each made separately — no behavior change, just one fetch
+        // instead of two.
+        ['grossSales' => $realGrossSales, 'orders' => $realOrders] = $this->teamUpsellTotals($onlyOrderTeam, $dateFrom, $dateTo);
         $pooledGrossSales = (float) $allRaw->sum('gross_sales');
         $grossSalesGap = $realGrossSales - $pooledGrossSales;
-        // Number of Orders (2026-10-12, reversed — see
-        // teamUpsellOrderCount()'s own doc comment for the full root
-        // cause/screenshot story) — now mirrors Gross Sales' identical
-        // product-agnostic, team-roster-scoped basis instead of staying
-        // on totalRealGrossSales($numberOfOrdersMap, ...)'s own per-
-        // product-matched one. The "no other page needs it to tally"
-        // assumption this used to rest on no longer holds (Dashboard's
-        // own "Total Cross-Sell Sales" card order count).
-        $realOrders = $this->teamUpsellOrderCount($onlyOrderTeam, $dateFrom, $dateTo);
         $pooledOrders = (float) $allRaw->sum('number_of_orders');
         $ordersGap = $realOrders - $pooledOrders;
         if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005) {
@@ -1715,9 +1728,25 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->keyBy(fn (ExpectedIncomeCustomValue $v) => $v->product_id . ':' . $v->entry_date->toDateString() . ':' . $v->custom_row_key);
 
-        $customValuesFor = function (int $productId, string $dateStr) use ($customValuesByKey) {
+        // Hoisted out of $customValuesFor's own per-cell loop below — perf
+        // fix, 2026-10-12, PART 5 (same pass as rawByProductAndDateAllTsas()'s
+        // and buildSummaryRow()'s own fixes above). customRowKeys() queries
+        // ProjectionCustomRow fresh every call, by design (no static cache
+        // across REQUESTS — see that method's own doc comment, a stale
+        // cross-request cache risks missing a freshly-added row) — but
+        // $customValuesFor used to call it once per (product, date) CELL
+        // within this one call, not once per request: for a 9-day/16-product
+        // range that's 144 identical queries from ONE rawByProductAndDate()
+        // call alone, repeated again per TSA. Computing it once here, before
+        // the loop, changes nothing about freshness within this single
+        // request/response cycle — every cell in this one call still reads
+        // the same already-fetched row list the uncached call would have
+        // returned anyway.
+        $customRowKeys = ExpectedIncomeCalculator::customRowKeys();
+
+        $customValuesFor = function (int $productId, string $dateStr) use ($customValuesByKey, $customRowKeys) {
             $row = [];
-            foreach (ExpectedIncomeCalculator::customRowKeys() as $key) {
+            foreach ($customRowKeys as $key) {
                 $row[$key] = (float) ($customValuesByKey->get("{$productId}:{$dateStr}:{$key}")?->value ?? 0);
             }
             return $row;
@@ -2153,6 +2182,36 @@ class ExpectedIncomeController extends Controller
         return $this->upsellOrderCountForTsaKeys($tsaKeys, $dateFrom, $dateTo);
     }
 
+    /** Combined teamUpsellGrossSales() + teamUpsellOrderCount() — same
+     *  team-roster-scoped tally() basis as both, one Order fetch instead
+     *  of two (perf fix, 2026-10-12, PART 5). buildSummaryRow() calls
+     *  these back-to-back with identical ($onlyOrderTeam, $dateFrom,
+     *  $dateTo) every time it runs — and teamNetIncomeByDate() calls
+     *  buildSummaryRow() once PER TEAM PER DAY, so the pre-existing
+     *  2-queries-per-call cost was itself multiplied by every (team, day)
+     *  pair in the range. Returns both figures from the one tally() call
+     *  each of the two original methods already made separately — no
+     *  change to either figure's own formula/scope. */
+    private function teamUpsellTotals(?string $onlyOrderTeam, string $dateFrom, string $dateTo): array
+    {
+        $tsaKeys = $onlyOrderTeam === null
+            ? TsaShift::pluck('tsa_key')
+            : TsaShift::where('team', $onlyOrderTeam)->pluck('tsa_key');
+
+        if ($tsaKeys->isEmpty()) {
+            return ['grossSales' => 0.0, 'orders' => 0];
+        }
+
+        $orders = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsaKeys)->get();
+
+        $tally = ProductPerformance::tally($orders);
+
+        return ['grossSales' => (float) $tally['upsell_sales'], 'orders' => (int) $tally['upsell_confirmation']];
+    }
+
     /** ONE TSA's own real, product-agnostic Gross Sales for a date range —
      *  same tally()['upsell_sales'] basis as teamUpsellGrossSales() above,
      *  just scoped to a single TSA's own tsa_key instead of a whole
@@ -2349,7 +2408,7 @@ class ExpectedIncomeController extends Controller
      *  is "that team's own TSAs plus the shared product-level entries",
      *  the same shared figure folded into every team's own card, not
      *  divided between them. */
-    private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null)
+    private function rawByProductAndDateAllTsas($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null)
     {
         // $onlyTsaIds === null ("every TSA") still excludes tiktok_upsell
         // TSAs — explicit fix, 2026-10-10, same root cause as
@@ -2382,10 +2441,15 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->groupBy(fn (ExpectedIncomeCustomValue $v) => $v->product_id . ':' . $v->entry_date->toDateString() . ':' . ($v->tsa_id ?? 'null'));
 
-        $customValuesFor = function (int $productId, string $dateStr, ?int $tsaId) use ($customValuesByEntryKey) {
+        // Hoisted out of $customValuesFor's own per-cell loop below — same
+        // perf fix as rawByProductAndDate()'s own identical change, same
+        // pass (see that method's own doc comment for the full reasoning).
+        $customRowKeys = ExpectedIncomeCalculator::customRowKeys();
+
+        $customValuesFor = function (int $productId, string $dateStr, ?int $tsaId) use ($customValuesByEntryKey, $customRowKeys) {
             $values = $customValuesByEntryKey->get("{$productId}:{$dateStr}:" . ($tsaId ?? 'null'), collect())->keyBy('custom_row_key');
             $row = [];
-            foreach (ExpectedIncomeCalculator::customRowKeys() as $key) {
+            foreach ($customRowKeys as $key) {
                 $row[$key] = (float) ($values->get($key)?->value ?? 0);
             }
             return $row;
@@ -2430,7 +2494,23 @@ class ExpectedIncomeController extends Controller
         // deliberately given 0 leads rather than any pooled total, since
         // every real TSA's own row here already carries her own real count;
         // giving the NULL row a pooled total on top would double it.
-        $leadCounts = $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (perf fix,
+        // 2026-10-12, PART 5 — root-caused live AGAIN after PART 4: this
+        // was the ONE call site on this page that never accepted these two
+        // precomputed maps as parameters, so every one of buildSummaryRow()'s
+        // own callers that pass precomputed maps down to IT (teamNetIncomeByDate(),
+        // grossSalesAndNetIncomeByProductAndDate() — both calling
+        // buildSummaryRow() once PER team PER day) still silently triggered
+        // a full, whole-range leadCountsByProductAndDate()/
+        // grossSalesByProductAndDate() recompute HERE, inside
+        // rawByProductAndDateAllTsas(), on every single one of those calls
+        // — a 9-day/2-team range still re-ran the entire team×day×product
+        // matchingOrders() pass 18 times even after PART 4 shipped, since
+        // PART 4 only hoisted these maps as far as buildSummaryRow()'s own
+        // parameters, never threaded them the one level deeper into this
+        // method. Same "explicit parameters, not a static cache" Octane
+        // worker-mode reasoning as every other call site on this page.
+        $leadCounts = $precomputedLeadCounts ?? $this->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
         // Gross Sales/Number of Orders (2026-10-10) — same "real per-
         // tsa_id figure, NULL row gets 0" rule as Number of Leads directly
         // above, for the same reason. UNLIKE Number of Leads, these are
@@ -2444,7 +2524,7 @@ class ExpectedIncomeController extends Controller
         // real totals (totalRealGrossSales(), same "missing entry ≠ zero"
         // gap this file already covers for leads) get folded in before
         // derive() runs.
-        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap] = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
         return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {
             return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap) {

@@ -64,6 +64,36 @@ class TsaDailyRateService
         return $tsas;
     }
 
+    /** Every real TSA's own CostBreakdownTsaEntry (base_salary/days),
+     *  memoized per-request the same way allTsas() is — perf fix,
+     *  2026-10-12, PART 5. dailyRateByTsaId() and zeroDayTsaIds() each
+     *  independently ran this exact same whereIn()->get()->keyBy() query
+     *  on every call, with no memoization at all (unlike allTsas() right
+     *  above, or departmentTaxAllocationPerShift()'s own identical
+     *  app()->scoped() fix, 2026-10-02, for the same class of repeated-
+     *  query bug). buildSummaryRow() calls dailyRateByTsaId() once per
+     *  (team, date) and addActiveTsasOverviewOperatingCosts() calls
+     *  zeroOperatingCostsIfZeroDay() -> zeroDayTsaIds() once PER TSA
+     *  inside that same per-(team,date) call — for a 9-day/2-team range
+     *  with 6 real TSAs that's 18 + (18 × 6) = 126 redundant
+     *  CostBreakdownTsaEntry queries where 1 would do, root-caused live
+     *  via query-count profiling of Summary Sales Report's own 500 on a
+     *  9-day range. Same app()->scoped() (not a plain `static`) reasoning
+     *  as allTsas() — Octane worker-mode means a static would leak one
+     *  request's entries into the next. */
+    private static function costBreakdownTsaEntriesByTsaId(): \Illuminate\Support\Collection
+    {
+        if (app()->bound('tsa_daily_rate.cost_breakdown_tsa_entries')) {
+            return app('tsa_daily_rate.cost_breakdown_tsa_entries');
+        }
+
+        $tsas = self::allTsas();
+        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        app()->scoped('tsa_daily_rate.cost_breakdown_tsa_entries', fn () => $entriesByTsaId);
+
+        return $entriesByTsaId;
+    }
+
     /** Every real TSA's own Daily Rate / Product, keyed by tsa_id — her
      *  own TOTAL ÷ 24 ÷ checked-product count (e.g. 243.31). Used by her
      *  own "[TSA NAME]" overview card's own Salaries figure — same role
@@ -122,7 +152,7 @@ class TsaDailyRateService
         $overheadRefsByTeam = self::overheadRefsByTeam($roles, $overheadByRoleId);
 
         $tsas = self::allTsas();
-        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $entriesByTsaId = self::costBreakdownTsaEntriesByTsaId();
 
         return $tsas->mapWithKeys(function (TsaShift $tsa) use ($entriesByTsaId, $overheadRefsByTeam) {
             $entry = $entriesByTsaId->get($tsa->id);
@@ -147,7 +177,7 @@ class TsaDailyRateService
     private static function zeroDayTsaIds(): \Illuminate\Support\Collection
     {
         $tsas = self::allTsas();
-        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $entriesByTsaId = self::costBreakdownTsaEntriesByTsaId();
 
         return $tsas->filter(fn (TsaShift $tsa) => (($entriesByTsaId->get($tsa->id)?->days) ?? 30) === 0)->pluck('id');
     }
