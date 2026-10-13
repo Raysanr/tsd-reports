@@ -97,7 +97,62 @@ class TallyCheckerController extends Controller
             'dateTo' => $dateTo,
             'teams' => $results,
             'products' => $this->checkProducts($dateFrom, $dateTo),
+            'unmatchedOrders' => $this->checkUnmatchedOrders($dateFrom, $dateTo),
         ]);
+    }
+
+    /** Surfaces real upsell orders that matched ZERO configured products at
+     *  all — explicit follow-up request, 2026-10-13, root-caused live via
+     *  order #1374667 (Joana Caluag, Oct 1): a genuine Haplunas Healing Eye
+     *  Cream SEPARATE PARCEL order never showed on her Expected Income or
+     *  TSA Performance cards at all, because Clear Sight's own Product
+     *  record only had ONE configured keyword ("Clear Sight 3.0"), and this
+     *  order's real tag was the shorter "CLEARSIGHT" (no "3.0") — since
+     *  matching checks whether the TAG contains the KEYWORD,
+     *  "CLEARSIGHT" never contains "CLEARSIGHT30", so it silently matched
+     *  nothing anywhere in the app, on every page. A missing/too-narrow
+     *  Product keyword is the single most common cause of this class of
+     *  silent data loss (see ProductPerformance::matchingOrders()'s own
+     *  doc comment history — nearly every entry there is a different
+     *  variant of "this text didn't match any configured product").
+     *
+     *  Unlike every other check in this controller, this one has no
+     *  "shared vs independent" comparison — there's nothing to compare
+     *  against; an order either matched something or it didn't. It's a
+     *  pure visibility tool: lists exactly which real orders are
+     *  currently invisible to every report page in the app for the
+     *  selected range, with enough fields (product/base_product/
+     *  bundle_description/tags) to see WHY at a glance and go fix the
+     *  right product's own keyword list. Not scoped to a team, since an
+     *  unmatched order is unmatched everywhere regardless of which team's
+     *  TSA worked it. */
+    private function checkUnmatchedOrders(string $dateFrom, string $dateTo): array
+    {
+        $products = Product::all();
+        $rangeStart = Carbon::parse($dateFrom)->startOfDay();
+        $rangeEnd = Carbon::parse($dateTo)->endOfDay();
+
+        $orders = Order::whereRaw(
+            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
+            [$rangeStart, $rangeEnd]
+        )->get()
+            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics)
+            ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
+
+        $matchedOrderIds = ProductPerformance::countedOrdersFor($products, $orders)->pluck('id');
+        $unmatched = $orders->whereNotIn('id', $matchedOrderIds);
+
+        return $unmatched->map(fn (Order $o) => [
+            'orderId' => $o->pancake_order_id,
+            'tsaName' => $o->tsa_name,
+            'team' => $o->team,
+            'amount' => round($o->realUpsellAmount(), 2),
+            'product' => $o->product,
+            'baseProduct' => $o->base_product,
+            'bundleDescription' => $o->bundle_description,
+            'tags' => $o->raw_tags ?? [],
+            'createdAt' => optional($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateTimeString(),
+        ])->values()->all();
     }
 
     /** Per-PRODUCT extension (explicit follow-up request, 2026-10-12:

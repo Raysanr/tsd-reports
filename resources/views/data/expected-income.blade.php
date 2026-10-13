@@ -956,6 +956,45 @@
             </div>`;
     }
 
+    // Unmatched Orders section (explicit follow-up request, 2026-10-13,
+    // root-caused live: order #1374667, Joana Caluag, Oct 1 — never
+    // showed on her Expected Income/TSA Performance cards because Clear
+    // Sight's own Product record was missing a keyword matching this
+    // order's real "CLEARSIGHT" tag). No shared-vs-independent split
+    // here — an order either matched a product or it didn't, so this is
+    // a pure visibility list rather than a pass/fail comparison.
+    function renderUnmatchedOrderRow(o) {
+        return `
+            <div class="py-2.5 border-t border-line dark:border-slate-700 first:border-t-0">
+                <div class="flex items-center justify-between gap-3">
+                    <span class="text-xs font-mono font-semibold text-ink dark:text-slate-200">#${o.orderId} — ${o.tsaName ?? '(no TSA)'}</span>
+                    <span class="text-xs font-mono text-red-600 dark:text-red-400 font-semibold">${fmtMoney(o.amount)}</span>
+                </div>
+                <div class="text-[11px] font-mono text-ink-muted dark:text-slate-500 mt-0.5">
+                    ${o.createdAt ?? ''} · team: ${o.team ?? '(none)'} · product: ${o.product ?? '(none)'} · base: ${o.baseProduct ?? '(none)'}
+                </div>
+                ${o.tags && o.tags.length ? `<div class="text-[11px] font-mono text-ink-muted/80 dark:text-slate-500 mt-0.5">tags: ${o.tags.join(', ')}</div>` : ''}
+            </div>`;
+    }
+
+    function renderUnmatchedOrdersSection(unmatchedOrders) {
+        const total = unmatchedOrders.reduce((sum, o) => sum + o.amount, 0);
+        const summaryColor = unmatchedOrders.length === 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+        const summaryText = unmatchedOrders.length === 0
+            ? 'Every real order in this range matched a configured product.'
+            : `${unmatchedOrders.length} real order(s) totaling ${fmtMoney(total)} matched NO configured product — invisible on every report page. Usually means a product's own keyword list is missing a tag/name variant.`;
+
+        return `
+            <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                <button type="button" id="eiTallyUnmatchedToggle" class="w-full flex items-center justify-between gap-3 ${unmatchedOrders.length ? 'cursor-pointer' : ''}">
+                    <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400">Unmatched Orders</h4>
+                    ${unmatchedOrders.length ? '<svg id="eiTallyUnmatchedChevron" class="w-3.5 h-3.5 text-ink-muted dark:text-slate-500 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>' : ''}
+                </button>
+                <p class="text-xs font-mono ${summaryColor} mt-1">${summaryText}</p>
+                ${unmatchedOrders.length ? `<div id="eiTallyUnmatchedList" class="hidden mt-2">${unmatchedOrders.map(renderUnmatchedOrderRow).join('')}</div>` : ''}
+            </div>`;
+    }
+
     function openTallyModal() {
         tallyModal.classList.remove('hidden');
         tallyBody.innerHTML = '<div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>';
@@ -972,16 +1011,18 @@
                     : `${data.dateFrom} – ${data.dateTo}`;
 
                 const productsAllTally = data.products.every((p) => p.numberOfLeads.tallies && p.numberOfOrders.tallies);
-                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally;
+                const noUnmatchedOrders = data.unmatchedOrders.length === 0;
+                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally && noUnmatchedOrders;
 
                 tallyBody.innerHTML = `
                     <div class="mb-4 px-3 py-2.5 rounded-lg ${allTally ? 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'} text-xs font-mono font-semibold">
-                        ${allTally ? 'Everything tallies — Gross Sales, Orders, and Number of Leads all agree across Expected Income, Summary Sales Report, Leads Report, and DSPPR - TSM Report.' : 'Mismatch found below — a real figure disagrees between the two independent ways it was computed.'}
+                        ${allTally ? 'Everything tallies — Gross Sales, Orders, and Number of Leads all agree across Expected Income, Summary Sales Report, Leads Report, and DSPPR - TSM Report, and every real order matched a product.' : 'Mismatch found below — a real figure disagrees between the two independent ways it was computed, or a real order matched no product at all.'}
                     </div>
                     ${data.teams.map(renderTallyTeam).join('')}
                     ${renderProductsSection(data.products)}
+                    ${renderUnmatchedOrdersSection(data.unmatchedOrders)}
                     <p class="text-[11px] font-mono text-ink-muted/70 dark:text-slate-500 mt-2 pt-3 border-t border-line dark:border-slate-700">
-                        "Shared" = the figure every page's own real-team/product card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does, and DSPPR's own Gross Sales/Net Income per product read the same source too) — shown for reference only, not a pass/fail.
+                        "Shared" = the figure every page's own real-team/product card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does, and DSPPR's own Gross Sales/Net Income per product read the same source too) — shown for reference only, not a pass/fail. "Unmatched Orders" lists real orders that matched no configured product at all — usually fixed by adding a keyword to that product in Product Management.
                     </p>`;
 
                 const productsToggle = document.getElementById('eiTallyProductsToggle');
@@ -991,6 +1032,17 @@
                         const chevron = document.getElementById('eiTallyProductsChevron');
                         list.classList.toggle('hidden');
                         chevron.classList.toggle('rotate-180');
+                    });
+                }
+
+                const unmatchedToggle = document.getElementById('eiTallyUnmatchedToggle');
+                if (unmatchedToggle) {
+                    unmatchedToggle.addEventListener('click', () => {
+                        const list = document.getElementById('eiTallyUnmatchedList');
+                        const chevron = document.getElementById('eiTallyUnmatchedChevron');
+                        if (!list) return;
+                        list.classList.toggle('hidden');
+                        chevron?.classList.toggle('rotate-180');
                     });
                 }
             })

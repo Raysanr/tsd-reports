@@ -187,4 +187,71 @@ class TallyCheckerTest extends TestCase
         $productResult = collect($response->json('products'))->firstWhere('product', $product->display_name);
         $this->assertNull($productResult);
     }
+
+    /** Regression test for the real 2026-10-13 production incident: order
+     *  #1374667 (Joana Caluag, Oct 1, "Haplunas Healing Eye Cream") never
+     *  appeared on her Expected Income or TSA Performance cards — root
+     *  cause confirmed via production data: Clear Sight's own Product
+     *  record only had ONE configured keyword ("Clear Sight 3.0"), while
+     *  this order's real tag was the shorter "CLEARSIGHT" (no "3.0").
+     *  Since matching checks whether the TAG contains the KEYWORD,
+     *  "CLEARSIGHT" never contains "CLEARSIGHT30", so the order matched
+     *  zero products anywhere in the app — silent, invisible data loss
+     *  with no error, no mismatch to compare against (every "shared vs
+     *  independent" check in this controller would have shown 0 vs 0,
+     *  a trivial "pass"). checkUnmatchedOrders() exists specifically to
+     *  surface this class of gap. */
+    public function test_a_real_order_matching_no_product_is_surfaced_as_unmatched(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'Eyecare Team')->first();
+        $date = '2026-10-10';
+
+        Order::create([
+            'pancake_order_id' => 'tally-checker-unmatched-1',
+            'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Some Completely Unconfigured Item', 'base_product' => 'Some Completely Unconfigured Item',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'A_TAG_NOBODY_CONFIGURED'],
+            'is_upsell' => true, 'amount' => 777.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 09:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $unmatched = collect($response->json('unmatchedOrders'));
+        $row = $unmatched->firstWhere('orderId', 'tally-checker-unmatched-1');
+        $this->assertNotNull($row, 'expected the unmatched order to be surfaced');
+        $this->assertEquals(777.0, $row['amount']);
+        $this->assertSame($tsa->tsa_key, $row['tsaName']);
+        $this->assertSame('Some Completely Unconfigured Item', $row['product']);
+    }
+
+    /** A real order that DOES match a configured product must never show
+     *  up as unmatched — confirms the check isn't trivially true/noisy. */
+    public function test_a_matched_order_is_not_surfaced_as_unmatched(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::where('team', 'SH Naturals')->first();
+        $product = Product::where('team', 'SH Naturals')->first();
+        $date = '2026-10-10';
+
+        Order::create([
+            'pancake_order_id' => 'tally-checker-matched-1',
+            'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => $product->display_name,
+            'is_upsell' => true, 'amount' => 500.0, 'status_code' => 2,
+            'pancake_created_at' => $date . ' 09:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->getJson(route('data.tally-checker', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $unmatched = collect($response->json('unmatchedOrders'));
+        $this->assertNull($unmatched->firstWhere('orderId', 'tally-checker-matched-1'));
+    }
 }
