@@ -382,8 +382,13 @@
         const productCost = Number(row.product_cost) || 0;
 
         const conversionRate = leads > 0 ? orders / leads : 0;
-        // Gross Sales/Cancelled are plain manual inputs (explicit request,
-        // 2026-09-28). Projected Returns/Projected Delivered are NOT —
+        // Gross Sales/Cancelled were plain manual inputs originally
+        // (explicit request, 2026-09-28) — both automated since (Gross
+        // Sales 2026-10-10, Cancelled 2026-10-13), but still read as
+        // plain row values HERE since this function only mirrors the
+        // formula chain; the automation happens where `row` is built
+        // (refreshDayOverall() etc.), not in derive() itself. Projected
+        // Returns/Projected Delivered are NOT raw inputs at all —
         // corrected 2026-10-01 ("the only auto is Projected Returns /
         // Projected Delivered") to be DERIVED from Gross Sales again, same
         // as ExpectedIncomeCalculator::derive()'s own PHP side: Returns =
@@ -522,7 +527,7 @@
             // raw.gross_sales/raw.number_of_orders instead, same
             // "mirror the PHP formula, don't read a vanished input"
             // convention Returns/Delivered already follow.
-            ['roas', 'actual_cost_per_lead', 'cancelled', 'product_cost']
+            ['roas', 'actual_cost_per_lead', 'product_cost']
                 .forEach((key) => {
                     const el = card.querySelector(`[data-field="${key}"]`);
                     raw[key] = el ? (el.dataset.money === '1' ? parseMoney(el.value) : Number(el.value) || 0) : 0;
@@ -559,6 +564,19 @@
                 if (el) { raw.number_of_orders = Number(el.value) || 0; return; }
                 const out = card.querySelector('[data-out="number_of_orders"]');
                 raw.number_of_orders = out ? (Number(out.textContent.replace(/,/g, '')) || 0) : 0;
+            })();
+            // Cancelled is no longer a raw data-field input on a REAL
+            // product card either (automated 2026-10-13 — see
+            // ExpectedIncomeController::grossSalesByProductAndDate()'s own
+            // 'cancelled' map doc comment) — but TikTok's own 2 fixed
+            // cards STILL have a real [data-field], same "input if
+            // present, else span" pattern Gross Sales/Number of Orders
+            // just above already established.
+            (() => {
+                const el = card.querySelector('[data-field="cancelled"]');
+                if (el) { raw.cancelled = parseMoney(el.value); return; }
+                const out = card.querySelector('[data-out="cancelled"]');
+                raw.cancelled = out ? parseMoney(out.textContent) : 0;
             })();
             // Tax Allocation on a TSA-scoped card is LOCKED (explicit
             // request, 2026-10-02: "the tax allocation in tsa cards is

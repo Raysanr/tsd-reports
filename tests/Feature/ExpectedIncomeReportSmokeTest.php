@@ -234,27 +234,175 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     }
 
     /** End-to-end: a real Gross Sales figure (automated, see
-     *  seedUpsellOrderForGrossSales()'s own doc comment) plus a manually-
-     *  saved Cancelled recomputes Projected Returns/Delivered from THOSE
-     *  values, not whatever (if anything) was previously stored in the
-     *  returns/delivered DB columns — confirmed exact against the real
-     *  sheet's own rate (90,100 × 25% = 22,525; 90,100 − 4,505 − 22,525 =
-     *  63,070). */
+     *  seedUpsellOrderForGrossSales()'s own doc comment) plus a real
+     *  automated Cancelled figure (Cancelled-status real upsell order,
+     *  automated 2026-10-13 — see ExpectedIncomeController::
+     *  grossSalesByProductAndDate()'s own 'cancelled' map doc comment)
+     *  recomputes Projected Returns/Delivered from THOSE real values, not
+     *  a manually-typed input (Cancelled is no longer a manual field at
+     *  all on a real product card — superseded same-day rewrite of this
+     *  test, which used to PATCH 'cancelled' directly). The Cancelled
+     *  order is itself a genuine real upsell (isBroadRealUpsell() via its
+     *  tag-fallback), so it counts toward BOTH Gross Sales (94,605 =
+     *  90,100 + 4,505) and Cancelled (4,505) — a Cancelled-status order
+     *  still ships and still counts as real revenue, only excluded from
+     *  nothing except the status-7/excluded-seller filters. Returns =
+     *  94,605 × 25% = 23,651.25; Delivered = 94,605 − 4,505 − 23,651.25 =
+     *  66,448.75. */
     public function test_saving_gross_sales_recomputes_returns_and_delivered(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $product = Product::first();
         $date = today()->toDateString();
         $this->seedUpsellOrderForGrossSales($product, null, $date, 90100.00);
+        Order::create([
+            'pancake_order_id' => 'ei-cancelled-recompute-1',
+            'team' => 'SH Naturals', 'tsa_name' => 'unrecognized-tsa',
+            'product' => $product->display_name,
+            'is_upsell' => false, 'amount' => 4505.00, 'status_code' => 6,
+            'raw_tags' => ['UPSELL TSD - ' . $product->display_name],
+            'pancake_created_at' => $date . ' 10:30:00', 'synced_at' => now(),
+        ]);
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['cancelled' => 4505.00]
+            []
         );
 
         $response->assertOk();
-        $response->assertJsonPath('derived.returns', fn ($v) => abs($v - 22525.00) < 1.0);
-        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - 63070.00) < 1.0);
+        $response->assertJsonPath('derived.returns', fn ($v) => abs($v - 23651.25) < 1.0);
+        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - 66448.75) < 1.0);
+    }
+
+    /** A stray PATCH for 'cancelled' is silently ignored now (same "a
+     *  stray POST can't write a stale value the view no longer reflects"
+     *  pattern as gross_sales/number_of_leads before it) — confirmed via
+     *  the update() validation array no longer accepting the field at
+     *  all. */
+    public function test_a_stray_patch_for_cancelled_is_ignored(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $date = today()->toDateString();
+
+        $response = $this->actingAs($admin)->patchJson(
+            route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
+            ['cancelled' => 99999.00]
+        );
+
+        $response->assertOk();
+        $this->assertSame(0.0, (float) $response->json('derived.cancelled'));
+    }
+
+    /** A real Cancelled-status upsell order is counted toward the
+     *  product's own automated Cancelled figure — the core request,
+     *  2026-10-13: "the only cancelled and awaiting stock status that has
+     *  tsa real upsell" is automated into this row. */
+    public function test_a_cancelled_status_real_upsell_counts_toward_the_cancelled_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $date = today()->toDateString();
+        Order::create([
+            'pancake_order_id' => 'ei-cancelled-row-1',
+            'team' => 'SH Naturals', 'tsa_name' => 'unrecognized-tsa',
+            'product' => $product->display_name,
+            'is_upsell' => false, 'amount' => 750.00, 'status_code' => 6,
+            'raw_tags' => ['UPSELL TSD - ' . $product->display_name],
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/data-out="cancelled"[^>]*>\s*750\.00/',
+            $response->getContent(),
+            "Expected {$product->display_name}'s own card to count a real Cancelled-status upsell order toward Cancelled"
+        );
+    }
+
+    /** Same basis, Restocking/"Awaiting Stock" status (11) instead of
+     *  Cancelled (6) — explicit request: "the cancelled status and
+     *  awaiting stock status will be combine to the cancelled status
+     *  row." */
+    public function test_a_restocking_status_real_upsell_counts_toward_the_cancelled_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $date = today()->toDateString();
+        Order::create([
+            'pancake_order_id' => 'ei-cancelled-row-2',
+            'team' => 'SH Naturals', 'tsa_name' => 'unrecognized-tsa',
+            'product' => $product->display_name,
+            'is_upsell' => false, 'amount' => 500.00, 'status_code' => 11,
+            'raw_tags' => ['UPSELL TSD - ' . $product->display_name],
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/data-out="cancelled"[^>]*>\s*500\.00/',
+            $response->getContent(),
+            "Expected {$product->display_name}'s own card to count a real Restocking-status upsell order toward Cancelled"
+        );
+    }
+
+    /** A Cancelled-status order that is NOT a real upsell must NOT count
+     *  toward the Cancelled row — guards against a blanket "every
+     *  Cancelled order counts" misreading of the request, which explicitly
+     *  scoped this to "the only cancelled and awaiting stock status that
+     *  has tsa real upsell." */
+    public function test_a_cancelled_status_non_upsell_order_does_not_count_toward_the_cancelled_row(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $product = Product::first();
+        $date = today()->toDateString();
+        Order::create([
+            'pancake_order_id' => 'ei-cancelled-row-non-upsell-1',
+            'team' => 'SH Naturals', 'tsa_name' => 'unrecognized-tsa',
+            'product' => $product->display_name,
+            'is_upsell' => false, 'amount' => 999.00, 'status_code' => 6,
+            'disposition' => 'confirmed via call',
+            'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date,
+        ]));
+
+        $response->assertOk();
+        $this->assertMatchesRegularExpression(
+            '/data-out="cancelled"[^>]*>\s*0\.00/',
+            $response->getContent(),
+            "A Cancelled-status order with no real upsell must not count toward Cancelled"
+        );
+    }
+
+    /** Cancelled is no longer a manual <input> on a real product card
+     *  (automated 2026-10-13) — same "input removed entirely" convention
+     *  Gross Sales/Number of Orders/Number of Leads already established.
+     *  Same <script>-boundary gotcha those tests already document (the
+     *  live-refresh JS source text would otherwise false-positive-match
+     *  a plain assertDontSee). */
+    public function test_cancelled_is_not_a_manual_input_on_a_real_product_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => '2026-10-01', 'date_to' => '2026-10-01', 'team' => 'sh-naturals',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $markup = substr($content, 0, strpos($content, '<script>'));
+        $this->assertStringNotContainsString('data-field="cancelled"', $markup);
     }
 
     /** Explicit request, 2026-09-30: "why is it when i am clicking other
@@ -350,7 +498,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['number_of_leads' => 647, 'cancelled' => 50]
+            ['number_of_leads' => 647, 'product_cost' => 50]
         );
 
         $response->assertOk();
@@ -366,7 +514,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $this->assertDatabaseHas('expected_income_entries', [
             'product_id' => $product->id,
-            'cancelled' => 50,
+            'product_cost' => 50,
         ]);
     }
 
@@ -376,22 +524,20 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $product = Product::first();
         $date = today()->toDateString();
 
-        // Number of Orders/Average Order Value are no longer writable
-        // (both automated 2026-10-10 — "the number of orders is the
-        // upsell" / "the average order value (AOV) i want to make it
-        // automated too"), so `cancelled` proves the same upsert
-        // mechanics here instead.
+        // Number of Orders/Average Order Value/Cancelled are no longer
+        // writable (automated 2026-10-10/2026-10-13), so `product_cost`
+        // proves the same upsert mechanics here instead.
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['cancelled' => 100]
+            ['product_cost' => 100]
         );
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $product->id, 'date' => $date]),
-            ['cancelled' => 200]
+            ['product_cost' => 200]
         );
 
         $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(200.0, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->cancelled);
+        $this->assertSame(200.0, ExpectedIncomeEntry::where('product_id', $product->id)->whereDate('entry_date', $date)->first()->product_cost);
     }
 
     public function test_summary_row_sums_every_day_in_the_selected_range(): void
@@ -805,12 +951,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $cardHtml = $response->json('cardHtml');
         $this->assertStringContainsString('data-locked="1"', $cardHtml);
-        // Gross Sales is no longer an editable field at all (automated
-        // 2026-10-10 — see ExpectedIncomeController's own class doc
-        // comment), so `cancelled` is used here instead as the lockable-
-        // field proxy — same lock/unlock mechanism, still a real manual
-        // input.
-        $this->assertMatchesRegularExpression('/data-field="cancelled"[^>]*disabled/', $cardHtml);
+        // Gross Sales/Cancelled are no longer editable fields at all
+        // (automated 2026-10-10/2026-10-13 — see ExpectedIncomeController's
+        // own class doc comment), so `product_cost` is used here instead
+        // as the lockable-field proxy — same lock/unlock mechanism, still
+        // a real manual input.
+        $this->assertMatchesRegularExpression('/data-field="product_cost"[^>]*disabled/', $cardHtml);
     }
 
     /** Unlocking restores a real, non-disabled editable input — the lock
@@ -823,7 +969,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::where('team', 'SH Naturals')->first();
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-10-01',
-            'cancelled' => 500, 'is_locked' => true,
+            'product_cost' => 500, 'is_locked' => true,
         ]);
 
         $response = $this->actingAs($admin)->patchJson(
@@ -837,7 +983,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]);
         $cardHtml = $response->json('cardHtml');
         $this->assertStringContainsString('data-locked="0"', $cardHtml);
-        $this->assertDoesNotMatchRegularExpression('/data-field="cancelled"[^>]*disabled/', $cardHtml);
+        $this->assertDoesNotMatchRegularExpression('/data-field="product_cost"[^>]*disabled/', $cardHtml);
         // The 500 saved before locking must still be there — locking never
         // touches stored values.
         $this->assertStringContainsString('500.00', $cardHtml);
@@ -996,9 +1142,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
      *  side of users the merged products is only 1 product only" — same
      *  fix already applied to DSPPR's own identical grouping — a grouped
      *  card now saves to the group's own FIRST member product. Gross
-     *  Sales is no longer writable at all (automated 2026-10-10), so
-     *  `cancelled` — still a real manual field — is used here instead as
-     *  the save-target proxy; same first-member-save mechanism either way. */
+     *  Sales/Cancelled are no longer writable at all (automated
+     *  2026-10-10/2026-10-13), so `product_cost` — still a real manual
+     *  field — is used here instead as the save-target proxy; same
+     *  first-member-save mechanism either way. */
     public function test_updating_a_grouped_products_cell_saves_to_its_first_member(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -1011,20 +1158,20 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $productA->id, 'date' => $date]),
-            ['cancelled' => 200]
+            ['product_cost' => 200]
         );
 
         $response->assertOk();
         $this->assertDatabaseHas('expected_income_entries', [
             'product_id' => $productA->id,
-            'cancelled' => 200,
+            'product_cost' => 200,
         ]);
     }
 
     /** The group's own DISPLAYED Gross Sales must reflect the FULL group
      *  total (every member product's own real matched upsell revenue,
      *  automated 2026-10-10), not just one member's — confirmed via an
-     *  unrelated field edit (cancelled) triggering a fresh derive() that
+     *  unrelated field edit (product_cost) triggering a fresh derive() that
      *  still sums both members' own real Gross Sales correctly, same
      *  "the other member's own real numbers stay part of what this card
      *  shows" intent the original manual-entry version of this test had. */
@@ -1043,7 +1190,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update', ['product' => $productA->id, 'date' => $date]),
-            ['cancelled' => 50]
+            ['product_cost' => 50]
         );
 
         $response->assertOk();
@@ -1105,12 +1252,15 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'label' => 'Warehouse Fee', 'is_fixed' => false, 'sort_order' => 0,
         ]);
 
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'average_order_value' => 100, 'cancelled' => 50, 'returns' => 250, 'delivered' => 700]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'average_order_value' => 100, 'returns' => 250, 'delivered' => 700]);
         // Number of Orders is ALSO automated now (2026-10-10 — "the
         // number of orders is the upsell") — 10 separate real matched
         // upsell orders summing to 1,000 Gross Sales, so Fulfillment Fee
         // (orders × 25) still lands on the same 250 this test's own
-        // formula below expects.
+        // formula below expects. Cancelled is ALSO automated now
+        // (2026-10-13) — none of these 10 orders are Cancelled/Restocking
+        // status, so it resolves to 0 (the formula below has no manually-
+        // seeded 50 to subtract any more).
         foreach (range(1, 10) as $i) {
             $this->seedUpsellOrderForGrossSales($product, null, $date, 100, "custom-row-{$i}");
         }
@@ -1122,9 +1272,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $response->assertJsonPath('derived.selling_lines.custom_warehouse_fee', fn ($v) => abs($v - 250.0) < 0.01);
-        // Gross Sales 1,000 minus the 250 custom row (no other costs) —
+        // Gross Sales 1,000; Cancelled 0, Returns 250, Delivered 750 (not
+        // the stale seeded 700 — Delivered is now derived fresh from the
+        // real Gross Sales/Cancelled, automated 2026-10-13). COD Fee is
+        // 750×2.24%, Fulfillment Fee 10×25, plus the 250 custom row —
         // confirms it actually reduces Net Income, not just displaying.
-        $response->assertJsonPath('derived.net_income', fn ($v) => abs($v - (1000 - 50 - 250 - 250 - (700 * 0.0224) - (10 * 25))) < 0.01);
+        $response->assertJsonPath('derived.net_income', fn ($v) => abs($v - (1000 - 0 - 250 - 250 - (750 * 0.0224) - (10 * 25))) < 0.01);
 
         $this->assertDatabaseHas('expected_income_custom_values', [
             'product_id' => $product->id, 'custom_row_key' => 'custom_warehouse_fee', 'value' => 250.00,
@@ -1227,11 +1380,17 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'entry_date' => today(),
             'average_order_value' => 100, 'advertising_cost' => 500,
-            'cancelled' => 50, 'returns' => 250, 'delivered' => 700,
+            'returns' => 250, 'delivered' => 700,
         ]);
         // Number of Orders is ALSO automated now (2026-10-10) — 10
         // separate real matched upsell orders summing to 1,000 Gross
         // Sales, so Fulfillment Fee (orders × 25) still lands on 250.
+        // Cancelled (automated 2026-10-13) resolves to 0 here — none of
+        // these orders are Cancelled/Restocking status — so Delivered is
+        // now Gross Sales − Cancelled − Returns = 1,000 − 0 − 250 = 750
+        // (the manually-seeded 'delivered' => 700 above is stale/ignored,
+        // same as every other now-automated field; COD Fee derives from
+        // the REAL computed Delivered, not whatever was seeded).
         foreach (range(1, 10) as $i) {
             $this->seedUpsellOrderForGrossSales($product, null, today()->toDateString(), 100, "range-selling-{$i}");
         }
@@ -1242,12 +1401,13 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ]));
 
         $response->assertOk();
-        // Gross Sales 1,000; Cancelled 50, Returns 250, COD Fee (700×2.24%)
-        // 15.68, Fulfillment Fee (10×25) 250, plus the manual 500
-        // Advertising Cost = Total Selling Costs 765.68. Before the fix
-        // this overall card's own total silently read 265.68 (missing the
-        // manual 500) even though the individual product card was correct.
-        $response->assertSee('765.68');
+        // Gross Sales 1,000; Cancelled 0, Returns 250, Delivered 750,
+        // COD Fee (750×2.24%) 16.80, Fulfillment Fee (10×25) 250, plus
+        // the manual 500 Advertising Cost = Total Selling Costs 766.80.
+        // Before the original fix this overall card's own total silently
+        // read 266.80 (missing the manual 500) even though the
+        // individual product card was correct.
+        $response->assertSee('766.80');
     }
 
     /** Same bug, the daily "TELESALES" rollup card. */
@@ -1260,7 +1420,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         ExpectedIncomeEntry::create([
             'product_id' => $product->id, 'entry_date' => $date,
             'average_order_value' => 100, 'advertising_cost' => 500,
-            'cancelled' => 50, 'returns' => 250, 'delivered' => 700,
+            'returns' => 250, 'delivered' => 700,
         ]);
         foreach (range(1, 10) as $i) {
             $this->seedUpsellOrderForGrossSales($product, null, $date, 100, "days-selling-{$i}");
@@ -1274,7 +1434,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         // Same math as the range-summary test above — with only one day
         // and one product in range, the day's own overall card and the
         // range summary's overall card show the identical total.
-        $response->assertSeeInOrder(['TELESALES', '765.68']);
+        $response->assertSeeInOrder(['TELESALES', '766.80']);
     }
 
     /** Explicit request, 2026-09-28: "the net income it should be green if
@@ -2449,9 +2609,10 @@ class ExpectedIncomeReportSmokeTest extends TestCase
     /** Her own numbers are completely independent of the "ALL" view's own
      *  product-level entries (tsa_id NULL) — editing her own card writes a
      *  real tsa_id row, never overwriting or reading the shared one. */
-    /** Gross Sales is no longer writable (automated 2026-10-10), so
-     *  `cancelled` — still a real manual field — proves the same
-     *  per-tsa-scoped-row independence here instead. */
+    /** Gross Sales/Cancelled are no longer writable (automated
+     *  2026-10-10/2026-10-13), so `product_cost` — still a real manual
+     *  field — proves the same per-tsa-scoped-row independence here
+     *  instead. */
     public function test_a_tsas_own_entry_is_independent_of_the_product_level_entry(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -2459,28 +2620,28 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa = TsaShift::first();
         $date = today()->toDateString();
 
-        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'cancelled' => 1000]);
+        ExpectedIncomeEntry::create(['product_id' => $product->id, 'entry_date' => $date, 'product_cost' => 1000]);
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['cancelled' => 500]
+            ['product_cost' => 500]
         );
 
         $response->assertOk();
         $this->assertDatabaseHas('expected_income_entries', [
-            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'cancelled' => 500,
+            'product_id' => $product->id, 'tsa_id' => $tsa->id, 'product_cost' => 500,
         ]);
         // The product-level (tsa_id NULL) row is untouched.
         $this->assertDatabaseHas('expected_income_entries', [
-            'product_id' => $product->id, 'tsa_id' => null, 'cancelled' => 1000,
+            'product_id' => $product->id, 'tsa_id' => null, 'product_cost' => 1000,
         ]);
     }
 
     /** Same "upsert, never a duplicate" convention as the product-level
      *  update() endpoint — saving a TSA's own field twice for the same
-     *  product+day updates the one row, not two. Gross Sales is no longer
-     *  writable (automated 2026-10-10), so `cancelled` proves the same
-     *  upsert mechanics here instead. */
+     *  product+day updates the one row, not two. Gross Sales/Cancelled
+     *  are no longer writable (automated 2026-10-10/2026-10-13), so
+     *  `product_cost` proves the same upsert mechanics here instead. */
     public function test_updating_a_tsas_entry_twice_does_not_create_a_duplicate(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -2489,11 +2650,11 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $date = today()->toDateString();
 
         $route = route('data.expected-income.update-tsa', ['product' => $product->id, 'tsaShift' => $tsa->id, 'date' => $date]);
-        $this->actingAs($admin)->patchJson($route, ['cancelled' => 100])->assertOk();
-        $this->actingAs($admin)->patchJson($route, ['cancelled' => 200])->assertOk();
+        $this->actingAs($admin)->patchJson($route, ['product_cost' => 100])->assertOk();
+        $this->actingAs($admin)->patchJson($route, ['product_cost' => 200])->assertOk();
 
         $this->assertSame(1, ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsa->id)->count());
-        $this->assertEquals(200, ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsa->id)->first()->cancelled);
+        $this->assertEquals(200, ExpectedIncomeEntry::where('product_id', $product->id)->where('tsa_id', $tsa->id)->first()->product_cost);
     }
 
     /** A TSA's own custom-row value is saved through the tsa-scoped custom

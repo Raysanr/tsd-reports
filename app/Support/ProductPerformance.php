@@ -210,6 +210,38 @@ class ProductPerformance
                 return false;
             }
 
+            // Root-caused live 2026-10-13, order #1375393 (Katherine Chua):
+            // a NARROWER variant of the same bug the guard above was built
+            // for — this order's own product/base_product fields BOTH
+            // correctly say "Rose Soap" (the real base), and its tag
+            // explicitly says "UPSELL TSD - ROSE SOAP" (Ginseng Serum was
+            // the add-on upsold ONTO Rose Soap) — but Pancake's raw item
+            // list still carries Ginseng Serum's own real catalog ID
+            // alongside Rose Soap's in pancake_product_ids (every line
+            // item's ID is stored, base AND add-on alike, same root cause
+            // as #1378313 above). The guard above only ever checks the
+            // order's OWN product/bundle_description TEXT fields — neither
+            // one mentions "Ginseng Serum" anywhere for this order (unlike
+            // #1378313, where the add-on's name WAS the order's own
+            // `product` field) — so it never fired, and Ginseng Serum's ID
+            // match below let it steal this order's full ₱500 even though
+            // it is unambiguously NOT the base product. Fix: whenever the
+            // order has a real base_product that is a DIFFERENT product
+            // than $product (by text), $product is never allowed to match
+            // via ID co-occurrence — only the base product itself (or a
+            // genuine non-upsell multi-product combo with no base_product
+            // override at all) can claim this order through the ID branch.
+            // Separate Parcel orders are exempt — there, the order's own
+            // item genuinely IS the add-on, shipped as its own sibling
+            // order, and its ID legitimately belongs to no catalog entry
+            // or to itself, not to the base product (see the Separate
+            // Parcel comment directly below for the full reasoning).
+            $isSeparateParcel = Order::hasSeparateParcelTag($o->raw_tags ?? []);
+            $hasDifferentRealBase = !empty($o->base_product) && !$product->matchesText($o->base_product);
+            if (!$isSeparateParcel && $hasDifferentRealBase && Order::isBroadRealUpsell($o)) {
+                return false;
+            }
+
             // A SEPARATE PARCEL upsell order's own line item IS the upsold
             // add-on itself (e.g. "Turmeric Soap"), shipped as its own
             // sibling Pancake order — its real product ID genuinely belongs
@@ -230,7 +262,7 @@ class ProductPerformance
             // upsell was actually made against, same "trust the tag" logic
             // extractUpsellProduct()/remainingItemIsJustTheBase() already
             // give a SEPARATE PARCEL order elsewhere for this exact reason.
-            $isSeparateParcel = Order::hasSeparateParcelTag($o->raw_tags ?? []);
+            // ($isSeparateParcel already computed above, reused here.)
 
             if (!$isSeparateParcel && $productIds->isNotEmpty() && !empty($o->pancake_product_ids)) {
                 return $productIds->intersect($o->pancake_product_ids)->isNotEmpty();
@@ -470,6 +502,19 @@ class ProductPerformance
         // 'amount' column is the raw order total, not the isolated add-on
         // (see that method's own doc comment, fixed 2026-08-13).
         $row['upsell_sales'] = (float) $orders->filter($isRealUpsell)->sum(fn (Order $o) => $o->realUpsellAmount());
+
+        // Expected Income's automated "Cancelled" row (2026-10-13, explicit
+        // request: "the cancelled status and awaiting stock status will be
+        // combine to the cancelled status row" / "the only cancelled and
+        // awaiting stock status that has tsa real upsell") — a real upsell
+        // ($isRealUpsell, same broad definition as upsell_sales above) whose
+        // order ended up Cancelled (6) or Restocking/"Awaiting Stock" (11).
+        // Same realUpsellAmount() basis as upsell_sales — a Restocking row
+        // recovered via $isRealUpsell's tag-fallback branch needs the
+        // isolated add-on price, not the raw order total.
+        $row['cancelled_upsell_sales'] = (float) $orders->filter($isRealUpsell)
+            ->filter(fn (Order $o) => in_array($o->status_code, [6, 11], true))
+            ->sum(fn (Order $o) => $o->realUpsellAmount());
 
         $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
             + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];

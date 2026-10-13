@@ -304,4 +304,97 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
         $matching = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$roseSoap]));
         $this->assertCount(1, $matching);
     }
+
+    /** ROOT CAUSE, found via live screenshot 2026-10-13, order #1375393
+     *  (Katherine Chua): a NARROWER variant of the bug the ID-matching fix
+     *  above was built for. This order's product/base_product fields BOTH
+     *  correctly say "Rose Soap" (the real base), and its tag explicitly
+     *  says "UPSELL TSD - ROSE SOAP" — Ginseng Serum was the upsold add-on,
+     *  never named anywhere in the order's OWN text fields at all (unlike
+     *  #1378313 above, where the add-on's name WAS the order's own
+     *  `product` field). But Pancake's raw item list still carries Ginseng
+     *  Serum's own real catalog ID alongside Rose Soap's in
+     *  pancake_product_ids (every line item's ID is stored, base AND
+     *  add-on alike). The 2026-10-10 fix only ever excludes a product that
+     *  the order's OWN product/bundle_description TEXT names as the
+     *  add-on — it never considered a product whose ONLY connection to the
+     *  order is a co-occurring ID with no textual mention anywhere. Fixed:
+     *  whenever the order has a real base_product that is a DIFFERENT
+     *  product than $product (by text), $product can never match via ID
+     *  co-occurrence — confirmed this closes the gap without needing
+     *  Ginseng Serum's name to appear in product/bundle_description at
+     *  all. */
+    public function test_a_co_occurring_id_with_no_textual_mention_does_not_steal_the_order(): void
+    {
+        $roseSoap = $this->product([
+            'display_name'        => 'Rose Soap',
+            'match_keyword'       => 'ROSE SOAP',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['7ec60d97-c212-43b3-b166-b7048d2f26cc'],
+        ]);
+        $ginsengSerum = $this->product([
+            'display_name'        => 'Ginseng Serum',
+            'match_keyword'       => 'GINSENG',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['772458fd-ebd7-492a-96f4-fdc1865d9db4'],
+        ]);
+
+        $order = $this->order([
+            'team'                => 'SH Naturals',
+            'product'             => 'Rose Soap',
+            'base_product'        => 'Rose Soap',
+            'bundle_description'  => '1 - Rose Soap',
+            'raw_tags'            => ['KATHERINE', 'ROSE SOAP', 'Unreconciled', 'UPSELL TSD - ROSE SOAP'],
+            'is_upsell'           => false,
+            'amount'              => 500.00,
+            // Both line items' own real catalog IDs — Rose Soap (the
+            // base) AND Ginseng Serum (the upsold add-on, never named in
+            // product/base_product/bundle_description/raw_tags anywhere).
+            'pancake_product_ids' => ['7ec60d97-c212-43b3-b166-b7048d2f26cc', '772458fd-ebd7-492a-96f4-fdc1865d9db4'],
+        ]);
+
+        $matchingGinseng = ProductPerformance::matchingOrders($ginsengSerum, collect([$order]), new Collection([$roseSoap, $ginsengSerum]));
+        $this->assertCount(0, $matchingGinseng, 'Ginseng Serum must not claim this order just because its ID co-occurs on it — the order was never textually attributed to it');
+
+        $matchingRoseSoap = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$roseSoap, $ginsengSerum]));
+        $this->assertCount(1, $matchingRoseSoap, 'Rose Soap — the real base product — must still match via its own ID');
+    }
+
+    /** Guards against the fix above being backwards: a genuine non-upsell
+     *  multi-product combo order (no upsell tag/signal at all) with real
+     *  mapped IDs for BOTH its bundled products must still let both of
+     *  them match via ID co-occurrence — the new guard is gated on
+     *  Order::isBroadRealUpsell(), so it must never fire for a plain
+     *  combo purchase. */
+    public function test_a_non_upsell_combo_order_with_mapped_ids_still_matches_both_via_id(): void
+    {
+        $ginsengSerum = $this->product([
+            'display_name'        => 'Ginseng Serum',
+            'match_keyword'       => 'GINSENG',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['ginseng-real-id'],
+        ]);
+        $scarCream = $this->product([
+            'display_name'        => 'Scar Cream',
+            'match_keyword'       => 'SCAR CREAM',
+            'team'                => 'SH Naturals',
+            'pancake_product_ids' => ['scar-cream-real-id'],
+        ]);
+
+        $comboOrder = $this->order([
+            'team'                => 'SH Naturals',
+            'product'             => 'Ginseng Serum',
+            'base_product'        => 'Ginseng Serum',
+            'bundle_description'  => '1 Ginseng Serum + 5 Scar Cream',
+            'raw_tags'            => ['GINSENG', 'SCAR CREAM'],
+            'amount'              => 2500,
+            'pancake_product_ids' => ['ginseng-real-id', 'scar-cream-real-id'],
+        ]);
+
+        $matchingGinseng = ProductPerformance::matchingOrders($ginsengSerum, collect([$comboOrder]), new Collection([$ginsengSerum, $scarCream]));
+        $this->assertCount(1, $matchingGinseng);
+
+        $matchingScarCream = ProductPerformance::matchingOrders($scarCream, collect([$comboOrder]), new Collection([$ginsengSerum, $scarCream]));
+        $this->assertCount(1, $matchingScarCream, 'a genuine non-upsell combo with mapped IDs must still count toward both bundled products via ID matching');
+    }
 }

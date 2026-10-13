@@ -157,9 +157,20 @@
         @endif
         <span data-out="gross_sales_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d['gross_sales_pct']) }}</span>
     </div>
+    {{-- Cancelled is no longer typed in on a real product card specifically
+         — automated 2026-10-13 ("the cancelled status and awaiting stock
+         status will be combine to the cancelled status row" / "the only
+         cancelled and awaiting stock status that has tsa real upsell") to
+         ExpectedIncomeController::grossSalesByProductAndDate()'s own
+         'cancelled' map (Order::isBroadRealUpsell() orders in Cancelled(6)/
+         Restocking(11) status, same realUpsellAmount() basis Gross Sales
+         uses). Gated on $tsaScoped, NOT just $editable, same reasoning as
+         Gross Sales/Number of Orders above — TikTok's own 2 fixed cards
+         stay fully manual (no real Product/Pancake assignee data behind
+         either). --}}
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="text-red-600 dark:text-red-400">Cancelled</span>
-        @if($editable ?? false)
+        @if(($editable ?? false) && !($tsaScoped ?? false))
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->cancelled ?? 0, 2) }}"
                    data-field="cancelled" data-money="1" @if($locked ?? false) disabled @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-red-600 dark:text-red-400 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
