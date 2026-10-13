@@ -136,7 +136,7 @@ class TallyCheckerController extends Controller
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeStart, $rangeEnd]
         )->get()
-            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics)
+            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
 
         $matchedOrderIds = ProductPerformance::countedOrdersFor($products, $orders)->pluck('id');
@@ -230,7 +230,7 @@ class TallyCheckerController extends Controller
             })->sum();
 
             $matched = ProductPerformance::matchingOrders($product, $allOrders, $products)
-                ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+                ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller);
             $independentLeads = $matched->count();
             $independentOrders = $matched->filter(fn (Order $o) => Order::isBroadRealUpsell($o))->count();
 
@@ -285,7 +285,7 @@ class TallyCheckerController extends Controller
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
         )->whereIn('tsa_name', $tsaKeys)->get()
-            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics)
+            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
 
         $independentGrossSales = (float) $orders->sum(fn (Order $o) => $o->realUpsellAmount());
@@ -329,7 +329,7 @@ class TallyCheckerController extends Controller
         $independentTotal = 0;
         foreach ($products as $product) {
             $matched = ProductPerformance::matchingOrders($product, $dayOrders, $products)
-                ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+                ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller);
             $independentTotal += $matched->count();
         }
 

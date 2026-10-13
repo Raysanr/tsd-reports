@@ -129,4 +129,39 @@ class SyncTodayOrdersExcludedSellerAccountTest extends TestCase
         $this->assertTrue($order->is_upsell);
         $this->assertSame('Kathleen', $order->tsa_name);
     }
+
+    /** "AJ Dele Cruz" added 2026-10-13 alongside Ralph Cruz (explicit
+     *  request, same session as the duplicated-by-logistics reversal —
+     *  "AJ and RALPH assignee is still as is") — same config mechanism,
+     *  same exclusion behavior, confirmed with its own exact name rather
+     *  than relying solely on the generic case-insensitive matching test
+     *  above. */
+    public function test_an_upsell_tag_closed_by_aj_dele_cruz_never_counts_as_a_real_upsell(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1352839,
+            'status'      => 2,
+            'total_price' => 1000,
+            'inserted_at' => '2026-10-13T05:00:00',
+            'updated_at'  => '2026-10-13T05:00:00',
+            'tags'        => [
+                ['id' => 1, 'name' => 'UPSELL TSD - Ear Relief Balm'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dele Cruz']],
+                ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dele Cruz']],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-10-13']);
+
+        $order = Order::where('pancake_order_id', '1352839')->first();
+
+        $this->assertNotNull($order);
+        $this->assertFalse($order->is_upsell);
+        $this->assertNull($order->tsa_name);
+    }
 }

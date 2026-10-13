@@ -1025,9 +1025,16 @@ class TsaPerformanceController extends Controller
         // comment already warns about above): a Cancelled order must still
         // count under whatever disposition it actually carries, same as any
         // other order, not be dropped just for being cancelled.
+        // is_duplicated_by_logistics is NO LONGER excluded here (2026-10-13
+        // reversal, explicit request — root-caused live via screenshot,
+        // Marsha Arnecilla's own row: 2 real, tagged upsell orders
+        // (#1375013/#1375008) were invisible on this exact table because of
+        // this flag alone, not their Cancelled status — see
+        // ProductPerformance::tally()'s own doc comment for the full
+        // story). The flag stays on the Order model for history/reference,
+        // just no longer rejected here.
         $orders = $orders->reject(fn ($o) => $o->status_code === 7
-            || $o->excluded_upsell_seller
-            || $o->is_duplicated_by_logistics);
+            || $o->excluded_upsell_seller);
 
         // Same "real upsell" definition and non-upsell exclusivity guard as
         // ProductPerformance::tally() — now the SAME shared method

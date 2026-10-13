@@ -15,7 +15,13 @@
  * (not in tsa_shifts, no seller_keywords match), yet its upsell tag still
  * made is_upsell true, counting ₱800 as cross-sell revenue with no TSA to
  * credit it to.
+ *
+ * "AJ Dele Cruz" added 2026-10-13 (explicit request, same reasoning as
+ * Ralph Cruz above — a known non-TSA account whose own touches on an
+ * order should never count as a real TSA upsell, confirmed by name
+ * rather than root-caused against one specific order this time).
  */
 return [
     'ralph cruz',
+    'aj dele cruz',
 ];

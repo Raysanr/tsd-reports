@@ -1942,13 +1942,15 @@ class ExpectedIncomeController extends Controller
 
                 foreach ($products as $product) {
                     // Same exclusion filter tally() itself applies before
-                    // counting 'total' (Deleted orders, excluded-seller/
-                    // duplicated-by-logistics upsells) — kept in sync by
-                    // hand, same convention countedOrdersFor() already
-                    // follows for the identical reason (see that method's
+                    // counting 'total' (Deleted orders, excluded-seller
+                    // upsells) — kept in sync by hand, same convention
+                    // countedOrdersFor() already follows for the identical
+                    // reason (see that method's own doc comment).
+                    // duplicated-by-logistics is NOT excluded here either
+                    // (2026-10-13 reversal, see ProductPerformance::tally()'s
                     // own doc comment).
                     $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
-                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics);
+                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller);
 
                     foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {
                         $tsaId = $tsaKeyToId->get($tsaName, 'null');
@@ -2109,9 +2111,11 @@ class ExpectedIncomeController extends Controller
                     // Same exclusion filter tally() itself applies before
                     // computing upsell_sales/upsell_confirmation (see
                     // leadCountsByProductAndDate()'s own identical filter,
-                    // directly above).
+                    // directly above). duplicated-by-logistics is NOT
+                    // excluded (2026-10-13 reversal, see tally()'s own doc
+                    // comment).
                     $matchedOrders = ProductPerformance::matchingOrders($product, $dayOrders, $products)
-                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller || $o->is_duplicated_by_logistics)
+                        ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller)
                         ->filter(fn ($o) => Order::isBroadRealUpsell($o));
 
                     foreach ($matchedOrders->groupBy('tsa_name') as $tsaName => $ordersForTsa) {

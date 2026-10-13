@@ -820,9 +820,10 @@ class LeadsReportController extends Controller
             // Canceled (6) is NOT excluded (2026-10-06 reversal — see
             // ProductPerformance::tally()'s own comment): a Cancelled order
             // still counts toward the Total cell like any other order.
+            // duplicated-by-logistics is ALSO not excluded (2026-10-13
+            // reversal, see tally()'s own doc comment).
             $pairs = $pairs->reject(fn ($pair) => $pair['order']->status_code === 7
-                || $pair['order']->excluded_upsell_seller
-                || $pair['order']->is_duplicated_by_logistics);
+                || $pair['order']->excluded_upsell_seller);
         }
 
         $result = $pairs

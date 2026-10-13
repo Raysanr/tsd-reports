@@ -115,16 +115,16 @@ class ProductPerformance
      *  own comment on why: Deleted (7) always dropped; Canceled (6) is NOT
      *  excluded — a Canceled order still counts under whatever disposition
      *  it actually carries, same as any other order, see tally()'s own
-     *  comment for the 2026-10-06 reversal — excluded-seller/duplicated-by-
-     *  logistics orders dropped). */
+     *  comment for the 2026-10-06 reversal — excluded-seller orders
+     *  dropped; duplicated-by-logistics orders no longer dropped either,
+     *  see tally()'s own 2026-10-13 doc comment for why). */
     public static function countedOrdersFor(Collection $products, Collection $orders): Collection
     {
         $ids = collect();
         foreach ($products as $product) {
             $matching = self::matchingOrders($product, $orders, $products)
                 ->reject(fn ($o) => $o->status_code === 7
-                    || $o->excluded_upsell_seller
-                    || $o->is_duplicated_by_logistics);
+                    || $o->excluded_upsell_seller);
             $ids = $ids->merge($matching->pluck('id'));
         }
         $ids = $ids->unique();
@@ -360,12 +360,30 @@ class ProductPerformance
         // as a non-upsell — same "doesn't belong in this report's numbers" treatment
         // as a Cancelled/Deleted order gets above.
         //
-        // is_duplicated_by_logistics (2026-08-22, explicit follow-up request):
-        // confirmed live — a warehouse/logistics duplicate of an already-real order
-        // (Pancake staff flag these via a "DUPLICATED BY LOGISTICS" note, see
-        // SyncTodayOrders::isDuplicatedByLogistics()) is a second order record for
-        // the SAME lead, not a second real lead — 215 such orders were inflating
-        // Leads Report/TSA Performance before this exclusion.
+        // is_duplicated_by_logistics (2026-08-22, explicit follow-up request)
+        // was excluded here from 2026-08-22 to 2026-10-13 — a warehouse/
+        // logistics duplicate of an already-real order (Pancake staff flag
+        // these via a "DUPLICATED BY LOGISTICS" note, see
+        // SyncTodayOrders::isDuplicatedByLogistics()) was treated as a
+        // second order record for the SAME lead, not a second real lead —
+        // 215 such orders were inflating Leads Report/TSA Performance
+        // before that original exclusion.
+        //
+        // REVERSED 2026-10-13 (explicit request, same session as the
+        // AJ Dele Cruz excluded-seller addition below): "when there's now
+        // duplicated by logistics note make it included to the data but AJ
+        // and RALPH assignee is still as is" — root-caused live via
+        // screenshot: 2 real, tagged upsell orders for Marsha Arnecilla
+        // (#1375013/#1375008, ₱949/₱1,500) were invisible on her TSA
+        // Performance/Expected Income cards specifically because they
+        // carried this note, not because of their Cancelled status (that
+        // was already fine per the 2026-10-06 reversal below) — confirmed
+        // live these were genuine leads that should count. The flag itself
+        // (Order.is_duplicated_by_logistics) is left on the model/schema
+        // for history/future reference, just no longer excludes here.
+        // excluded_upsell_seller is UNCHANGED — AJ Dele Cruz/Ralph Cruz
+        // still never count (config/excluded_upsell_sellers.php), only the
+        // duplicated-by-logistics note itself no longer removes an order.
         //
         // Canceled (6) is NOT excluded here (reversed 2026-10-06, explicit
         // request: "like for example there's confirmation w/ upsell but
@@ -379,8 +397,7 @@ class ProductPerformance
         // it carried a genuine pre-cancellation upsell — see git history for
         // that version if ever needed.)
         $orders = $orders->reject(fn($o) => $o->status_code === 7
-            || $o->excluded_upsell_seller
-            || $o->is_duplicated_by_logistics);
+            || $o->excluded_upsell_seller);
 
         // The 12 outcome columns count NON-upsell leads only: an upsell order often
         // still carries a disposition tag (e.g. is_upsell + "CONFIRMED VIA CALL", or
@@ -688,10 +705,10 @@ class ProductPerformance
         // Same exclusions as tally() above — Canceled (6) is NOT excluded
         // (2026-10-06 reversal, see that method's own comment for why) so a
         // drilldown popover never shows fewer orders than the cell it
-        // explains counted.
+        // explains counted. duplicated-by-logistics is ALSO no longer
+        // excluded (2026-10-13 reversal, see tally()'s own doc comment).
         $orders = $orders->reject(fn($o) => $o->status_code === 7
-            || $o->excluded_upsell_seller
-            || $o->is_duplicated_by_logistics);
+            || $o->excluded_upsell_seller);
 
         $isRealUpsell = fn($o) => Order::isBroadRealUpsell($o);
         $nonUpsell = $orders->reject($isRealUpsell);
