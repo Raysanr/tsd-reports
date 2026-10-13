@@ -172,6 +172,71 @@ class ProductPerformanceCanceledUpsellTest extends TestCase
         $this->assertCount(1, $matching, 'A SEPARATE PARCEL upsell order must still match its tag-named base product even when its own product ID belongs to a different, unmapped item');
     }
 
+    /** Regression test, root-caused live 2026-10-13 (order #1375301,
+     *  Katherine Chua): a SEPARATE PARCEL order's own add-on item
+     *  ("Lumicare Oil") synced under a DIFFERENT team than its real base
+     *  product (Pterygium, Eyecare Team) — Order.team is the order's own
+     *  arrival HOUR window, not which team the real base product belongs
+     *  to, so a cross-team Separate Parcel sale is a normal, expected
+     *  occurrence, not an edge case. $isSeparateParcel already bypasses
+     *  the equivalent ID-matching gate for this exact "trust the tag"
+     *  reason (the test directly above) — this proves the team gate was
+     *  fixed to match: a genuine SEPARATE PARCEL tag must attribute to
+     *  its named base product even when Order.team disagrees with that
+     *  product's own configured team. */
+    public function test_a_separate_parcel_order_matches_its_tagged_product_across_a_team_mismatch(): void
+    {
+        $pterygium = $this->product([
+            'display_name'  => 'PTERYGIUM',
+            'match_keyword' => 'PTERYGIUM',
+            'team'          => 'Eyecare Team',
+        ]);
+
+        // Order.team is 'SH Naturals' (its own arrival-hour window) —
+        // deliberately NOT 'Eyecare Team', the real base product's own
+        // team, same mismatch confirmed live on #1375301.
+        $crossTeamSeparateParcel = $this->order([
+            'team'        => 'SH Naturals',
+            'product'     => 'LUMICARE OIL',
+            'base_product' => 'LUMICARE OIL',
+            'bundle_description' => '1 Lumicare Oil + 1 Haplunas Healing Eye Cream',
+            'raw_tags'    => ['KATHERINE', 'PTERYGIUM', 'Unreconciled', 'SEPARATE PARCEL'],
+            'is_upsell'   => false,
+        ]);
+
+        $matching = ProductPerformance::matchingOrders($pterygium, collect([$crossTeamSeparateParcel]), new Collection([$pterygium]));
+
+        $this->assertCount(1, $matching, 'A SEPARATE PARCEL order must match its tagged product even when Order.team (its own arrival hour) differs from that product\'s own configured team');
+    }
+
+    /** Guards against an overly-broad fix: a plain stale/leftover tag on
+     *  an ORDINARY (non-Separate-Parcel) order must stay team-gated
+     *  exactly as before — the fix above is scoped to genuine SEPARATE
+     *  PARCEL orders only, not a blanket "any tag crosses team lines"
+     *  change. Same production scenario this class's own doc comment
+     *  already documents (a Pterygium order carrying a leftover
+     *  CLEARSIGHT tag). */
+    public function test_an_ordinary_orders_stale_tag_stays_team_gated(): void
+    {
+        $clearSight = $this->product([
+            'display_name'  => 'CLEAR SIGHT',
+            'match_keyword' => 'CLEARSIGHT',
+            'team'          => 'Eyecare Team',
+        ]);
+
+        $staleTagOrder = $this->order([
+            'team'         => 'SH Naturals',
+            'product'      => 'Pterylief Eye Drops',
+            'base_product' => 'Pterylief Eye Drops',
+            'raw_tags'     => ['PTERYGIUM', 'CLEARSIGHT'],
+            'is_upsell'    => false,
+        ]);
+
+        $matching = ProductPerformance::matchingOrders($clearSight, collect([$staleTagOrder]), new Collection([$clearSight]));
+
+        $this->assertCount(0, $matching, 'A non-Separate-Parcel order\'s stale/leftover tag must still be blocked by the team gate');
+    }
+
     /** Same order, but WITHOUT the SEPARATE PARCEL tag — the ID-priority path
      *  must still win here (this is the normal, correct behavior for every
      *  other upsell order whose real item genuinely has its own mapped ID) —

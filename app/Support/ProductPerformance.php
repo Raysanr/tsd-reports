@@ -278,7 +278,28 @@ class ProductPerformance
             // team-gated since a tag alone is a weaker, more collision-prone signal.
             $explicitMatch = $product->matchesText($o->product) || $product->matchesText($o->base_product) || $product->matchesText($o->bundle_description);
 
-            if ($o->team !== $product->team && !$explicitMatch) return false;
+            // SEPARATE PARCEL orders bypass the team gate too (fix, 2026-10-13,
+            // explicit request — root-caused live, order #1375301: Katherine's
+            // own real Pterygium (Eyecare Team) upsell, shipped as its own
+            // SEPARATE PARCEL sibling order for "Lumicare Oil," never showed
+            // on Pterygium's own card. Order.team is the order's own arrival
+            // HOUR window (TeamShiftWindow, see ordersByTsaTeamAndDate()'s own
+            // doc comment elsewhere in this app for the fuller story), not
+            // which team the real base product belongs to — this order's own
+            // add-on item happened to sync under SH Naturals' hour window
+            // while Pterygium is configured Eyecare Team, so $explicitMatch
+            // was false (base_product/product is "Lumicare Oil," not
+            // Pterygium) and the team gate blocked the tag loop below before
+            // its own trusted "PTERYGIUM" tag was ever evaluated. $isSeparateParcel
+            // ALREADY bypasses the equivalent ID-matching gate above for the
+            // identical "trust the tag" reason (see that flag's own doc
+            // comment, 2026-09-03) — the team gate was the one remaining gate
+            // that reasoning never reached. A plain stale/leftover tag on an
+            // ORDINARY (non-Separate-Parcel) order stays team-gated exactly as
+            // before — this bypass is scoped to genuine Separate Parcel orders
+            // only, which is why $isSeparateParcel (not a bare "has any tag")
+            // is the condition here, not a blanket team-gate removal.
+            if ($o->team !== $product->team && !$explicitMatch && !$isSeparateParcel) return false;
 
             // Stale-tag guard: ~1-3 times a week an order's actual cart item is a
             // DIFFERENT team product (confirmed in production: mostly Pterygium
