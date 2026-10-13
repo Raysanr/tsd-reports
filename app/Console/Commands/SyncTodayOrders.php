@@ -330,14 +330,32 @@ class SyncTodayOrders extends Command
             $isExcludedUpsellSeller = $this->isExcludedUpsellSeller($raw);
             $isDuplicatedByLogistics = Order::isDuplicatedByLogistics($raw);
 
-            // is_duplicated_by_logistics gates this too (2026-08-22, explicit
-            // follow-up request) — a warehouse duplicate of an already-real order
-            // is never a genuine upsell either, same reasoning as
-            // isExcludedUpsellSeller above. This is what makes scopeRealUpsell()
-            // (Dashboard's topProducts/tsaLeaderboard, which query is_upsell
-            // directly rather than going through ProductPerformance::tally()'s
-            // own separate exclusion check) correctly exclude these too.
-            $hasUpsellTag = !$isExcludedUpsellSeller && !$isDuplicatedByLogistics
+            // is_duplicated_by_logistics NO LONGER gates this (REVERSED
+            // 2026-10-13, explicit request: "when there's now duplicated by
+            // logistics note make it included to the data" — see
+            // ProductPerformance::tally()'s own matching 2026-10-13 doc
+            // comment for the full story). Originally gated here too
+            // (2026-08-22) on the assumption that a warehouse duplicate of
+            // an already-real order is never a genuine upsell — reversed
+            // after confirmed live, Marsha Arnecilla's own TSA Performance
+            // row was missing 2 real, tagged upsell orders specifically
+            // because of this note. The 2026-10-13 fix only ever changed
+            // READ-time filtering (ProductPerformance's reject() calls) —
+            // this SYNC-time gate was a separate, un-reversed half of the
+            // same exclusion: it silently kept $hasUpsellTag false for a
+            // duplicated-by-logistics order, which meant
+            // $isUpsellOnVoidedOrder/$isRestockingUpsell below never got
+            // set true either, so $amount fell back to the FULL order
+            // total instead of extractUpsellAmount()'s isolated add-on
+            // price — root-caused live via order #1375008/#1375013
+            // (Marsha): Expected Income's automated Cancelled row showed
+            // 2,449.00 (949+1,500, the two orders' FULL totals) instead of
+            // the real 1,000.00 (500+500, just their own upsold add-ons —
+            // Rose Body Oil/Haplunas Balm), confirmed via the real Pancake
+            // order screenshots. excluded_upsell_seller is UNCHANGED —
+            // still gates this, a known non-TSA account's touch is a
+            // different kind of exclusion than a warehouse duplicate note.
+            $hasUpsellTag = !$isExcludedUpsellSeller
                 && (Order::hasUpsellTag($tagNames) || $this->hasUpsellBySeller($raw)
                     || Order::hasSeparateParcelTag($tagNames));
 

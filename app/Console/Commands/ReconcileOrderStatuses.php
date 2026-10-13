@@ -181,14 +181,18 @@ class ReconcileOrderStatuses extends Command
             ? $this->reconcileUpsellAmounts($apiKey, $shopId, $from, $to)
             : [0, 0];
 
+        [$voidedFlagChecked, $voidedFlagCorrected] = $apiError === null
+            ? $this->reconcileMissingUpsellOnVoidedFlags($apiKey, $shopId, $from, $to)
+            : [0, 0];
+
         [$tagsChecked, $tagsCorrected] = $apiError === null
             ? $this->reconcileVanishedAppTags(app(\App\Support\PancakeOrderTagApi::class))
             : [0, 0];
 
         Setting::set('order_status_reconcile_last_run', now()->toIso8601String());
-        Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked + $amountChecked + $tagsChecked);
-        Setting::set('order_status_reconcile_last_corrected', $correctedCount + $upsellCorrected + $amountCorrected + $tagsCorrected);
-        Setting::set('order_status_reconcile_last_amount_corrected', $amountCorrected);
+        Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked + $amountChecked + $voidedFlagChecked + $tagsChecked);
+        Setting::set('order_status_reconcile_last_corrected', $correctedCount + $upsellCorrected + $amountCorrected + $voidedFlagCorrected + $tagsCorrected);
+        Setting::set('order_status_reconcile_last_amount_corrected', $amountCorrected + $voidedFlagCorrected);
 
         if ($apiError !== null) {
             Log::error('pancake:reconcile-statuses failed', ['message' => $apiError]);
@@ -198,6 +202,7 @@ class ReconcileOrderStatuses extends Command
         $this->info("Checked {$checkedCount} Pancake-removed order(s) from the last {$days} day(s); corrected {$correctedCount} stale local record(s).");
         $this->info("Checked {$upsellChecked} still-active order(s) tagged as upsells; corrected {$upsellCorrected} whose add-on item was actually removed.");
         $this->info("Checked {$amountChecked} still-active upsell(s) against live Pancake data; corrected {$amountCorrected} whose amount had drifted.");
+        $this->info("Checked {$voidedFlagChecked} Cancelled/Restocking order(s) with a real upsell tag; corrected {$voidedFlagCorrected} whose amount was never isolated to just the add-on.");
         $this->info("Checked {$tagsChecked} order(s) with app-added tags; re-applied {$tagsCorrected} tag(s) lost to an external Pancake edit.");
         return self::SUCCESS;
     }
@@ -596,6 +601,97 @@ class ReconcileOrderStatuses extends Command
                 $local->update(['amount' => $liveAmount]);
                 $corrected++;
                 $this->line(sprintf('  Corrected #%s amount: ₱%.2f -> ₱%.2f', $local->pancake_order_id, $oldAmount, $liveAmount));
+            }
+        }
+
+        return [$checked, $corrected];
+    }
+
+    /**
+     * Fifth, separate pass — root-caused live 2026-10-13, order #1375008/
+     * #1375013 (Marsha Arnecilla): a Cancelled(6)/Restocking(11) order
+     * carrying a genuine upsell tag whose add-on item is STILL genuinely
+     * present (unlike reconcileStaleUpsellTags() above, which only fires
+     * when the add-on was actually removed) can still have the wrong
+     * `amount` stored — the FULL order total instead of
+     * Order::extractUpsellAmount()'s isolated add-on price — whenever
+     * SyncTodayOrders' own $hasUpsellTag never recognized the tag at sync
+     * time in the first place. Confirmed live: both orders are flagged
+     * "DUPLICATED BY LOGISTICS" in their Pancake note — SyncTodayOrders'
+     * $hasUpsellTag was gated on `!$isDuplicatedByLogistics` until this
+     * same date (see that file's own matching 2026-10-13 doc comment,
+     * reversed alongside this pass), so neither order's
+     * is_upsell_on_voided_order/is_restocking_upsell ever got set true,
+     * and `amount` fell back to the raw order total (949/1,500) instead of
+     * the real isolated add-on value (500 each — Rose Body Oil/Haplunas
+     * Balm). Expected Income's automated Cancelled row (2026-10-13) reads
+     * exactly this amount via Order::realUpsellAmount(), so this drift
+     * directly inflated that figure (confirmed live: Marsha's card showed
+     * 2,449.00 instead of the real 1,000.00). Scanned production: 218 real
+     * orders affected in the last 90 days alone, not a one-off — the
+     * sync-time fix only protects FUTURE syncs, this pass retroactively
+     * corrects what's already stored, same "two-part fix" pattern as
+     * reconcileUpsellAmounts() above.
+     *
+     * Deliberately narrower than reconcileUpsellAmounts()'s own candidate
+     * set — that pass only ever looks at orders CURRENTLY flagged
+     * is_upsell/is_returned_upsell=true; this pass's whole premise is
+     * orders that were NEVER flagged is_upsell_on_voided_order/
+     * is_restocking_upsell=true at all despite genuinely qualifying, so it
+     * has to scan by status_code + a live upsell-tag check instead.
+     */
+    private function reconcileMissingUpsellOnVoidedFlags(string $apiKey, string $shopId, Carbon $from, Carbon $to): array
+    {
+        $candidates = Order::whereIn('status_code', [6, 11])
+            ->where('is_upsell_on_voided_order', false)
+            ->where('is_restocking_upsell', false)
+            ->where('is_cancelled_upsell', false)
+            ->whereBetween('pancake_created_at', [$from, $to])
+            ->get(['id', 'pancake_order_id', 'status_code', 'amount', 'raw_tags'])
+            ->filter(fn (Order $o) => Order::hasUpsellTag($o->raw_tags ?? []));
+
+        $checked     = 0;
+        $corrected   = 0;
+        $concurrency = 5;
+
+        foreach ($candidates->chunk($concurrency) as $batch) {
+            $responses = Http::pool(fn ($pool) => $batch->map(
+                fn ($order) => $pool->as($order->pancake_order_id)
+                    ->withHeaders(['Accept' => 'application/json'])->timeout(15)
+                    ->get("https://pos.pages.fm/api/v1/shops/{$shopId}/orders/{$order->pancake_order_id}", ['api_key' => $apiKey])
+            )->all());
+
+            foreach ($batch as $local) {
+                $checked++;
+                $response = $responses[$local->pancake_order_id] ?? null;
+
+                if ($response instanceof \Throwable || $response === null || !$response->successful()) {
+                    $reason = $response instanceof \Throwable ? $response->getMessage() : ($response?->status() ?? 'no response');
+                    $this->warn("  Skipped #{$local->pancake_order_id} (voided-upsell check): {$reason}");
+                    continue;
+                }
+
+                $raw = $response->json()['data'] ?? $response->json();
+                if (!is_array($raw) || !isset($raw['items'])) continue;
+
+                // A current live status mismatch means this order already
+                // got handled (or will be) by a different pass — stay
+                // scoped to exactly the shape this pass exists for.
+                $liveStatus = (int) ($raw['status'] ?? -1);
+                if (!in_array($liveStatus, [6, 11], true)) continue;
+
+                $isolatedAmount = Order::extractUpsellAmount($raw);
+                $oldAmount = (float) $local->amount;
+                if (abs($isolatedAmount - $oldAmount) < 0.01) continue;
+
+                $local->update(array_merge(
+                    ['amount' => $isolatedAmount],
+                    $liveStatus === 11
+                        ? ['is_restocking_upsell' => true, 'restocking_upsell_amount' => $isolatedAmount]
+                        : ['is_upsell_on_voided_order' => true]
+                ));
+                $corrected++;
+                $this->line(sprintf('  Corrected #%s amount: ₱%.2f -> ₱%.2f (isolated the upsold add-on)', $local->pancake_order_id, $oldAmount, $isolatedAmount));
             }
         }
 

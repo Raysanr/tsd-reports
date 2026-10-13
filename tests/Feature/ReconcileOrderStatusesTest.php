@@ -1177,4 +1177,154 @@ class ReconcileOrderStatusesTest extends TestCase
 
         Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
+
+    /**
+     * Root-caused live 2026-10-13, order #1375008 (Marsha Arnecilla): a
+     * Cancelled-status order with a genuine upsell tag whose add-on item
+     * is STILL present (unlike the stale-tag pass above) can still have
+     * the WRONG stored amount — the full order total instead of just the
+     * isolated add-on price — because SyncTodayOrders' own $hasUpsellTag
+     * never recognized the tag at sync time (the order was flagged
+     * "DUPLICATED BY LOGISTICS", which used to gate $hasUpsellTag until
+     * this same date). This pass retroactively corrects it: 3 Pterylief
+     * (1,000) + 1 Haplunas Balm (500) = 1,500 full total stored, but only
+     * the Haplunas Balm (500) should count as the upsell amount.
+     */
+    public function test_isolates_a_cancelled_orders_amount_to_just_the_upsold_addon(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375008',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['MARSHA', 'PTERYLIEF', 'UPSELL TSD - PTERYLIEF + HAPLUNAS'],
+            'amount'                    => 1500.0, // stale — the FULL order total
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1375008*' => Http::response(['data' => [
+                'id'     => 1375008,
+                'status' => 6,
+                'tags'   => [['name' => 'MARSHA'], ['name' => 'PTERYLIEF'], ['name' => 'UPSELL TSD - PTERYLIEF + HAPLUNAS']],
+                'items'  => [
+                    ['variation_info' => ['name' => 'Pterylief', 'retail_price' => 1000], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375008')->first();
+        $this->assertTrue($order->is_upsell_on_voided_order);
+        $this->assertSame(500.0, (float) $order->amount, 'Only the upsold add-on (Haplunas Balm) should count, not the full 1,500 order total');
+    }
+
+    /** Same bug, Restocking(11) status instead of Cancelled(6) — the
+     *  isolated amount is stored in restocking_upsell_amount/
+     *  is_restocking_upsell for this status, not amount directly, same
+     *  convention SyncTodayOrders itself already uses. */
+    public function test_isolates_a_restocking_orders_amount_to_just_the_upsold_addon(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375009',
+            'status_code'               => 11,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['KATH', 'GINSENG', 'UPSELL TSD - GINSENG SERUM'],
+            'amount'                    => 1300.0,
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1375009*' => Http::response(['data' => [
+                'id'     => 1375009,
+                'status' => 11,
+                'tags'   => [['name' => 'KATH'], ['name' => 'GINSENG'], ['name' => 'UPSELL TSD - GINSENG SERUM']],
+                'items'  => [
+                    ['variation_info' => ['name' => 'Ginseng Serum', 'retail_price' => 800], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Scar Cream', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375009')->first();
+        $this->assertTrue($order->is_restocking_upsell);
+        $this->assertSame(500.0, (float) $order->restocking_upsell_amount);
+    }
+
+    /** An order whose stored amount is ALREADY the isolated add-on price
+     *  (e.g. corrected by an earlier run, or synced correctly from the
+     *  start) is left alone — not re-flagged, not re-written. */
+    public function test_leaves_a_cancelled_orders_amount_alone_when_already_isolated(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375010',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['UPSELL TSD - Ear Relief Balm'],
+            'amount'                    => 500.0, // already isolated
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1375010*' => Http::response(['data' => [
+                'id'     => 1375010,
+                'status' => 6,
+                'tags'   => [['name' => 'UPSELL TSD - Ear Relief Balm']],
+                'items'  => [
+                    ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 800], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 500], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375010')->first();
+        $this->assertFalse($order->is_upsell_on_voided_order, 'already-correct amount means no correction was needed — the flag should not get set as a side effect');
+        $this->assertSame(500.0, (float) $order->amount);
+    }
+
+    /** A Cancelled order with NO real upsell tag at all must never be
+     *  touched by this pass — guards against treating every Cancelled
+     *  order as a candidate. */
+    public function test_does_not_touch_a_cancelled_order_with_no_upsell_tag(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375011',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['MARSHA', 'CONFIRMED VIA CALL'],
+            'amount'                    => 500.0,
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), '1375011'));
+        $order = Order::where('pancake_order_id', '1375011')->first();
+        $this->assertFalse($order->is_upsell_on_voided_order);
+        $this->assertSame(500.0, (float) $order->amount);
+    }
 }
