@@ -2755,6 +2755,57 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $response->assertDontSee('TIKTOK: NATUREVA');
     }
 
+    /** REVERSED 2026-10-13, explicit request: "anne is catering in the pos
+     *  and tiktok too so it will be still separate her orders in pos and
+     *  in tiktok because tiktok is manual input" — a TikTok-flagged TSA
+     *  genuinely does both jobs (real Pancake orders as a normal TSA AND
+     *  separate manual TikTok upsells), so her real card block must now
+     *  show on her real team's own filtered view too, not just under the
+     *  TikTok filter. Supersedes the 2026-10-07 decision that hid it. */
+    public function test_a_tiktok_flagged_tsas_real_team_view_now_shows_her_own_real_card(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $response->assertSee($tsa->display_name);
+    }
+
+    /** Same real-card requirement on the ALL view — a TikTok-flagged TSA's
+     *  own real Gross Sales must now count toward the site-wide TELESALES
+     *  total via her real team card, not just via her separate TikTok
+     *  fold-in. */
+    public function test_a_tiktok_flagged_tsas_real_gross_sales_counts_on_the_all_view(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $product = Product::first();
+        $date = today()->toDateString();
+        $this->seedUpsellOrderForGrossSales($product, $tsa, $date, 1000.00);
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'all',
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        $telesalesPos = strpos($content, '>TELESALES<');
+        $this->assertNotFalse($telesalesPos);
+        $this->assertMatchesRegularExpression(
+            '/data-out="gross_sales"[^>]*>\s*1,000\.00/',
+            substr($content, $telesalesPos, 3000),
+            "A TikTok-flagged TSA's real Pancake-order revenue must count toward the ALL-view TELESALES total via her real team card"
+        );
+    }
+
     /** The standalone "TIKTOK TOTAL" card was REMOVED (explicit follow-up,
      *  2026-10-06: "it will be remove this card TIKTOK TOTAL because the
      *  overall total is will be TELESALES") — TELESALES itself now folds
@@ -2800,19 +2851,18 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Explicit reversal, 2026-10-12 (this test used to assert the
-     *  OPPOSITE — see git history for the 2026-10-10 version this
-     *  replaces). Direct instruction: "not just salaries, include all of
-     *  the tiktok all data" — root-caused live via screenshot: the
-     *  ALL-view TELESALES card's own Salaries line exactly equalled Team
-     *  Opening + Team Closing's own Salaries with nothing added for a
-     *  TikTok-flagged TSA, even though her real Daily Rate is a real cost.
-     *  Her Salaries now fold into the ALL-view TELESALES total unmodified
-     *  (index()'s own $tiktokData['tiktokOverallTotal'] fold-in, no more
-     *  ['salaries' => 0.0] override) — Summary Sales Report's own OVERALL
-     *  TOTAL was updated the SAME commit (tiktokTotalsByTsaAndDate()'s own
-     *  doc comment) to restore her real Salaries there too, so the two
-     *  pages keep tallying instead of diverging again. */
+    /** Narrowed again, 2026-10-13 (this test's own 2026-10-12 version
+     *  folded Salaries in unmodified — see git history for that version).
+     *  A TikTok-flagged TSA now ALSO gets her own real card on her real
+     *  team (explicit request, 2026-10-13: she genuinely does both jobs,
+     *  real Pancake orders AND separate manual TikTok upsells) — her real
+     *  Daily Rate now reaches the ALL-view TELESALES total via her own
+     *  real team card, same as any other TSA, so the TikTok fold-in's own
+     *  Salaries would double it if left unmodified. This test still
+     *  asserts her real Daily Rate moves the ALL-view total by exactly
+     *  her Daily Rate delta — just via her real team card now, not the
+     *  TikTok fold-in, which is why the Salaries override returned (see
+     *  index()'s own `['salaries' => 0.0]` doc comment). */
     public function test_telesales_on_all_includes_a_tiktok_flagged_tsas_real_salaries(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

@@ -860,6 +860,63 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*6,000\.00\s*</', $matches[0]);
     }
 
+    /** Guards against a double-count introduced alongside the 2026-10-13
+     *  reversal that lets a TikTok-flagged TSA's real team row show again
+     *  (see ExpectedIncomeController::index()'s own doc comment for the
+     *  full "she genuinely does both jobs" story): her real Daily Rate
+     *  now reaches OVERALL TOTAL's own Net Income via her real team's
+     *  pooled figure (teamNetIncomeByDate()) — tiktokTotalsByTsaAndDate()
+     *  separately subtracts the SAME real Daily Rate as Salaries for her
+     *  own standalone TikTok row display, which this page's own OVERALL
+     *  TOTAL used to fold in unmodified on top. Confirms her Daily Rate
+     *  only ever reduces OVERALL TOTAL's Net Income ONCE: doubling her
+     *  base salary must move OVERALL TOTAL's Net Income by exactly one
+     *  Daily Rate delta, not two. */
+    public function test_a_tiktok_flagged_tsas_daily_rate_is_not_double_subtracted_from_the_overall_total(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        \App\Models\CostBreakdownRole::ensureSeeded();
+        \App\Models\CostBreakdownPool::ensureSeeded();
+        \App\Models\CostBreakdownTsaEntry::ensureSeeded();
+
+        ExpectedIncomeTiktokEntry::create([
+            'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
+            'gross_sales' => 5000,
+        ]);
+
+        $fetchOverallNetIncome = function () use ($admin, $date) {
+            $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
+                'date_from' => $date, 'date_to' => $date,
+            ]));
+            $response->assertOk();
+            preg_match('/<tr class="bg-black text-white font-bold tsr-overall-total-row">.*?<\/tr>/s', $response->getContent(), $matches);
+            $this->assertNotEmpty($matches, 'expected to find the OVERALL TOTAL row');
+            preg_match('/data-out="net_income">\s*(-?[\d,.]+)\s*</', $matches[0], $m);
+            $this->assertNotEmpty($m, 'expected a parseable Net Income figure on the OVERALL TOTAL row');
+            return (float) str_replace(',', '', $m[1]);
+        };
+
+        \App\Models\CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 24000.00]);
+        $dailyRateAt24k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertGreaterThan(0, $dailyRateAt24k, 'test setup: expected a real nonzero Daily Rate for this TSA');
+        $netIncomeAt24k = $fetchOverallNetIncome();
+
+        \App\Models\CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
+        app()->offsetUnset('tsa_daily_rate.cost_breakdown_tsa_entries');
+        $dailyRateAt48k = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertNotEquals($dailyRateAt24k, $dailyRateAt48k, 'test setup: expected her Daily Rate to actually change with her base salary');
+        $netIncomeAt48k = $fetchOverallNetIncome();
+
+        $this->assertEqualsWithDelta(
+            $netIncomeAt24k - ($dailyRateAt48k - $dailyRateAt24k), $netIncomeAt48k, 0.02,
+            'OVERALL TOTAL Net Income must move by exactly ONE Daily Rate delta when her base salary changes, not two'
+        );
+    }
+
     /** Root-caused live, 2026-10-11 (screenshot comparison, Oct 1): this
      *  page's own TikTok Upsell Gross Sales showed a different number
      *  than Expected Income's own TikTok card for the identical TSA/day —
