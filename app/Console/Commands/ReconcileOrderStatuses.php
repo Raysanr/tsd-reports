@@ -248,8 +248,18 @@ class ReconcileOrderStatuses extends Command
      */
     private function reconcileVanishedAppTags(\App\Support\PancakeOrderTagApi $api): array
     {
+        // whereJsonLength(), not ->where('app_added_tags', '!=', '[]') (bug
+        // fix, 2026-10-13) — the string-comparison form silently crashed
+        // every run on Postgres production (SQLSTATE[42883]: "operator
+        // does not exist: json <> unknown" — Postgres's `json` column type
+        // has no comparison operators at all, unlike SQLite's TEXT-backed
+        // JSON storage, which is why this passed in local tests but fatally
+        // errored on every real scheduled run since this pass was added,
+        // 2026-09-18 — caught live while verifying an unrelated same-day
+        // fix). whereJsonLength() compiles to the correct native JSON
+        // function for either driver.
         $candidates = Order::where(fn ($q) => $q
-                ->where(fn ($q2) => $q2->whereNotNull('app_added_tags')->where('app_added_tags', '!=', '[]'))
+                ->whereJsonLength('app_added_tags', '>', 0)
                 ->orWhereNotNull('app_note')
                 ->orWhereNotNull('app_note_print')
                 ->orWhereNotNull('app_shipping_address'))
