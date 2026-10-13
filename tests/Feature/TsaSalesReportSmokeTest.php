@@ -737,19 +737,21 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertSee('6,000.00');
     }
 
-    /** A TikTok-flagged TSA must NOT also duplicate as an all-zero row
-     *  under her real team's own section (summary table AND the separate
-     *  daily table) — explicit report, 2026-10-12, screenshot: Anne
-     *  Pascua (tiktok_upsell=true) still showed an all-zero duplicate row
-     *  under TEAM CLOSING even though she already correctly appeared in
-     *  her own TIKTOK UPSELL section. Her `TsaShift.team` column is never
-     *  cleared when she's flagged, so $teamTsas naively still picked her
-     *  up — this is a DISPLAY-ONLY fix (TsaSalesReportController::index()
-     *  itself is untouched; the skip lives in tsa-sales.blade.php's own
-     *  per-TSA row loops), confirmed by the companion test below still
-     *  passing unchanged — her real orders still count toward the
-     *  OVERALL TOTAL even with her row hidden. */
-    public function test_a_tiktok_flagged_tsa_does_not_duplicate_under_her_real_team(): void
+    /** REVERSED 2026-10-13, explicit request: "anne is catering in the
+     *  pos and tiktok too so it will be still separate her orders in pos
+     *  and in tiktok because tiktok is manual input" — a TikTok-flagged
+     *  TSA genuinely does both jobs, so her real row now shows under her
+     *  real team's own section (summary table AND the daily table) AGAIN,
+     *  superseding the 2026-10-12 display-only skip this test used to
+     *  assert (that skip was built when her row showed all-zero, since
+     *  her real revenue had no path into this controller's own data at
+     *  the time — see tsa-sales.blade.php's own doc comment for the full
+     *  story). She now appears 4 times total: her real summary row + real
+     *  daily row (genuinely different numbers — her own real Pancake-
+     *  order figures) PLUS her TikTok summary row + TikTok daily row
+     *  (her separate, manually-typed TikTok figures) — four distinct
+     *  rows, not a duplicate of the same data. */
+    public function test_a_tiktok_flagged_tsa_shows_under_both_her_real_team_and_tiktok_upsell(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -760,11 +762,12 @@ class TsaSalesReportSmokeTest extends TestCase
         $response->assertOk();
         $content = $response->getContent();
 
-        // She still appears exactly once in the TikTok section's own
-        // summary row AND once in the TikTok section's own daily row —
-        // but zero times in the real-team summary table or daily table.
+        // Real summary row + real daily row + TikTok summary row +
+        // TikTok daily row — four genuinely distinct rows, no duplication
+        // of the same data (her real Pancake-order figures and her
+        // manually-typed TikTok figures are independent income streams).
         preg_match_all('/data-tsa-id="' . $tsa->id . '"/', $content, $matches);
-        $this->assertCount(2, $matches[0], 'expected exactly 2 occurrences (TikTok summary row + TikTok daily row), confirming no real-team duplicate');
+        $this->assertCount(4, $matches[0], 'expected her real team row (summary + daily) AND her TikTok row (summary + daily), four distinct occurrences');
     }
 
     /** A TSA NOT flagged tiktok_upsell should never show up in that
