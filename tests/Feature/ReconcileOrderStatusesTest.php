@@ -1327,4 +1327,84 @@ class ReconcileOrderStatusesTest extends TestCase
         $this->assertFalse($order->is_upsell_on_voided_order);
         $this->assertSame(500.0, (float) $order->amount);
     }
+
+    /** Root-caused live 2026-10-13, order #1375218 (Mariel) — the mirror-
+     *  image bug to the amount-isolation fix above: a duplicated-by-
+     *  logistics Cancelled order whose add-on was NEVER actually present
+     *  (the live item list's sole remaining item IS the tag's own named
+     *  base, "NutriLay") must be excluded via is_cancelled_upsell, not
+     *  "corrected" into a real-upsell-worth-₱0 by the amount-isolation
+     *  branch. */
+    public function test_excludes_a_stale_cancelled_upsell_whose_addon_was_never_present(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375218',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['MARIEL', 'UPSELL TSD - NUTRILAY + NUTRIGAIN', 'NUTRILAY'],
+            'amount'                    => 798.0, // stale — the full order total, no addon ever existed
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1375218*' => Http::response(['data' => [
+                'id'     => 1375218,
+                'status' => 6,
+                'tags'   => [['name' => 'MARIEL'], ['name' => 'UPSELL TSD - NUTRILAY + NUTRIGAIN'], ['name' => 'NUTRILAY']],
+                'items'  => [
+                    ['variation_info' => ['name' => 'NutriLay', 'retail_price' => 798], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375218')->first();
+        $this->assertTrue($order->is_cancelled_upsell, 'the add-on was never present, so this is not a real upsell at all');
+        $this->assertFalse($order->is_upsell_on_voided_order, 'must not be "corrected" into a real-upsell-worth-zero');
+        $this->assertFalse(Order::isBroadRealUpsell($order), 'must no longer count toward the Cancelled row at all');
+    }
+
+    /** Guards the fix above from being too broad: an order whose add-on
+     *  genuinely IS still present (the real scenario this pass's headline
+     *  fix, #1375008/#1375013, already covers) must still be isolated to
+     *  its real amount, not swept into the new is_cancelled_upsell branch. */
+    public function test_still_isolates_amount_when_the_addon_genuinely_remains(): void
+    {
+        Order::factory()->create([
+            'pancake_order_id'          => '1375219',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_upsell_on_voided_order' => false,
+            'is_restocking_upsell'      => false,
+            'is_cancelled_upsell'       => false,
+            'raw_tags'                  => ['MARIEL', 'UPSELL TSD - NUTRILAY + NUTRIGAIN', 'NUTRILAY'],
+            'amount'                    => 1596.0,
+            'pancake_created_at'        => now(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+            'pos.pages.fm/api/v1/shops/*/orders/1375219*' => Http::response(['data' => [
+                'id'     => 1375219,
+                'status' => 6,
+                'tags'   => [['name' => 'MARIEL'], ['name' => 'UPSELL TSD - NUTRILAY + NUTRIGAIN'], ['name' => 'NUTRILAY']],
+                'items'  => [
+                    ['variation_info' => ['name' => 'NutriLay', 'retail_price' => 798], 'quantity' => 1],
+                    ['variation_info' => ['name' => 'Nutrigain', 'retail_price' => 798], 'quantity' => 1],
+                ],
+            ]], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375219')->first();
+        $this->assertFalse($order->is_cancelled_upsell, 'the add-on genuinely remains, this is a real upsell');
+        $this->assertTrue($order->is_upsell_on_voided_order);
+        $this->assertSame(798.0, (float) $order->amount, 'isolated to just the Nutrigain add-on, not the full 1,596 order total');
+    }
 }

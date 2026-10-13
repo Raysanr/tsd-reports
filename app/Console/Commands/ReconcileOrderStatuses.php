@@ -643,6 +643,22 @@ class ReconcileOrderStatuses extends Command
      * corrects what's already stored, same "two-part fix" pattern as
      * reconcileUpsellAmounts() above.
      *
+     * SAME-DAY FOLLOW-UP, order #1375218 (Mariel): the mirror-image bug —
+     * $hasUpsellTag being false also blocked SyncTodayOrders'
+     * $isCancelledUpsell from ever evaluating true (it's gated on the SAME
+     * $hasUpsellTag, see that file's own $isCancelledUpsell computation),
+     * so a duplicated-by-logistics order whose add-on was NEVER actually
+     * present (remainingItemIsJustTheBase()=true — this order's sole
+     * remaining item IS the tag's named base, "NutriLay") was ALSO never
+     * flagged is_cancelled_upsell, and was instead silently counted as a
+     * real ₱798 upsell. This pass now checks that FIRST, same two-
+     * condition logic SyncTodayOrders itself uses — an order whose add-on
+     * was never added/was removed gets excluded via is_cancelled_upsell,
+     * never "corrected" into a real-upsell-worth-₱0 by the amount-isolation
+     * branch below (extractUpsellAmount() itself would silently return 0.0
+     * for this exact shape, which is the WRONG outcome — not a real upsell
+     * at all, not a real upsell worth nothing).
+     *
      * Deliberately narrower than reconcileUpsellAmounts()'s own candidate
      * set — that pass only ever looks at orders CURRENTLY flagged
      * is_upsell/is_returned_upsell=true; this pass's whole premise is
@@ -689,6 +705,39 @@ class ReconcileOrderStatuses extends Command
                 // scoped to exactly the shape this pass exists for.
                 $liveStatus = (int) ($raw['status'] ?? -1);
                 if (!in_array($liveStatus, [6, 11], true)) continue;
+
+                // Same two-condition check SyncTodayOrders' own
+                // $isCancelledUpsell computation uses (bug fix, 2026-10-13,
+                // order #1375218/Mariel — the exact same sync-time gap as
+                // this pass's own headline fix, just the OTHER branch of
+                // the same `||` expression: $hasUpsellTag was false, so
+                // $isCancelledUpsell could never evaluate true either, not
+                // just is_upsell_on_voided_order). An order whose remaining
+                // item IS the tag's named base (the add-on was never added
+                // or was removed) is NOT a real upsell at all — it must be
+                // excluded via is_cancelled_upsell, never treated as a real
+                // upsell that merely needs its amount isolated (which
+                // extractUpsellAmount() itself would silently return 0.0
+                // for here, still leaving is_upsell_on_voided_order=true —
+                // "a real upsell worth ₱0" instead of "not a real upsell
+                // at all", the wrong outcome for a Cancelled row that must
+                // never count it).
+                $tagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $raw['tags'] ?? []);
+                $isStaleCancelledUpsell = (Order::remainingItemIsJustTheBase($raw) && !Order::hasSeparateParcelTag($tagNames))
+                    || Order::noteSaysCancelledUpsell($raw);
+
+                if ($isStaleCancelledUpsell) {
+                    $local->update([
+                        'is_cancelled_upsell' => true,
+                        'is_upsell' => false,
+                        'is_upsell_on_voided_order' => false,
+                        'is_restocking_upsell' => false,
+                        'restocking_upsell_amount' => 0,
+                    ]);
+                    $corrected++;
+                    $this->line("  Corrected #{$local->pancake_order_id}: not a real upsell (add-on never present/removed), excluded via is_cancelled_upsell");
+                    continue;
+                }
 
                 $isolatedAmount = Order::extractUpsellAmount($raw);
                 $oldAmount = (float) $local->amount;
