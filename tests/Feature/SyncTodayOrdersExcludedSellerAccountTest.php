@@ -130,13 +130,15 @@ class SyncTodayOrdersExcludedSellerAccountTest extends TestCase
         $this->assertSame('Kathleen', $order->tsa_name);
     }
 
-    /** "AJ Dele Cruz" added 2026-10-13 alongside Ralph Cruz (explicit
+    /** "AJ Dela Cruz" added 2026-10-13 alongside Ralph Cruz (explicit
      *  request, same session as the duplicated-by-logistics reversal —
      *  "AJ and RALPH assignee is still as is") — same config mechanism,
      *  same exclusion behavior, confirmed with its own exact name rather
      *  than relying solely on the generic case-insensitive matching test
-     *  above. */
-    public function test_an_upsell_tag_closed_by_aj_dele_cruz_never_counts_as_a_real_upsell(): void
+     *  above. (Name corrected same day — the config/test originally had
+     *  "AJ Dele Cruz", a misspelling that matched nothing in production
+     *  since matching is substring-based.) */
+    public function test_an_upsell_tag_closed_by_aj_dela_cruz_never_counts_as_a_real_upsell(): void
     {
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
@@ -151,8 +153,8 @@ class SyncTodayOrdersExcludedSellerAccountTest extends TestCase
                 ['id' => 1, 'name' => 'UPSELL TSD - Ear Relief Balm'],
             ],
             'items' => [
-                ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dele Cruz']],
-                ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dele Cruz']],
+                ['variation_info' => ['name' => 'AudiCure', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dela Cruz']],
+                ['variation_info' => ['name' => 'Ear Relief Balm', 'retail_price' => 500], 'quantity' => 1, 'assigning_seller' => ['name' => 'AJ Dela Cruz']],
             ],
         ]);
 

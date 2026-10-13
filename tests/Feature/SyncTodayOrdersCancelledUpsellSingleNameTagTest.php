@@ -267,4 +267,84 @@ class SyncTodayOrdersCancelledUpsellSingleNameTagTest extends TestCase
         $this->assertTrue($order->is_cancelled_upsell);
         $this->assertSame(499.0, (float) $order->amount, 'The order still ships — its base amount must not be zeroed out, only excluded from upsell revenue');
     }
+
+    /**
+     * Root-caused 2026-10-13, real production order #1377777 (Katherine
+     * Chua, Oct 7): same "cancelled upsell" note pattern as #1366186 above,
+     * but a DIFFERENT staff member added a later line in the same note
+     * retracting it — "10-09 as per TSS GRETCHEN I-DISREGARD NA ITO DAHIL
+     * NA PROCEED NA ANG ORDER NI CS W/ UPSELL" ("disregard this, the order
+     * with the upsell did proceed after all"). Since is_cancelled_upsell is
+     * recomputed fresh from Pancake's live note text on every sync, the
+     * stale cancellation phrase kept re-matching forever — the correction
+     * had no way to ever take effect. A disregard phrase appearing AFTER
+     * the cancellation phrase in the note must suppress the exclusion.
+     */
+    public function test_a_later_disregard_note_un_cancels_an_earlier_cancelled_upsell_note(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1377777,
+            'status'      => 11,
+            'total_price' => 1000,
+            'cod'         => 1000,
+            'inserted_at' => '2026-10-07T12:50:47',
+            'updated_at'  => '2026-10-07T12:50:47',
+            'note'        => "chua - hindi po nakita na may DP si CX kaya na cancelled upsell \r\n"
+                . "humingi po ako ng DP para po sure na i receive hindi ko po na notice na HIGH RTS \r\n\r\n\r\n"
+                . "HOLD MUNA FOR INVESTIGATION\r\n\r\n\r\n"
+                . "10-09 as per TSS GRETCHEN I-DISREGARD NA ITO DAHIL NA PROCEED NA ANG ORDER NI CS W/ UPSELL",
+            'tags' => [
+                ['id' => 1, 'name' => 'KATHERINE'],
+                ['id' => 2, 'name' => 'PTERYLIEF'],
+                ['id' => 3, 'name' => 'UPSELL TSD - PTERYLIEF+ LUMICARE + HAPLUNAS'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'Lumicare Oil', 'retail_price' => 500], 'quantity' => 1],
+                ['variation_info' => ['name' => 'Haplunas Healing Eye Cream', 'retail_price' => 500], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-10-07']);
+
+        $order = Order::where('pancake_order_id', '1377777')->first();
+
+        $this->assertNotNull($order);
+        $this->assertFalse($order->is_cancelled_upsell, 'A later "disregard" line in the same note must override an earlier "cancelled upsell" phrase');
+    }
+
+    /** Guards against the fix above being backwards: a disregard phrase
+     *  appearing BEFORE the cancellation phrase must NOT suppress it —
+     *  that would read as disregarding something not yet mentioned. */
+    public function test_a_disregard_note_appearing_before_the_cancellation_phrase_does_not_suppress_it(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1377778,
+            'status'      => 8,
+            'total_price' => 499,
+            'cod'         => 499,
+            'inserted_at' => '2026-10-07T12:50:47',
+            'updated_at'  => '2026-10-07T12:50:47',
+            'note'        => "DISREGARD the earlier note about DP\ncancelled upsell per TSA confirmation",
+            'tags'        => [
+                ['id' => 1, 'name' => 'KATH'],
+                ['id' => 2, 'name' => 'TSD UPSELL - GINSENG SERUM'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'GINSENG SERUM', 'retail_price' => 499], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-10-07']);
+
+        $order = Order::where('pancake_order_id', '1377778')->first();
+
+        $this->assertNotNull($order);
+        $this->assertTrue($order->is_cancelled_upsell, 'A disregard phrase written BEFORE the cancellation phrase must not retroactively un-cancel it');
+    }
 }

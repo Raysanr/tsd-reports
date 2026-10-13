@@ -391,7 +391,7 @@ class ProductPerformance
         // before that original exclusion.
         //
         // REVERSED 2026-10-13 (explicit request, same session as the
-        // AJ Dele Cruz excluded-seller addition below): "when there's now
+        // AJ Dela Cruz excluded-seller addition below): "when there's now
         // duplicated by logistics note make it included to the data but AJ
         // and RALPH assignee is still as is" — root-caused live via
         // screenshot: 2 real, tagged upsell orders for Marsha Arnecilla
@@ -402,7 +402,7 @@ class ProductPerformance
         // live these were genuine leads that should count. The flag itself
         // (Order.is_duplicated_by_logistics) is left on the model/schema
         // for history/future reference, just no longer excludes here.
-        // excluded_upsell_seller is UNCHANGED — AJ Dele Cruz/Ralph Cruz
+        // excluded_upsell_seller is UNCHANGED — AJ Dela Cruz/Ralph Cruz
         // still never count (config/excluded_upsell_sellers.php), only the
         // duplicated-by-logistics note itself no longer removes an order.
         //

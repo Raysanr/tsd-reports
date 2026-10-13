@@ -16,7 +16,7 @@ use Tests\TestCase;
  * count as a lead anywhere — Leads Report, TSA Performance, and Dashboard
  * were all named explicitly.
  *
- * REVERSED 2026-10-13 (explicit request, same session as the AJ Dele Cruz
+ * REVERSED 2026-10-13 (explicit request, same session as the AJ Dela Cruz
  * excluded-seller addition): "when there's now duplicated by logistics
  * note make it included to the data but AJ and RALPH assignee is still as
  * is" — root-caused live via screenshot: 2 real, tagged upsell orders for
@@ -31,7 +31,7 @@ use Tests\TestCase;
  * SyncTodayOrders the same way, still visible for history/reference) —
  * only the exclusion at read time is gone. excluded_upsell_seller is a
  * SEPARATE, UNCHANGED exclusion (see ExcludedUpsellSellerReportsTest) —
- * AJ Dele Cruz/Ralph Cruz still never count.
+ * AJ Dela Cruz/Ralph Cruz still never count.
  */
 class DuplicatedByLogisticsReportsTest extends TestCase
 {
@@ -135,7 +135,7 @@ class DuplicatedByLogisticsReportsTest extends TestCase
 
     /** The duplicated-by-logistics flag staying on the model, unused for
      *  exclusion, must never be confused with excluded_upsell_seller — a
-     *  SEPARATE, still-active exclusion (AJ Dele Cruz/Ralph Cruz). An
+     *  SEPARATE, still-active exclusion (AJ Dela Cruz/Ralph Cruz). An
      *  order carrying BOTH flags must still be excluded, for the
      *  seller reason alone. */
     public function test_an_excluded_seller_order_is_still_excluded_even_if_also_flagged_duplicated(): void

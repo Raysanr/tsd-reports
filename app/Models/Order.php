@@ -333,7 +333,28 @@ class Order extends Model
     public static function noteSaysCancelledUpsell(array $raw): bool
     {
         $text = strtoupper(($raw['note'] ?? '') . ' ' . ($raw['note_print'] ?? ''));
-        return (bool) preg_match('/CANCEL(?:L)?ED\s+UPSELL/', $text);
+
+        if (!preg_match('/CANCEL(?:L)?ED\s+UPSELL/', $text, $match, PREG_OFFSET_CAPTURE)) {
+            return false;
+        }
+
+        // Root-caused 2026-10-13, real production order #1377777: ops staff
+        // typed "cancelled upsell" in the note, then a LATER line from a
+        // different staff member (added as a follow-up, same note field)
+        // retracted it — "I-DISREGARD NA ITO DAHIL NA PROCEED NA ANG ORDER
+        // NI CS W/ UPSELL" ("disregard this, the order with the upsell did
+        // proceed after all"). Since this flag is recomputed fresh from
+        // Pancake's live note text on every sync, the stale cancellation
+        // phrase kept re-matching forever with no way for the correction to
+        // ever take effect. Only a disregard phrase appearing AFTER the
+        // cancellation phrase counts — a disregard typed BEFORE it would
+        // read backwards (disregarding something not yet mentioned).
+        $afterCancelText = substr($text, $match[0][1] + strlen($match[0][0]));
+        if (preg_match('/\bDISREGARD\b/', $afterCancelText)) {
+            return false;
+        }
+
+        return true;
     }
 
     /** SH Naturals' own per-product upsell-trigger tag names that don't
