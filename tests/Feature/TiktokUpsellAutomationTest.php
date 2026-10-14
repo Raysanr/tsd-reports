@@ -115,6 +115,28 @@ class TiktokUpsellAutomationTest extends TestCase
         $this->assertEqualsWithDelta(500.0, (float) str_replace(',', '', $m[1]), 0.01, 'the TikTok order must count once (TikTok fold-in), not also via the team total');
     }
 
+    /** Explicit follow-up (2026-10-14): "it should be will not display to
+     *  the team closing if there's a tiktok" — her real team's own view
+     *  (team TELESALES + her own named card) must not include it at all. */
+    public function test_a_tiktok_order_never_shows_on_her_real_teams_view(): void
+    {
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $date = today()->toDateString();
+        $this->tiktokOrder($tsa, '1376222', $date, 500);
+
+        $content = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->get(route('data.expected-income', ['date_from' => $date, 'date_to' => $date, 'team' => $teamSlug]))
+            ->assertOk()->getContent();
+
+        preg_match_all('/data-out="gross_sales"[^>]*>\s*([\d,.]+)/', $content, $m);
+        $this->assertNotEmpty($m[1]);
+        foreach ($m[1] as $value) {
+            $this->assertEqualsWithDelta(0.0, (float) str_replace(',', '', $value), 0.01, 'no card on her real team\'s view may include the TikTok order');
+        }
+    }
+
     public function test_tiktok_card_renders_automated_fields_read_only(): void
     {
         $tsa = TsaShift::first();
