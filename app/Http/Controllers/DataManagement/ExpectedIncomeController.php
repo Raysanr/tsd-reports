@@ -189,7 +189,8 @@ class ExpectedIncomeController extends Controller
         // on ALL/TIKTOK TEAM, same scope the removed card itself used to
         // have (a REAL team's own summary row never included TikTok).
         //
-        // Folds in every field of $tiktokOverallTotal EXCEPT Salaries
+        // On ALL, folds in every field of $tiktokOverallTotal EXCEPT Salaries
+        // (TIKTOK TEAM keeps Salaries — see foldTiktokIntoTelesales())
         // (narrowed again, 2026-10-13 — see buildSummary()'s own doc
         // comment for the fuller "she genuinely does both jobs" story). The
         // 2026-10-12 reversal folded Salaries in unmodified because a
@@ -203,13 +204,9 @@ class ExpectedIncomeController extends Controller
         // other Operating Costs) still folds in unmodified — those are
         // either genuinely TikTok-only revenue/cost or don't have a
         // second path into this total the way Salaries now does.
-        if (in_array($selectedTeam, ['all', 'tiktok'], true)) {
-            $summaryData['summaryOverallTotal'] = ExpectedIncomeCalculator::addDerivedTotals(
-                $summaryData['summaryOverallTotal'],
-                ExpectedIncomeCalculator::withOverriddenOperatingCosts($tiktokData['tiktokOverallTotal'], ['salaries' => 0.0]),
-                $sellingKeys, $operatingKeys
-            );
-        }
+        $summaryData['summaryOverallTotal'] = $this->foldTiktokIntoTelesales(
+            $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $selectedTeam, $sellingKeys, $operatingKeys
+        );
 
         return view('data.expected-income', array_merge($summaryData, $dailyData, $tiktokData, [
             'products' => $products,
@@ -696,15 +693,13 @@ class ExpectedIncomeController extends Controller
         // TELESALES folds TikTok's own site-wide total in on top of every
         // real product's own total (2026-10-06 — see index()'s own
         // identical fold/doc comment; this AJAX fragment must never
-        // disagree with the initial page render). Every field folds in
-        // unmodified here too, Salaries/Operating Costs included
-        // (2026-10-12 — see index()'s own identical doc comment for the
-        // full reversal story).
-        if (in_array($selectedTeam, ['all', 'tiktok'], true)) {
-            $summaryData['summaryOverallTotal'] = ExpectedIncomeCalculator::addDerivedTotals(
-                $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $sellingKeys, $operatingKeys
-            );
-        }
+        // disagree with the initial page render) — same shared helper, so
+        // the two can no longer drift (they did: this copy kept folding
+        // Salaries in unmodified after index()'s 2026-10-13 change, so the
+        // ALL view's TELESALES Salaries changed after the first autosave).
+        $summaryData['summaryOverallTotal'] = $this->foldTiktokIntoTelesales(
+            $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $selectedTeam, $sellingKeys, $operatingKeys
+        );
 
         return view('data.expected-income._summary-section', array_merge($summaryData, $tiktokData, [
             'sellingRows'   => ExpectedIncomeCalculator::sellingCostRows(),
@@ -741,6 +736,29 @@ class ExpectedIncomeController extends Controller
      *  ids when a specific team is selected — same parameter
      *  buildSummaryRow() already forwards to rawByProductAndDateAllTsas()
      *  for the per-team black-header rows below. */
+    /** TELESALES = real products' total + TikTok's site-wide total, on
+     *  ALL/TIKTOK TEAM only (a real team's own TELESALES never included
+     *  TikTok). Salaries differs by view:
+     *  - ALL: TikTok Salaries dropped (2026-10-13, kept by the 2026-10-14
+     *    change — see test_telesales_on_all_never_includes_a_tiktok_flagged_tsas_salaries).
+     *  - TIKTOK TEAM: TikTok Salaries kept (explicit report, 2026-10-14:
+     *    "why is it no salaries in the overall card of tiktok? why is it
+     *    0.00?") — $summaryTotal is empty here (no real team cards on this
+     *    view), so dropping them left the card at 0.00 while the TikTok
+     *    cards beside it showed real Salaries. */
+    private function foldTiktokIntoTelesales(array $summaryTotal, array $tiktokTotal, string $selectedTeam, array $sellingKeys, array $operatingKeys): array
+    {
+        if (!in_array($selectedTeam, ['all', 'tiktok'], true)) {
+            return $summaryTotal;
+        }
+
+        if ($selectedTeam === 'all') {
+            $tiktokTotal = ExpectedIncomeCalculator::withOverriddenOperatingCosts($tiktokTotal, ['salaries' => 0.0]);
+        }
+
+        return ExpectedIncomeCalculator::addDerivedTotals($summaryTotal, $tiktokTotal, $sellingKeys, $operatingKeys);
+    }
+
     private function buildSummary($products, $dates, string $dateFrom, string $dateTo, array $sellingKeys, array $operatingKeys, ?array $onlyTsaIds = null, ?string $onlyOrderTeam = null): array
     {
         ['cards' => $summaryCards, 'overallTotal' => $summaryOverallTotal] =
