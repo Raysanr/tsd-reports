@@ -50,6 +50,30 @@ class UpsellTagFallbackMatchingTest extends TestCase
         $this->assertSame(['GINSENG SERUM'], $this->matchedProducts($order), 'exactly one column — the product its upsell tag names');
     }
 
+    /** The real stored tags (Tally Checker, 2026-10-14): no "TSD UPSELL -"
+     *  tag at all — only a plain "GINSENG SERUM" one. */
+    public function test_falls_back_to_a_plain_product_name_tag(): void
+    {
+        Product::where('display_name', 'GINSENG SERUM')->update(['match_exclude_keyword' => 'BELO']);
+        $order = $this->beloOrder(TsaShift::first(), ['GINSENG SERUM', 'Unreconciled', 'SEPARATE PARCEL']);
+
+        $this->assertSame(['GINSENG SERUM'], $this->matchedProducts($order));
+    }
+
+    public function test_tally_checker_names_the_exclude_keyword_blocking_a_non_separate_parcel(): void
+    {
+        $tsa = TsaShift::first();
+        $date = today()->toDateString();
+        Product::where('display_name', 'GINSENG SERUM')->update(['match_exclude_keyword' => 'BELO']);
+        $this->beloOrder($tsa, ['GINSENG SERUM']);
+
+        $row = collect($this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->getJson(route('data.tally-checker', ['date_from' => $date, 'date_to' => $date]))
+            ->json('tsaProductColumns'))->firstWhere('tsa', $tsa->display_name);
+
+        $this->assertStringContainsString('exclude keywords ("BELO")', $row['missing'][0]['reason']);
+    }
+
     public function test_the_fallback_never_double_counts_a_normally_matched_order(): void
     {
         $tsa = TsaShift::first();

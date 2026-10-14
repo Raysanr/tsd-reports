@@ -373,6 +373,30 @@ class ProductPerformance
      *  GINSENG SERUM") counted in TSA Performance's own Upsell w/
      *  Confirmation (8) but in no product column, and only reached
      *  Expected Income through the TSA card's unmatched-order top-up. */
+    /** The product an unclaimed SEPARATE PARCEL falls back to: the one its
+     *  "TSD UPSELL - X" tag names, else the first plain tag naming a product
+     *  (e.g. "GINSENG SERUM") — explicit report, 2026-10-14: #1376764's
+     *  stored tags had only "LIKA, GINSENG SERUM, Unreconciled, SEPARATE
+     *  PARCEL"; the "TSD UPSELL - GINSENG SERUM" tag visible in POS was
+     *  added after its last sync. First match by $teamProducts order, so
+     *  exactly one product ever claims it. */
+    public static function tagFallbackProduct($o, Collection $teamProducts): ?Product
+    {
+        $tags = $o->raw_tags ?? [];
+        $tagProduct = Order::upsellTagProductName($tags);
+        if ($tagProduct !== null) {
+            $hit = $teamProducts->first(fn (Product $p) => $p->matchesText($tagProduct));
+            if ($hit !== null) return $hit;
+        }
+
+        foreach ($tags as $tag) {
+            $hit = $teamProducts->first(fn (Product $p) => $p->matchesText((string) $tag));
+            if ($hit !== null) return $hit;
+        }
+
+        return null;
+    }
+
     public static function claimsByUpsellTag(Product $product, $o, Collection $teamProducts): bool
     {
         // SEPARATE PARCEL only — the whole parcel IS the upsell, often under
@@ -383,10 +407,7 @@ class ProductPerformance
         // "TSA Orders vs Product Columns" with the reason instead.
         if (!Order::hasSeparateParcelTag($o->raw_tags ?? []) || !Order::isBroadRealUpsell($o)) return false;
 
-        $tagProduct = Order::upsellTagProductName($o->raw_tags ?? []);
-        if ($tagProduct === null || !$product->matchesText($tagProduct)) return false;
-
-        $first = $teamProducts->first(fn (Product $p) => $p->matchesText($tagProduct));
+        $first = self::tagFallbackProduct($o, $teamProducts);
         if ($first === null || $first->id !== $product->id) return false;
 
         return !$teamProducts->contains(fn (Product $p) => self::matchesNormally(
