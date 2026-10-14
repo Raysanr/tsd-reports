@@ -2982,6 +2982,39 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertSame(0.0, (float) str_replace(',', '', $m[1]), 'her real team card\'s own Salaries must read 0.00 — that cost belongs on her TikTok card alone');
     }
 
+    /** Explicit report, 2026-10-14: "in the expected income page in tiktok
+     *  why is it no salaries in the overall card of tiktok? why is it
+     *  0.00?" — on TIKTOK TEAM the TELESALES card has no real team cards
+     *  under it, so it must carry the TikTok-flagged TSAs' full Daily Rate
+     *  (the ALL-view exclusion above must not leak into this view). */
+    public function test_telesales_on_tiktok_team_includes_tiktok_salaries(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 24000.00]);
+        $dailyRate = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertGreaterThan(0, $dailyRate, 'test setup: expected a real nonzero Daily Rate for this TSA');
+
+        $content = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
+        ]))->assertOk()->getContent();
+
+        $telesalesPos = strpos($content, '>TELESALES<');
+        $this->assertNotFalse($telesalesPos);
+        $nextCardPos = strpos($content, 'class="ei-card', $telesalesPos + 500);
+        $cardHtml = substr($content, $telesalesPos, ($nextCardPos !== false ? $nextCardPos : $telesalesPos + 20000) - $telesalesPos);
+
+        preg_match('/data-out="salaries"[^>]*>\s*([\d,.]+)/', $cardHtml, $m);
+        $this->assertNotEmpty($m, 'expected a parseable Salaries figure on the TELESALES card');
+        $this->assertEqualsWithDelta($dailyRate, (float) str_replace(',', '', $m[1]), 0.02, 'TIKTOK TEAM TELESALES Salaries must equal the flagged TSAs\' full Daily Rate');
+    }
+
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
