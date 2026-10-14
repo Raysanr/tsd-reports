@@ -362,7 +362,9 @@
                class="text-2xl font-bold text-slate-800 dark:text-slate-100 font-mono">{{ $formatSeconds($statusSecondsElapsed) }}</p>
         </div>
 
-        @if($tsa->status === \App\Models\TsaShift::STATUS_CALLING)
+        {{-- Admin-only — the page itself is open to TSAs since 2026-10-14,
+             but calls.monitor.end-call stays behind role:super_admin,admin. --}}
+        @if($tsa->status === \App\Models\TsaShift::STATUS_CALLING && auth()->user()?->isAtLeastAdmin())
         <form method="POST" action="{{ route('calls.monitor.end-call', $tsa) }}" class="monitor-end-call-form mb-4">
             @csrf
             <button type="submit" class="w-full flex items-center justify-center gap-1.5 text-xs font-bold font-mono uppercase tracking-wide text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/40">

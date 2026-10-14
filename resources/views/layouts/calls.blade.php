@@ -350,13 +350,8 @@
             Call Log
         </a>
 
-        {{-- isAtLeastAdmin() (super_admin OR admin), not the original bare
-             isAdmin() — matches the merged app's role convention (super_admin
-             is a real tier here that call-tracker never had; every ported
-             CallTracker\* controller/route already gates the same way). --}}
-        @if(auth()->user()?->isAtLeastAdmin())
-        <div class="my-3 border-t border-white/10"></div>
-        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">Reports</p>
+        {{-- Monitor TSA opened to TSAs too (explicit request, 2026-10-14) —
+             moved out of the admin-only Reports block below. --}}
         <a href="{{ route('calls.monitor') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.monitor') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -364,6 +359,14 @@
             </svg>
             Monitor TSA
         </a>
+
+        {{-- isAtLeastAdmin() (super_admin OR admin), not the original bare
+             isAdmin() — matches the merged app's role convention (super_admin
+             is a real tier here that call-tracker never had; every ported
+             CallTracker\* controller/route already gates the same way). --}}
+        @if(auth()->user()?->isAtLeastAdmin())
+        <div class="my-3 border-t border-white/10"></div>
+        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">Reports</p>
         <a href="{{ route('calls.analytics') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.analytics') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">

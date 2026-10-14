@@ -18,7 +18,8 @@ use Illuminate\Support\Collection;
  * Monitor TSA (explicit request, 2026-08-20) — a live, at-a-glance view of
  * every active TSA's current status side by side, for a supervisor watching
  * the floor rather than digging through TSA Logs' historical table.
- * Admin-only, same as every other Reports/Config page in this group.
+ * Originally admin-only; opened to TSAs (normal users) on 2026-10-14 —
+ * index()/export() are read-only. endCall() stays admin-only (route gate).
  */
 class MonitorController extends Controller
 {
