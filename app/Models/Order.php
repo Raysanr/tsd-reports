@@ -544,10 +544,23 @@ class Order extends Model
     {
         if ($order->excluded_upsell_seller) return false;
 
+        // is_restocking_upsell (bug fix, 2026-10-14, explicit report on
+        // order #1380343: Anne, Oct 13, Awaiting Stock, tagged only
+        // "TIKTOK UPSELL -NATUREVA" + "SEPARATE PARCEL") — sync already
+        // sets it with its full upsell-tag check (SEPARATE PARCEL included),
+        // but this method only ever recovered a Restocking upsell through
+        // the bare hasUpsellTag() fallback below, which doesn't recognize a
+        // SEPARATE PARCEL tag — so every Awaiting Stock separate parcel was
+        // invisible everywhere (Gross Sales, Cancelled, Number of Orders).
         return $order->is_upsell
             || $order->is_returned_upsell
             || $order->is_upsell_on_voided_order
-            || (!$order->is_cancelled_upsell && self::hasUpsellTag($order->raw_tags ?? []));
+            || $order->is_restocking_upsell
+            // SEPARATE PARCEL counts as an upsell tag here too — same as
+            // sync's own $hasUpsellTag — so a separate parcel in ANY void
+            // status (Partial return 15 has no dedicated flag at all) isn't
+            // silently dropped ("fix all", 2026-10-14).
+            || (!$order->is_cancelled_upsell && (self::hasUpsellTag($order->raw_tags ?? []) || self::hasSeparateParcelTag($order->raw_tags ?? [])));
     }
 
     /** The correct isolated add-on price for a row ProductPerformance::tally()'s
