@@ -1482,8 +1482,12 @@ class ExpectedIncomeController extends Controller
                     // reason.
                     $pooledCancelled = (float) array_sum(array_column($rangeRaw, 'cancelled'));
                     $cancelledGap = $this->tsaUpsellCancelled($tsa, $dateFrom, $dateTo) - $pooledCancelled;
-                    if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005) {
-                        $rangeRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap];
+                    // Number of Orders too — see the single-day block's
+                    // own comment below (2026-10-14).
+                    $pooledOrders = (float) array_sum(array_column($rangeRaw, 'number_of_orders'));
+                    $ordersGap = $this->tsaUpsellOrderCount($tsa, $dateFrom, $dateTo) - $pooledOrders;
+                    if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005) {
+                        $rangeRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap];
                     }
                     $summed = ExpectedIncomeCalculator::sum($rangeRaw, $sellingKeys, $operatingKeys);
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverridesForRange);
@@ -1558,8 +1562,15 @@ class ExpectedIncomeController extends Controller
                 // reason.
                 $pooledCancelled = (float) array_sum(array_column($dayRaw, 'cancelled'));
                 $cancelledGap = $this->tsaUpsellCancelled($tsa, $dateStr, $dateStr) - $pooledCancelled;
-                if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005) {
-                    $dayRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap];
+                // Number of Orders too (bug fix, 2026-10-14, explicit report:
+                // Lika's Oct 5 card read 7 orders / ₱7,003 — the ₱1,700
+                // SEPARATE PARCEL order #1376764 matched no product card, so
+                // its sales arrived via this gap but its order never did; the
+                // team-level rollup's own gap already topped up all three).
+                $pooledOrders = (float) array_sum(array_column($dayRaw, 'number_of_orders'));
+                $ordersGap = $this->tsaUpsellOrderCount($tsa, $dateStr, $dateStr) - $pooledOrders;
+                if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005) {
+                    $dayRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap];
                 }
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
                 $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
@@ -2493,6 +2504,11 @@ class ExpectedIncomeController extends Controller
      *  above, just scoped to a single TSA's own tsa_key, same reasoning
      *  tsaUpsellGrossSales() already established for Gross Sales on an
      *  overview (non-product-scoped) card. */
+    private function tsaUpsellOrderCount(TsaShift $tsa, string $dateFrom, string $dateTo): int
+    {
+        return $this->upsellOrderCountForTsaKeys(collect([$tsa->tsa_key]), $dateFrom, $dateTo);
+    }
+
     private function tsaUpsellCancelled(TsaShift $tsa, string $dateFrom, string $dateTo): float
     {
         return $this->upsellCancelledForTsaKeys(collect([$tsa->tsa_key]), $dateFrom, $dateTo);

@@ -3010,6 +3010,41 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertEqualsWithDelta($dailyRate, (float) str_replace(',', '', $m[1]), 0.02, 'TIKTOK TEAM TELESALES Salaries must equal the flagged TSAs\' full Daily Rate');
     }
 
+    /** Explicit report (2026-10-14): Lika's Oct 5 card read 7 orders but
+     *  ₱7,003 — SEPARATE PARCEL order #1376764 (₱1,700, a cart item no
+     *  product card matched) reached her card's Gross Sales via the
+     *  unmatched-order top-up but not its Number of Orders. TSA Performance
+     *  correctly showed 8. */
+    public function test_a_tsa_card_counts_an_unmatched_orders_order_too(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $date = today()->toDateString();
+
+        \App\Models\Order::create([
+            'pancake_order_id' => '1376764', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Unmatched Bundle XYZ', 'base_product' => 'Unmatched Bundle XYZ',
+            'is_upsell' => true, 'amount' => 1700, 'status_code' => 3,
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'SEPARATE PARCEL'],
+            'pancake_created_at' => $date . ' 20:16:00', 'synced_at' => now(),
+        ]);
+
+        $content = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => $teamSlug,
+        ]))->assertOk()->getContent();
+
+        $namePos = strpos($content, '>' . $tsa->display_name . '</span>');
+        $this->assertNotFalse($namePos);
+        $next = strpos($content, 'class="ei-card', $namePos + 500);
+        $card = substr($content, $namePos, ($next ?: $namePos + 20000) - $namePos);
+
+        preg_match('/data-out="gross_sales"[^>]*>\s*([\d,.]+)/', $card, $gs);
+        preg_match('/data-out="number_of_orders"[^>]*>\s*([\d,]+)/', $card, $no);
+        $this->assertEqualsWithDelta(1700.0, (float) str_replace(',', '', $gs[1]), 0.01);
+        $this->assertSame(1, (int) $no[1], 'the unmatched order must count toward Number of Orders, not just Gross Sales');
+    }
+
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
