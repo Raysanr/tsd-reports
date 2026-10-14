@@ -362,10 +362,7 @@ class SyncTodayOrders extends Command
             // Cancelled upsell: the order still carries an upsell tag, but the add-on
             // item(s) have been removed from it while the primary order kept going
             // (remainingItemIsJustTheBase — see that method's doc comment for the
-            // exact tag-parsing rule). This is NOT the same as a void/cancelled ORDER
-            // (Order::VOID_STATUSES) — the order itself is still active, only the
-            // upsell portion was cancelled, so it's excluded from is_upsell here
-            // rather than counted as a live cross-sell.
+            // exact tag-parsing rule).
             //
             // Explicit request (2026-08-12), confirmed live on order #1347336
             // (Joana): a SEPARATE PARCEL-tagged order has the exact same
@@ -395,7 +392,32 @@ class SyncTodayOrders extends Command
             // like the structural check is — a human explicitly writing
             // "cancelled upsell" is authoritative regardless of what shape
             // the remaining items happen to be in.
-            $isCancelledUpsell = (!$isExcludedStatus && $hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
+            //
+            // The structural branch's own !$isExcludedStatus gate was
+            // REMOVED here (bug fix, 2026-10-14, root-caused live via
+            // order #1375218/Mariel reverting on every sync after the
+            // earlier same-day duplicated-by-logistics fix): the original
+            // intent (see this doc comment's own git history) was "this
+            // flag is for an ACTIVE order whose add-on was removed, NOT a
+            // void/cancelled ORDER — the order's own status already
+            // excludes it from live revenue, so this flag doesn't need to
+            // also fire there." That reasoning stopped holding the moment
+            // Order::isBroadRealUpsell()'s own tag-fallback branch
+            // (`!$order->is_cancelled_upsell && hasUpsellTag(...)`) was
+            // built specifically to recover a genuine upsell FROM a void-
+            // status order (Restocking, Cancelled, etc.) — is_cancelled_upsell
+            // is the ONLY mechanism that stops that fallback from
+            // misfiring on a stale tag, and it structurally could never do
+            // that job for exactly the void-status orders the fallback
+            // targets. Confirmed live: #1375218 (status 6/Cancelled,
+            // NutriLay's sole remaining item, a "UPSELL TSD - NUTRILAY +
+            // NUTRIGAIN" tag whose Nutrigain add-on was never added) kept
+            // reverting to isBroadRealUpsell()=true on every resync — a
+            // manual DB correction (is_cancelled_upsell=true) was silently
+            // overwritten back to false by the very next sync, since this
+            // gate recomputed it fresh from the same (never-excluded)
+            // logic every time.
+            $isCancelledUpsell = ($hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
                     && !Order::hasSeparateParcelTag($tagNames))
                 || ($hasUpsellTag && Order::noteSaysCancelledUpsell($raw));
             $isUpsell          = !$isExcludedStatus && !$isCancelledUpsell && $hasUpsellTag;
@@ -409,7 +431,21 @@ class SyncTodayOrders extends Command
             // add-on, a returned order's items array is untouched (only the shipping status
             // changed), so extractUpsellAmount() below still isolates the correct add-on
             // price on every sync — no carry-forward needed.
-            $isReturnedUpsell = in_array($statusCode, [4, 5], true) && $hasUpsellTag;
+            // !$isCancelledUpsell (bug fix, 2026-10-14, same root cause as
+            // that flag's own doc comment below — these 3 void-status
+            // upsell flags independently checked only statusCode+
+            // $hasUpsellTag, with no awareness of whether the structural/
+            // note check had ALREADY determined the add-on was never
+            // actually present. A stale-tag order on a Returned/Restocking
+            // status would otherwise still get flagged "real upsell, just
+            // on a void order" here even after is_cancelled_upsell
+            // correctly identified it as not a real upsell at all —
+            // confirmed live, order #1375218: is_cancelled_upsell became
+            // true but is_upsell_on_voided_order (below) still
+            // independently came out true for the exact same order,
+            // leaving isBroadRealUpsell() still true overall since that
+            // check's own OR chain only ever needs ONE true branch.
+            $isReturnedUpsell = in_array($statusCode, [4, 5], true) && !$isCancelledUpsell && $hasUpsellTag;
 
             // Restocking upsell: the order carries the TSA's upsell tag but its status
             // is Restocking specifically (awaiting stock, not Cancelled/Returned/
@@ -422,7 +458,7 @@ class SyncTodayOrders extends Command
             // Restocking orders have is_upsell=true, even though 271 of them genuinely
             // carry an upsell tag). This preserves the fact separately, the same way
             // is_returned_upsell preserves the Returned/Returning case just above.
-            $isRestockingUpsell = $statusCode === 11 && $hasUpsellTag;
+            $isRestockingUpsell = $statusCode === 11 && !$isCancelledUpsell && $hasUpsellTag;
 
             // Upsell on a Canceled order: the order carries the TSA's upsell
             // tag but its Pancake status is Canceled specifically (not
@@ -438,7 +474,7 @@ class SyncTodayOrders extends Command
             // statuses above. Deliberately scoped to Canceled (6) only, not
             // every VOID_STATUSES code — see Order::isRealUpsell()'s own doc
             // comment for why.
-            $isUpsellOnVoidedOrder = $statusCode === 6 && $hasUpsellTag;
+            $isUpsellOnVoidedOrder = $statusCode === 6 && !$isCancelledUpsell && $hasUpsellTag;
 
             $productInfo       = $this->extractUpsellProduct($raw, $isUpsell);
             $productName       = $productInfo['name'];

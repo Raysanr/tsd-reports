@@ -347,4 +347,100 @@ class SyncTodayOrdersCancelledUpsellSingleNameTagTest extends TestCase
         $this->assertNotNull($order);
         $this->assertTrue($order->is_cancelled_upsell, 'A disregard phrase written BEFORE the cancellation phrase must not retroactively un-cancel it');
     }
+
+    /**
+     * Root-caused live 2026-10-14, real production order #1375218
+     * (Mariel, NutriLay): is_cancelled_upsell's own structural check
+     * (remainingItemIsJustTheBase()) used to be gated behind
+     * !$isExcludedStatus — deliberately, per this file's own original
+     * intent, "this flag is for an ACTIVE order, not a void/cancelled
+     * ORDER." That reasoning broke once Order::isBroadRealUpsell()'s own
+     * tag-fallback branch was built specifically to recover a genuine
+     * upsell FROM a void-status order — is_cancelled_upsell is the ONLY
+     * thing that can stop that fallback from misfiring on a stale tag,
+     * and the gate meant it could never do that job for exactly the
+     * Cancelled/Restocking orders the fallback targets. This order is
+     * Cancelled(6), carries tag "UPSELL TSD - NUTRILAY + NUTRIGAIN", but
+     * its sole remaining item is "NutriLay" (the tag's own named base) —
+     * the Nutrigain add-on was never actually added. Also flagged
+     * "DUPLICATED BY LOGISTICS" (the same real-production detail that
+     * exposed this bug: that note no longer blocks $hasUpsellTag, see
+     * this file's own 2026-10-13 fix history), confirming the real
+     * end-to-end production shape.
+     */
+    public function test_a_stale_cancelled_upsell_on_a_void_status_order_is_still_recognized(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1375218,
+            'status'      => 6,
+            'total_price' => 798,
+            'cod'         => 798,
+            'inserted_at' => '2026-10-02T15:37:00',
+            'updated_at'  => '2026-10-02T15:37:00',
+            'note'        => "yel - upsell 450\r\n\r\nCancelled Order.\r\n\r\nDUPLICATED BY LOGISTICS",
+            'tags'        => [
+                ['id' => 1, 'name' => 'MARIEL'],
+                ['id' => 2, 'name' => 'INSTRUCTION NUTRIGAIN'],
+                ['id' => 3, 'name' => 'NUTRIGAIN PICTURE'],
+                ['id' => 4, 'name' => 'UPSELL TSD - NUTRILAY + NUTRIGAIN'],
+                ['id' => 5, 'name' => 'NUTRILAY'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'NutriLay', 'retail_price' => 798], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-10-02']);
+
+        $order = Order::where('pancake_order_id', '1375218')->first();
+
+        $this->assertNotNull($order);
+        $this->assertTrue($order->is_duplicated_by_logistics, 'test setup: confirms the real end-to-end production shape');
+        $this->assertTrue($order->is_cancelled_upsell, 'the Nutrigain add-on was never actually added — this is not a real upsell, even on a Cancelled-status order');
+        $this->assertFalse($order->is_upsell);
+        $this->assertFalse($order->is_upsell_on_voided_order);
+        $this->assertFalse(Order::isBroadRealUpsell($order), 'must not be recognized as a real upsell at all');
+    }
+
+    /** Guards the fix above from being too broad: a GENUINE upsell on a
+     *  void-status order (the add-on item still present) must still be
+     *  recognized correctly — this is exactly #1377777's own shape from
+     *  earlier the same week (Restocking status, 2-item order), confirming
+     *  removing the !$isExcludedStatus gate didn't accidentally make every
+     *  void-status order look stale. */
+    public function test_a_genuine_upsell_on_a_void_status_order_is_unaffected(): void
+    {
+        Setting::set('pancake_api_key', 'test-key');
+        Setting::set('shop_id', '30037101');
+
+        $this->fakeOnePage([
+            'id'          => 1375219,
+            'status'      => 6,
+            'total_price' => 1596,
+            'cod'         => 1596,
+            'inserted_at' => '2026-10-02T15:37:00',
+            'updated_at'  => '2026-10-02T15:37:00',
+            'tags'        => [
+                ['id' => 1, 'name' => 'MARIEL'],
+                ['id' => 2, 'name' => 'UPSELL TSD - NUTRILAY + NUTRIGAIN'],
+                ['id' => 3, 'name' => 'NUTRILAY'],
+            ],
+            'items' => [
+                ['variation_info' => ['name' => 'NutriLay', 'retail_price' => 798], 'quantity' => 1],
+                ['variation_info' => ['name' => 'Nutrigain', 'retail_price' => 798], 'quantity' => 1],
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-today', ['--date' => '2026-10-02']);
+
+        $order = Order::where('pancake_order_id', '1375219')->first();
+
+        $this->assertNotNull($order);
+        $this->assertFalse($order->is_cancelled_upsell, 'the Nutrigain add-on IS present — this is a genuine upsell');
+        $this->assertTrue($order->is_upsell_on_voided_order);
+        $this->assertSame(798.0, (float) $order->amount, 'isolated to just the Nutrigain add-on price');
+    }
 }
