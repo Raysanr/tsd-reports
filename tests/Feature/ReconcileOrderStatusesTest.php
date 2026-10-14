@@ -208,6 +208,45 @@ class ReconcileOrderStatusesTest extends TestCase
     }
 
     /**
+     * Explicit report (2026-10-14), real order #1375218: Cancelled, sole
+     * remaining item NutriLay, tagged "UPSELL TSD - NUTRILAY + NUTRIGAIN"
+     * but the Nutrigain add-on was never on it — not a real upsell. This
+     * command used to BLANK is_cancelled_upsell on every Cancelled/Deleted
+     * order, which re-armed isBroadRealUpsell()'s tag fallback and put its
+     * ₱798 into Mariel's Expected Income "Cancelled" row.
+     */
+    public function test_recomputes_cancelled_upsell_instead_of_blanking_it_on_a_void_status(): void
+    {
+        $tags = ['MARIEL', 'UPSELL TSD - NUTRILAY + NUTRIGAIN', 'NUTRILAY'];
+        Order::factory()->create([
+            'pancake_order_id'          => '1375218',
+            'status_code'               => 6,
+            'is_upsell'                 => false,
+            'is_cancelled_upsell'       => false,
+            'is_upsell_on_voided_order' => true,
+            'raw_tags'                  => $tags,
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response([
+                'data' => [[
+                    'id'     => 1375218,
+                    'status' => 6,
+                    'tags'   => array_map(fn ($t) => ['name' => $t], $tags),
+                    'items'  => [['variation_info' => ['name' => 'NutriLay'], 'quantity' => 1]],
+                ]],
+            ], 200),
+        ]);
+
+        Artisan::call('pancake:reconcile-statuses');
+
+        $order = Order::where('pancake_order_id', '1375218')->first();
+        $this->assertTrue($order->is_cancelled_upsell);
+        $this->assertFalse($order->is_upsell_on_voided_order);
+        $this->assertFalse(Order::isBroadRealUpsell($order), 'a Cancelled order whose add-on was never on it must not count as a real upsell');
+    }
+
+    /**
      * Explicit request (2026-08-10): "Fix Now" switched from a "days back"
      * number to the shared date-range picker, so the command needs a real
      * explicit-range option — --days alone can't express "Aug 1-9" once

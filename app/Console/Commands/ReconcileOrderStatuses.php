@@ -151,20 +151,40 @@ class ReconcileOrderStatuses extends Command
                 // figures, which filter by is_upsell — a stale is_upsell=true from
                 // before the order went void would keep inflating gross sales/
                 // upsell revenue even after status_code itself is corrected.
+                //
+                // is_cancelled_upsell is RECOMPUTED here, not blanked (bug
+                // fix, 2026-10-14, explicit report on order #1375218:
+                // "the cancelled is this it should be not included because
+                // there's no real upsell product"). Blanking it re-armed
+                // Order::isBroadRealUpsell()'s tag-fallback branch
+                // (`!is_cancelled_upsell && hasUpsellTag(raw_tags)`), so a
+                // Cancelled order whose upsell add-on was never actually on
+                // it counted as a real upsell again — in Expected Income's
+                // Cancelled row and everywhere else tally() is used. Same
+                // expression SyncTodayOrders uses (its $isCancelledUpsell);
+                // is_upsell_on_voided_order is cleared alongside it, same
+                // `!$isCancelledUpsell` gate sync applies to that flag.
+                $tagNames = array_map(fn ($t) => \is_array($t) ? ($t['name'] ?? '') : (string) $t, $raw['tags'] ?? []);
+                $hasUpsellTag = Order::hasUpsellTag($tagNames) || Order::hasSeparateParcelTag($tagNames);
+                $isCancelledUpsell = ($hasUpsellTag && Order::remainingItemIsJustTheBase($raw)
+                        && !Order::hasSeparateParcelTag($tagNames))
+                    || ($hasUpsellTag && Order::noteSaysCancelledUpsell($raw));
+
                 $needsStatusFix = (int) $local->status_code !== $status;
-                $needsUpsellFix = $local->is_upsell || $local->is_cancelled_upsell
-                    || $local->is_returned_upsell || $local->is_restocking_upsell;
+                $needsUpsellFix = $local->is_upsell || $local->is_returned_upsell || $local->is_restocking_upsell
+                    || (bool) $local->is_cancelled_upsell !== $isCancelledUpsell
+                    || ($isCancelledUpsell && $local->is_upsell_on_voided_order);
                 if (!$needsStatusFix && !$needsUpsellFix) continue;
 
                 $oldStatus = $local->status_code;
-                $local->update([
+                $local->update(array_merge([
                     'status_code'              => $status,
                     'is_upsell'                => false,
-                    'is_cancelled_upsell'      => false,
+                    'is_cancelled_upsell'      => $isCancelledUpsell,
                     'is_returned_upsell'       => false,
                     'is_restocking_upsell'     => false,
                     'restocking_upsell_amount' => 0,
-                ]);
+                ], $isCancelledUpsell ? ['is_upsell_on_voided_order' => false] : []));
                 $correctedCount++;
                 $this->line("  Corrected #{$id}: status {$oldStatus} -> {$status}" . ($needsUpsellFix ? ' (also cleared stale upsell flag)' : ''));
             }
