@@ -111,13 +111,14 @@ class DashboardCrossSellSalesTsaLeaderboardReconciliationTest extends TestCase
             'pancake_created_at' => '2026-07-22 12:00:00', 'pancake_inserted_at' => '2026-07-22 12:00:00',
             'synced_at' => now(),
         ]);
-        // Bare is_restocking_upsell=true with NO upsell tag/flag at all —
-        // isBroadRealUpsell() doesn't recognize this as a real upsell, so it
-        // never reaches any Leaderboard row either; the card (2026-09-07:
-        // "i want only the total of all tsa upsells will be equal to the
-        // Total Cross-Sell Sales") must now agree and also show ₱0 for it,
-        // even with the toggle on — this is a deliberate behavior change
-        // from this test's own prior version, which asserted the opposite.
+        // is_restocking_upsell=true with no TSD UPSELL tag in raw_tags —
+        // sync only ever sets that flag from a real upsell signal (TSD
+        // UPSELL / SEPARATE PARCEL tag or a TSA seller account), so since
+        // 2026-10-14 isBroadRealUpsell() counts it directly (real order
+        // #1380343, an Awaiting Stock SEPARATE PARCEL, was invisible
+        // otherwise). It now reaches Gemma's Leaderboard row AND the card —
+        // the two must still agree (2026-09-07: "i want only the total of
+        // all tsa upsells will be equal to the Total Cross-Sell Sales").
         Order::create([
             'pancake_order_id' => 'restock-untagged', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma',
             'is_upsell' => false, 'is_restocking_upsell' => true, 'amount' => 5000.0,
@@ -138,8 +139,8 @@ class DashboardCrossSellSalesTsaLeaderboardReconciliationTest extends TestCase
             // (tsa_name=null) is excluded from these two same as it's
             // excluded from the Leaderboard, leaving just restock-attributed
             // (300) + restock-untagged (999) = 1299, count 2.
-            return (float) $stats['total_sales'] === 300.0
-                && $stats['total_orders'] === 1
+            return (float) $stats['total_sales'] === 1299.0
+                && $stats['total_orders'] === 2
                 && (float) $stats['restocking_value'] === 1299.0
                 && $stats['restocking_count'] === 2;
         });
@@ -147,7 +148,7 @@ class DashboardCrossSellSalesTsaLeaderboardReconciliationTest extends TestCase
         $response->assertViewHas('tsaLeaderboard', function ($rows) use ($response) {
             $leaderboardSum = (float) $rows->sum('upsell_sales');
             $cardTotal      = (float) $response->viewData('stats')['total_sales'];
-            return $leaderboardSum === $cardTotal && $leaderboardSum === 300.0;
+            return $leaderboardSum === $cardTotal && $leaderboardSum === 1299.0;
         });
     }
 }

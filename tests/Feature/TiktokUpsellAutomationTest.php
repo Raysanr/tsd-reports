@@ -79,6 +79,45 @@ class TiktokUpsellAutomationTest extends TestCase
         $this->assertEqualsWithDelta(400.0, $response->json('derived.cancelled'), 0.01);
     }
 
+    /** Explicit report (2026-10-14), real order #1380343: Anne, Oct 13,
+     *  Awaiting Stock, tagged only "TIKTOK UPSELL -NATUREVA" + "SEPARATE
+     *  PARCEL" — synced with is_restocking_upsell=true but invisible on the
+     *  TikTok card, since isBroadRealUpsell() never read that flag. */
+    public function test_an_awaiting_stock_separate_parcel_counts_and_lands_in_cancelled(): void
+    {
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $date = today()->toDateString();
+
+        Order::create([
+            'pancake_order_id' => '1380343', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Haplunas Healing Eye Cream',
+            'is_upsell' => false, 'is_restocking_upsell' => true, 'restocking_upsell_amount' => 1000,
+            'amount' => 1000, 'status_code' => 11,
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'TIKTOK UPSELL -NATUREVA', 'SEPARATE PARCEL'],
+            'pancake_created_at' => $date . ' 15:49:00', 'synced_at' => now(),
+        ]);
+
+        $response = $this->actingAs(User::factory()->create(['role' => 'admin']))->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
+            ['product_cost' => 81]
+        )->assertOk();
+
+        $this->assertEqualsWithDelta(1000.0, $response->json('derived.gross_sales'), 0.01);
+        $this->assertSame(1, (int) $response->json('derived.number_of_orders'));
+        $this->assertEqualsWithDelta(1000.0, $response->json('derived.cancelled'), 0.01, 'Awaiting Stock belongs in the Cancelled row (2026-10-13 rule)');
+    }
+
+    public function test_a_partial_return_separate_parcel_still_counts(): void
+    {
+        $order = new Order([
+            'is_upsell' => false, 'status_code' => 15, 'amount' => 700,
+            'raw_tags' => ['ANNE', 'SEPARATE PARCEL'],
+        ]);
+
+        $this->assertTrue(Order::isBroadRealUpsell($order), 'a SEPARATE PARCEL in Partial return (no dedicated flag) must still count');
+    }
+
     public function test_manual_edits_to_automated_fields_are_ignored(): void
     {
         $tsa = TsaShift::first();
