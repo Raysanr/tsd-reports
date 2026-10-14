@@ -226,6 +226,14 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // with no restriction at all.
         Route::get('/call-log', [\App\Http\Controllers\CallTracker\CallLogController::class, 'index'])->name('call-log');
 
+        // Monitor TSA opened to TSAs too (explicit request, 2026-10-14: "the
+        // MONITOR TSA PAGE change to visible too to every TSA (normal
+        // users)") — read-only view + CSV export of the same on-screen data.
+        // monitor.end-call stays in the admin-only group below: it changes
+        // ANOTHER TSA's live status, not something a TSA should do to a peer.
+        Route::get('/monitor', [\App\Http\Controllers\CallTracker\MonitorController::class, 'index'])->name('monitor');
+        Route::get('/monitor/export', [\App\Http\Controllers\CallTracker\MonitorController::class, 'export'])->name('monitor.export');
+
         Route::middleware('role:super_admin,admin')->group(function () {
             Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');
             Route::post('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'store'])->name('tsa-management.store');
@@ -247,9 +255,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::get('/round-robin-setup', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'index'])->name('round-robin-setup');
             Route::post('/round-robin-setup/{tsaShift}', [\App\Http\Controllers\CallTracker\RoundRobinSetupController::class, 'update'])->name('round-robin-setup.update');
 
-            Route::get('/monitor', [\App\Http\Controllers\CallTracker\MonitorController::class, 'index'])->name('monitor');
             Route::post('/monitor/{tsa}/end-call', [\App\Http\Controllers\CallTracker\MonitorController::class, 'endCall'])->name('monitor.end-call');
-            Route::get('/monitor/export', [\App\Http\Controllers\CallTracker\MonitorController::class, 'export'])->name('monitor.export');
 
             Route::get('/sync-health', [\App\Http\Controllers\CallTracker\SyncHealthController::class, 'index'])->name('sync-health');
             Route::get('/analytics', [\App\Http\Controllers\CallTracker\AnalyticsController::class, 'index'])->name('analytics');
