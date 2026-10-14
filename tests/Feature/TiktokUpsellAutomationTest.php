@@ -137,6 +137,29 @@ class TiktokUpsellAutomationTest extends TestCase
         }
     }
 
+    /** Explicit request (2026-10-14): automation starts Oct 1 — earlier
+     *  days keep their typed-in figures and stay editable. */
+    public function test_days_before_oct_1_keep_typed_figures(): void
+    {
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $before = '2026-09-30';
+        $this->tiktokOrder($tsa, 'old-tagged', $before, 500);
+
+        $response = $this->actingAs(User::factory()->create(['role' => 'admin']))->patchJson(
+            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $before]),
+            ['gross_sales' => 1000, 'number_of_orders' => 2]
+        )->assertOk();
+
+        $this->assertEqualsWithDelta(1000.0, $response->json('derived.gross_sales'), 0.01);
+        $this->assertSame(2, (int) $response->json('derived.number_of_orders'));
+
+        $content = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->get(route('data.expected-income', ['date_from' => $before, 'date_to' => $before, 'team' => 'tiktok']))
+            ->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/<input[^>]*data-field="gross_sales"/s', $content);
+    }
+
     public function test_tiktok_card_renders_automated_fields_read_only(): void
     {
         $tsa = TsaShift::first();

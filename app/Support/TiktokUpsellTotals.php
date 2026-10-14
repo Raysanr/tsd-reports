@@ -20,6 +20,15 @@ class TiktokUpsellTotals
 {
     public const FIELDS = ['gross_sales', 'number_of_orders', 'cancelled'];
 
+    /** First automated day (explicit request, 2026-10-14: "from oct 1") —
+     *  earlier days keep whatever was typed into the TikTok cards. */
+    public const AUTOMATED_FROM = '2026-10-01';
+
+    public static function isAutomated(string $dateStr): bool
+    {
+        return $dateStr >= self::AUTOMATED_FROM;
+    }
+
     /** Keyed "{tsaId}:{cardKey}:{Y-m-d}" => ['gross_sales' => float,
      *  'number_of_orders' => int, 'cancelled' => float]. Only TSA/card/day
      *  combos with at least one TikTok-tagged order appear. */

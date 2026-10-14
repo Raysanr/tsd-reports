@@ -27,9 +27,9 @@
     same "overview/range view never shows a lock, only a real editable
     card does" rule _product-card.blade.php already follows.
 
-    Gross Sales / Number of Orders / Cancelled render read-only
-    ('autoSales' => true) — automated from TikTok-tagged POS orders
-    (explicit request, 2026-10-14, see TiktokUpsellTotals).
+    Gross Sales / Number of Orders / Cancelled render read-only from
+    TiktokUpsellTotals::AUTOMATED_FROM on — automated from TikTok-tagged
+    POS orders (explicit request, 2026-10-14); earlier days stay typed.
 
     Required: $card ('key'/'label'/'derived', plus 'entry'/'locked' only
     in the editable 1-day case), $tsa, $dateStr, $fmtMoney, $fmtPct, $editable.
@@ -69,5 +69,5 @@
         </button>
         @endif
     </div>
-    @include('data.expected-income._card-body', ['d' => $card['derived'], 'entry' => $card['entry'] ?? null, 'sellingRows' => \App\Support\ExpectedIncomeCalculator::SELLING_COST_ROWS, 'operatingRows' => \App\Support\ExpectedIncomeCalculator::OPERATING_COST_ROWS, 'customRowKeys' => [], 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => $editable ?? false, 'tsaScoped' => false, 'autoSales' => true, 'lockedOperatingKeys' => ['salaries'], 'locked' => $locked])
+    @include('data.expected-income._card-body', ['d' => $card['derived'], 'entry' => $card['entry'] ?? null, 'sellingRows' => \App\Support\ExpectedIncomeCalculator::SELLING_COST_ROWS, 'operatingRows' => \App\Support\ExpectedIncomeCalculator::OPERATING_COST_ROWS, 'customRowKeys' => [], 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => $editable ?? false, 'tsaScoped' => false, 'autoSales' => \App\Support\TiktokUpsellTotals::isAutomated($dateStr ?? \App\Support\TiktokUpsellTotals::AUTOMATED_FROM), 'lockedOperatingKeys' => ['salaries'], 'locked' => $locked])
 </div>

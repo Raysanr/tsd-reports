@@ -1603,10 +1603,15 @@ class ExpectedIncomeController extends Controller
      *  together) for the TOTAL section — see buildTiktokOverallTotal(). */
     /** A TikTok card's raw row with Gross Sales / Number of Orders /
      *  Cancelled replaced by the TikTok-tagged POS order totals — always,
-     *  zeros included, so a manually-typed figure from before automation
-     *  (2026-10-14) can never leak through. */
+     *  zeros included, so a manually-typed figure can never leak through —
+     *  from TiktokUpsellTotals::AUTOMATED_FROM on; earlier days keep their
+     *  typed figures untouched. */
     private static function withTiktokAuto(array $raw, \Illuminate\Support\Collection $autoByKey, int $tsaId, string $cardKey, string $dateStr): array
     {
+        if (!TiktokUpsellTotals::isAutomated($dateStr)) {
+            return $raw;
+        }
+
         return array_merge($raw, $autoByKey->get("{$tsaId}:{$cardKey}:{$dateStr}", array_fill_keys(TiktokUpsellTotals::FIELDS, 0)));
     }
 
@@ -2950,9 +2955,13 @@ class ExpectedIncomeController extends Controller
             'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
             'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
             'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
-            // number_of_orders/gross_sales/cancelled are no longer
-            // accepted (explicit request, 2026-10-14) — automated from
-            // TikTok-tagged POS orders, see TiktokUpsellTotals.
+            // number_of_orders/gross_sales/cancelled: automated from
+            // TikTok-tagged POS orders from TiktokUpsellTotals::
+            // AUTOMATED_FROM on (explicit request, 2026-10-14) — stripped
+            // below for those days, still typed in for earlier ones.
+            'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
+            'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
+            'cancelled'            => ['sometimes', 'numeric', 'min:0'],
             // average_order_value is no longer accepted here either
             // (explicit request, 2026-10-10: "the average order value
             // (AOV) i want to make it automated too") — unlike Gross
@@ -2998,6 +3007,9 @@ class ExpectedIncomeController extends Controller
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
+        if (TiktokUpsellTotals::isAutomated($entryDate)) {
+            $data = array_diff_key($data, array_flip(TiktokUpsellTotals::FIELDS));
+        }
 
         $entry = ExpectedIncomeTiktokEntry::where('card_key', $cardKey)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new ExpectedIncomeTiktokEntry(['card_key' => $cardKey, 'tsa_id' => $tsaShift->id, 'entry_date' => $entryDate]);
