@@ -2820,6 +2820,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $date = today()->toDateString();
 
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 5000);
 
         $allResponse = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => $date, 'date_to' => $date, 'team' => 'all',
@@ -2870,6 +2871,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         CostBreakdownTsaEntry::ensureSeeded();
 
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 5000);
 
         $fetchTelesalesHtml = function () use ($admin, $date) {
             $response = $this->actingAs($admin)->get(route('data.expected-income', [
@@ -3015,15 +3017,20 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa->update(['tiktok_upsell' => true]);
         $date = today()->toDateString();
 
+        // Gross Sales comes from tagged POS orders since 2026-10-14; a
+        // manual field (Product Cost) is what's upserted now.
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 10000);
+
         $response = $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 10000, 'cancelled' => 500]
+            ['product_cost' => 1200]
         );
 
         $response->assertOk();
-        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - (10000 - 500 - 2500)) < 0.01);
+        $response->assertJsonPath('derived.delivered', fn ($v) => abs($v - (10000 - 2500)) < 0.01);
+        $response->assertJsonPath('derived.product_cost', fn ($v) => abs($v - 1200) < 0.01);
         $this->assertDatabaseHas('expected_income_tiktok_entries', [
-            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'gross_sales' => 10000,
+            'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'product_cost' => 1200,
         ]);
     }
 
@@ -3036,15 +3043,15 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 1000]
+            ['product_cost' => 1000]
         );
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 2000]
+            ['product_cost' => 2000]
         );
 
         $this->assertSame(1, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->count());
-        $this->assertSame(2000.0, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->first()->gross_sales);
+        $this->assertSame(2000.0, \App\Models\ExpectedIncomeTiktokEntry::where('card_key', 'natureva')->where('tsa_id', $tsa->id)->whereDate('entry_date', $date)->first()->product_cost);
     }
 
     /** Lock toggle on a TikTok card (explicit request, 2026-10-07: "i want
@@ -3071,7 +3078,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $cardHtml = $response->json('cardHtml');
         $this->assertNotEmpty($cardHtml, 'lock toggle must return a fresh cardHtml for the frontend cross-fade');
         $this->assertStringContainsString('data-ei-lock-toggle', $cardHtml);
-        $this->assertMatchesRegularExpression('/data-field="gross_sales"[^>]*disabled/', $cardHtml);
+        $this->assertMatchesRegularExpression('/data-field="product_cost"[^>]*disabled/', $cardHtml);
     }
 
     public function test_a_locked_tiktok_card_refuses_other_field_edits(): void
@@ -3085,6 +3092,7 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 100, 'is_locked' => true,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 100);
 
         $this->actingAs($admin)->patchJson(
             route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
@@ -3149,7 +3157,9 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $date = today()->toDateString();
 
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 5000]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 5000);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsa->id, 'entry_date' => $date, 'gross_sales' => 3000]);
+        $this->seedTiktokOrder($tsa->id, 'natureva', $date, 3000);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
@@ -3181,9 +3191,13 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $date = today()->toDateString();
 
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsaA->id, 'entry_date' => $date, 'gross_sales' => 10000]);
+        $this->seedTiktokOrder($tsaA->id, 'sh_naturals', $date, 10000);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'sh_naturals', 'tsa_id' => $tsaB->id, 'entry_date' => $date, 'gross_sales' => 500]);
+        $this->seedTiktokOrder($tsaB->id, 'sh_naturals', $date, 500);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsaA->id, 'entry_date' => $date, 'gross_sales' => 200]);
+        $this->seedTiktokOrder($tsaA->id, 'natureva', $date, 200);
         \App\Models\ExpectedIncomeTiktokEntry::create(['card_key' => 'natureva', 'tsa_id' => $tsaB->id, 'entry_date' => $date, 'gross_sales' => 300]);
+        $this->seedTiktokOrder($tsaB->id, 'natureva', $date, 300);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',
@@ -3433,14 +3447,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $tsa->update(['tiktok_upsell' => true]);
         $date = today()->toDateString();
 
-        $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update-tiktok', ['cardKey' => 'sh_naturals', 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 3000]
-        );
-        $this->actingAs($admin)->patchJson(
-            route('data.expected-income.update-tiktok', ['cardKey' => 'natureva', 'tsaShift' => $tsa->id, 'date' => $date]),
-            ['gross_sales' => 2000]
-        );
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 3000);
+        $this->seedTiktokOrder($tsa->id, 'natureva', $date, 2000);
 
         $response = $this->actingAs($admin)->get(route('data.expected-income', [
             'date_from' => $date, 'date_to' => $date, 'team' => 'tiktok',

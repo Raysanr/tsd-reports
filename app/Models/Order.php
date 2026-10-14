@@ -395,6 +395,38 @@ class Order extends Model
      *  Restocking, tagged "Upsell TSD (Ear Relief Balm)", counted as
      *  neither a real disposition nor an upsell — invisible as Catered
      *  work that clearly happened). */
+    /** Which Expected Income TikTok card (ExpectedIncomeTiktokEntry::CARDS
+     *  key) an order belongs to, from its "TIKTOK UPSELL -NATUREVA" /
+     *  "TIKTOK UPSELL -SH NATURALS" POS tag, or null for a regular order
+     *  (explicit request, 2026-10-14: "when there's tiktok upsell it the
+     *  tiktok filter will be fall of data / so the tiktok will be automated
+     *  too"). Spacing/dash-insensitive — compared alphanumerics only. */
+    public static function tiktokCardKey(array $tagNames): ?string
+    {
+        foreach ($tagNames as $tag) {
+            $normalized = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $tag));
+            if (!str_starts_with($normalized, 'TIKTOKUPSELL')) continue;
+            if (str_contains($normalized, 'NATUREVA')) return ExpectedIncomeTiktokEntry::CARD_NATUREVA;
+            if (str_contains($normalized, 'SHNATURALS')) return ExpectedIncomeTiktokEntry::CARD_SH_NATURALS;
+        }
+
+        return null;
+    }
+
+    public static function isTiktokUpsell(self $order): bool
+    {
+        return self::tiktokCardKey($order->raw_tags ?? []) !== null;
+    }
+
+    /** Drops TikTok-tagged orders from a regular (non-TikTok) order set —
+     *  every Data Management page counts them on the TikTok cards instead,
+     *  never on a real product/team/TSA figure, so they're never counted
+     *  twice. */
+    public static function withoutTiktokUpsells(\Illuminate\Support\Collection $orders): \Illuminate\Support\Collection
+    {
+        return $orders->reject(fn (self $o) => self::isTiktokUpsell($o))->values();
+    }
+
     public static function hasUpsellTag(array $tagNames): bool
     {
         foreach ($tagNames as $tag) {

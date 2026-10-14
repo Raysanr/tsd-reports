@@ -89,7 +89,7 @@ class DsPprReportController extends Controller
         $ordersByDate = $dates->mapWithKeys(function ($date) use ($teamSlug, $teams) {
             $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
                 ->when($teamSlug && $teams->has($teamSlug), fn ($q) => $q->where('team', $teams[$teamSlug]['order_team'] ?? '__none__'))
-                ->get();
+                ->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
             return [$date->toDateString() => $dayOrders];
         });
 
@@ -402,7 +402,7 @@ class DsPprReportController extends Controller
 
         $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [
             Carbon::parse($entryDate)->startOfDay(), Carbon::parse($entryDate)->endOfDay(),
-        ])->get();
+        ])->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
         $real = ProductPerformance::dsPprRow($groupProducts, $dayOrders);
 
         if ($group) {

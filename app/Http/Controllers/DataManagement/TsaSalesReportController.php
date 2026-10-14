@@ -112,7 +112,7 @@ class TsaSalesReportController extends Controller
         $orders = Order::whereRaw(
             "DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?",
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsas->pluck('tsa_key'))->get();
+        )->whereIn('tsa_name', $tsas->pluck('tsa_key'))->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         $byTsaAndDate = $orders->groupBy(fn (Order $o) => $o->tsa_name . ':' . Carbon::parse(
             $o->pancake_inserted_at ?? $o->pancake_created_at

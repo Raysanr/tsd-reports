@@ -725,6 +725,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => today(),
             'gross_sales' => 6000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', today(), 6000);
         TsaTiktokEntry::create([
             'tsa_shift_id' => $tsa->id, 'entry_date' => today(),
             'catered_leads' => 10, 'pickup_rate' => 0.50, 'upselling_rate' => 0.50,
@@ -803,6 +804,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 6000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 6000);
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
@@ -854,6 +856,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => today(),
             'gross_sales' => 6000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', today(), 6000);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales'));
         $response->assertOk();
@@ -890,6 +893,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 5000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 5000);
 
         $fetchOverallNetIncome = function () use ($admin, $date) {
             $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
@@ -948,6 +952,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 6000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 6000);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
             'date_from' => $date, 'date_to' => $date,
@@ -1015,6 +1020,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 6000,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 6000);
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => $tsa->id, 'date' => $date]),
@@ -1162,6 +1168,7 @@ class TsaSalesReportSmokeTest extends TestCase
             'card_key' => ExpectedIncomeTiktokEntry::CARD_SH_NATURALS, 'tsa_id' => $tsa->id, 'entry_date' => $date,
             'gross_sales' => 1500,
         ]);
+        $this->seedTiktokOrder($tsa->id, 'sh_naturals', $date, 1500);
 
         $response = $this->actingAs($admin)->get(route('data.tsa-sales', [
             'date_from' => $date, 'date_to' => $date,

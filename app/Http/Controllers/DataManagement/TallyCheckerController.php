@@ -135,7 +135,7 @@ class TallyCheckerController extends Controller
         $orders = Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeStart, $rangeEnd]
-        )->get()
+        )->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
             ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
 
@@ -211,7 +211,7 @@ class TallyCheckerController extends Controller
         $allOrders = Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeStart, $rangeEnd]
-        )->whereIn('team', $orderTeams)->get();
+        )->whereIn('team', $orderTeams)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         $results = [];
         foreach ($products as $product) {
@@ -284,7 +284,7 @@ class TallyCheckerController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
             ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
 
@@ -324,7 +324,7 @@ class TallyCheckerController extends Controller
         $dayOrders = Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [Carbon::parse($dateFrom)->startOfDay(), Carbon::parse($dateTo)->endOfDay()]
-        )->where('team', $orderTeam)->get();
+        )->where('team', $orderTeam)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         $independentTotal = 0;
         foreach ($products as $product) {
