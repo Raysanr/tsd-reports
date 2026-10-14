@@ -2851,21 +2851,14 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Narrowed again, 2026-10-14 (this test's own 2026-10-12/2026-10-13
-     *  versions folded Salaries in via different paths — see git history).
-     *  Explicit request: "it should be in closing team anne salaries row
-     *  is 0.00 because she has salaries in the tiktok" — her Daily Rate
-     *  now belongs EXCLUSIVELY to her TikTok card (buildTiktokRows()'s own
-     *  $totalOverviewSalaries), never her real team card
-     *  (buildTeamDailyRows()'s own $overviewCardOverrides, forced to 0.0
-     *  for a tiktok_upsell TSA) NOR the ALL-view TELESALES fold-in (the
-     *  2026-10-13 `['salaries' => 0.0]` override on the TikTok fold-in,
-     *  unchanged). Net effect: her Daily Rate now has ZERO influence on
-     *  the ALL-view TELESALES Salaries total at all — it only ever shows
-     *  on her own TikTok card. This test confirms that explicitly:
-     *  doubling her base salary must leave TELESALES's own Salaries
-     *  figure completely unchanged. */
-    public function test_telesales_on_all_never_includes_a_tiktok_flagged_tsas_salaries(): void
+    /** Reversed, 2026-10-14 (explicit report: "in the ALL the costs of
+     *  tiktok ... down to salaries why is it not included to the
+     *  overall?"). Her real team card's Salaries is 0.00 (her Daily Rate
+     *  belongs to her TikTok card), so the ALL-view TELESALES fold-in must
+     *  carry her TikTok Salaries — counted exactly ONCE: doubling her base
+     *  salary moves TELESALES Salaries by exactly her Daily Rate delta
+     *  (not 0, which was the bug; not 2x, which was the 2026-10-13 one). */
+    public function test_telesales_on_all_counts_a_tiktok_flagged_tsas_salaries_once(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -2904,8 +2897,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $renderedSalaries = (float) str_replace(',', '', $m[1]);
 
         // Double her base salary — the rendered TELESALES Salaries total
-        // must NOT move at all: her Daily Rate has no path into this
-        // figure any more (not her real team card, not the TikTok fold-in).
+        // must move by exactly her Daily Rate delta (TikTok fold-in only;
+        // her real team card's Salaries stays 0.00).
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
         // TsaDailyRateService::dailyRateByTsaId() memoizes CostBreakdownTsaEntry
         // per-request via an ad-hoc app()->scoped('tsa_daily_rate....', ...)
@@ -2934,8 +2927,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $renderedSalariesAt48k = (float) str_replace(',', '', $m48[1]);
 
         $this->assertEqualsWithDelta(
-            $renderedSalaries, $renderedSalariesAt48k, 0.02,
-            'the ALL-view TELESALES Salaries total must NOT change when a TikTok-flagged TSA\'s base salary changes — her Daily Rate has no path into this figure at all any more'
+            $dailyRateAt48k - $dailyRateAt24k, $renderedSalariesAt48k - $renderedSalaries, 0.02,
+            'the ALL-view TELESALES Salaries total must move by exactly her Daily Rate delta — her TikTok Salaries counted once'
         );
     }
 

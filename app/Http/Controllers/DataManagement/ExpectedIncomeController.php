@@ -189,21 +189,8 @@ class ExpectedIncomeController extends Controller
         // on ALL/TIKTOK TEAM, same scope the removed card itself used to
         // have (a REAL team's own summary row never included TikTok).
         //
-        // On ALL, folds in every field of $tiktokOverallTotal EXCEPT Salaries
-        // (TIKTOK TEAM keeps Salaries — see foldTiktokIntoTelesales())
-        // (narrowed again, 2026-10-13 — see buildSummary()'s own doc
-        // comment for the fuller "she genuinely does both jobs" story). The
-        // 2026-10-12 reversal folded Salaries in unmodified because a
-        // TikTok-flagged TSA's real Daily Rate had NO OTHER path into this
-        // total at the time (her real team card was fully excluded then).
-        // Now that her real team card counts again, folding TikTok's own
-        // Salaries in on top double-counts her Daily Rate — confirmed live
-        // via a failing test (ALL-view Salaries moved by exactly her Daily
-        // Rate delta TWICE instead of once when her base salary changed).
-        // Every OTHER field (Gross Sales, Selling Costs, Tax Allocation,
-        // other Operating Costs) still folds in unmodified — those are
-        // either genuinely TikTok-only revenue/cost or don't have a
-        // second path into this total the way Salaries now does.
+        // Every field folds in, Salaries included — see
+        // foldTiktokIntoTelesales()'s own doc comment for the history.
         $summaryData['summaryOverallTotal'] = $this->foldTiktokIntoTelesales(
             $summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], $selectedTeam, $sellingKeys, $operatingKeys
         );
@@ -738,22 +725,18 @@ class ExpectedIncomeController extends Controller
      *  for the per-team black-header rows below. */
     /** TELESALES = real products' total + TikTok's site-wide total, on
      *  ALL/TIKTOK TEAM only (a real team's own TELESALES never included
-     *  TikTok). Salaries differs by view:
-     *  - ALL: TikTok Salaries dropped (2026-10-13, kept by the 2026-10-14
-     *    change — see test_telesales_on_all_never_includes_a_tiktok_flagged_tsas_salaries).
-     *  - TIKTOK TEAM: TikTok Salaries kept (explicit report, 2026-10-14:
-     *    "why is it no salaries in the overall card of tiktok? why is it
-     *    0.00?") — $summaryTotal is empty here (no real team cards on this
-     *    view), so dropping them left the card at 0.00 while the TikTok
-     *    cards beside it showed real Salaries. */
+     *  TikTok). Every field folds in, Salaries included, on both views
+     *  (explicit report, 2026-10-14: "in the ALL the costs of tiktok ...
+     *  down to salaries why is it not included to the overall?"). The
+     *  2026-10-13 ALL-view Salaries drop existed only to avoid double-
+     *  counting a TikTok-flagged TSA's Daily Rate via her real team card;
+     *  since that card's Salaries is forced to 0.00 (2026-10-14), the drop
+     *  left her Daily Rate out of the ALL total entirely. Her TikTok card
+     *  is now its only path in, so it must fold in unmodified. */
     private function foldTiktokIntoTelesales(array $summaryTotal, array $tiktokTotal, string $selectedTeam, array $sellingKeys, array $operatingKeys): array
     {
         if (!in_array($selectedTeam, ['all', 'tiktok'], true)) {
             return $summaryTotal;
-        }
-
-        if ($selectedTeam === 'all') {
-            $tiktokTotal = ExpectedIncomeCalculator::withOverriddenOperatingCosts($tiktokTotal, ['salaries' => 0.0]);
         }
 
         return ExpectedIncomeCalculator::addDerivedTotals($summaryTotal, $tiktokTotal, $sellingKeys, $operatingKeys);
