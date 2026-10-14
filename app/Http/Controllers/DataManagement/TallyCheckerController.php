@@ -98,6 +98,7 @@ class TallyCheckerController extends Controller
             'teams' => $results,
             'products' => $this->checkProducts($dateFrom, $dateTo),
             'unmatchedOrders' => $this->checkUnmatchedOrders($dateFrom, $dateTo),
+            'tsaProductColumns' => $this->checkTsaProductColumns($dateFrom, $dateTo),
         ]);
     }
 
@@ -126,6 +127,80 @@ class TallyCheckerController extends Controller
      *  right product's own keyword list. Not scoped to a team, since an
      *  unmatched order is unmatched everywhere regardless of which team's
      *  TSA worked it. */
+    /** TSA totals vs product columns (explicit request, 2026-10-14: "fix any
+     *  product that like that ... and can you add that to the tally
+     *  checker") — per TSA, every real upsell her own totals count (TSA
+     *  Performance's Upsell w/ Confirmation, Expected Income's Number of
+     *  Orders) vs. how many of those land in a VISIBLE product column (TSA
+     *  Performance's Per-Product Hourly Breakdown / Expected Income's
+     *  product cards). Any order counted in the total but in no visible
+     *  column is listed with the reason, e.g. order #1376764 (Lika, Oct 5,
+     *  SEPARATE PARCEL) before ProductPerformance::claimsByUpsellTag(). */
+    private function checkTsaProductColumns(string $dateFrom, string $dateTo): array
+    {
+        $visible = Product::where('is_hidden', false)->orderBy('sort_order')->get();
+        $all = Product::orderBy('sort_order')->get();
+        $tsas = TsaShift::orderBy('sort_order')->get();
+
+        $orders = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsas->pluck('tsa_key'))->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+            ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
+            ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
+
+        $inColumnIds = ProductPerformance::countedOrdersFor($visible, $orders)->pluck('id')->flip();
+
+        return $tsas->map(function (TsaShift $tsa) use ($orders, $inColumnIds, $visible, $all) {
+            $tsaOrders = $orders->where('tsa_name', $tsa->tsa_key);
+            if ($tsaOrders->isEmpty()) return null;
+
+            $missing = $tsaOrders->reject(fn (Order $o) => $inColumnIds->has($o->id));
+
+            return [
+                'tsa' => $tsa->display_name,
+                'totalOrders' => $tsaOrders->count(),
+                'inColumns' => $tsaOrders->count() - $missing->count(),
+                'tallies' => $missing->isEmpty(),
+                'missing' => $missing->map(fn (Order $o) => [
+                    'orderId' => $o->pancake_order_id,
+                    'amount' => round($o->realUpsellAmount(), 2),
+                    'product' => $o->product,
+                    'tags' => $o->raw_tags ?? [],
+                    'createdAt' => optional($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateTimeString(),
+                    'reason' => $this->missingColumnReason($o, $visible, $all),
+                ])->values()->all(),
+            ];
+        })->filter()->values()->all();
+    }
+
+    private function missingColumnReason(Order $o, $visible, $all): string
+    {
+        $hiddenHits = $all->where('is_hidden', true)
+            ->filter(fn (Product $p) => ProductPerformance::matchingOrders($p, collect([$o]), $all)->isNotEmpty());
+        if ($hiddenHits->isNotEmpty()) {
+            return 'Matches only hidden product(s): ' . $hiddenHits->pluck('display_name')->implode(', ') . ' — unhide it or move its keyword to a visible product.';
+        }
+
+        $tagProduct = Order::upsellTagProductName($o->raw_tags ?? []);
+        if ($tagProduct !== null && !Order::hasSeparateParcelTag($o->raw_tags ?? [])) {
+            return "Not a SEPARATE PARCEL, so it isn't auto-placed by its \"{$tagProduct}\" upsell tag — its item name/base product (\"{$o->product}\" / \"{$o->base_product}\") matches no product, or its catalog ID is mapped to none. Add a keyword or catalog ID in Product Management.";
+        }
+        if ($tagProduct === null) {
+            return 'No product keyword matches its item name or tags, and it has no "TSD UPSELL - <product>" tag to fall back on — add a keyword in Product Management.';
+        }
+
+        $candidate = $all->first(fn (Product $p) => $p->matchesText($tagProduct));
+        if ($candidate === null) {
+            return "Its upsell tag names \"{$tagProduct}\", which matches no product's keywords — add it as a keyword in Product Management.";
+        }
+        if ($candidate->isExcludedByItemName($o->product) || $candidate->isExcludedByItemName($o->base_product)) {
+            return "{$candidate->display_name}'s own exclude keywords block this item name (\"{$o->product}\").";
+        }
+
+        return "Tag names \"{$tagProduct}\" ({$candidate->display_name}), but another rule blocked the match.";
+    }
+
     private function checkUnmatchedOrders(string $dateFrom, string $dateTo): array
     {
         $products = Product::all();
