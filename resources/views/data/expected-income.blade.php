@@ -1013,6 +1013,40 @@
             </div>`;
     }
 
+    // TSA totals vs product columns (explicit request, 2026-10-14) — see
+    // TallyCheckerController::checkTsaProductColumns()'s own doc comment.
+    function renderTsaProductColumnsSection(rows) {
+        const failing = rows.filter((r) => !r.tallies);
+        const summaryColor = failing.length === 0 ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400';
+        const summaryText = failing.length === 0
+            ? `Every TSA's orders all appear in a product column (${rows.length} TSA(s) checked).`
+            : `${failing.length} TSA(s) have orders counted in their totals but missing from every product column.`;
+        const rowHtml = (r) => `
+            <div class="py-2 border-b border-line/60 dark:border-slate-700/60 last:border-0">
+                <div class="flex items-center justify-between gap-3 text-sm font-mono">
+                    <span class="font-semibold text-ink dark:text-slate-100">${r.tsa}</span>
+                    <span class="${r.tallies ? 'text-ink-muted dark:text-slate-400' : 'text-red-600 dark:text-red-400 font-semibold'}">${r.inColumns} <span class="text-ink-muted/60">in columns vs</span> ${r.totalOrders} <span class="text-ink-muted/60">total</span></span>
+                </div>
+                ${r.missing.map((o) => `
+                    <div class="mt-1.5 ml-3 text-xs font-mono">
+                        <div class="flex items-center justify-between gap-3"><span class="font-semibold text-ink dark:text-slate-200">#${o.orderId}</span><span class="text-red-600 dark:text-red-400 font-semibold">${fmtMoney(o.amount)}</span></div>
+                        <div class="text-ink-muted dark:text-slate-400">${o.createdAt ?? ''} · ${o.product ?? ''}</div>
+                        <div class="text-amber-700 dark:text-amber-400">${o.reason}</div>
+                        ${o.tags && o.tags.length ? `<div class="text-[11px] text-ink-muted/80 dark:text-slate-500">tags: ${o.tags.join(', ')}</div>` : ''}
+                    </div>`).join('')}
+            </div>`;
+
+        return `
+            <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                <button type="button" id="eiTallyTsaColsToggle" class="w-full flex items-center justify-between gap-3 cursor-pointer">
+                    <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400">TSA Orders vs Product Columns</h4>
+                    <svg id="eiTallyTsaColsChevron" class="w-3.5 h-3.5 text-ink-muted dark:text-slate-500 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <p class="text-xs font-mono ${summaryColor} mt-1">${summaryText}</p>
+                <div id="eiTallyTsaColsList" class="${failing.length ? '' : 'hidden'} mt-2">${(failing.length ? failing : rows).map(rowHtml).join('')}</div>
+            </div>`;
+    }
+
     function openTallyModal() {
         tallyModal.classList.remove('hidden');
         tallyBody.innerHTML = '<div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>';
@@ -1030,7 +1064,8 @@
 
                 const productsAllTally = data.products.every((p) => p.numberOfLeads.tallies && p.numberOfOrders.tallies);
                 const noUnmatchedOrders = data.unmatchedOrders.length === 0;
-                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally && noUnmatchedOrders;
+                const tsaColumnsTally = (data.tsaProductColumns || []).every((r) => r.tallies);
+                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally && noUnmatchedOrders && tsaColumnsTally;
 
                 tallyBody.innerHTML = `
                     <div class="mb-4 px-3 py-2.5 rounded-lg ${allTally ? 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'} text-xs font-mono font-semibold">
@@ -1039,6 +1074,7 @@
                     ${data.teams.map(renderTallyTeam).join('')}
                     ${renderProductsSection(data.products)}
                     ${renderUnmatchedOrdersSection(data.unmatchedOrders)}
+                    ${renderTsaProductColumnsSection(data.tsaProductColumns || [])}
                     <p class="text-[11px] font-mono text-ink-muted/70 dark:text-slate-500 mt-2 pt-3 border-t border-line dark:border-slate-700">
                         "Shared" = the figure every page's own real-team/product card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does, and DSPPR's own Gross Sales/Net Income per product read the same source too) — shown for reference only, not a pass/fail. "Unmatched Orders" lists real orders that matched no configured product at all — usually fixed by adding a keyword to that product in Product Management.
                     </p>`;
@@ -1063,6 +1099,11 @@
                         chevron?.classList.toggle('rotate-180');
                     });
                 }
+
+                document.getElementById('eiTallyTsaColsToggle')?.addEventListener('click', () => {
+                    document.getElementById('eiTallyTsaColsList')?.classList.toggle('hidden');
+                    document.getElementById('eiTallyTsaColsChevron')?.classList.toggle('rotate-180');
+                });
             })
             .catch(() => {
                 tallyBody.innerHTML = '<div class="py-10 text-center text-sm font-mono text-red-600 dark:text-red-400">Could not run the Tally Checker — try again.</div>';

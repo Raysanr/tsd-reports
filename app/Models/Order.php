@@ -427,6 +427,25 @@ class Order extends Model
         return $orders->reject(fn (self $o) => self::isTiktokUpsell($o))->values();
     }
 
+    /** The product an upsell tag names — "TSD UPSELL - X" / "UPSELL TSD -
+     *  BASE + ADDON" give X / BASE (an add-on's revenue belongs on its
+     *  base product's column, same rule as ProductPerformance::
+     *  matchingOrders()), "UPSELL TSD (X)" gives X. Null when no such tag. */
+    public static function upsellTagProductName(array $tagNames): ?string
+    {
+        foreach ($tagNames as $tag) {
+            if (preg_match('/(?:UPSELL\s+TSD|TSD\s+UPSELL)\s*-\s*(.+)/i', (string) $tag, $m)) {
+                $first = trim(explode('+', $m[1])[0]);
+                if ($first !== '') return $first;
+            }
+            if (preg_match('/UPSELL\s+TSD\s*\(([^)]+)\)/i', (string) $tag, $m)) {
+                return trim($m[1]);
+            }
+        }
+
+        return null;
+    }
+
     public static function hasUpsellTag(array $tagNames): bool
     {
         foreach ($tagNames as $tag) {

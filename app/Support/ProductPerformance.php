@@ -163,7 +163,19 @@ class ProductPerformance
         // at all — matching on it alone undercounts every upsold product and misses
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
-        return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
+        // Upsell-tag fallback (explicit request, 2026-10-14: "fix any
+        // product that like that, it should be reflect all accurately") —
+        // see claimsByUpsellTag()'s own doc comment.
+        return $orders->filter(fn ($o) => self::matchesNormally($product, $o, $teamProducts, $productIds)
+            || ($teamProducts !== null && self::claimsByUpsellTag($product, $o, $teamProducts)));
+    }
+
+    /** matchingOrders()'s own rules for ONE order, without the upsell-tag
+     *  fallback — extracted so claimsByUpsellTag() can ask "does ANY
+     *  product claim this order normally?" without recursing into itself. */
+    private static function matchesNormally(Product $product, $o, ?Collection $teamProducts, Collection $productIds): bool
+    {
+        return (function ($o) use ($product, $teamProducts, $productIds) {
             // An upsold add-on never gets its own card/count any more — its
             // full order value belongs entirely to the BASE product it was
             // upsold onto (explicit reversal, 2026-10-10: order #1378313,
@@ -348,7 +360,38 @@ class ProductPerformance
                 if ($product->matchesText($tag)) return true;
             }
             return $explicitMatch;
-        });
+        })($o);
+    }
+
+    /** True when a real SEPARATE PARCEL upsell order lands in NO product column of
+     *  $teamProducts under the normal rules, and $product is the first one
+     *  (by $teamProducts order) matching the product its own "TSD UPSELL -
+     *  X" / "UPSELL TSD (X)" tag names — so every real upsell a TSA's own
+     *  totals count also shows in exactly one product column, never zero
+     *  and never two. Confirmed live (2026-10-14): SEPARATE PARCEL order
+     *  #1376764 (Lika, Oct 5, ₱1,700 "Belo Set", tagged "TSD UPSELL -
+     *  GINSENG SERUM") counted in TSA Performance's own Upsell w/
+     *  Confirmation (8) but in no product column, and only reached
+     *  Expected Income through the TSA card's unmatched-order top-up. */
+    public static function claimsByUpsellTag(Product $product, $o, Collection $teamProducts): bool
+    {
+        // SEPARATE PARCEL only — the whole parcel IS the upsell, often under
+        // a bundle name no product keyword knows. Any other order keeps the
+        // existing deliberate rules (an add-on's revenue goes to its base's
+        // column; a mismatched catalog ID isn't overridden by a leftover
+        // tag) and, if it still lands nowhere, shows in Tally Checker's
+        // "TSA Orders vs Product Columns" with the reason instead.
+        if (!Order::hasSeparateParcelTag($o->raw_tags ?? []) || !Order::isBroadRealUpsell($o)) return false;
+
+        $tagProduct = Order::upsellTagProductName($o->raw_tags ?? []);
+        if ($tagProduct === null || !$product->matchesText($tagProduct)) return false;
+
+        $first = $teamProducts->first(fn (Product $p) => $p->matchesText($tagProduct));
+        if ($first === null || $first->id !== $product->id) return false;
+
+        return !$teamProducts->contains(fn (Product $p) => self::matchesNormally(
+            $p, $o, $teamProducts, collect($p->pancake_product_ids ?? [])->filter()->values()
+        ));
     }
 
     /** True when $product's own keyword does NOT match the order's cart item
