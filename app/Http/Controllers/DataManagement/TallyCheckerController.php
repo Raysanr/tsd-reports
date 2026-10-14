@@ -182,23 +182,22 @@ class TallyCheckerController extends Controller
             return 'Matches only hidden product(s): ' . $hiddenHits->pluck('display_name')->implode(', ') . ' — unhide it or move its keyword to a visible product.';
         }
 
-        $tagProduct = Order::upsellTagProductName($o->raw_tags ?? []);
-        if ($tagProduct !== null && !Order::hasSeparateParcelTag($o->raw_tags ?? [])) {
-            return "Not a SEPARATE PARCEL, so it isn't auto-placed by its \"{$tagProduct}\" upsell tag — its item name/base product (\"{$o->product}\" / \"{$o->base_product}\") matches no product, or its catalog ID is mapped to none. Add a keyword or catalog ID in Product Management.";
+        // Name the exact rule blocking any product its tags DO name.
+        $tagged = $visible->filter(fn (Product $p) => collect($o->raw_tags ?? [])->contains(fn ($t) => $p->matchesText((string) $t)));
+        foreach ($tagged as $p) {
+            if ($p->isExcludedByItemName($o->product) || $p->isExcludedByItemName($o->base_product) || $p->isExcludedByItemName($o->bundle_description)) {
+                return "Its tags name {$p->display_name}, but {$p->display_name}'s exclude keywords (\"{$p->match_exclude_keyword}\") block its item name \"{$o->product}\"" . (Order::hasSeparateParcelTag($o->raw_tags ?? []) ? '.' : ' — and it isn\'t a SEPARATE PARCEL, so no tag fallback applies.');
+            }
+            $conflict = ProductPerformance::conflictingProduct($p, $o, $visible);
+            if ($conflict !== null) {
+                return "Its tags name {$p->display_name}, but its item name \"{$o->product}\" matches {$conflict->display_name} instead.";
+            }
         }
-        if ($tagProduct === null) {
-            return 'No product keyword matches its item name or tags, and it has no "TSD UPSELL - <product>" tag to fall back on — add a keyword in Product Management.';
+        if ($tagged->isNotEmpty() && !Order::hasSeparateParcelTag($o->raw_tags ?? [])) {
+            return 'Its tags name ' . $tagged->pluck('display_name')->implode(', ') . ", but its item name/catalog ID (\"{$o->product}\") points elsewhere and it isn't a SEPARATE PARCEL — add a keyword or catalog ID in Product Management.";
         }
 
-        $candidate = $all->first(fn (Product $p) => $p->matchesText($tagProduct));
-        if ($candidate === null) {
-            return "Its upsell tag names \"{$tagProduct}\", which matches no product's keywords — add it as a keyword in Product Management.";
-        }
-        if ($candidate->isExcludedByItemName($o->product) || $candidate->isExcludedByItemName($o->base_product)) {
-            return "{$candidate->display_name}'s own exclude keywords block this item name (\"{$o->product}\").";
-        }
-
-        return "Tag names \"{$tagProduct}\" ({$candidate->display_name}), but another rule blocked the match.";
+        return 'No product keyword matches its item name or any of its tags — add a keyword in Product Management.';
     }
 
     private function checkUnmatchedOrders(string $dateFrom, string $dateTo): array
