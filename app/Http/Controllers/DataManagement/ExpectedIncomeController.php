@@ -16,6 +16,7 @@ use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductGrouping;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
+use App\Support\TiktokUpsellTotals;
 use App\Support\TsaDailyRateService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -389,13 +390,14 @@ class ExpectedIncomeController extends Controller
             ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
 
         $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        $autoByKey = TiktokUpsellTotals::byTsaCardAndDate($dateFrom, $dateTo);
 
         $result = collect();
         foreach ($flaggedTsas as $tsa) {
             foreach ($dates as $date) {
                 $dateStr = $date->toDateString();
                 $rawRows = collect(ExpectedIncomeTiktokEntry::CARDS)->keys()->map(
-                    fn ($cardKey) => $entriesByKey->get("{$tsa->id}:{$cardKey}:{$dateStr}")?->toArray() ?? []
+                    fn ($cardKey) => self::withTiktokAuto($entriesByKey->get("{$tsa->id}:{$cardKey}:{$dateStr}")?->toArray() ?? [], $autoByKey, $tsa->id, $cardKey, $dateStr)
                 )->all();
 
                 $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
@@ -1599,6 +1601,20 @@ class ExpectedIncomeController extends Controller
      *  needs exactly one date to save into). Also returns the SITE-WIDE
      *  total (every flagged TSA, every date in range, both cards summed
      *  together) for the TOTAL section — see buildTiktokOverallTotal(). */
+    /** A TikTok card's raw row with Gross Sales / Number of Orders /
+     *  Cancelled replaced by the TikTok-tagged POS order totals — always,
+     *  zeros included, so a manually-typed figure can never leak through —
+     *  from TiktokUpsellTotals::AUTOMATED_FROM on; earlier days keep their
+     *  typed figures untouched. */
+    private static function withTiktokAuto(array $raw, \Illuminate\Support\Collection $autoByKey, int $tsaId, string $cardKey, string $dateStr): array
+    {
+        if (!TiktokUpsellTotals::isAutomated($dateStr)) {
+            return $raw;
+        }
+
+        return array_merge($raw, $autoByKey->get("{$tsaId}:{$cardKey}:{$dateStr}", array_fill_keys(TiktokUpsellTotals::FIELDS, 0)));
+    }
+
     private function buildTiktokRows($dates, string $dateFrom, string $dateTo): array
     {
         $flaggedTsas = TsaShift::where('tiktok_upsell', true)->orderBy('sort_order')->get();
@@ -1617,6 +1633,12 @@ class ExpectedIncomeController extends Controller
             ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
 
         $emptyRaw = fn (int $tsaId, string $cardKey, string $dateStr) => ['tsa_id' => $tsaId, 'card_key' => $cardKey, 'entry_date' => $dateStr];
+
+        // Gross Sales / Number of Orders / Cancelled come from TikTok-tagged
+        // POS orders, never a manual entry (explicit request, 2026-10-14 —
+        // see TiktokUpsellTotals' own doc comment). Always overrides,
+        // zeros included, so a stale manually-typed figure can't linger.
+        $autoByKey = TiktokUpsellTotals::byTsaCardAndDate($dateFrom, $dateTo);
 
         $isRangeSummed = $dates->count() > 1;
         $dayCount = $dates->count();
@@ -1641,7 +1663,7 @@ class ExpectedIncomeController extends Controller
         $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
         $tiktokCardCount = count(ExpectedIncomeTiktokEntry::CARDS);
 
-        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $isRangeSummed, $dayCount, $dailyRateByTsaId, $tiktokCardCount, &$allRawRows) {
+        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $autoByKey, $isRangeSummed, $dayCount, $dailyRateByTsaId, $tiktokCardCount, &$allRawRows) {
             $dailyRate = $dailyRateByTsaId[$tsa->id] ?? 0.0;
             $cardSalaries = ($dailyRate / $tiktokCardCount) * $dayCount;
             $overviewSalaries = $dailyRate * $dayCount;
@@ -1650,11 +1672,11 @@ class ExpectedIncomeController extends Controller
             // fills the gap rather than silently skipping that date out
             // of the sum (same "always one row per cell, real or empty"
             // convention as rawByProductAndDate()'s own doc comment).
-            $rowsByCard = collect(ExpectedIncomeTiktokEntry::CARDS)->mapWithKeys(function ($label, $cardKey) use ($tsa, $dates, $entriesByKey, $emptyRaw, &$allRawRows) {
-                $rows = $dates->map(function ($date) use ($tsa, $cardKey, $entriesByKey, $emptyRaw, &$allRawRows) {
+            $rowsByCard = collect(ExpectedIncomeTiktokEntry::CARDS)->mapWithKeys(function ($label, $cardKey) use ($tsa, $dates, $entriesByKey, $emptyRaw, $autoByKey, &$allRawRows) {
+                $rows = $dates->map(function ($date) use ($tsa, $cardKey, $entriesByKey, $emptyRaw, $autoByKey, &$allRawRows) {
                     $dateStr = $date->toDateString();
                     $entry = $entriesByKey->get("{$tsa->id}:{$cardKey}:{$dateStr}");
-                    $raw = $entry?->toArray() ?? $emptyRaw($tsa->id, $cardKey, $dateStr);
+                    $raw = self::withTiktokAuto($entry?->toArray() ?? $emptyRaw($tsa->id, $cardKey, $dateStr), $autoByKey, $tsa->id, $cardKey, $dateStr);
                     $allRawRows[] = $raw;
                     return ['raw' => $raw, 'entry' => $entry];
                 });
@@ -2055,7 +2077,7 @@ class ExpectedIncomeController extends Controller
         return Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeStart, $rangeEnd]
-        )->whereIn('team', $orderTeams)->get()
+        )->whereIn('team', $orderTeams)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
             ->groupBy(function (Order $o) {
                 $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
                 return $o->team . ':' . ($ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString());
@@ -2112,7 +2134,7 @@ class ExpectedIncomeController extends Controller
         return Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeStart, $rangeEnd]
-        )->get()
+        )->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
             ->groupBy(function (Order $o) use ($tsaTeamByKey) {
                 $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
                 $dateStr = $ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString();
@@ -2354,7 +2376,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get();
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         $tally = ProductPerformance::tally($orders);
 
@@ -2423,7 +2445,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get();
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         return (float) ProductPerformance::tally($orders)['upsell_sales'];
     }
@@ -2441,7 +2463,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get();
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         return (int) ProductPerformance::tally($orders)['upsell_confirmation'];
     }
@@ -2488,7 +2510,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get();
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
 
         return (float) ProductPerformance::tally($orders)['cancelled_upsell_sales'];
     }
@@ -2933,7 +2955,13 @@ class ExpectedIncomeController extends Controller
             'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
             'actual_cost_per_lead' => ['sometimes', 'numeric', 'min:0'],
             'number_of_leads'      => ['sometimes', 'integer', 'min:0'],
+            // number_of_orders/gross_sales/cancelled: automated from
+            // TikTok-tagged POS orders from TiktokUpsellTotals::
+            // AUTOMATED_FROM on (explicit request, 2026-10-14) — stripped
+            // below for those days, still typed in for earlier ones.
             'number_of_orders'     => ['sometimes', 'integer', 'min:0'],
+            'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
+            'cancelled'            => ['sometimes', 'numeric', 'min:0'],
             // average_order_value is no longer accepted here either
             // (explicit request, 2026-10-10: "the average order value
             // (AOV) i want to make it automated too") — unlike Gross
@@ -2944,8 +2972,6 @@ class ExpectedIncomeController extends Controller
             // card or TikTok card alike — see that method's own doc
             // comment. A stray POST here would silently never be
             // reflected anywhere.
-            'gross_sales'          => ['sometimes', 'numeric', 'min:0'],
-            'cancelled'            => ['sometimes', 'numeric', 'min:0'],
             'tax_allocation'       => ['sometimes', 'numeric', 'min:0'],
             'product_cost'         => ['sometimes', 'numeric', 'min:0'],
             'advertising_cost'     => ['sometimes', 'numeric', 'min:0'],
@@ -2981,6 +3007,9 @@ class ExpectedIncomeController extends Controller
         ]);
 
         $entryDate = Carbon::parse($date)->toDateString();
+        if (TiktokUpsellTotals::isAutomated($entryDate)) {
+            $data = array_diff_key($data, array_flip(TiktokUpsellTotals::FIELDS));
+        }
 
         $entry = ExpectedIncomeTiktokEntry::where('card_key', $cardKey)->where('tsa_id', $tsaShift->id)->whereDate('entry_date', $entryDate)->first()
             ?? new ExpectedIncomeTiktokEntry(['card_key' => $cardKey, 'tsa_id' => $tsaShift->id, 'entry_date' => $entryDate]);
@@ -3009,7 +3038,9 @@ class ExpectedIncomeController extends Controller
 
         $response = [
             'success' => true,
-            'derived' => ExpectedIncomeCalculator::derive($entry->toArray()),
+            'derived' => ExpectedIncomeCalculator::derive(self::withTiktokAuto(
+                $entry->toArray(), TiktokUpsellTotals::byTsaCardAndDate($entryDate, $entryDate), $tsaShift->id, $cardKey, $entryDate
+            )),
         ];
 
         // Locking swaps every input on this card for the same input, now
@@ -3041,7 +3072,10 @@ class ExpectedIncomeController extends Controller
         $dailyRate = TsaDailyRateService::dailyRateByTsaId()[$tsaShift->id] ?? 0.0;
         $cardSalaries = $dailyRate / count(ExpectedIncomeTiktokEntry::CARDS);
 
-        $raw = $entry?->toArray() ?? ['tsa_id' => $tsaShift->id, 'card_key' => $cardKey, 'entry_date' => $entryDate];
+        $raw = self::withTiktokAuto(
+            $entry?->toArray() ?? ['tsa_id' => $tsaShift->id, 'card_key' => $cardKey, 'entry_date' => $entryDate],
+            TiktokUpsellTotals::byTsaCardAndDate($entryDate, $entryDate), $tsaShift->id, $cardKey, $entryDate
+        );
         $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
             ExpectedIncomeCalculator::derive($raw),
             ['salaries' => $cardSalaries]

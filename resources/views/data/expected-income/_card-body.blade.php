@@ -87,7 +87,7 @@
          manual (no real Product/Pancake assignee data behind either). --}}
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">Number of Orders</span>
-        @if(($editable ?? false) && !($tsaScoped ?? false))
+        @if(($editable ?? false) && !($tsaScoped ?? false) && !($autoSales ?? false))
             <input type="text" inputmode="numeric" value="{{ $entry?->number_of_orders ?? 0 }}"
                    data-field="number_of_orders" @if($locked ?? false) disabled @endif
                    class="ei-field w-28 text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
@@ -148,7 +148,7 @@
          confirmed-exact rate. --}}
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="text-ink-muted dark:text-slate-400">Gross Sales</span>
-        @if(($editable ?? false) && !($tsaScoped ?? false))
+        @if(($editable ?? false) && !($tsaScoped ?? false) && !($autoSales ?? false))
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->gross_sales ?? 0, 2) }}"
                    data-field="gross_sales" data-money="1" @if($locked ?? false) disabled @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
@@ -170,7 +170,7 @@
          either). --}}
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
         <span class="text-red-600 dark:text-red-400">Cancelled</span>
-        @if(($editable ?? false) && !($tsaScoped ?? false))
+        @if(($editable ?? false) && !($tsaScoped ?? false) && !($autoSales ?? false))
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->cancelled ?? 0, 2) }}"
                    data-field="cancelled" data-money="1" @if($locked ?? false) disabled @endif
                    class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 font-semibold text-red-600 dark:text-red-400 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
