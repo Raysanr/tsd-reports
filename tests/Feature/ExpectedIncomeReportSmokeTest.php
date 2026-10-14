@@ -2851,19 +2851,21 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         );
     }
 
-    /** Narrowed again, 2026-10-13 (this test's own 2026-10-12 version
-     *  folded Salaries in unmodified — see git history for that version).
-     *  A TikTok-flagged TSA now ALSO gets her own real card on her real
-     *  team (explicit request, 2026-10-13: she genuinely does both jobs,
-     *  real Pancake orders AND separate manual TikTok upsells) — her real
-     *  Daily Rate now reaches the ALL-view TELESALES total via her own
-     *  real team card, same as any other TSA, so the TikTok fold-in's own
-     *  Salaries would double it if left unmodified. This test still
-     *  asserts her real Daily Rate moves the ALL-view total by exactly
-     *  her Daily Rate delta — just via her real team card now, not the
-     *  TikTok fold-in, which is why the Salaries override returned (see
-     *  index()'s own `['salaries' => 0.0]` doc comment). */
-    public function test_telesales_on_all_includes_a_tiktok_flagged_tsas_real_salaries(): void
+    /** Narrowed again, 2026-10-14 (this test's own 2026-10-12/2026-10-13
+     *  versions folded Salaries in via different paths — see git history).
+     *  Explicit request: "it should be in closing team anne salaries row
+     *  is 0.00 because she has salaries in the tiktok" — her Daily Rate
+     *  now belongs EXCLUSIVELY to her TikTok card (buildTiktokRows()'s own
+     *  $totalOverviewSalaries), never her real team card
+     *  (buildTeamDailyRows()'s own $overviewCardOverrides, forced to 0.0
+     *  for a tiktok_upsell TSA) NOR the ALL-view TELESALES fold-in (the
+     *  2026-10-13 `['salaries' => 0.0]` override on the TikTok fold-in,
+     *  unchanged). Net effect: her Daily Rate now has ZERO influence on
+     *  the ALL-view TELESALES Salaries total at all — it only ever shows
+     *  on her own TikTok card. This test confirms that explicitly:
+     *  doubling her base salary must leave TELESALES's own Salaries
+     *  figure completely unchanged. */
+    public function test_telesales_on_all_never_includes_a_tiktok_flagged_tsas_salaries(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::first();
@@ -2897,21 +2899,13 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $htmlAt24k = $fetchTelesalesHtml();
         $this->assertStringContainsString('data-out="salaries"', $htmlAt24k, 'test setup: expected to find a Salaries line in the TELESALES card');
 
-        // Her real Daily Rate MUST now appear folded INTO the ALL-view
-        // TELESALES card's own Salaries total (Team Opening + Team
-        // Closing's own real Salaries PLUS hers), not excluded from it.
         preg_match('/data-out="salaries"[^>]*>\s*([\d,.]+)/', $htmlAt24k, $m);
         $this->assertNotEmpty($m, 'expected a parseable Salaries figure on the TELESALES card');
         $renderedSalaries = (float) str_replace(',', '', $m[1]);
-        $this->assertGreaterThanOrEqual(
-            $dailyRateAt24k - 0.01, $renderedSalaries,
-            'a TikTok-flagged TSA\'s real auto-computed Salaries must fold INTO the ALL-view TELESALES total, not be excluded from it'
-        );
 
         // Double her base salary — the rendered TELESALES Salaries total
-        // must move by exactly the resulting Daily Rate delta, proving her
-        // real cost is genuinely included (not masked by some unrelated
-        // figure that happens to already be nonzero).
+        // must NOT move at all: her Daily Rate has no path into this
+        // figure any more (not her real team card, not the TikTok fold-in).
         CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 48000.00]);
         // TsaDailyRateService::dailyRateByTsaId() memoizes CostBreakdownTsaEntry
         // per-request via an ad-hoc app()->scoped('tsa_daily_rate....', ...)
@@ -2940,9 +2934,52 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $renderedSalariesAt48k = (float) str_replace(',', '', $m48[1]);
 
         $this->assertEqualsWithDelta(
-            $renderedSalaries + ($dailyRateAt48k - $dailyRateAt24k), $renderedSalariesAt48k, 0.02,
-            'the ALL-view TELESALES Salaries total must move by exactly her Daily Rate delta when her base salary changes'
+            $renderedSalaries, $renderedSalariesAt48k, 0.02,
+            'the ALL-view TELESALES Salaries total must NOT change when a TikTok-flagged TSA\'s base salary changes — her Daily Rate has no path into this figure at all any more'
         );
+    }
+
+    /** Direct check on her OWN real team card (not the pooled TELESALES
+     *  total above) — explicit request, 2026-10-14: "it should be in
+     *  closing team anne salaries row is 0.00 because she has salaries in
+     *  the tiktok." Her real Gross Sales/Net Income still show on this
+     *  card (REVERSED 2026-10-13, she genuinely does both jobs), but her
+     *  Salaries specifically must read 0.00 — that cost belongs on her
+     *  TikTok card alone. */
+    public function test_a_tiktok_flagged_tsas_own_real_team_card_shows_zero_salaries(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $tsa = TsaShift::first();
+        $tsa->update(['tiktok_upsell' => true]);
+        $teamSlug = $tsa->team === 'SH Naturals' ? 'sh-naturals' : 'eyecare';
+        $date = today()->toDateString();
+
+        CostBreakdownRole::ensureSeeded();
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownTsaEntry::ensureSeeded();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->update(['base_salary' => 24000.00]);
+        $dailyRate = \App\Support\TsaDailyRateService::dailyRateByTsaId()[$tsa->id] ?? 0.0;
+        $this->assertGreaterThan(0, $dailyRate, 'test setup: expected a real nonzero Daily Rate for this TSA');
+
+        $response = $this->actingAs($admin)->get(route('data.expected-income', [
+            'date_from' => $date, 'date_to' => $date, 'team' => $teamSlug,
+        ]));
+
+        $response->assertOk();
+        $content = $response->getContent();
+        // Her own named card header specifically (matches
+        // _summary-section.blade.php's own <span ...>{{ $tsa->display_name }}</span>
+        // markup) — a bare strpos() for her name alone can match an
+        // unrelated export-button title attribute earlier in the page.
+        $namePos = strpos($content, '>' . $tsa->display_name . '</span>');
+        $this->assertNotFalse($namePos, "expected to find {$tsa->display_name}'s own named card header");
+        $nextCardPos = strpos($content, 'class="ei-card', $namePos + 500);
+        $nextCardPos = $nextCardPos !== false ? $nextCardPos : ($namePos + 20000);
+        $cardHtml = substr($content, $namePos, $nextCardPos - $namePos);
+
+        preg_match('/data-out="salaries"[^>]*>\s*([\d,.]+)/', $cardHtml, $m);
+        $this->assertNotEmpty($m, "expected a parseable Salaries figure on {$tsa->display_name}'s own card");
+        $this->assertSame(0.0, (float) str_replace(',', '', $m[1]), 'her real team card\'s own Salaries must read 0.00 — that cost belongs on her TikTok card alone');
     }
 
     public function test_updating_a_tiktok_card_field_upserts_and_returns_recomputed_figures(): void

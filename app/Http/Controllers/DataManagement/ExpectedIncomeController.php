@@ -334,9 +334,12 @@ class ExpectedIncomeController extends Controller
             // rule buildTeamDailyRows() itself follows (2026-10-06 — see
             // that method's own doc comment) — and the same direct-fallback
             // for a TSA missing from the pre-built maps (2026-10-03 fix).
+            // A TikTok-flagged TSA's own Salaries is excluded here too
+            // (narrowed 2026-10-14 — see buildTeamDailyRows()'s own
+            // matching doc comment).
             $overviewCardOverrides = array_merge(
                 TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
-                ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRateByTsaId[$tsa->id] ?? 0.0)]
             );
             $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
 
@@ -1177,8 +1180,19 @@ class ExpectedIncomeController extends Controller
         $fallbackTsasById = $missingTaxTsaIds->isNotEmpty()
             ? TsaShift::whereIn('id', $missingTaxTsaIds)->get()->keyBy('id')
             : collect();
+        // A TikTok-flagged TSA's own Salaries is excluded here too
+        // (narrowed 2026-10-14 — see buildTeamDailyRows()'s own matching
+        // doc comment for the full "her Daily Rate belongs on her TikTok
+        // card, never duplicated onto a real team rollup" reasoning) —
+        // every OTHER cost field (Operating Costs pool share, Tax
+        // Allocation) still counts her normally, same narrow "only
+        // Salaries" scope the 2026-10-13 ALL-view fold-in fix already
+        // established.
+        $tiktokFlaggedTsaIds = TsaShift::where('tiktok_upsell', true)->pluck('id');
         foreach ($activeTsaIds as $tsaId) {
-            $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
+            if (!$tiktokFlaggedTsaIds->contains($tsaId)) {
+                $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
+            }
             // A 0-day TSA contributes none of her own share of the shared
             // pool cost here either (2026-10-06 — see
             // TsaDailyRateService::zeroOperatingCostsIfZeroDay()'s own doc
@@ -1391,13 +1405,26 @@ class ExpectedIncomeController extends Controller
             // above — "the salaries is will stay but the other costs will
             // be 0.00 when 0 days"); her Salaries is already 0.0 via
             // dailyRatePerProductByTsaId/dailyRateByTsaId on their own.
+            //
+            // A TikTok-flagged TSA's own Salaries is forced to 0.0 here
+            // too (narrowed 2026-10-14, explicit request: "it should be
+            // in closing team anne salaries row is 0.00 because she has
+            // salaries in the tiktok" — follow-up to the 2026-10-13
+            // reversal that restored her real team CARD, showing her real
+            // Gross Sales/revenue again. Her Daily Rate cost is a single
+            // real cost for the person; it belongs on her TikTok card
+            // specifically (buildTiktokRows()'s own $totalOverviewSalaries/
+            // $totalCardSalaries, unaffected by this), never duplicated
+            // onto her real team card too — same scope the earlier same-
+            // day fix already applied to the ALL-view TELESALES fold-in,
+            // just extended to her own individual card here.
             $productCardOverrides = array_merge(
                 TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostPerProductRow),
-                ['salaries' => $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0]
+                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRatePerProductByTsaId[$tsa->id] ?? 0.0)]
             );
             $overviewCardOverrides = array_merge(
                 TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
-                ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRateByTsaId[$tsa->id] ?? 0.0)]
             );
             // Direct fallback when $tsa is missing from the pre-built maps
             // (root-caused live, 2026-10-03: "why is it all last tsa has
@@ -3211,9 +3238,14 @@ class ExpectedIncomeController extends Controller
         // too (2026-10-06 — see TsaDailyRateService::
         // zeroOperatingCostsIfZeroDay()'s own doc comment); her Salaries
         // is already 0.0 via perProductByTsaId() on its own.
+        // A TikTok-flagged TSA's own Salaries is excluded here too
+        // (narrowed 2026-10-14 — see buildTeamDailyRows()'s own matching
+        // doc comment) — this re-applies the SAME overrides a live
+        // autosave response must match, so it can't skip this fix either.
+        $isTiktokFlagged = TsaShift::where('id', $tsaId)->value('tiktok_upsell') ?? false;
         $operatingCostOverrides = array_merge(
             TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, TsaDailyRateService::dailyCostPerProductRow()),
-            ['salaries' => $dailyRatePerProductByTsaId[$tsaId] ?? 0.0]
+            ['salaries' => $isTiktokFlagged ? 0.0 : ($dailyRatePerProductByTsaId[$tsaId] ?? 0.0)]
         );
 
         $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts($derived, $operatingCostOverrides);

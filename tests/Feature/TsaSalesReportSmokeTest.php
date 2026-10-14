@@ -863,18 +863,18 @@ class TsaSalesReportSmokeTest extends TestCase
         $this->assertMatchesRegularExpression('/data-out="gross_sales">\s*6,000\.00\s*</', $matches[0]);
     }
 
-    /** Guards against a double-count introduced alongside the 2026-10-13
-     *  reversal that lets a TikTok-flagged TSA's real team row show again
-     *  (see ExpectedIncomeController::index()'s own doc comment for the
-     *  full "she genuinely does both jobs" story): her real Daily Rate
-     *  now reaches OVERALL TOTAL's own Net Income via her real team's
-     *  pooled figure (teamNetIncomeByDate()) — tiktokTotalsByTsaAndDate()
-     *  separately subtracts the SAME real Daily Rate as Salaries for her
-     *  own standalone TikTok row display, which this page's own OVERALL
-     *  TOTAL used to fold in unmodified on top. Confirms her Daily Rate
-     *  only ever reduces OVERALL TOTAL's Net Income ONCE: doubling her
-     *  base salary must move OVERALL TOTAL's Net Income by exactly one
-     *  Daily Rate delta, not two. */
+    /** Narrowed again, 2026-10-14 (supersedes the 2026-10-13 "add her
+     *  Daily Rate back" version of this test — see git history). Explicit
+     *  request: "it should be in closing team anne salaries row is 0.00
+     *  because she has salaries in the tiktok" — her real team's own
+     *  pooled Net Income (teamNetIncomeByDate()) no longer includes her
+     *  Daily Rate at all any more (ExpectedIncomeController::
+     *  buildTeamDailyRows() forces her Salaries to 0.0 there), so her
+     *  Daily Rate now reaches OVERALL TOTAL's Net Income EXCLUSIVELY via
+     *  her own TikTok row (tiktokTotalsByTsaAndDate()'s own Salaries
+     *  subtraction, folded in unmodified). Still moves OVERALL TOTAL by
+     *  exactly one Daily Rate delta — just via a single path now, not two
+     *  that used to need a compensating "add it back." */
     public function test_a_tiktok_flagged_tsas_daily_rate_is_not_double_subtracted_from_the_overall_total(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);

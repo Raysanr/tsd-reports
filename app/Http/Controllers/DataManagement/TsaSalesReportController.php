@@ -514,24 +514,20 @@ class TsaSalesReportController extends Controller
         // sum-of-every-individual-row total, same double-counted-shared-
         // costs issue).
         //
-        // TikTok Upsell's own Net Income folds in with her real Daily Rate
-        // added BACK (narrowed, 2026-10-13 — see ExpectedIncomeController::
-        // index()'s own `['salaries' => 0.0]` fold-in doc comment for the
-        // matching fix on Expected Income). A TikTok-flagged TSA now ALSO
-        // gets her own real card on her real team (explicit request,
-        // 2026-10-13: she genuinely does both jobs), so her real Daily
-        // Rate already reaches $groupSummaries' own pooled Net Income
-        // above via teamNetIncomeByDate() — tiktokTotalsByTsaAndDate()'s
-        // own 'net_income' ALSO subtracts her real, undivided Daily Rate
-        // as Salaries (needed for her own standalone TikTok row display),
-        // so adding it in unmodified here would double-subtract it.
-        $dailyRateByTsaId = \App\Support\TsaDailyRateService::dailyRateByTsaId();
-        $tiktokNetIncomeForOverall = (float) $tiktokTsas->sum(function (TsaShift $tsa) use ($dates, $tiktokDailyByKey, $dailyRateByTsaId) {
-            $rowNetIncome = (float) $dates->sum(fn ($date) => $tiktokDailyByKey->get($tsa->id . ':' . $date->toDateString())['net_income'] ?? 0.0);
-            return $rowNetIncome + ($dailyRateByTsaId[$tsa->id] ?? 0.0) * $dates->count();
-        });
+        // TikTok Upsell's own Net Income folds in UNMODIFIED (narrowed
+        // again, 2026-10-14 — supersedes the 2026-10-13 "add her Daily
+        // Rate back" correction, see git history for that version).
+        // Explicit request: "it should be in closing team anne salaries
+        // row is 0.00 because she has salaries in the tiktok" — her
+        // Daily Rate now belongs EXCLUSIVELY to her TikTok row's own
+        // Net Income; $groupSummaries' own pooled Net Income above
+        // (teamNetIncomeByDate()) no longer includes her Daily Rate at
+        // all (ExpectedIncomeController::buildTeamDailyRows()'s own
+        // $overviewCardOverrides forces her Salaries to 0.0), so there is
+        // no double-subtraction left to compensate for — the 2026-10-13
+        // "add it back" fix would now be adding it TWICE instead.
         $pooledNetIncome = (float) $groupSummaries->sum(fn ($g) => $g['groupTotal']['net_income'])
-            + $tiktokNetIncomeForOverall;
+            + (float) $tiktokRowSummaries->pluck('derived')->sum('net_income');
         $overallTotal['net_income'] = $pooledNetIncome;
         $overallTotal['ni_pct'] = $overallTotal['gross_sales'] > 0 ? $pooledNetIncome / $overallTotal['gross_sales'] : 0.0;
 
