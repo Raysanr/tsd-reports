@@ -135,7 +135,9 @@ class ExpectedIncomeCalculator
      *  from a summed row within the same request. */
     private static function customRows(): \Illuminate\Support\Collection
     {
-        return ProjectionCustomRow::orderBy('sort_order')->get();
+        // RequestMemo (2026-10-15) — safe now: flushed on any write in the
+        // same request, so a freshly-added row is never missed.
+        return RequestMemo::remember('projection_custom_rows.ordered', fn () => ProjectionCustomRow::orderBy('sort_order')->get());
     }
 
     /** Same meaning as ProjectionCalculator::LOCKED_TO_SELLING — defined

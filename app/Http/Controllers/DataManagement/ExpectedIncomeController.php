@@ -2229,31 +2229,15 @@ class ExpectedIncomeController extends Controller
      *  index() alone used to recompute both ~6 times for the SAME inputs
      *  (buildSummary()'s 3 buildSummaryRow() calls, each also via
      *  rawByProductAndDateAllTsas(), plus the daily rows). Keyed by the
-     *  exact inputs and held against the current Request object in a
-     *  WeakMap, so it's freed with the request and the next request
-     *  (incl. under Octane, where statics survive) always starts empty —
-     *  never a stale figure. */
-    private static ?\WeakMap $requestMemo = null;
-
+     *  exact inputs; see RequestMemo for why it can never serve a stale
+     *  figure. */
     private static function memoPerRequest(string $name, $products, $dates, string $dateFrom, string $dateTo, \Closure $compute)
     {
-        $request = app()->bound('request') ? app('request') : null;
-        if ($request === null) {
-            return $compute();
-        }
-
-        self::$requestMemo ??= new \WeakMap();
-        $bucket = self::$requestMemo[$request] ?? [];
-        $key = $name . '|' . $dateFrom . '|' . $dateTo
+        $key = 'ei.' . $name . '|' . $dateFrom . '|' . $dateTo
             . '|' . collect($products)->pluck('id')->implode(',')
             . '|' . collect($dates)->map(fn ($d) => $d instanceof \DateTimeInterface ? $d->format('Y-m-d') : (string) $d)->implode(',');
 
-        if (!array_key_exists($key, $bucket)) {
-            $bucket[$key] = $compute();
-            self::$requestMemo[$request] = $bucket;
-        }
-
-        return $bucket[$key];
+        return \App\Support\RequestMemo::remember($key, $compute);
     }
 
     private function computeGrossSalesByProductAndDate($products, $dates, string $dateFrom, string $dateTo): array

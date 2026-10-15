@@ -147,7 +147,7 @@ class TsaDailyRateService
      *  Days-gated, see zeroOperatingCostsIfZeroDay() below). */
     public static function dailyRateByTsaId(): array
     {
-        $roles = CostBreakdownRole::all();
+        $roles = RequestMemo::remember('cost_breakdown_roles.all', fn () => CostBreakdownRole::all());
         $overheadByRoleId = self::overheadByRoleId($roles);
         $overheadRefsByTeam = self::overheadRefsByTeam($roles, $overheadByRoleId);
 
@@ -234,7 +234,7 @@ class TsaDailyRateService
      *  comment). */
     public static function dailyCostRow(): array
     {
-        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $poolAmounts = RequestMemo::remember('cost_breakdown_pools.amounts', fn () => CostBreakdownPool::pluck('amount', 'key')->all());
 
         return CostBreakdownCalculator::dailyCostRow($poolAmounts, self::activeTsaCount());
     }
@@ -282,7 +282,7 @@ class TsaDailyRateService
      *  the checkbox and this list from ever disagreeing. */
     public static function flaggedProductRows()
     {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = RequestMemo::remember('products.by_team_sort', fn () => Product::orderBy('team')->orderBy('sort_order')->get());
 
         return ProductGrouping::rows($products, fn () => null)
             ->filter(fn ($row) => $row['products']->first()->has_cost_allocation)
