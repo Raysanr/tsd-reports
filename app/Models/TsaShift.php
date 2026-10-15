@@ -27,10 +27,13 @@ class TsaShift extends Model
         // Independent of `team` — see add_tiktok_upsell_to_tsa_shifts_table
         // migration's own doc comment for why this isn't a 3rd team value.
         'tiktok_upsell',
+        // Display-only "eye" toggle — see add_is_hidden_to_tsa_shifts_table.
+        'is_hidden',
     ];
 
     protected $casts = [
         'active' => 'boolean',
+        'is_hidden' => 'boolean',
         'status_changed_at' => 'datetime',
         'tiktok_upsell' => 'boolean',
     ];
@@ -587,5 +590,18 @@ class TsaShift extends Model
     {
         if (!$csv) return [];
         return array_values(array_filter(array_map('trim', explode(',', $csv))));
+    }
+
+    /** Hidden from report pages by TSA Management's eye toggle (2026-10-15)
+     *  — display only: callers filter ROWS with this, never the data that
+     *  feeds a team/product total, so totals stay accurate. */
+    public static function hiddenTsaKeys(): array
+    {
+        return static::where('is_hidden', true)->pluck('tsa_key')->all();
+    }
+
+    public static function hiddenTsaIds(): array
+    {
+        return static::where('is_hidden', true)->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 }

@@ -1607,7 +1607,9 @@ class ExpectedIncomeController extends Controller
             'dailyRows'          => collect(),
             'dailyOverallTotals' => collect(),
             'dailyByKey'         => collect(),
-            'tsaRows'            => $tsaRows,
+            // Eye-hidden in TSA Management (2026-10-15) — display only; the
+            // team summary/totals are computed separately and still count her.
+            'tsaRows'            => $tsaRows->reject(fn ($row) => $row['tsa']->is_hidden)->values(),
             'rangeRows'          => null,
             'rangeOverallTotal'  => null,
         ];
@@ -1795,7 +1797,8 @@ class ExpectedIncomeController extends Controller
             // once per real TSA it's already iterating ($tsaRows in
             // buildTeamDailyRows()'s own output), so a flat lookup avoids
             // a linear search through every flagged TSA per render.
-            'tiktokTsaRows'      => $tiktokTsaRows->keyBy(fn ($row) => $row['tsa']->id),
+            // Eye-hidden TSAs dropped AFTER the totals below/above (display only).
+            'tiktokTsaRows'      => $tiktokTsaRows->reject(fn ($row) => $row['tsa']->is_hidden)->keyBy(fn ($row) => $row['tsa']->id),
             'tiktokOverallTotal' => ExpectedIncomeCalculator::withOverriddenOperatingCosts(
                 ExpectedIncomeCalculator::sum($allRawRows),
                 ['salaries' => $totalOverviewSalaries]

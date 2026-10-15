@@ -182,7 +182,7 @@
                      shows her real figures, genuinely different from her
                      separate TIKTOK UPSELL row below. --}}
                 @php $d = $rs['derived']; @endphp
-                <tr class="tsr-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}"
+                <tr class="tsr-summary-row {{ $rs['tsa']->is_hidden ? 'hidden' : '' }} odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}"
                     data-answered="{{ $d['answered'] ?? 0 }}" data-unanswered="{{ $d['unanswered'] ?? 0 }}" data-confirmed-via-call="{{ $d['confirmed_via_call'] ?? 0 }}" data-upsell-confirmation="{{ $d['upsell_confirmation'] ?? 0 }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
@@ -213,7 +213,7 @@
             <tbody>
                 @foreach($tiktokSummary['rows'] as $rs)
                 @php $d = $rs['derived']; @endphp
-                <tr class="tsr-summary-row tsr-tiktok-summary-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
+                <tr class="tsr-summary-row tsr-tiktok-summary-row {{ $rs['tsa']->is_hidden ? 'hidden' : '' }} odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60" data-tsa-id="{{ $rs['tsa']->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($rs['tsa']->display_name) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="gross_sales">{{ $fmtMoney($d['gross_sales']) }}</td>
                     <td class="px-3 py-2 text-right {{ $niColorClass($d['net_income']) }}" data-out="net_income">{{ $fmtMoney($d['net_income']) }}</td>
@@ -278,6 +278,10 @@
      'tbody .tsr-row')` — scoped to the WHOLE table, silently correct only
      because there used to be exactly one <tbody> per table; now scoped
      to the specific tbody being edited instead. --}}
+{{-- Eye-hidden TSAs (TSA Management, 2026-10-15) keep their <tr> with the
+     `hidden` class instead of being dropped — the JS group/overall totals
+     sum every .tsr-row/.tsr-summary-row in the DOM, so her figures still
+     count ("hide her row only"). --}}
 @php
     $dailyGroups = $groupSummaries->map(fn ($gs) => [
         'label' => $gs['label'], 'orderTeam' => $gs['orderTeam'], 'tsas' => $gs['tsas'],
@@ -360,7 +364,7 @@
                     </td>
                 </tr>
                 @forelse($group['tsas'] as $tsa)
-                <tr class="tsr-row odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60 {{ $group['isTiktok'] ? 'tsr-tiktok-row' : '' }}" data-tsa-id="{{ $tsa->id }}">
+                <tr class="tsr-row {{ $tsa->is_hidden ? 'hidden' : '' }} odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60 {{ $group['isTiktok'] ? 'tsr-tiktok-row' : '' }}" data-tsa-id="{{ $tsa->id }}">
                     <td class="tsr-sticky tsr-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ strtoupper($tsa->display_name) }}</td>
                     @foreach($dates as $date)
                         @php

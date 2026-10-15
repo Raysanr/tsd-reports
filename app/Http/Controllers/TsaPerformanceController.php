@@ -265,6 +265,10 @@ class TsaPerformanceController extends Controller
         // Dashboard, in exchange for a TSA's own total finally matching
         // what she genuinely closed everywhere it's shown.
         $grandTotal = ProductPerformance::sumRows($tsaRows);
+        // Eye-hidden TSAs (TSA Management, 2026-10-15) — row hidden AFTER
+        // the grand total is summed, so the total still includes her.
+        $hiddenTsaKeys = TsaShift::hiddenTsaKeys();
+        $tsaRows = $tsaRows->reject(fn ($row) => in_array($row['tsa_key'] ?? null, $hiddenTsaKeys, true))->values();
 
         $allKeys        = $shifts->keys();
         // Team-scoped (still needed for the Unassigned bucket per hour —
@@ -977,6 +981,10 @@ class TsaPerformanceController extends Controller
         // three-way identity to preserve anymore. Accepted tradeoff, same
         // one already made for the Dashboard.
         $grandTotal = ProductPerformance::sumRows($tsaRows);
+        // Eye-hidden TSAs (TSA Management, 2026-10-15) — row hidden AFTER
+        // the grand total is summed, so the total still includes her.
+        $hiddenTsaKeys = TsaShift::hiddenTsaKeys();
+        $tsaRows = $tsaRows->reject(fn ($row) => in_array($row['tsa_key'] ?? null, $hiddenTsaKeys, true))->values();
 
         $teams = $this->teamsMenu($teamsConfig);
 

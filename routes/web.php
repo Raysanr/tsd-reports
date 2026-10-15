@@ -98,6 +98,9 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/tsa-management/bulk',       [TsaManagementController::class, 'bulk'])->name('tsa-management.bulk');
         Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
         Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
+        // Eye toggle — hide/show this TSA's row on every report page
+        // (display only, 2026-10-15; see add_is_hidden_to_tsa_shifts_table).
+        Route::post('/tsa-management/{tsaShift}/toggle-hidden', [TsaManagementController::class, 'toggleHidden'])->name('tsa-management.toggle-hidden');
         Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
         Route::post('/tsa-management/{id}/restore', [TsaManagementController::class, 'restore'])->name('tsa-management.restore');
         Route::delete('/tsa-management/{id}/force', [TsaManagementController::class, 'forceDelete'])->name('tsa-management.force-delete');

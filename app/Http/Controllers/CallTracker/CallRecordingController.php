@@ -41,7 +41,7 @@ class CallRecordingController extends Controller
         $tsaFilterInput = $this->rememberedFilter($request, 'call-recordings', 'tsa');
         $selectedTsa    = $tsaFilterInput ? (int) $tsaFilterInput : null;
 
-        $tsas = TsaShift::where('active', true)->orderBy('sort_order')->get();
+        $tsas = TsaShift::where('active', true)->where('is_hidden', false)->orderBy('sort_order')->get(); // eye-hidden: display only
 
         $token = $drive->accessToken();
         if (!$token) {

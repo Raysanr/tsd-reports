@@ -189,6 +189,7 @@ class CallLogController extends Controller
         // on the picked team regardless of which one (if any) is currently
         // selected, not narrow down to just the one already picked.
         $teamTsas = TsaShift::where('active', true)
+            ->where('is_hidden', false) // eye-hidden in TSA Management (display only)
             ->when($orderTeam, fn ($q) => $q->where('team', $orderTeam))
             ->orderBy('sort_order')->get();
 

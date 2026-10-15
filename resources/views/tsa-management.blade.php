@@ -79,7 +79,7 @@
                  even narrower device or unusually long name/TSA key). --}}
             <div class="divide-y divide-slate-100 dark:divide-slate-700 overflow-x-auto">
                 @foreach($group['shifts'] as $shift)
-                <div class="px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 w-max sm:w-auto min-w-full sm:min-w-0">
+                <div class="tsaRow px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 w-max sm:w-auto min-w-full sm:min-w-0 {{ $shift->is_hidden ? 'opacity-50' : '' }}" data-tsa-row="{{ $shift->id }}">
                     {{-- Selection checkbox — reads by the bulk-action bar's JS. This is a
                          plain input, not a nested <form>, so it's safe to sit inside the
                          bulk-save form above; the bulk-action <form> it feeds submits
@@ -99,12 +99,26 @@
                                    class="w-full text-xs sm:text-sm font-mono font-semibold text-slate-700 dark:text-slate-200 border-0 border-b border-transparent
                                           hover:border-slate-200 dark:hover:border-slate-700 focus:border-yellow-400 focus:outline-none bg-transparent py-0.5 transition-colors truncate"
                                    placeholder="Full name">
-                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}</p>
+                            <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono truncate">{{ $shift->tsa_key }}<span class="hiddenBadge ml-1 px-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 {{ $shift->is_hidden ? '' : 'hidden' }}">Hidden</span></p>
                         </div>
                     </div>
 
                     {{-- Row actions --}}
                     <div class="flex items-center gap-0.5 sm:gap-1 shrink-0">
+                        {{-- Eye toggle (explicit request, 2026-10-15) — hides
+                             this TSA's row on every report page. Display only:
+                             her orders still count in every total. --}}
+                        <button type="button"
+                            class="toggleHiddenTsaBtn p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
+                            title="{{ $shift->is_hidden ? 'Hidden from reports — click to show' : 'Shown on reports — click to hide' }}"
+                            aria-label="{{ $shift->is_hidden ? 'Show this TSA on reports' : 'Hide this TSA from reports' }}"
+                            data-url="{{ route('tsa-management.toggle-hidden', $shift) }}"
+                            data-hidden="{{ $shift->is_hidden ? '1' : '0' }}">
+                            <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path class="eyeOpen {{ $shift->is_hidden ? 'hidden' : '' }}" stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178zM15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path class="eyeOff {{ $shift->is_hidden ? '' : 'hidden' }}" stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/>
+                            </svg>
+                        </button>
                         <button type="button"
                             class="editTsaBtn p-1 sm:p-1.5 rounded-lg text-slate-400 hover:text-yellow-600 dark:hover:text-yellow-400 hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer"
                             title="Edit"
@@ -411,6 +425,34 @@
 
 @push('scripts')
 <script>
+// Eye toggle (2026-10-15) — flips is_hidden, then updates this row in place.
+document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            const res = await fetch(btn.dataset.url, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, Accept: 'application/json' },
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error();
+            const row = btn.closest('.tsaRow');
+            btn.dataset.hidden = data.hidden ? '1' : '0';
+            btn.title = data.hidden ? 'Hidden from reports — click to show' : 'Shown on reports — click to hide';
+            btn.setAttribute('aria-label', data.hidden ? 'Show this TSA on reports' : 'Hide this TSA from reports');
+            btn.querySelector('.eyeOpen').classList.toggle('hidden', data.hidden);
+            btn.querySelector('.eyeOff').classList.toggle('hidden', !data.hidden);
+            row?.classList.toggle('opacity-50', data.hidden);
+            row?.querySelector('.hiddenBadge')?.classList.toggle('hidden', !data.hidden);
+            window.showToast?.(data.hidden ? 'Hidden from all report pages' : 'Shown on report pages again', 'success');
+        } catch (e) {
+            window.showToast?.('Could not update — try again.', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+});
+
 (function () {
     const modal        = document.getElementById('tsaModal');
     const modalTitle    = document.getElementById('tsaModalTitle');
