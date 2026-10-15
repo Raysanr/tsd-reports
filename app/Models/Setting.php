@@ -11,7 +11,10 @@ class Setting extends Model
     public static function get(string $key, mixed $default = null): mixed
     {
         try {
-            $row = static::where('key', $key)->first();
+            // RequestMemo (perf, 2026-10-15) — Teams::config() alone read
+            // the same keys ~40x per Expected Income load. Flushed on any
+            // write (incl. set()), off for artisan commands.
+            $row = \App\Support\RequestMemo::remember('setting.' . $key, fn () => static::where('key', $key)->first());
             return $row ? $row->value : $default;
         } catch (\Illuminate\Database\QueryException) {
             return $default;

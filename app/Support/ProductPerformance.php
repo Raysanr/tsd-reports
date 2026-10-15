@@ -397,6 +397,33 @@ class ProductPerformance
         return null;
     }
 
+    /** Per-order memo for matchingOrders()' per-order work that doesn't
+     *  depend on WHICH product is being matched (perf, 2026-10-15 — it
+     *  was redone for every product, products² per order). Held against
+     *  the Order object in a WeakMap (freed with it) and keyed by the exact
+     *  product list incl. each product's keywords/exclusions/catalog IDs,
+     *  so a different list — or an edited product — never reuses an answer. */
+    private static ?\WeakMap $orderMemo = null;
+    private static ?\WeakMap $productListSignature = null;
+
+    private static function perOrder($order, string $name, Collection $teamProducts, \Closure $compute): mixed
+    {
+        self::$productListSignature ??= new \WeakMap();
+        $sig = self::$productListSignature[$teamProducts] ??= md5(serialize($teamProducts->map(fn (Product $p) => [
+            $p->id, $p->match_keyword, $p->match_exclude_keyword, $p->display_name, $p->team, $p->pancake_product_ids,
+        ])->all()));
+
+        self::$orderMemo ??= new \WeakMap();
+        $bucket = self::$orderMemo[$order] ?? [];
+        $key = $name . '|' . $sig;
+        if (!array_key_exists($key, $bucket)) {
+            $bucket[$key] = $compute();
+            self::$orderMemo[$order] = $bucket;
+        }
+
+        return $bucket[$key];
+    }
+
     public static function claimsByUpsellTag(Product $product, $o, Collection $teamProducts): bool
     {
         // SEPARATE PARCEL only — the whole parcel IS the upsell, often under
@@ -407,12 +434,12 @@ class ProductPerformance
         // "TSA Orders vs Product Columns" with the reason instead.
         if (!Order::hasSeparateParcelTag($o->raw_tags ?? []) || !Order::isBroadRealUpsell($o)) return false;
 
-        $first = self::tagFallbackProduct($o, $teamProducts);
+        $first = self::perOrder($o, 'tagFallback', $teamProducts, fn () => self::tagFallbackProduct($o, $teamProducts));
         if ($first === null || $first->id !== $product->id) return false;
 
-        return !$teamProducts->contains(fn (Product $p) => self::matchesNormally(
+        return !self::perOrder($o, 'claimedNormally', $teamProducts, fn () => $teamProducts->contains(fn (Product $p) => self::matchesNormally(
             $p, $o, $teamProducts, collect($p->pancake_product_ids ?? [])->filter()->values()
-        ));
+        )));
     }
 
     /** True when $product's own keyword does NOT match the order's cart item
@@ -453,8 +480,15 @@ class ProductPerformance
             return null;
         }
 
-        return $teamProducts->first(fn ($other) => $other->id !== $product->id
-            && ($other->matchesText($order->product) || $other->matchesText($order->base_product) || $other->matchesText($order->bundle_description)));
+        // Which of $teamProducts match this order's item fields — computed
+        // ONCE per order per product list (perf, 2026-10-15: this scan ran
+        // for every product, i.e. products² per order), then "first other
+        // match" is a lookup. Same result, same order, as scanning directly.
+        $itemMatchers = self::perOrder($order, 'itemMatchers', $teamProducts, fn () => $teamProducts
+            ->filter(fn ($other) => $other->matchesText($order->product) || $other->matchesText($order->base_product) || $other->matchesText($order->bundle_description))
+            ->values());
+
+        return $itemMatchers->first(fn ($other) => $other->id !== $product->id);
     }
 
     /** The counting/rate logic on its own, with no product-tag matching — for
