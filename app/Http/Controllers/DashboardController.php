@@ -53,6 +53,7 @@ class DashboardController extends Controller
         session(['filters.dashboard.include_restocking' => $includeRestocking]);
 
         $dateFrom = Carbon::parse($fromInput)->startOfDay();
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = Carbon::parse($toInput)->endOfDay();
 
         $apiConnected          = !empty(Setting::get('pancake_api_key', config('services.pancake.api_key')));

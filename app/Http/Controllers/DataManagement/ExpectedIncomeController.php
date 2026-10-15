@@ -85,6 +85,7 @@ class ExpectedIncomeController extends Controller
         // defaulting to "today only" on a brand-new session.
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
         $teamsConfig = Teams::config();
@@ -662,6 +663,7 @@ class ExpectedIncomeController extends Controller
     {
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
         $teamsConfig = Teams::config();
