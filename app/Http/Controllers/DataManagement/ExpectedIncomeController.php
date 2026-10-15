@@ -2051,6 +2051,12 @@ class ExpectedIncomeController extends Controller
      *  already established for the surrounding per-day loops. */
     private function leadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
     {
+        return self::memoPerRequest('leadCounts', $products, $dates, $dateFrom, $dateTo,
+            fn () => $this->computeLeadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo));
+    }
+
+    private function computeLeadCountsByProductAndDate($products, $dates, string $dateFrom, string $dateTo)
+    {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
         $dayOrdersByTeamAndDate = $this->ordersByTeamAndDate($orderTeams, $dates, $dateFrom, $dateTo);
@@ -2213,6 +2219,44 @@ class ExpectedIncomeController extends Controller
      *  own identical doc comment above (PART 5) — this method had the
      *  exact same per-(day × team) query loop, independently. */
     private function grossSalesByProductAndDate($products, $dates, string $dateFrom, string $dateTo): array
+    {
+        return self::memoPerRequest('grossSales', $products, $dates, $dateFrom, $dateTo,
+            fn () => $this->computeGrossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo));
+    }
+
+    /** Per-request memo for the two heaviest pure functions on this page
+     *  (perf, explicit request 2026-10-15: "every page load is so slow") —
+     *  index() alone used to recompute both ~6 times for the SAME inputs
+     *  (buildSummary()'s 3 buildSummaryRow() calls, each also via
+     *  rawByProductAndDateAllTsas(), plus the daily rows). Keyed by the
+     *  exact inputs and held against the current Request object in a
+     *  WeakMap, so it's freed with the request and the next request
+     *  (incl. under Octane, where statics survive) always starts empty —
+     *  never a stale figure. */
+    private static ?\WeakMap $requestMemo = null;
+
+    private static function memoPerRequest(string $name, $products, $dates, string $dateFrom, string $dateTo, \Closure $compute)
+    {
+        $request = app()->bound('request') ? app('request') : null;
+        if ($request === null) {
+            return $compute();
+        }
+
+        self::$requestMemo ??= new \WeakMap();
+        $bucket = self::$requestMemo[$request] ?? [];
+        $key = $name . '|' . $dateFrom . '|' . $dateTo
+            . '|' . collect($products)->pluck('id')->implode(',')
+            . '|' . collect($dates)->map(fn ($d) => $d instanceof \DateTimeInterface ? $d->format('Y-m-d') : (string) $d)->implode(',');
+
+        if (!array_key_exists($key, $bucket)) {
+            $bucket[$key] = $compute();
+            self::$requestMemo[$request] = $bucket;
+        }
+
+        return $bucket[$key];
+    }
+
+    private function computeGrossSalesByProductAndDate($products, $dates, string $dateFrom, string $dateTo): array
     {
         $tsaKeyToId = TsaShift::pluck('id', 'tsa_key');
         $orderTeams = collect(Teams::config())->pluck('order_team')->unique()->values();
