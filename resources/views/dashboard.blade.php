@@ -134,14 +134,10 @@
         </div>
     </div>
 
-    {{-- Cancelled Upsells (explicit follow-up request, 2026-09-04: "same kpi
-         card as cancelled upsells") — a TSA added an upsell add-on that was
-         later removed from the cart, base order still ships (is_cancelled_
-         upsell=true, cancelled_upsell_amount holds the removed add-on's own
-         price). Deliberate reversal of the "Total Cancelled Orders" version
-         this card used to be (real order-level cancellations, Pancake
-         status_code 6) — see DashboardController::index()'s own doc comment
-         on this stat for the accepted tradeoff. --}}
+    {{-- Cancelled Upsells (2026-10-15, explicit request) — one combined
+         total of real TSA upsells whose order is Cancelled OR Awaiting Stock,
+         the same rule as Expected Income's Cancelled row. See
+         DashboardController::index() where $stats['cancelled_orders_*'] is set. --}}
     <div class="stat-card bg-white dark:bg-slate-900 rounded-xl border border-rose-200 dark:border-rose-800 p-3 sm:p-5 shadow-sm flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-2 sm:gap-4">
         <div class="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-rose-50 dark:bg-rose-950/40 flex items-center justify-center shrink-0">
             <svg class="w-4.5 h-4.5 sm:w-6 sm:h-6 text-rose-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -154,7 +150,7 @@
                 ₱{{ number_format($stats['cancelled_orders_value'], 2) }}
             </p>
             <p class="mt-1.5 text-xs text-slate-400 font-mono">
-                {{ $stats['cancelled_orders_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $stats['cancelled_orders_count']) }} canceled
+                {{ $stats['cancelled_orders_count'] }} {{ \Illuminate\Support\Str::plural('upsell', $stats['cancelled_orders_count']) }} · Cancelled + Awaiting Stock
             </p>
         </div>
     </div>
