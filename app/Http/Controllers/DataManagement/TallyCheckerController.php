@@ -137,7 +137,7 @@ class TallyCheckerController extends Controller
      *  Performance's Per-Product Hourly Breakdown / Expected Income's
      *  product cards). Any order counted in the total but in no visible
      *  column is listed with the reason, e.g. order #1376764 (Lika, Oct 5,
-     *  SEPARATE PARCEL) before ProductPerformance's separate-parcel tag rule. */
+     *  SEPARATE PARCEL) before ProductPerformance::claimsByUpsellTag(). */
     private function checkTsaProductColumns(string $dateFrom, string $dateTo): array
     {
         $visible = Product::where('is_hidden', false)->orderBy('sort_order')->get();
@@ -238,14 +238,14 @@ class TallyCheckerController extends Controller
         $tagged = $visible->filter(fn (Product $p) => collect($o->raw_tags ?? [])->contains(fn ($t) => $p->matchesText((string) $t)));
         foreach ($tagged as $p) {
             if ($p->isExcludedByItemName($o->product) || $p->isExcludedByItemName($o->base_product) || $p->isExcludedByItemName($o->bundle_description)) {
-                return "Its tags name {$p->display_name}, but {$p->display_name}'s exclude keywords (\"{$p->match_exclude_keyword}\") block its item name \"{$o->product}\"" . (Order::isSeparateParcel($o) ? '.' : ' — and it isn\'t a SEPARATE PARCEL, so no tag fallback applies.');
+                return "Its tags name {$p->display_name}, but {$p->display_name}'s exclude keywords (\"{$p->match_exclude_keyword}\") block its item name \"{$o->product}\"" . (Order::hasSeparateParcelTag($o->raw_tags ?? []) ? '.' : ' — and it isn\'t a SEPARATE PARCEL, so no tag fallback applies.');
             }
             $conflict = ProductPerformance::conflictingProduct($p, $o, $visible);
             if ($conflict !== null) {
                 return "Its tags name {$p->display_name}, but its item name \"{$o->product}\" matches {$conflict->display_name} instead.";
             }
         }
-        if ($tagged->isNotEmpty() && !Order::isSeparateParcel($o)) {
+        if ($tagged->isNotEmpty() && !Order::hasSeparateParcelTag($o->raw_tags ?? [])) {
             return 'Its tags name ' . $tagged->pluck('display_name')->implode(', ') . ", but its item name/catalog ID (\"{$o->product}\") points elsewhere and it isn't a SEPARATE PARCEL — add a keyword or catalog ID in Product Management.";
         }
 
