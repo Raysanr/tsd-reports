@@ -273,7 +273,10 @@ class TsaStatusController extends Controller
         // Sort key mixes both sources' ids into one lexicographic string —
         // not a meaningful cross-table identity, just a stable tiebreak so
         // two rows in the same second never swap order between page loads.
+        // Eye-hidden in TSA Management (2026-10-15) — display only.
+        $hiddenTsaIds = TsaShift::hiddenTsaIds();
         $merged = $statusRows->concat($callRows)
+            ->reject(fn ($row) => in_array((int) $row->tsa_id, $hiddenTsaIds, true))
             ->sortByDesc(fn ($row) => $row->created_at->format('Y-m-d H:i:s') . '-' . sprintf('%010d', $row->id))
             ->values();
 
@@ -290,7 +293,7 @@ class TsaStatusController extends Controller
 
         $data = [
             'logs'             => $logs,
-            'tsas'             => TsaShift::orderBy('sort_order')->get(),
+            'tsas'             => TsaShift::where('is_hidden', false)->orderBy('sort_order')->get(),
             'selectedTsa'      => $tsaId,
             'dateFrom'         => $dateFrom,
             'dateTo'           => $dateTo,

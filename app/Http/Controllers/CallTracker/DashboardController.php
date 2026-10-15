@@ -433,9 +433,9 @@ class DashboardController extends Controller
             'totalCateredLeads'      => $totalCateredLeads,
             'ahtDisplay'             => $ahtDisplay,
             'unproductiveDisplay'    => $unproductiveDisplay,
-            'tsas'                   => $tsas,
+            'tsas'                   => $tsas->where('is_hidden', false)->values(), // eye-hidden (display only)
             'atRiskProducts'         => $atRiskProducts,
-            'tsaPerformance'         => $tsaPerformance,
+            'tsaPerformance'         => $tsaPerformance->reject(fn ($r) => $r['tsa']->is_hidden)->values(), // totals above keep her
             'tsaPerformanceTotal'    => $tsaPerformanceTotal,
             'statuses'               => TsaShift::STATUSES,
             'dateFrom'               => $dateFrom,

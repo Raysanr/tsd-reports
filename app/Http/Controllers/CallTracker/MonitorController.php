@@ -33,7 +33,8 @@ class MonitorController extends Controller
         $q      = trim((string) $request->input('q', ''));
         $status = $request->string('status')->toString();
 
-        $tsas = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status);
+        $tsas = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status)
+            ->where('is_hidden', false)->values(); // eye-hidden in TSA Management (display only)
 
         // Keyed by tsa id — each TSA's own per-status seconds within the
         // picked range (today by default), same shared algorithm Analytics
@@ -289,7 +290,8 @@ class MonitorController extends Controller
         $q      = trim((string) $request->input('q', ''));
         $status = $request->string('status')->toString();
 
-        $tsas        = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status);
+        $tsas        = $this->filteredTsas($request, $selectedTeam, $teamsConfig, $q, $status)
+            ->where('is_hidden', false)->values(); // eye-hidden in TSA Management (display only)
         $statusOrder = array_keys(TsaShift::STATUSES);
 
         // Renamed-team-aware (bug fix, 2026-09-06 — same missed spot as

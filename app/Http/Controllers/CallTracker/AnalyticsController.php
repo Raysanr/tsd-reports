@@ -282,6 +282,9 @@ class AnalyticsController extends Controller
             })
             ->sortKeys();
 
+// Eye-hidden in TSA Management (2026-10-15) — display only; totals above still count her.
+        $rows = $rows->reject(fn ($r) => $r['tsa']->is_hidden)->values();
+
         // Chart payload — same $rows data, reshaped into plain arrays keyed by
         // TSA display name. Kept separate from $rows (which the table already
         // renders directly) rather than reshaping in the view, so the table

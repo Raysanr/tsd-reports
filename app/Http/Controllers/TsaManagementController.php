@@ -152,6 +152,16 @@ class TsaManagementController extends Controller
         return $this->redirectToCaller($request)->with('success', $message);
     }
 
+    /** Eye toggle (explicit request, 2026-10-15) — hides/shows this TSA's
+     *  ROW on every report page. Display only: her orders still count in
+     *  every total, and lead assignment/login are unchanged. */
+    public function toggleHidden(TsaShift $tsaShift)
+    {
+        $tsaShift->update(['is_hidden' => !$tsaShift->is_hidden]);
+
+        return response()->json(['success' => true, 'hidden' => $tsaShift->is_hidden]);
+    }
+
     public function update(Request $request, TsaShift $tsaShift)
     {
         $data = $this->validateTsa($request);

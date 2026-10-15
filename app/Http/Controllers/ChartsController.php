@@ -211,6 +211,8 @@ class ChartsController extends Controller
                 'team'         => $shift->team,
             ]))
             ->reject(fn($row) => $row['total_called'] === 0)
+            // Eye-hidden TSAs (TSA Management, 2026-10-15) — ranking rows only.
+            ->reject(fn($row) => in_array($row['tsa_key'], TsaShift::hiddenTsaKeys(), true))
             ->sortByDesc('upselling_rate')
             ->values();
 

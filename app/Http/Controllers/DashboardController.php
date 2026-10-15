@@ -517,6 +517,11 @@ class DashboardController extends Controller
 
             // Top TSA by upsell sales — same ranking as the leaderboard below, surfaced
             // as a KPI-row spotlight so it's visible without scrolling.
+            // Eye-hidden TSAs (TSA Management, 2026-10-15) — row hidden only
+            // AFTER the totals above are summed, so they still include her.
+            $hiddenTsaKeys = TsaShift::hiddenTsaKeys();
+            $tsaLeaderboard = $tsaLeaderboard->reject(fn ($row) => in_array($row->tsa_name, $hiddenTsaKeys, true))->values();
+
             $topTsa = $tsaLeaderboard->first();
 
             // Top upsell products — which items are actually driving today's cross-sell
