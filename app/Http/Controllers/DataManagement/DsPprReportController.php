@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DsPprEntry;
 use App\Models\DsPprLockedDate;
 use App\Models\DsPprTiktokEntry;
+use App\Support\TiktokUpsellTotals;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\ProductGroup;
@@ -183,6 +184,15 @@ class DsPprReportController extends Controller
                 ? $tiktokEntriesByDate->get($dateStr)->toRawRowWithOverrides()
                 : $emptyTiktokRow);
         }
+
+        // Gross Sales / Net Income / Total Orders from Expected Income's
+        // TikTok cards from TiktokUpsellTotals::AUTOMATED_FROM on (explicit
+        // request, 2026-10-15: "in the dsppr make this automated too the
+        // tiktok that is reflected by expected income") — same source TSA
+        // Sales Report's TikTok Upsell rows already read. Earlier days keep
+        // their typed figures; leads/ads stay manual (Expected Income has
+        // no TikTok leads/ads figures to read).
+        $tiktokDailyByKey = self::withAutomatedTiktok($tiktokDailyByKey, $dateFrom, $dateTo);
 
         $tiktokRow = ['derived' => DsPprCalculator::sum($tiktokDailyByKey->values()->all())];
 
@@ -448,6 +458,28 @@ class DsPprReportController extends Controller
      *  Total Orders/Total Leads/Catered Leads directly instead of deriving
      *  them from real Order data. No product involved — keyed by date
      *  alone. */
+    public const AUTOMATED_TIKTOK_FIELDS = ['gross_sales', 'net_income', 'total_orders'];
+
+    /** Overlays Expected Income's own TikTok Gross Sales / Net Income /
+     *  Total Orders (every TikTok-flagged TSA summed, per day — the exact
+     *  ExpectedIncomeController::tiktokTotalsByTsaAndDate() figures TSA
+     *  Sales Report reads) onto TIKTOK ORDERS' raw rows, for days from
+     *  TiktokUpsellTotals::AUTOMATED_FROM on. $rowsByDate: "Y-m-d" => raw. */
+    public static function withAutomatedTiktok(\Illuminate\Support\Collection $rowsByDate, string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        $byDate = [];
+        foreach (ExpectedIncomeController::tiktokTotalsByTsaAndDate($dateFrom, $dateTo) as $key => $figures) {
+            $dateStr = substr($key, strpos($key, ':') + 1);
+            $byDate[$dateStr]['gross_sales'] = ($byDate[$dateStr]['gross_sales'] ?? 0) + $figures['gross_sales'];
+            $byDate[$dateStr]['net_income'] = ($byDate[$dateStr]['net_income'] ?? 0) + $figures['net_income'];
+            $byDate[$dateStr]['total_orders'] = ($byDate[$dateStr]['total_orders'] ?? 0) + $figures['total_orders'];
+        }
+
+        return $rowsByDate->map(fn ($raw, $dateStr) => TiktokUpsellTotals::isAutomated($dateStr)
+            ? array_merge($raw, $byDate[$dateStr] ?? array_fill_keys(self::AUTOMATED_TIKTOK_FIELDS, 0))
+            : $raw);
+    }
+
     public function updateTiktok(Request $request, string $date)
     {
         $data = $request->validate([
@@ -479,6 +511,12 @@ class DsPprReportController extends Controller
             return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
         }
 
+        // Automated from Expected Income from AUTOMATED_FROM on — never
+        // stored here for those days (see withAutomatedTiktok()).
+        if (TiktokUpsellTotals::isAutomated($entryDate)) {
+            $data = array_diff_key($data, array_flip(self::AUTOMATED_TIKTOK_FIELDS));
+        }
+
         $entry = DsPprTiktokEntry::whereDate('entry_date', $entryDate)->first()
             ?? new DsPprTiktokEntry(['entry_date' => $entryDate]);
         $old = $entry->only(array_keys($data));
@@ -497,7 +535,9 @@ class DsPprReportController extends Controller
             ActivityLogger::logFieldUpdate('dsppr.field_updated', $entry, $field, $old[$field] ?? null, $newValue, $context, $formatter);
         }
 
-        $derived = DsPprCalculator::derive($entry->toRawRowWithOverrides());
+        $derived = DsPprCalculator::derive(
+            self::withAutomatedTiktok(collect([$entryDate => $entry->toRawRowWithOverrides()]), $entryDate, $entryDate)->get($entryDate)
+        );
 
         return response()->json([
             'success' => true,

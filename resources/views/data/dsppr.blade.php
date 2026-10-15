@@ -443,6 +443,11 @@
                                 $real
                             );
                             $d['aov'] = $d['total_orders'] > 0 ? $d['gross_sales'] / $d['total_orders'] : 0.0;
+                            // Same post-merge recompute as AOV above (bug fix,
+                            // 2026-10-15: "why is it no percentage?") — derive()
+                            // ran on the entry row before $real's Gross Sales/
+                            // Net Income were merged in, so NI % stayed 0.00%.
+                            $d['ni_pct'] = $d['gross_sales'] > 0 ? $d['net_income'] / $d['gross_sales'] : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
@@ -506,7 +511,13 @@
                             $tiktokEntry = $tiktokEntriesByDate->get($dateStr);
                         @endphp
                         @foreach($tiktokDayColumns as $i => $col)
-                            @php $borderClass = $i === count($tiktokDayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
+                            @php
+                                $borderClass = $i === count($tiktokDayColumns) - 1 ? 'dsppr-day-end' : '';
+                                // Read-only from Oct 1 on — automated from
+                                // Expected Income's TikTok cards (2026-10-15).
+                                $isAutoTiktokField = in_array($col['key'], \App\Http\Controllers\DataManagement\DsPprReportController::AUTOMATED_TIKTOK_FIELDS, true)
+                                    && \App\Support\TiktokUpsellTotals::isAutomated($dateStr);
+                            @endphp
                             @if($col['editable'] && ($col['override'] ?? false))
                             {{-- Excess Leads/Pick-up/Conversion/Upselling
                                  Rate overrides (explicit request,
@@ -545,7 +556,7 @@
                                        title="Blank uses the computed {{ $col['label'] }} ({{ $placeholder }})"
                                        class="dsppr-field w-24 text-right bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 placeholder:text-ink-muted/60 dark:placeholder:text-slate-500 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
                             </td>
-                            @elseif($col['editable'])
+                            @elseif($col['editable'] && !$isAutoTiktokField)
                             @php
                                 $inputColor = $col['key'] === 'net_income'
                                     ? ($raw[$col['key']] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100')

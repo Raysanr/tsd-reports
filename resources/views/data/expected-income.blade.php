@@ -1047,6 +1047,36 @@
             </div>`;
     }
 
+    // TikTok (explicit request, 2026-10-15) — see
+    // TallyCheckerController::checkTiktok()'s own doc comment.
+    function renderTiktokSection(t) {
+        if (!t || !t.checked) {
+            return `
+                <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                    <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400">TikTok</h4>
+                    <p class="text-xs font-mono text-ink-muted dark:text-slate-400 mt-1">Not checked — TikTok figures before ${t?.from ?? 'Oct 1'} were typed in, not taken from POS.</p>
+                </div>`;
+        }
+        const line = (label, c, money) => `
+            <div class="flex items-center justify-between gap-3 py-2 border-b border-line/60 dark:border-slate-700/60 text-sm font-mono">
+                <span class="flex items-center gap-2 ${c.tallies ? 'text-ink dark:text-slate-100' : 'text-red-600 dark:text-red-400'} font-semibold">${c.tallies ? '✓' : '✗'} ${label}</span>
+                <span class="${c.tallies ? 'text-ink-muted dark:text-slate-400' : 'text-red-600 dark:text-red-400 font-semibold'}">${money ? fmtMoney(c.shared) : c.shared} <span class="text-ink-muted/60">vs</span> ${money ? fmtMoney(c.independent) : c.independent}</span>
+            </div>`;
+        const missing = (t.missing || []).map((o) => `
+            <div class="mt-1.5 text-xs font-mono">
+                <div class="flex items-center justify-between gap-3"><span class="font-semibold text-ink dark:text-slate-200">#${o.orderId} — ${o.tsaName}</span><span class="text-red-600 dark:text-red-400 font-semibold">${fmtMoney(o.amount)}</span></div>
+                <div class="text-ink-muted dark:text-slate-400">${o.createdAt ?? ''} · ${o.card}</div>
+                <div class="text-amber-700 dark:text-amber-400">${o.reason}</div>
+            </div>`).join('');
+        return `
+            <div class="mt-5 pt-4 border-t border-line dark:border-slate-700">
+                <h4 class="text-xs font-mono font-bold uppercase tracking-wide text-ink-muted dark:text-slate-400 mb-1">TikTok</h4>
+                ${line('Gross Sales', t.grossSales, true)}
+                ${line('Number of Orders', t.numberOfOrders, false)}
+                ${missing ? `<p class="text-xs font-mono text-red-600 dark:text-red-400 mt-2">${t.missing.length} TikTok-tagged order(s) on no TikTok card:</p>${missing}` : ''}
+            </div>`;
+    }
+
     function openTallyModal() {
         tallyModal.classList.remove('hidden');
         tallyBody.innerHTML = '<div class="flex items-center justify-center py-10 text-sm font-mono text-ink-muted dark:text-slate-400">Checking…</div>';
@@ -1065,7 +1095,8 @@
                 const productsAllTally = data.products.every((p) => p.numberOfLeads.tallies && p.numberOfOrders.tallies);
                 const noUnmatchedOrders = data.unmatchedOrders.length === 0;
                 const tsaColumnsTally = (data.tsaProductColumns || []).every((r) => r.tallies);
-                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally && noUnmatchedOrders && tsaColumnsTally;
+                const tiktokTally = !data.tiktok?.checked || (data.tiktok.grossSales.tallies && data.tiktok.numberOfOrders.tallies);
+                const allTally = data.teams.every((t) => t.grossSales.tallies && t.numberOfLeads.tallies) && productsAllTally && noUnmatchedOrders && tsaColumnsTally && tiktokTally;
 
                 tallyBody.innerHTML = `
                     <div class="mb-4 px-3 py-2.5 rounded-lg ${allTally ? 'bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400' : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400'} text-xs font-mono font-semibold">
@@ -1075,6 +1106,7 @@
                     ${renderProductsSection(data.products)}
                     ${renderUnmatchedOrdersSection(data.unmatchedOrders)}
                     ${renderTsaProductColumnsSection(data.tsaProductColumns || [])}
+                    ${renderTiktokSection(data.tiktok)}
                     <p class="text-[11px] font-mono text-ink-muted/70 dark:text-slate-500 mt-2 pt-3 border-t border-line dark:border-slate-700">
                         "Shared" = the figure every page's own real-team/product card reads directly. "Independent" = the same real-world number recomputed from scratch via a separate query, as a check against the shared figure. Net Income has no second independent code path (Summary Sales Report reads the exact same shared source Expected Income does, and DSPPR's own Gross Sales/Net Income per product read the same source too) — shown for reference only, not a pass/fail. "Unmatched Orders" lists real orders that matched no configured product at all — usually fixed by adding a keyword to that product in Product Management.
                     </p>`;

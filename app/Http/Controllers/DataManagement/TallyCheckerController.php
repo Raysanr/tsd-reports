@@ -9,6 +9,7 @@ use App\Models\TsaShift;
 use App\Support\DateRangeFilter;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
+use App\Support\TiktokUpsellTotals;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -99,6 +100,7 @@ class TallyCheckerController extends Controller
             'products' => $this->checkProducts($dateFrom, $dateTo),
             'unmatchedOrders' => $this->checkUnmatchedOrders($dateFrom, $dateTo),
             'tsaProductColumns' => $this->checkTsaProductColumns($dateFrom, $dateTo),
+            'tiktok' => $this->checkTiktok($dateFrom, $dateTo),
         ]);
     }
 
@@ -172,6 +174,56 @@ class TallyCheckerController extends Controller
                 ])->values()->all(),
             ];
         })->filter()->values()->all();
+    }
+
+    /** TikTok (explicit request, 2026-10-15: "so the tally check will now
+     *  include tiktok too?" → "yes") — the "shared" figure every TikTok
+     *  surface reads (Expected Income's TikTok cards = TSA Sales Report's
+     *  TikTok Upsell rows = DSPPR's TIKTOK ORDERS row, all via
+     *  ExpectedIncomeController::tiktokTotalsByTsaAndDate()) vs. an
+     *  independent direct sum of every TikTok-tagged real upsell order.
+     *  They differ exactly when a tagged order reaches no TikTok card —
+     *  e.g. its TSA isn't flagged tiktok_upsell in TSA Management — and
+     *  each such order is listed. Automated days only
+     *  (TiktokUpsellTotals::AUTOMATED_FROM on); earlier days were typed. */
+    private function checkTiktok(string $dateFrom, string $dateTo): array
+    {
+        $from = max($dateFrom, TiktokUpsellTotals::AUTOMATED_FROM);
+        if ($from > $dateTo) {
+            return ['checked' => false, 'from' => TiktokUpsellTotals::AUTOMATED_FROM];
+        }
+
+        $shared = ExpectedIncomeController::tiktokTotalsByTsaAndDate($from, $dateTo);
+        $sharedGross = (float) $shared->sum('gross_sales');
+        $sharedOrders = (int) $shared->sum('total_orders');
+
+        $tagged = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$from, $dateTo]
+        )->get()
+            ->filter(fn (Order $o) => Order::isTiktokUpsell($o) && Order::isBroadRealUpsell($o));
+        $independentGross = (float) $tagged->sum(fn (Order $o) => $o->realUpsellAmount());
+
+        $flaggedKeys = TsaShift::where('tiktok_upsell', true)->pluck('tsa_key')->flip();
+        $knownKeys = TsaShift::pluck('display_name', 'tsa_key');
+        $missing = $tagged->reject(fn (Order $o) => $flaggedKeys->has($o->tsa_name))->map(fn (Order $o) => [
+            'orderId' => $o->pancake_order_id,
+            'tsaName' => $knownKeys->get($o->tsa_name) ?? ($o->tsa_name ?: 'no TSA'),
+            'amount' => round($o->realUpsellAmount(), 2),
+            'card' => \App\Models\ExpectedIncomeTiktokEntry::CARDS[Order::tiktokCardKey($o->raw_tags ?? [])] ?? '',
+            'createdAt' => optional($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateTimeString(),
+            'reason' => $knownKeys->has($o->tsa_name)
+                ? 'Its TSA isn\'t flagged as a TikTok TSA in TSA Management, so she has no TikTok card.'
+                : 'Its TSA tag doesn\'t match any TSA.',
+        ])->values()->all();
+
+        return [
+            'checked' => true,
+            'from' => $from,
+            'grossSales' => ['shared' => round($sharedGross, 2), 'independent' => round($independentGross, 2), 'tallies' => abs($sharedGross - $independentGross) < 0.01],
+            'numberOfOrders' => ['shared' => $sharedOrders, 'independent' => $tagged->count(), 'tallies' => $sharedOrders === $tagged->count()],
+            'missing' => $missing,
+        ];
     }
 
     private function missingColumnReason(Order $o, $visible, $all): string

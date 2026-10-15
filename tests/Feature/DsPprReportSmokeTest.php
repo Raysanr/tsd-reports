@@ -1007,15 +1007,18 @@ class DsPprReportSmokeTest extends TestCase
      *  editable, Total Orders/Total Leads/Catered Leads included. */
     public function test_the_tiktok_orders_row_appears_with_every_field_editable(): void
     {
+        // Pre-Oct-1 day: TikTok Gross Sales/Net Income/Total Orders are
+        // still typed in there (automated from Expected Income from
+        // TiktokUpsellTotals::AUTOMATED_FROM on, 2026-10-15).
         $admin = User::factory()->create(['role' => 'admin']);
 
         \App\Models\DsPprTiktokEntry::create([
-            'entry_date' => today(), 'gross_sales' => 6000, 'net_income' => 500,
+            'entry_date' => '2026-09-30', 'gross_sales' => 6000, 'net_income' => 500,
             'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
         ]);
 
         $response = $this->actingAs($admin)->get(route('data.dsppr', [
-            'date_from' => today()->toDateString(), 'date_to' => today()->toDateString(),
+            'date_from' => '2026-09-30', 'date_to' => '2026-09-30',
         ]));
 
         $response->assertOk();
@@ -1151,8 +1154,11 @@ class DsPprReportSmokeTest extends TestCase
 
     public function test_updating_a_tiktok_entry_upserts_every_manual_field(): void
     {
+        // Pre-Oct-1 day: TikTok Gross Sales/Net Income/Total Orders are
+        // still typed in there (automated from Expected Income from
+        // TiktokUpsellTotals::AUTOMATED_FROM on, 2026-10-15).
         $admin = User::factory()->create(['role' => 'admin']);
-        $date = today()->toDateString();
+        $date = '2026-09-30';
 
         $response = $this->actingAs($admin)->patchJson(
             route('data.dsppr.update-tiktok', ['date' => $date]),
@@ -1168,8 +1174,11 @@ class DsPprReportSmokeTest extends TestCase
 
     public function test_updating_an_existing_tiktok_entry_does_not_create_a_duplicate(): void
     {
+        // Pre-Oct-1 day: TikTok Gross Sales/Net Income/Total Orders are
+        // still typed in there (automated from Expected Income from
+        // TiktokUpsellTotals::AUTOMATED_FROM on, 2026-10-15).
         $admin = User::factory()->create(['role' => 'admin']);
-        $date = today()->toDateString();
+        $date = '2026-09-30';
 
         $this->actingAs($admin)->patchJson(route('data.dsppr.update-tiktok', ['date' => $date]), ['gross_sales' => 1000]);
         $this->actingAs($admin)->patchJson(route('data.dsppr.update-tiktok', ['date' => $date]), ['gross_sales' => 2000]);
@@ -1182,9 +1191,12 @@ class DsPprReportSmokeTest extends TestCase
      *  every real product already does. */
     public function test_tiktok_orders_totals_are_included_in_the_overall_total(): void
     {
+        // Pre-Oct-1 day: TikTok Gross Sales/Net Income/Total Orders are
+        // still typed in there (automated from Expected Income from
+        // TiktokUpsellTotals::AUTOMATED_FROM on, 2026-10-15).
         $admin = User::factory()->create(['role' => 'admin']);
         $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
-        $date = today()->toDateString();
+        $date = '2026-09-30';
 
         // Real product's own Gross Sales is now automated from Expected
         // Income (2026-10-10) — a real matched upsell order replaces the
@@ -1212,8 +1224,11 @@ class DsPprReportSmokeTest extends TestCase
      *  Income/Total Orders/Total Leads/Catered Leads already do. */
     public function test_tiktok_orders_are_included_in_the_daily_total_row(): void
     {
+        // Pre-Oct-1 day: TikTok Gross Sales/Net Income/Total Orders are
+        // still typed in there (automated from Expected Income from
+        // TiktokUpsellTotals::AUTOMATED_FROM on, 2026-10-15).
         $admin = User::factory()->create(['role' => 'admin']);
-        $date = today()->toDateString();
+        $date = '2026-09-30';
         \App\Models\DsPprTiktokEntry::create([
             'entry_date' => $date, 'gross_sales' => 6000, 'net_income' => 500,
             'total_orders' => 5, 'total_leads' => 10, 'catered_leads' => 8,
