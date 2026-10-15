@@ -135,8 +135,9 @@ class CostBreakdownSmokeTest extends TestCase
         // Give the 2 teams DIFFERENT real TSA counts (SH Naturals keeps its
         // 3 seeded TSAs; Eyecare Team gets just 2 by removing one) so a
         // company-wide-divisor bug can never coincidentally produce the
-        // same number as the correct per-team divisor.
-        TsaShift::where('team', 'Eyecare Team')->first()->delete();
+        // same number as the correct per-team divisor. Removed BEFORE
+        // today — a TSA removed today still counts today (2026-10-15).
+        TsaShift::where('team', 'Eyecare Team')->first()->forceFill(['deleted_at' => now()->subDays(2)])->save();
 
         $columns = \App\Models\ProjectionColumn::where('month', now()->format('Y-m'))->orderBy('sort_order')->get();
         $rates = \App\Support\ProjectionCalculator::allRates();
@@ -223,7 +224,9 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_tax_allocation_by_tsa_id_is_keyed_by_the_real_tsa_id_not_position(): void
     {
         \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
-        TsaShift::where('team', 'Eyecare Team')->first()->delete();
+        // Removed BEFORE today (a TSA removed today still counts today —
+        // removed-TSA history rule, 2026-10-15).
+        TsaShift::where('team', 'Eyecare Team')->first()->forceFill(['deleted_at' => now()->subDays(2)])->save();
 
         $shNaturalsTsas = TsaShift::where('team', 'SH Naturals')->get();
         $eyecareTsas = TsaShift::where('team', 'Eyecare Team')->get();
@@ -975,12 +978,12 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_unlocking_a_table_clears_its_stored_state(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
-        \App\Models\Setting::set('cost_breakdown_lock_pools', '1');
+        \App\Models\Setting::set(\App\Support\CostBreakdownMonths::lockKey('pools', \App\Support\CostBreakdownMonths::current()), '1');
 
         $response = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'pools']), ['locked' => false]);
         $response->assertOk()->assertJson(['success' => true, 'table' => 'pools', 'locked' => false]);
 
-        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_pools'));
+        $this->assertNotEquals('1', \App\Models\Setting::get(\App\Support\CostBreakdownMonths::lockKey('pools', \App\Support\CostBreakdownMonths::current())));
     }
 
     public function test_each_table_locks_independently(): void
@@ -989,9 +992,9 @@ class CostBreakdownSmokeTest extends TestCase
 
         $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'tsa']), ['locked' => true])->assertOk();
 
-        $this->assertEquals('1', \App\Models\Setting::get('cost_breakdown_lock_tsa'));
-        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_salary'));
-        $this->assertNotEquals('1', \App\Models\Setting::get('cost_breakdown_lock_pools'));
+        $this->assertEquals('1', \App\Models\Setting::get(\App\Support\CostBreakdownMonths::lockKey('tsa', \App\Support\CostBreakdownMonths::current())));
+        $this->assertNotEquals('1', \App\Models\Setting::get(\App\Support\CostBreakdownMonths::lockKey('salary', \App\Support\CostBreakdownMonths::current())));
+        $this->assertNotEquals('1', \App\Models\Setting::get(\App\Support\CostBreakdownMonths::lockKey('pools', \App\Support\CostBreakdownMonths::current())));
     }
 
     public function test_an_unknown_lock_table_key_404s(): void

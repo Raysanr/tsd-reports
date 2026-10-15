@@ -39,6 +39,7 @@ class CallLogController extends Controller
         // request, 2026-08-24) — see PersistsCallTrackerFilters's own doc
         // comment.
         $dateFrom = $this->rememberedFilter($request, 'call-log', 'date_from', now('Asia/Manila')->format('Y-m-d'));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $this->rememberedFilter($request, 'call-log', 'date_to', $dateFrom);
         $from     = Carbon::parse($dateFrom, 'Asia/Manila')->startOfDay();
         $to       = Carbon::parse($dateTo, 'Asia/Manila')->endOfDay();

@@ -85,6 +85,7 @@ class ExpectedIncomeController extends Controller
         // defaulting to "today only" on a brand-new session.
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
         $teamsConfig = Teams::config();
@@ -278,9 +279,8 @@ class ExpectedIncomeController extends Controller
         // reads. Computed once for the whole call, not once per TSA/day —
         // same N+1 guard TsaDailyRateService::allTsas()'s own doc comment
         // already explains for this exact lookup chain.
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
-        $dailyCostRow = TsaDailyRateService::dailyCostRow();
-        $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
+        // Cost figures are resolved per (TSA, day) below via
+        // tsaCardOverrides() (monthly Cost Breakdown, 2026-10-15).
 
         // $precomputedLeadCounts/$precomputedGrossSalesAndOrders (perf fix,
         // 2026-10-11, PART 4 — see Decisions.md's PART 3 entry for the
@@ -330,14 +330,11 @@ class ExpectedIncomeController extends Controller
             // A TikTok-flagged TSA's own Salaries is excluded here too
             // (narrowed 2026-10-14 — see buildTeamDailyRows()'s own
             // matching doc comment).
-            $overviewCardOverrides = array_merge(
-                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
-                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRateByTsaId[$tsa->id] ?? 0.0)]
-            );
-            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
-
             foreach ($dates as $date) {
                 $dateStr = $date->toDateString();
+                // That day's own month/roster (2026-10-15) — see tsaCardOverrides().
+                ['o' => $overviewCardOverrides, 'ot' => $overviewCardTaxAllocation]
+                    = TsaDailyRateService::withDate($dateStr, fn () => self::tsaCardOverrides($tsa));
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
                 $real = $realByTsaAndDate->get($tsa->tsa_key . ':' . $dateStr, ['gross_sales' => 0.0, 'number_of_orders' => 0, 'cancelled' => 0.0]);
                 $gap = [
@@ -406,7 +403,6 @@ class ExpectedIncomeController extends Controller
             ->get()
             ->keyBy(fn (ExpectedIncomeTiktokEntry $e) => $e->tsa_id . ':' . $e->card_key . ':' . $e->entry_date->toDateString());
 
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
         $autoByKey = TiktokUpsellTotals::byTsaCardAndDate($dateFrom, $dateTo);
 
         $result = collect();
@@ -419,7 +415,8 @@ class ExpectedIncomeController extends Controller
 
                 $derived = ExpectedIncomeCalculator::withOverriddenOperatingCosts(
                     ExpectedIncomeCalculator::sum($rawRows),
-                    ['salaries' => $dailyRateByTsaId[$tsa->id] ?? 0.0]
+                    // That day's own Daily Rate (monthly Cost Breakdown, 2026-10-15).
+                    ['salaries' => TsaDailyRateService::withDate($dateStr, fn () => TsaDailyRateService::roster()->contains('id', $tsa->id) ? (self::costLookups('rollup')[0][$tsa->id] ?? 0.0) : 0.0)]
                 );
 
                 $result[$tsa->id . ':' . $dateStr] = [
@@ -662,6 +659,7 @@ class ExpectedIncomeController extends Controller
     {
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
         $teamsConfig = Teams::config();
@@ -904,22 +902,17 @@ class ExpectedIncomeController extends Controller
         // TsaDailyRateService in case Tax Allocation's own analogous
         // method (perProductTaxAllocationByTsaId()) ever needs the same
         // correction, but that wasn't part of this request.
-        $productCardLookups = [
-            TsaDailyRateService::perProductByTsaId(),
-            collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all(),
-            TsaDailyRateService::perProductTaxAllocationByTsaId(),
-        ];
+        // Lookups are now resolved PER DAY inside
+        // addActiveTsasOverviewOperatingCosts() (monthly Cost Breakdown,
+        // 2026-10-15) — see costLookups().
+        $productCardLookups = 'product';
         // perProductByTsaId() -> dailyRateByTsaId() (2026-10-06, same
         // reversal as buildTeamDailyRows()'s own overview-card fix, same
         // day — see that one's own doc comment) — the TELESALES/per-team
         // rollup card sums every active TSA's own REAL, undivided Daily
         // Rate now, matching Cost Breakdown's own figure, instead of each
         // TSA's ÷7 product-divided one.
-        $rollupLookups = [
-            TsaDailyRateService::dailyRateByTsaId(),
-            collect(TsaDailyRateService::dailyCostRow())->except('total')->all(),
-            TsaDailyRateService::taxAllocationByTsaId(),
-        ];
+        $rollupLookups = 'rollup';
 
         // Every TSA-owned row's own per-product-DIVIDED Operating Costs
         // override is stripped back to 0 here, then added back via
@@ -987,7 +980,7 @@ class ExpectedIncomeController extends Controller
             // the Operating Costs row" — same gate as buildTeamDailyRows()'s
             // identical fix, same day).
             $derived = $groupProducts->first()->has_cost_allocation
-                ? $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$productCardLookups)
+                ? $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, $productCardLookups)
                 : $derived;
 
             // Number of Leads on a (grouped-or-not) summary card must be
@@ -1089,7 +1082,7 @@ class ExpectedIncomeController extends Controller
             $allRaw = $allRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap]);
         }
         $derived = ExpectedIncomeCalculator::sum($allRaw->all(), $sellingKeys, $operatingKeys);
-        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, ...$rollupLookups);
+        $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, $rollupLookups);
         // Same real-tally fix as $cards above — the TELESALES/per-team
         // rollup's own Number of Leads must be every real lead across
         // every product on the page, not just whatever happened to have a
@@ -1165,66 +1158,122 @@ class ExpectedIncomeController extends Controller
      *  (root-caused live, 2026-10-02: a full-month, per-team filter 500'd
      *  on Railway's real roster/product count, timing out under that
      *  N+1 cost — a 1-day/few-product local test never surfaced it). */
-    private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, array $dailyRateByTsaId, array $dailyCostRow, array $taxAllocationByTsaId): array
+    /** [dailyRateByTsaId, dailyCostRow (no 'total'), taxAllocationByTsaId]
+     *  for the CURRENT TsaDailyRateService::contextDate() — 'rollup' = the
+     *  undivided overview figures, 'product' = the per-product-divided ones
+     *  (see buildSummaryRow()'s own doc comments). Memoized per (scope, day). */
+    private static function costLookups(string $scope): array
+    {
+        $date = TsaDailyRateService::contextDate();
+
+        return \App\Support\RequestMemo::remember("expected_income.cost_lookups.{$scope}.{$date}", fn () => $scope === 'product'
+            ? [
+                TsaDailyRateService::perProductByTsaId(),
+                collect(TsaDailyRateService::dailyCostPerProductRow())->except('total')->all(),
+                TsaDailyRateService::perProductTaxAllocationByTsaId(),
+                TsaDailyRateService::dailyCostPerProductRow(), // with 'total', as rawByProductAndDateAllTsas() always merged it
+            ]
+            : [
+                TsaDailyRateService::dailyRateByTsaId(),
+                collect(TsaDailyRateService::dailyCostRow())->except('total')->all(),
+                TsaDailyRateService::taxAllocationByTsaId(),
+                TsaDailyRateService::dailyCostRow(), // with 'total'
+            ]);
+    }
+
+    /** One TSA's own card overrides for the CURRENT context day — product
+     *  card ('p') / overview card ('o') Operating Costs, and their Tax
+     *  Allocation ('pt'/'ot'). All zero on a day she's not on the roster
+     *  (removed before it). Same rules buildTeamDailyRows() always applied
+     *  (0-day pools zeroed, TikTok-flagged Salaries 0, tax-map fallback). */
+    private static function tsaCardOverrides(TsaShift $tsa): array
+    {
+        [$perProductRate, , $perProductTax, $costPerProductRow] = self::costLookups('product');
+        [$dailyRate, , $tax, $costRow] = self::costLookups('rollup');
+
+        $result = [
+            'p'  => array_merge(
+                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $costPerProductRow),
+                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($perProductRate[$tsa->id] ?? 0.0)]
+            ),
+            'o'  => array_merge(
+                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $costRow),
+                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRate[$tsa->id] ?? 0.0)]
+            ),
+            'pt' => $perProductTax[$tsa->id] ?? TsaDailyRateService::perProductTaxAllocationForTsa($tsa),
+            'ot' => $tax[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa),
+        ];
+
+        if (!TsaDailyRateService::roster()->contains('id', $tsa->id)) {
+            $result['p'] = array_map(fn () => 0.0, $result['p']);
+            $result['o'] = array_map(fn () => 0.0, $result['o']);
+            $result['pt'] = $result['ot'] = 0.0;
+        }
+
+        return $result;
+    }
+
+    /** tsaCardOverrides() summed day by day across $dates. */
+    private static function tsaCardOverridesForDates(TsaShift $tsa, $dates): array
+    {
+        $sum = ['p' => [], 'o' => [], 'pt' => 0.0, 'ot' => 0.0];
+        foreach ($dates as $date) {
+            $day = TsaDailyRateService::withDate($date->toDateString(), fn () => self::tsaCardOverrides($tsa));
+            foreach (['p', 'o'] as $k) {
+                foreach ($day[$k] as $key => $v) {
+                    $sum[$k][$key] = ($sum[$k][$key] ?? 0.0) + $v;
+                }
+            }
+            $sum['pt'] += $day['pt'];
+            $sum['ot'] += $day['ot'];
+        }
+
+        return $sum;
+    }
+
+    private function addActiveTsasOverviewOperatingCosts(array $derived, $dates, ?array $onlyTsaIds, string $lookupScope): array
     {
         // $onlyTsaIds === null fallback NO LONGER excludes tiktok_upsell=
-        // true TSAs (REVERSED 2026-10-13, explicit request — see
-        // buildSummary()'s own doc comment for the full "she genuinely
-        // does both jobs" reasoning). A 2026-10-10 fix once excluded her
-        // real Salaries/Operating Costs/Tax Allocation here on the premise
-        // that she's folded into the ALL-view EXCLUSIVELY via her separate
-        // TikTok card — that premise no longer holds: her real team costs
-        // are now counted consistently everywhere else on this page
-        // (teamNetIncomeByDate(), netIncomeByTsaAndDate(),
-        // buildSummary()'s own $teamTsaIds, buildTeamDailyRows()), so
-        // excluding only her costs here while counting her revenue
-        // elsewhere would double-subtract nothing but also undercount her
-        // real net contribution — this fallback now matches every other
-        // ALL-view-adjacent roster on this page.
-        $activeTsaIds = $onlyTsaIds !== null ? collect($onlyTsaIds) : TsaShift::pluck('id');
+        // true TSAs (REVERSED 2026-10-13 — see buildSummary()'s own doc
+        // comment). Each day's own figures (monthly Cost Breakdown,
+        // 2026-10-15) — that day's month's costs, that day's roster: a TSA
+        // removed before a day adds nothing to it, and the shared splits
+        // already go to the TSAs still there. Replaces the old "one day ×
+        // number of days" multiplication.
+        $added = TsaDailyRateService::sumOverDates($dates, function () use ($onlyTsaIds, $lookupScope) {
+            [$dailyRateByTsaId, $dailyCostRow, $taxAllocationByTsaId] = self::costLookups($lookupScope);
+            $roster = TsaDailyRateService::roster()->keyBy('id');
+            $activeTsaIds = $onlyTsaIds !== null
+                ? collect($onlyTsaIds)->filter(fn ($id) => $roster->has($id))
+                : $roster->keys();
 
-        if ($activeTsaIds->isEmpty()) {
+            $day = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
+            $day['__tax'] = 0.0;
+            $day['__count'] = (float) $activeTsaIds->count();
+            foreach ($activeTsaIds as $tsaId) {
+                $tsa = $roster->get($tsaId);
+                // A TikTok-flagged TSA's own Salaries is excluded here
+                // (narrowed 2026-10-14 — see buildTeamDailyRows()).
+                if (!$tsa->tiktok_upsell) {
+                    $day['salaries'] += $dailyRateByTsaId[$tsaId] ?? 0.0;
+                }
+                // A 0-day TSA contributes none of her own pool share
+                // (2026-10-06 — see zeroOperatingCostsIfZeroDay()).
+                foreach (TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, $dailyCostRow) as $key => $amount) {
+                    $day[$key] += $amount;
+                }
+                $day['__tax'] += $taxAllocationByTsaId[$tsaId] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
+            }
+
+            return $day;
+        });
+
+        if (!is_array($added) || ($added['__count'] ?? 0) == 0) {
             return $derived;
         }
-
-        $dayCount = $dates->count();
-        $addedOperatingCosts = array_fill_keys(array_merge(array_keys($dailyCostRow), ['salaries']), 0.0);
-        $addedTaxAllocation = 0.0;
-        // Fallback for any TSA missing from $taxAllocationByTsaId's own
-        // pre-built map (root-caused live, 2026-10-03: "why is it all
-        // last tsa has no tax?" — a newly-added TSA showed 0.00 here
-        // despite Cost Breakdown showing her correct Daily Tax) — only
-        // loaded if at least one id is actually missing, so the common
-        // case (every TSA present) costs nothing extra.
-        $missingTaxTsaIds = $activeTsaIds->reject(fn ($id) => array_key_exists($id, $taxAllocationByTsaId));
-        $fallbackTsasById = $missingTaxTsaIds->isNotEmpty()
-            ? TsaShift::whereIn('id', $missingTaxTsaIds)->get()->keyBy('id')
-            : collect();
-        // A TikTok-flagged TSA's own Salaries is excluded here too
-        // (narrowed 2026-10-14 — see buildTeamDailyRows()'s own matching
-        // doc comment for the full "her Daily Rate belongs on her TikTok
-        // card, never duplicated onto a real team rollup" reasoning) —
-        // every OTHER cost field (Operating Costs pool share, Tax
-        // Allocation) still counts her normally, same narrow "only
-        // Salaries" scope the 2026-10-13 ALL-view fold-in fix already
-        // established.
-        $tiktokFlaggedTsaIds = TsaShift::where('tiktok_upsell', true)->pluck('id');
-        foreach ($activeTsaIds as $tsaId) {
-            if (!$tiktokFlaggedTsaIds->contains($tsaId)) {
-                $addedOperatingCosts['salaries'] += ($dailyRateByTsaId[$tsaId] ?? 0.0) * $dayCount;
-            }
-            // A 0-day TSA contributes none of her own share of the shared
-            // pool cost here either (2026-10-06 — see
-            // TsaDailyRateService::zeroOperatingCostsIfZeroDay()'s own doc
-            // comment); her Salaries above is already 0.0 on its own.
-            $tsaDailyCostRow = TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, $dailyCostRow);
-            foreach ($tsaDailyCostRow as $key => $amount) {
-                $addedOperatingCosts[$key] += $amount * $dayCount;
-            }
-            $tax = $taxAllocationByTsaId[$tsaId]
-                ?? ($fallbackTsasById->get($tsaId) ? TsaDailyRateService::taxAllocationForTsa($fallbackTsasById->get($tsaId)) : 0.0);
-            $addedTaxAllocation += $tax * $dayCount;
-        }
+        $addedTaxAllocation = $added['__tax'] ?? 0.0;
+        unset($added['__tax'], $added['__count']);
+        $addedOperatingCosts = $added;
 
         $operatingLines = collect($derived['operating_lines'])->map(fn ($value, $key) => $value + ($addedOperatingCosts[$key] ?? 0.0));
         $totalOperatingCosts = $operatingLines->sum();
@@ -1363,8 +1412,7 @@ class ExpectedIncomeController extends Controller
         // not 7). Both computed once per request (not per card) since
         // they're identical for every one of a TSA's own cards on a given
         // day.
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
-        $dailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();
+        // (per-day cost lookups now live in tsaCardOverrides(), 2026-10-15)
 
         // Her own Tax Allocation (explicit request, 2026-10-02: "the tax
         // allocation in tsa cards is should be not editable") — same
@@ -1376,8 +1424,7 @@ class ExpectedIncomeController extends Controller
         // $overviewCardOverrides below — it's a top-level field, not one of
         // operating_lines' own keys, so it needs its own override call
         // (withOverriddenTaxAllocation(), not withOverriddenOperatingCosts()).
-        $taxAllocationByTsaId = TsaDailyRateService::taxAllocationByTsaId();
-        $taxAllocationPerProductByTsaId = TsaDailyRateService::perProductTaxAllocationByTsaId();
+        // (per-day cost lookups now live in tsaCardOverrides(), 2026-10-15)
 
         // Every OTHER Operating Costs row (Communication Allowance, 13th
         // Month Allowance, SIL, ... every shared pool except Salaries —
@@ -1394,8 +1441,7 @@ class ExpectedIncomeController extends Controller
         // confirmed live via screenshot: two different TSAs' cards both
         // showed the same figures), so both are computed once for the
         // whole request rather than per TSA.
-        $dailyCostPerProductRow = TsaDailyRateService::dailyCostPerProductRow();
-        $dailyCostRow = TsaDailyRateService::dailyCostRow();
+        // (per-day cost lookups now live in tsaCardOverrides(), 2026-10-15)
 
         // Computed ONCE for the whole requested range, then reused for
         // EVERY TSA's own card stack below — perf fix, 2026-10-11, same
@@ -1418,7 +1464,7 @@ class ExpectedIncomeController extends Controller
         // view (see buildAllDailyRows()'s own doc comment on this).
         $isRangeSummed = $dates->count() > 1;
 
-        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $dailyRatePerProductByTsaId, $dailyRateByTsaId, $dailyCostPerProductRow, $dailyCostRow, $taxAllocationByTsaId, $taxAllocationPerProductByTsaId, $isRangeSummed, $leadCounts, $grossSalesAndOrders) {
+        $tsaRows = $tsas->map(function (TsaShift $tsa) use ($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $isRangeSummed, $leadCounts, $grossSalesAndOrders) {
             ['raw' => $rawByProductAndDate, 'entriesByKey' => $entriesByKey] = $this->rawByProductAndDate($products, $tsa->id, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $leadCounts, $grossSalesAndOrders);
             // A 0-day TSA's own share of every shared pool cost is zeroed
             // here too (2026-10-06, follow-up to the Salaries-only fix
@@ -1438,23 +1484,11 @@ class ExpectedIncomeController extends Controller
             // onto her real team card too — same scope the earlier same-
             // day fix already applied to the ALL-view TELESALES fold-in,
             // just extended to her own individual card here.
-            $productCardOverrides = array_merge(
-                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostPerProductRow),
-                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRatePerProductByTsaId[$tsa->id] ?? 0.0)]
-            );
-            $overviewCardOverrides = array_merge(
-                TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsa->id, $dailyCostRow),
-                ['salaries' => $tsa->tiktok_upsell ? 0.0 : ($dailyRateByTsaId[$tsa->id] ?? 0.0)]
-            );
-            // Direct fallback when $tsa is missing from the pre-built maps
-            // (root-caused live, 2026-10-03: "why is it all last tsa has
-            // no tax?" — a newly-added TSA showed 0.00 here despite Cost
-            // Breakdown showing her correct Daily Tax) — computes her own
-            // figure fresh from her own real team, independent of
-            // whatever caused her to be missing from the map in the first
-            // place.
-            $productCardTaxAllocation = $taxAllocationPerProductByTsaId[$tsa->id] ?? TsaDailyRateService::perProductTaxAllocationForTsa($tsa);
-            $overviewCardTaxAllocation = $taxAllocationByTsaId[$tsa->id] ?? TsaDailyRateService::taxAllocationForTsa($tsa);
+            // Per day (monthly Cost Breakdown + removed-TSA roster,
+            // 2026-10-15) — see tsaCardOverrides(). A 1-day card reads its
+            // own day; a range sums each day's own figures (below).
+            ['p' => $productCardOverrides, 'o' => $overviewCardOverrides, 'pt' => $productCardTaxAllocation, 'ot' => $overviewCardTaxAllocation]
+                = TsaDailyRateService::withDate($dates->first()->toDateString(), fn () => self::tsaCardOverrides($tsa));
 
             if ($isRangeSummed) {
                 // $productCardOverrides/$overviewCardOverrides/the tax
@@ -1467,11 +1501,11 @@ class ExpectedIncomeController extends Controller
                 // is the costs is not doubling when i filter the oct 1 to
                 // 2?" — these were being applied at their flat 1-day rate
                 // no matter how many days were actually summed).
-                $dayCount = $dates->count();
-                $productCardOverridesForRange = array_map(fn ($v) => $v * $dayCount, $productCardOverrides);
-                $overviewCardOverridesForRange = array_map(fn ($v) => $v * $dayCount, $overviewCardOverrides);
-                $productCardTaxAllocationForRange = $productCardTaxAllocation * $dayCount;
-                $overviewCardTaxAllocationForRange = $overviewCardTaxAllocation * $dayCount;
+                // Each day's own figures summed (2026-10-15) instead of
+                // "one day × N" — exact across a month change or a TSA
+                // removal inside the range.
+                ['p' => $productCardOverridesForRange, 'o' => $overviewCardOverridesForRange, 'pt' => $productCardTaxAllocationForRange, 'ot' => $overviewCardTaxAllocationForRange]
+                    = self::tsaCardOverridesForDates($tsa, $dates);
 
                 $rangeRows = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $dates, $sellingKeys, $operatingKeys, $productCardOverridesForRange, $productCardTaxAllocationForRange) {
                     $pooled = $groupProducts->flatMap(fn (Product $p) => $dates->map(fn ($date) => $rawByProductAndDate->get($p->id)->get($date->toDateString())));
@@ -1690,13 +1724,17 @@ class ExpectedIncomeController extends Controller
         // whole, each card its own slice" rule for real product cards. A
         // multi-day range multiplies both by day count first, same
         // "DAILY rate × N" rule buildTeamDailyRows() already applies.
-        $dailyRateByTsaId = TsaDailyRateService::dailyRateByTsaId();
+        // Daily Rate summed day by day (monthly Cost Breakdown + removed-TSA
+        // roster, 2026-10-15) instead of "one day × N".
+        $rangeRateByTsaId = $flaggedTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => (float) TsaDailyRateService::sumOverDates(
+            $dates,
+            fn () => TsaDailyRateService::roster()->contains('id', $tsa->id) ? (self::costLookups('rollup')[0][$tsa->id] ?? 0.0) : 0.0
+        )])->all();
         $tiktokCardCount = count(ExpectedIncomeTiktokEntry::CARDS);
 
-        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $autoByKey, $isRangeSummed, $dayCount, $dailyRateByTsaId, $tiktokCardCount, &$allRawRows) {
-            $dailyRate = $dailyRateByTsaId[$tsa->id] ?? 0.0;
-            $cardSalaries = ($dailyRate / $tiktokCardCount) * $dayCount;
-            $overviewSalaries = $dailyRate * $dayCount;
+        $tiktokTsaRows = $flaggedTsas->map(function (TsaShift $tsa) use ($dates, $entriesByKey, $emptyRaw, $autoByKey, $isRangeSummed, $rangeRateByTsaId, $tiktokCardCount, &$allRawRows) {
+            $overviewSalaries = $rangeRateByTsaId[$tsa->id] ?? 0.0;
+            $cardSalaries = $overviewSalaries / $tiktokCardCount;
             // Every (card, date) combo for this one TSA — entriesByKey
             // misses a (card, date) with nothing ever saved, so $emptyRaw
             // fills the gap rather than silently skipping that date out
@@ -1779,8 +1817,8 @@ class ExpectedIncomeController extends Controller
         // count × day count) to EACH card-key total, and her full
         // undivided Daily Rate × day count to the overall total — same
         // "overview whole, each card its own slice" split used above.
-        $totalCardSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => (($dailyRateByTsaId[$tsa->id] ?? 0.0) / $tiktokCardCount) * $dayCount);
-        $totalOverviewSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => ($dailyRateByTsaId[$tsa->id] ?? 0.0) * $dayCount);
+        $totalCardSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => ($rangeRateByTsaId[$tsa->id] ?? 0.0) / $tiktokCardCount);
+        $totalOverviewSalaries = $flaggedTsas->sum(fn (TsaShift $tsa) => $rangeRateByTsaId[$tsa->id] ?? 0.0);
 
         $tiktokCardTotals = collect($allRawRows)->groupBy('card_key')->map(
             fn ($rows, $cardKey) => [
@@ -2799,16 +2837,14 @@ class ExpectedIncomeController extends Controller
         // full reasoning: a product card's own Salaries divides the real
         // Daily Rate by product count ONCE, same as every other Operating
         // Costs row, not twice).
-        $salariesByTsaId = TsaDailyRateService::perProductByTsaId();
-        $poolsOverride = TsaDailyRateService::dailyCostPerProductRow();
         // A 0-day TSA's own share of every shared pool cost is zeroed here
         // too (2026-10-06 — see TsaDailyRateService::
-        // zeroOperatingCostsIfZeroDay()'s own doc comment); her Salaries
-        // is already 0.0 via perProductByTsaId() on its own.
-        $operatingOverridesFor = fn (int $tsaId) => array_merge(
-            TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, $poolsOverride),
-            ['salaries' => $salariesByTsaId[$tsaId] ?? 0.0]
-        );
+        // zeroOperatingCostsIfZeroDay()'s own doc comment). Per DAY
+        // (monthly Cost Breakdown, 2026-10-15): that day's month/roster.
+        $operatingOverridesFor = fn (int $tsaId, string $dateStr) => TsaDailyRateService::withDate($dateStr, fn () => array_merge(
+            TsaDailyRateService::zeroOperatingCostsIfZeroDay($tsaId, self::costLookups('product')[3]),
+            ['salaries' => self::costLookups('product')[0][$tsaId] ?? 0.0]
+        ));
 
         // Same real-tally override as rawByProductAndDate() (2026-10-09 —
         // see leadCountsByProductAndDate()'s own doc comment). Looked up
@@ -2865,7 +2901,7 @@ class ExpectedIncomeController extends Controller
                     $row['gross_sales'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesMap, $entry->tsa_id, $p->id, $dateStr);
                     $row['number_of_orders'] = $entry->tsa_id === null ? 0 : (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $entry->tsa_id, $p->id, $dateStr);
                     $row['cancelled'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($cancelledMap, $entry->tsa_id, $p->id, $dateStr);
-                    return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id));
+                    return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id, $dateStr));
                 });
 
                 return [$dateStr => $rows];

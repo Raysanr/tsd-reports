@@ -287,6 +287,7 @@ class TsaSalesReportController extends Controller
         // week" — explicit decision to make every report page consistent).
         $range = DateRangeFilter::resolve($request, 'tsa-sales');
         $dateFrom = $range['from'];
+        \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
         // Explicit request, 2026-09-28: "make the opening is in first and

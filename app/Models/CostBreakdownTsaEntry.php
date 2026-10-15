@@ -19,7 +19,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *  combined overhead figure to her own base). */
 class CostBreakdownTsaEntry extends Model
 {
-    protected $fillable = ['tsa_id', 'base_salary', 'days'];
+    /** A row created without an explicit month belongs to the current
+     *  month (monthly Cost Breakdown, 2026-10-15). */
+    protected static function booted(): void
+    {
+        static::creating(function (self $row) {
+            $row->month ??= \App\Support\CostBreakdownMonths::current();
+        });
+    }
+
+    protected $fillable = ['month', 'tsa_id', 'base_salary', 'days'];
 
     protected $casts = [
         'base_salary' => 'float',
@@ -48,9 +57,11 @@ class CostBreakdownTsaEntry extends Model
      *  roster at the time this runs — a TSA added afterward simply starts
      *  with no entry (the controller's own fallback shows her at 0/30
      *  days until someone types real numbers in). */
-    public static function ensureSeeded(): void
+    /** $month (2026-10-15): entries are per month — see CostBreakdownMonths. */
+    public static function ensureSeeded(?string $month = null): void
     {
-        if (static::query()->exists()) {
+        $month ??= \App\Support\CostBreakdownMonths::current();
+        if (static::where('month', $month)->exists()) {
             return;
         }
 
@@ -61,7 +72,7 @@ class CostBreakdownTsaEntry extends Model
             }
 
             static::firstOrCreate(
-                ['tsa_id' => $tsa->id],
+                ['tsa_id' => $tsa->id, 'month' => $month],
                 ['base_salary' => $baseSalary, 'days' => 30]
             );
         }

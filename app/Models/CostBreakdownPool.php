@@ -11,7 +11,16 @@ use Illuminate\Database\Eloquent\Model;
  *  CostBreakdownCalculator, not stored per-TSA. */
 class CostBreakdownPool extends Model
 {
-    protected $fillable = ['key', 'label', 'amount', 'sort_order'];
+    /** A row created without an explicit month belongs to the current
+     *  month (monthly Cost Breakdown, 2026-10-15). */
+    protected static function booted(): void
+    {
+        static::creating(function (self $row) {
+            $row->month ??= \App\Support\CostBreakdownMonths::current();
+        });
+    }
+
+    protected $fillable = ['month', 'key', 'label', 'amount', 'sort_order'];
 
     protected $casts = [
         'amount' => 'float',
@@ -60,10 +69,12 @@ class CostBreakdownPool extends Model
      *  amount is deliberately EXCLUDED from the re-sync (existing rows
      *  only) — it's the one field this app's own UI actually lets someone
      *  type a real edit into. */
-    public static function ensureSeeded(): void
+    /** $month (2026-10-15): pools are per month — see CostBreakdownMonths. */
+    public static function ensureSeeded(?string $month = null): void
     {
+        $month ??= \App\Support\CostBreakdownMonths::current();
         foreach (self::SEED_POOLS as $seed) {
-            $pool = static::firstOrCreate(['key' => $seed['key']], $seed);
+            $pool = static::firstOrCreate(['key' => $seed['key'], 'month' => $month], $seed);
             $pool->fill(collect($seed)->except(['key', 'amount'])->all());
             if ($pool->isDirty()) {
                 $pool->save();

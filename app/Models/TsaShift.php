@@ -31,6 +31,41 @@ class TsaShift extends Model
         'is_hidden',
     ];
 
+    /** Replaces SoftDeletes' own boot (class method wins over the trait's)
+     *  with the date-aware TsaRosterScope — see its doc comment. */
+    public static function bootSoftDeletes(): void
+    {
+        static::addGlobalScope(new \App\Models\Scopes\TsaRosterScope);
+    }
+
+    /** Report pages call this with their range's first day so a TSA removed
+     *  on/after that day still shows (her old data); later ranges drop her.
+     *  Stored on the current Request, so it never leaks into another
+     *  request under Octane, and is a no-op outside HTTP. */
+    public static function showDeletedFrom($date): void
+    {
+        if (app()->bound('request')) {
+            app('request')->attributes->set('tsa_roster_from', \Illuminate\Support\Carbon::parse($date)->toDateString());
+        }
+    }
+
+    public static function rosterFrom(): ?string
+    {
+        return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
+    }
+
+    /** Route-bound edits on a dated cell (Expected Income / Summary Sales
+     *  {date} routes) can still reach a TSA removed on/after that date. */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        $date = request()->route('date');
+        if (is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            static::showDeletedFrom($date);
+        }
+
+        return parent::resolveRouteBinding($value, $field);
+    }
+
     protected $casts = [
         'active' => 'boolean',
         'is_hidden' => 'boolean',

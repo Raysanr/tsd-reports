@@ -38,7 +38,7 @@ use App\Models\TsaShift;
  */
 class TsaDailyRateService
 {
-    /** Every real TSA, memoized per-request via app()->scoped() — root-
+    /** Every real TSA, memoized per request (RequestMemo) per roster DATE — root-
      *  caused live, 2026-10-03: a newly-added TSA (Anne Pascua) showed her
      *  correct Daily Tax on Cost Breakdown (which resolves its own TSA
      *  list ONCE and passes it through) but 0.00 on Expected Income, whose
@@ -54,14 +54,107 @@ class TsaDailyRateService
      *  request's roster into the next. */
     private static function allTsas(): \Illuminate\Support\Collection
     {
-        if (app()->bound('tsa_daily_rate.all_tsas')) {
-            return app('tsa_daily_rate.all_tsas');
+        $date = self::contextDate();
+
+        // The roster ON this day (2026-10-15): a TSA removed on/after it
+        // still counts; one removed before it doesn't — so from the day
+        // after a removal, every split goes to the remaining TSAs only.
+        return RequestMemo::remember("tsa_daily_rate.tsas:{$date}", fn () => TsaShift::withTrashed()
+            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>=', $date . ' 00:00:00'))
+            ->get());
+    }
+
+    /** The TSAs on the roster on contextDate() — see allTsas(). */
+    public static function roster(): \Illuminate\Support\Collection
+    {
+        return self::allTsas();
+    }
+
+    /** The day every figure below is computed for (monthly Cost Breakdown,
+     *  2026-10-15) — decides BOTH which month's Cost Breakdown applies
+     *  (CostBreakdownMonths::effective()) and which TSAs are on the roster.
+     *  Resolution: an explicit withDate() scope; else a dated edit route's
+     *  own {date}; else the report page's range start
+     *  (TsaShift::showDeletedFrom()); else today. */
+    public static function contextDate(): string
+    {
+        $request = app()->bound('request') ? app('request') : null;
+        if ($date = $request?->attributes->get('cost_context_date')) {
+            return $date;
+        }
+        $routeDate = $request?->route()?->parameter('date');
+        if (is_string($routeDate) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $routeDate)) {
+            return $routeDate;
         }
 
-        $tsas = TsaShift::all();
-        app()->scoped('tsa_daily_rate.all_tsas', fn () => $tsas);
+        return TsaShift::rosterFrom() ?? now('Asia/Manila')->toDateString();
+    }
 
-        return $tsas;
+    /** Sets the context day for the rest of this request (Cost Breakdown
+     *  page: the picked month). */
+    public static function setContextDate(string $date): void
+    {
+        app('request')->attributes->set('cost_context_date', $date);
+    }
+
+    /** The Cost Breakdown month that applies to contextDate(). */
+    public static function contextMonth(): string
+    {
+        return CostBreakdownMonths::effectiveForDate(self::contextDate());
+    }
+
+    /** Runs $fn with every figure in this class computed for $date. */
+    public static function withDate(string $date, \Closure $fn): mixed
+    {
+        $request = app('request');
+        $previous = $request->attributes->get('cost_context_date');
+        $request->attributes->set('cost_context_date', $date);
+        try {
+            return $fn();
+        } finally {
+            $previous === null
+                ? $request->attributes->remove('cost_context_date')
+                : $request->attributes->set('cost_context_date', $previous);
+        }
+    }
+
+    /** Sum of $fn evaluated once per date (each under withDate()) — replaces
+     *  the old "one day's figure × number of days" for a range, so a range
+     *  crossing a month (different Cost Breakdown) or a TSA removal
+     *  (different roster) is exact day by day. $fn returns a float or an
+     *  array of floats (summed key by key). */
+    public static function sumOverDates($dates, \Closure $fn): float|array
+    {
+        $total = null;
+        foreach ($dates as $date) {
+            $dateStr = $date instanceof \DateTimeInterface ? $date->format('Y-m-d') : (string) $date;
+            $value = self::withDate($dateStr, $fn);
+            if (is_array($value)) {
+                $total ??= [];
+                foreach ($value as $k => $v) {
+                    $total[$k] = ($total[$k] ?? 0.0) + (float) $v;
+                }
+            } else {
+                $total = ($total ?? 0.0) + (float) $value;
+            }
+        }
+
+        return $total ?? 0.0;
+    }
+
+    /** Roles / pool amounts of the context month. */
+    private static function roles(): \Illuminate\Support\Collection
+    {
+        $month = self::contextMonth();
+
+        return RequestMemo::remember("cost_breakdown_roles.{$month}", fn () => CostBreakdownRole::where('month', $month)->get());
+    }
+
+    private static function poolAmounts(): array
+    {
+        $month = self::contextMonth();
+
+        return RequestMemo::remember("cost_breakdown_pools.amounts.{$month}", fn () => CostBreakdownPool::where('month', $month)->pluck('amount', 'key')->all());
     }
 
     /** Every real TSA's own CostBreakdownTsaEntry (base_salary/days),
@@ -83,15 +176,9 @@ class TsaDailyRateService
      *  request's entries into the next. */
     private static function costBreakdownTsaEntriesByTsaId(): \Illuminate\Support\Collection
     {
-        if (app()->bound('tsa_daily_rate.cost_breakdown_tsa_entries')) {
-            return app('tsa_daily_rate.cost_breakdown_tsa_entries');
-        }
+        $month = self::contextMonth();
 
-        $tsas = self::allTsas();
-        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
-        app()->scoped('tsa_daily_rate.cost_breakdown_tsa_entries', fn () => $entriesByTsaId);
-
-        return $entriesByTsaId;
+        return RequestMemo::remember("tsa_daily_rate.entries.{$month}", fn () => CostBreakdownTsaEntry::where('month', $month)->get()->keyBy('tsa_id'));
     }
 
     /** Every real TSA's own Daily Rate / Product, keyed by tsa_id — her
@@ -147,7 +234,7 @@ class TsaDailyRateService
      *  Days-gated, see zeroOperatingCostsIfZeroDay() below). */
     public static function dailyRateByTsaId(): array
     {
-        $roles = RequestMemo::remember('cost_breakdown_roles.all', fn () => CostBreakdownRole::all());
+        $roles = self::roles();
         $overheadByRoleId = self::overheadByRoleId($roles);
         $overheadRefsByTeam = self::overheadRefsByTeam($roles, $overheadByRoleId);
 
@@ -234,9 +321,7 @@ class TsaDailyRateService
      *  comment). */
     public static function dailyCostRow(): array
     {
-        $poolAmounts = RequestMemo::remember('cost_breakdown_pools.amounts', fn () => CostBreakdownPool::pluck('amount', 'key')->all());
-
-        return CostBreakdownCalculator::dailyCostRow($poolAmounts, self::activeTsaCount());
+        return CostBreakdownCalculator::dailyCostRow(self::poolAmounts(), self::activeTsaCount());
     }
 
     /** Same "Daily Cost" row from dailyCostRow() above, split further
@@ -376,7 +461,7 @@ class TsaDailyRateService
         }
 
         $perShift = self::departmentTaxAllocationPerShift();
-        $teamCount = TsaShift::where('team', $tsa->team)->where('tiktok_upsell', false)->count();
+        $teamCount = self::allTsas()->where('team', $tsa->team)->where('tiktok_upsell', false)->count();
         $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
         return $monthly / 24;
