@@ -8,26 +8,15 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * This card has changed meaning twice on record:
+ * This card has changed meaning several times on record (see git history
+ * for the 2026-08-28 / 09-02 / 09-04 versions).
  *
- * 2026-08-28: keying off is_cancelled_upsell ALONE under-counted — a fully
- * canceled order (Pancake status_code 6) with no upsell tag at all was
- * invisible here. Fixed by switching to plain status_code=6.
- *
- * 2026-09-02: that fix over-corrected — an order where a TSA added an
- * upsell that was LATER REMOVED from the cart (base order still shipped)
- * got counted here as a full order cancellation, even though the order
- * itself was never voided. Fixed via Order::isBroadRealUpsell().
- *
- * 2026-09-04: explicit follow-up request ("same kpi card as cancelled
- * upsells") — deliberate reversal, not a bug fix. This card now shows
- * CANCELLED UPSELLS specifically (a TSA added an upsell add-on that was
- * later removed, base order still ships — real live example, order
- * #1362700: Sinuxyl base order, ₱800, status still "Packing", tagged
- * "UPSELL TSD - Sinuxyl Inhaler", internal note literally reads "cancelled
- * upsell") rather than real order-level cancellations. Accepted tradeoff:
- * a genuinely fully-cancelled order with NO upsell ever involved no longer
- * shows on this card at all.
+ * 2026-10-15, explicit request: "it will display the total of awaiting stock
+ * and cancelled status like in the expected income" — the card now uses
+ * Expected Income's own automated Cancelled rule (ProductPerformance::
+ * tally()'s 'cancelled_upsell_sales'): a real TSA upsell whose order is
+ * Cancelled (6) or Awaiting Stock (11), one combined total, TikTok-tagged
+ * upsells excluded.
  */
 class DashboardCancelledOrdersTest extends TestCase
 {
@@ -45,105 +34,57 @@ class DashboardCancelledOrdersTest extends TestCase
             'pancake_order_id'   => $id,
             'team'               => 'SH Naturals',
             'tsa_name'           => 'Gemma',
-            'status_code'        => 8, // Packing — the base order still ships
+            'status_code'        => 6,
             'amount'             => 800.0,
-            'is_cancelled_upsell' => false,
-            'cancelled_upsell_amount' => 0,
+            'is_upsell'          => false,
+            'raw_tags'           => ['GEMMA', 'UPSELL TSD - Sinuxyl Inhaler'],
             'pancake_created_at' => now(),
             'synced_at'          => now(),
         ], $overrides));
     }
 
-    public function test_counts_a_cancelled_upsell_on_an_otherwise_live_order(): void
+    private function assertCard(int $count, float $value): void
     {
-        $this->order('cancelled-upsell-1', [
-            'is_cancelled_upsell'     => true,
-            'cancelled_upsell_amount' => 800.0,
-            'raw_tags'                => ['KATH', 'UPSELL TSD - Sinuxyl Inhaler'],
-        ]);
-
-        $response = $this->get(route('dashboard'));
-
-        $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['cancelled_orders_count'] === 1
-            && (float) $stats['cancelled_orders_value'] === 800.0);
+        $this->get(route('dashboard'))->assertOk()->assertViewHas('stats',
+            fn ($stats) => $stats['cancelled_orders_count'] === $count && abs((float) $stats['cancelled_orders_value'] - $value) < 0.005);
     }
 
-    public function test_excludes_a_fully_cancelled_order_with_no_upsell_involved(): void
+    public function test_totals_cancelled_and_awaiting_stock_upsells_together(): void
     {
-        // Explicit, accepted tradeoff (see class doc comment) — a genuine
-        // full-order cancellation with no upsell at all does not show here
-        // anymore, even though status_code is 6.
-        $this->order('real-cancel-1', [
-            'status_code' => 6,
-            'raw_tags'    => ['GEMMA', 'CONFIRMED VIA CALL'],
+        $this->order('cancelled-1');
+        $this->order('awaiting-1', [
+            'status_code' => 11, 'amount' => 1800.0,
+            'is_restocking_upsell' => true, 'restocking_upsell_amount' => 1000.0,
         ]);
 
-        $response = $this->get(route('dashboard'));
-
-        $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['cancelled_orders_count'] === 0
-            && (float) $stats['cancelled_orders_value'] === 0.0);
+        $this->assertCard(2, 1800.0); // 800 + the isolated 1,000 add-on, not the 1,800 order total
     }
 
-    public function test_counts_only_the_cancelled_upsell_when_both_shapes_exist_the_same_day(): void
+    public function test_ignores_a_cancelled_order_with_no_upsell(): void
     {
-        $this->order('real-cancel-1', ['status_code' => 6, 'raw_tags' => ['GEMMA', 'CONFIRMED VIA CALL']]);
-        for ($i = 0; $i < 3; $i++) {
-            $this->order("cancelled-upsell-{$i}", [
-                'is_cancelled_upsell'     => true,
-                'cancelled_upsell_amount' => 500.0,
-                'raw_tags'                => ['GEMMA', 'UPSELL TSD - SINUXYL INHALER'],
-            ]);
-        }
+        $this->order('real-cancel-1', ['raw_tags' => ['GEMMA', 'CONFIRMED VIA CALL']]);
 
-        $response = $this->get(route('dashboard'));
-
-        $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['cancelled_orders_count'] === 3
-            && (float) $stats['cancelled_orders_value'] === 1500.0);
+        $this->assertCard(0, 0.0);
     }
 
-    /** A cancelled upsell on an order Pancake DID later mark Canceled (e.g.
-     *  the add-on was removed, then the whole order was ALSO canceled for an
-     *  unrelated reason) still counts — is_cancelled_upsell is the deciding
-     *  flag here, not the order's own status_code. */
-    public function test_counts_a_cancelled_upsell_even_when_the_order_itself_later_went_void(): void
+    public function test_ignores_live_upsells_and_tiktok_upsells(): void
     {
-        $this->order('cancelled-upsell-void-1', [
-            'status_code'             => 6,
-            'is_cancelled_upsell'     => true,
-            'cancelled_upsell_amount' => 500.0,
-        ]);
+        $this->order('live-1', ['status_code' => 8, 'is_upsell' => true]);
+        $this->order('tiktok-1', ['raw_tags' => ['GEMMA', 'TIKTOK UPSELL -SH NATURALS']]);
 
-        $response = $this->get(route('dashboard'));
-
-        $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['cancelled_orders_count'] === 1
-            && (float) $stats['cancelled_orders_value'] === 500.0);
+        $this->assertCard(0, 0.0);
     }
 
-    /**
-     * Explicit follow-up (2026-09-04) — confirmed live, orders #1362700/
-     * #1362151/#1362682/#1362185/#1362532: cancelled_upsell_amount can be
-     * genuinely null (the add-on was added and removed before any sync ever
-     * captured its live price, and Pancake's current data no longer has it
-     * anywhere). Falls back to the order's own base 'amount' — an accepted
-     * approximation, not the true lost upsell revenue, just a non-zero
-     * stand-in so the order doesn't silently contribute ₱0 to the total.
-     */
-    public function test_falls_back_to_the_base_amount_when_the_cancelled_upsells_own_price_was_never_captured(): void
+    public function test_matches_expected_incomes_cancelled_figure(): void
     {
-        $this->order('cancelled-upsell-null-amount-1', [
-            'is_cancelled_upsell'     => true,
-            'cancelled_upsell_amount' => null,
-            'amount'                  => 800.0,
-        ]);
+        $this->order('cancelled-1');
+        $this->order('cancelled-2', ['amount' => 500.0]);
+        $this->order('not-an-upsell', ['raw_tags' => ['GEMMA']]);
 
-        $response = $this->get(route('dashboard'));
+        $orders = Order::all()->pipe(fn ($o) => Order::withoutTiktokUpsells($o));
+        $expected = (float) \App\Support\ProductPerformance::tally($orders)['cancelled_upsell_sales'];
 
-        $response->assertOk();
-        $response->assertViewHas('stats', fn ($stats) => $stats['cancelled_orders_count'] === 1
-            && (float) $stats['cancelled_orders_value'] === 800.0);
+        $this->assertSame(1300.0, $expected);
+        $this->assertCard(2, $expected);
     }
 }

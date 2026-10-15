@@ -193,40 +193,8 @@ class DashboardController extends Controller
                 ->whereNotNull('tsa_name')
                 ->where('is_restocking_upsell', true);
 
-            // Cancelled UPSELLS (explicit follow-up request, 2026-09-04: "same
-            // kpi card as cancelled upsells" — a TSA added an upsell add-on
-            // that was LATER REMOVED from the cart, base order still ships,
-            // real live example order #1362700: Sinuxyl base order, ₱800,
-            // status still "Packing", tagged "UPSELL TSD - Sinuxyl Inhaler",
-            // internal note literally reads "cancelled upsell"). This card
-            // previously counted real order-level cancellations (Pancake
-            // status_code 6) instead — deliberate reversal, not a bug fix:
-            // that version's own history (root-caused 2026-08-28, then
-            // 2026-09-02) is preserved in this file's git log for context.
-            // Explicitly accepted tradeoff: a genuinely fully-cancelled order
-            // with NO upsell ever involved (e.g. the customer just canceled
-            // outright) no longer shows on this card at all — only the
-            // upsell-added-then-removed scenario does, tracked via the same
-            // is_cancelled_upsell flag/cancelled_upsell_amount column
-            // reconcileStaleUpsellTags() already maintains (see
-            // ReconcileOrderStatuses.php), rather than the order's own
-            // current status. Scoped by $orderTeams same as every other card.
-            //
-            // cancelled_upsell_amount can itself be null — confirmed live,
-            // orders #1362700/#1362151/#1362682/#1362185/#1362532: the
-            // add-on was added and removed before any sync ever saw it as a
-            // LIVE upsell (SyncTodayOrders' own carry-forward logic only
-            // captures the real price at that exact transition — see its own
-            // comment), and Pancake's current API response no longer has the
-            // removed item's price anywhere once it's gone. Falls back to the
-            // order's own base 'amount' in that case (explicit, accepted
-            // approximation, 2026-09-04) — not the true lost upsell revenue,
-            // just a non-zero stand-in so these orders don't silently
-            // contribute ₱0 to the total.
-            $cancelledOrdersAll = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->where('is_cancelled_upsell', true)
-                ->get();
+            // Cancelled Upsells — computed further down, next to the
+            // leaderboard (same rule as Expected Income's Cancelled row).
 
             // Extracted into App\Support\SyncHealth so this page and the dedicated
             // Sync Health page (SyncHealthController) can never drift out of sync
@@ -236,10 +204,6 @@ class DashboardController extends Controller
             $stats = [
                 'restocking_count' => (clone $restocking)->count(),
                 'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
-                'cancelled_orders_count' => $cancelledOrdersAll->count(),
-                'cancelled_orders_value' => $cancelledOrdersAll->sum(
-                    fn (Order $o) => $o->cancelled_upsell_amount ?? $o->amount
-                ),
                 'last_synced'      => $syncHealth['last_synced'],
                 'sync_interval'    => $syncHealth['sync_interval'],
                 'sync_stale'       => $syncHealth['sync_stale'],
@@ -514,6 +478,23 @@ class DashboardController extends Controller
             $stats['total_sales']  = $grossSales;
             $stats['total_orders'] = $totalOrders;
             $stats['aov']          = $totalOrders > 0 ? $grossSales / $totalOrders : 0;
+
+            // Cancelled Upsells card (explicit request, 2026-10-15: "it will
+            // display the total of awaiting stock and cancelled status like in
+            // the expected income") — now the SAME rule as Expected Income's
+            // automated Cancelled row (ProductPerformance::tally()'s own
+            // 'cancelled_upsell_sales'): a real upsell (isBroadRealUpsell) whose
+            // order is Cancelled (6) or Awaiting Stock/Restocking (11), valued
+            // at realUpsellAmount(), TikTok-tagged upsells excluded, over the
+            // selected team's own roster. Replaces the older add-on-removed
+            // (is_cancelled_upsell) definition. Computed before hidden-TSA rows
+            // are dropped, so an eye-hidden TSA still counts.
+            $rosterKeys = $shiftsForLeaderboard->pluck('tsa_key')->map(fn ($k) => strtolower((string) $k))->all();
+            $cancelledUpsells = Order::withoutTiktokUpsells(
+                $dayOrdersAllTeams->filter(fn (Order $o) => in_array(strtolower((string) $o->tsa_name), $rosterKeys, true))
+            )->filter(fn (Order $o) => in_array($o->status_code, [6, 11], true) && Order::isBroadRealUpsell($o));
+            $stats['cancelled_orders_count'] = $cancelledUpsells->count();
+            $stats['cancelled_orders_value'] = (float) $cancelledUpsells->sum(fn (Order $o) => $o->realUpsellAmount());
 
             // Top TSA by upsell sales — same ranking as the leaderboard below, surfaced
             // as a KPI-row spotlight so it's visible without scrolling.
