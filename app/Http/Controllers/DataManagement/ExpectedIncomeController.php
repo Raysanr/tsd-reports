@@ -307,6 +307,14 @@ class ExpectedIncomeController extends Controller
         $leadCounts = $precomputedLeadCounts ?? $controller->leadCountsByProductAndDate($products, $dates, $dateFrom, $dateTo);
         $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $controller->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
 
+        // Same unmatched-order top-up the TSA's own Expected Income card
+        // applies (buildTeamDailyRows()'s $dailyOverallTotals) — bug fix,
+        // 2026-10-15, explicit report: Summary Sales Report's Team Closing
+        // rows summed to 61,214.56 but its TEAM TOTAL (pooled, which DOES
+        // include unmatched orders) read 60,945.15. One query for the whole
+        // range, tallied per TSA per day.
+        $realByTsaAndDate = $controller->upsellTotalsByTsaKeyAndDate($tsas->pluck('tsa_key'), $dateFrom, $dateTo);
+
         $result = collect();
         foreach ($tsas as $tsa) {
             ['raw' => $rawByProductAndDate] = $controller->rawByProductAndDate(
@@ -331,6 +339,15 @@ class ExpectedIncomeController extends Controller
             foreach ($dates as $date) {
                 $dateStr = $date->toDateString();
                 $dayRaw = $products->map(fn (Product $p) => $rawByProductAndDate->get($p->id)->get($dateStr))->all();
+                $real = $realByTsaAndDate->get($tsa->tsa_key . ':' . $dateStr, ['gross_sales' => 0.0, 'number_of_orders' => 0, 'cancelled' => 0.0]);
+                $gap = [
+                    'gross_sales'      => $real['gross_sales'] - (float) array_sum(array_column($dayRaw, 'gross_sales')),
+                    'number_of_orders' => $real['number_of_orders'] - (float) array_sum(array_column($dayRaw, 'number_of_orders')),
+                    'cancelled'        => $real['cancelled'] - (float) array_sum(array_column($dayRaw, 'cancelled')),
+                ];
+                if (abs($gap['gross_sales']) > 0.005 || abs($gap['number_of_orders']) > 0.005 || abs($gap['cancelled']) > 0.005) {
+                    $dayRaw[] = $gap;
+                }
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
                 $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
                 $summed = ExpectedIncomeCalculator::withOverriddenTaxAllocation($summed, $overviewCardTaxAllocation);
@@ -2504,6 +2521,32 @@ class ExpectedIncomeController extends Controller
      *  above, just scoped to a single TSA's own tsa_key, same reasoning
      *  tsaUpsellGrossSales() already established for Gross Sales on an
      *  overview (non-product-scoped) card. */
+    /** Real upsell Gross Sales / Number of Orders / Cancelled per
+     *  "{tsa_key}:{Y-m-d}" in ONE query — same tally() definitions and
+     *  date basis as tsaUpsellGrossSales()/tsaUpsellOrderCount()/
+     *  tsaUpsellCancelled(), for callers that need every TSA × day. */
+    private function upsellTotalsByTsaKeyAndDate($tsaKeys, string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        if ($tsaKeys->isEmpty()) {
+            return collect();
+        }
+
+        return Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+            ->groupBy(fn (Order $o) => $o->tsa_name . ':' . Carbon::parse($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString())
+            ->map(function ($orders) {
+                $tally = ProductPerformance::tally($orders);
+
+                return [
+                    'gross_sales'      => (float) $tally['upsell_sales'],
+                    'number_of_orders' => (int) $tally['upsell_confirmation'],
+                    'cancelled'        => (float) $tally['cancelled_upsell_sales'],
+                ];
+            });
+    }
+
     private function tsaUpsellOrderCount(TsaShift $tsa, string $dateFrom, string $dateTo): int
     {
         return $this->upsellOrderCountForTsaKeys(collect([$tsa->tsa_key]), $dateFrom, $dateTo);
