@@ -62,4 +62,29 @@ class DsPprTiktokAutomationTest extends TestCase
         $content = $this->actingAs($admin)->get(route('data.dsppr', ['date_from' => $before, 'date_to' => $before]))->assertOk()->getContent();
         $this->assertMatchesRegularExpression('/<input[^>]*data-field="gross_sales"[^>]*data-date="' . $before . '"/s', $content);
     }
+
+    /** Explicit report (2026-10-15): "the NI% is why is it no percentage?"
+     *  — every daily product row showed 0.00% NI % on page load. */
+    public function test_daily_product_rows_show_their_real_ni_percent(): void
+    {
+        $this->setUpTiktokTsa();
+        $tsa = TsaShift::orderBy('id')->skip(1)->first();
+        $product = \App\Models\Product::where('team', $tsa->team)->orderBy('sort_order')->first();
+        $date = today()->toDateString();
+        \App\Models\Order::create([
+            'pancake_order_id' => 'ni-pct-1', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => $product->display_name, 'is_upsell' => true, 'amount' => 3300, 'status_code' => 3,
+            'raw_tags' => [$product->display_name], 'pancake_created_at' => $date . ' 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $fig = ExpectedIncomeController::grossSalesAndNetIncomeByProductAndDate($date, $date)->get($product->id . ':' . $date);
+        $this->assertGreaterThan(0, $fig['gross_sales'], 'test setup: expected real Gross Sales for this product');
+        $expectedPct = number_format($fig['net_income'] / $fig['gross_sales'] * 100, 2) . '%';
+
+        $content = $this->actingAs(User::factory()->create(['role' => 'admin']))
+            ->get(route('data.dsppr', ['date_from' => $date, 'date_to' => $date]))->assertOk()->getContent();
+
+        preg_match_all('/data-out="ni_pct" data-date="' . $date . '"[^>]*>\s*([^<]*?)\s*</', $content, $m);
+        $this->assertContains($expectedPct, $m[1], 'the product row\'s daily NI % must reflect its real Gross Sales/Net Income');
+    }
 }

@@ -443,6 +443,11 @@
                                 $real
                             );
                             $d['aov'] = $d['total_orders'] > 0 ? $d['gross_sales'] / $d['total_orders'] : 0.0;
+                            // Same post-merge recompute as AOV above (bug fix,
+                            // 2026-10-15: "why is it no percentage?") — derive()
+                            // ran on the entry row before $real's Gross Sales/
+                            // Net Income were merged in, so NI % stayed 0.00%.
+                            $d['ni_pct'] = $d['gross_sales'] > 0 ? $d['net_income'] / $d['gross_sales'] : 0.0;
                         @endphp
                         @foreach($dayColumns as $i => $col)
                             @php $borderClass = $i === count($dayColumns) - 1 ? 'dsppr-day-end' : ''; @endphp
