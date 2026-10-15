@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\PancakeOrderTagApi;
+use App\Models\LeadSyncSkip;
 use App\Support\RoundRobinAssigner;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -232,6 +233,7 @@ class SyncPancakeLeads extends Command
                 // Someone (a TSA, an admin) already claimed this in Pancake
                 // directly — not this tool's lead to hand out.
                 if ($tagNames->contains(fn ($t) => in_array($t, $tsaKeys, true))) {
+                    LeadSyncSkip::record($raw, 'tsa_tag', 'Tag: ' . $tagNames->first(fn ($t) => in_array($t, $tsaKeys, true)));
                     $skipped++;
                     continue;
                 }
@@ -252,6 +254,7 @@ class SyncPancakeLeads extends Command
                 // still counted so a run's own "skipped" total accounts for
                 // it, same as an already-claimed order above.
                 if (Order::isDuplicatedByLogistics($raw)) {
+                    LeadSyncSkip::record($raw, 'logistics_note');
                     $skipped++;
                     continue;
                 }
@@ -271,6 +274,7 @@ class SyncPancakeLeads extends Command
                 // at all" — conflating them would risk changing that
                 // report's own numbers for orders this new check catches.
                 if (Order::isCreatedByLogisticsStaff($raw)) {
+                    LeadSyncSkip::record($raw, 'logistics_creator', 'Created by ' . ($raw['creator']['name'] ?? ''));
                     $skipped++;
                     continue;
                 }
@@ -329,7 +333,8 @@ class SyncPancakeLeads extends Command
                 // the first one created" means the duplicate is excluded
                 // regardless of whether the original has been picked up
                 // yet, not only once someone's already claimed it.
-                if ($product && $rawPhone && $rawCreatedAt && $this->findLikelyDuplicateLead($rawPhone, $product->id, $rawCreatedAt)) {
+                if ($product && $rawPhone && $rawCreatedAt && ($original = $this->findLikelyDuplicateLead($rawPhone, $product->id, $rawCreatedAt))) {
+                    LeadSyncSkip::record($raw, 'duplicate', "Duplicate of #{$original->pancake_order_id}" . ($original->tsa ? " ({$original->tsa->display_name})" : ' (not assigned yet)'));
                     $skipped++;
                     continue;
                 }
@@ -388,6 +393,7 @@ class SyncPancakeLeads extends Command
 
                 $lead->save();
                 $synced++;
+                LeadSyncSkip::where('pancake_order_id', $id)->delete();
 
                 LeadActivity::log($lead, 'created', "Lead pulled in from Pancake order #{$id}.");
 
