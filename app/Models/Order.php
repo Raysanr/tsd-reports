@@ -485,6 +485,19 @@ class Order extends Model
         return false;
     }
 
+    /** SEPARATE PARCEL by tag OR by the order's own note (explicit request,
+     *  2026-10-15, order #1381155, Marisol: "separate parcel" typed only in
+     *  the Internal note, tags MARISOL / NUTRILAY / "UPSELL TSD - NUTRILAY +
+     *  NUTRIGAIN" — it landed on no product column at all). Used for
+     *  PRODUCT ATTRIBUTION only (ProductPerformance, Tally Checker); the
+     *  sync's upsell/amount logic still keys off the tag alone, so a note
+     *  never turns a non-upsell order into an upsell. */
+    public static function isSeparateParcel($order): bool
+    {
+        return self::hasSeparateParcelTag($order->raw_tags ?? [])
+            || (bool) preg_match('/\bSEP[EA]RATE\s+PARCEL\b/i', ($order->note ?? '') . ' ' . ($order->note_print ?? ''));
+    }
+
     /** is_upsell alone undercounts: SyncTodayOrders resets it to false once a
      *  genuine upsell is later returned/cancelled in Pancake (is_returned_upsell
      *  is set instead, preserving that it WAS a real upsell — see that flag's own

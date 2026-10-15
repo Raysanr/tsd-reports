@@ -163,16 +163,19 @@ class ProductPerformance
         // at all — matching on it alone undercounts every upsold product and misses
         // CLEARSIGHT entirely, since "Clear Sight 3.0" (the cart item name, with a
         // space) never substring-matches "CLEARSIGHT".
-        // Upsell-tag fallback (explicit request, 2026-10-14: "fix any
-        // product that like that, it should be reflect all accurately") —
-        // see claimsByUpsellTag()'s own doc comment.
-        return $orders->filter(fn ($o) => self::matchesNormally($product, $o, $teamProducts, $productIds)
-            || ($teamProducts !== null && self::claimsByUpsellTag($product, $o, $teamProducts)));
+        // SEPARATE PARCEL: the tag decides the product — see
+        // separateParcelTagProduct()'s own doc comment.
+        return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
+            $tagProduct = $teamProducts !== null ? self::separateParcelTagProduct($o, $teamProducts) : null;
+            if ($tagProduct !== null) {
+                return $tagProduct->id === $product->id;
+            }
+            return self::matchesNormally($product, $o, $teamProducts, $productIds);
+        });
     }
 
-    /** matchingOrders()'s own rules for ONE order, without the upsell-tag
-     *  fallback — extracted so claimsByUpsellTag() can ask "does ANY
-     *  product claim this order normally?" without recursing into itself. */
+    /** matchingOrders()'s own rules for ONE order, used whenever
+     *  separateParcelTagProduct() doesn't decide it by tag. */
     private static function matchesNormally(Product $product, $o, ?Collection $teamProducts, Collection $productIds): bool
     {
         return (function ($o) use ($product, $teamProducts, $productIds) {
@@ -248,7 +251,7 @@ class ProductPerformance
             // order, and its ID legitimately belongs to no catalog entry
             // or to itself, not to the base product (see the Separate
             // Parcel comment directly below for the full reasoning).
-            $isSeparateParcel = Order::hasSeparateParcelTag($o->raw_tags ?? []);
+            $isSeparateParcel = Order::isSeparateParcel($o);
             $hasDifferentRealBase = !empty($o->base_product) && !$product->matchesText($o->base_product);
             if (!$isSeparateParcel && $hasDifferentRealBase && Order::isBroadRealUpsell($o)) {
                 return false;
@@ -363,17 +366,8 @@ class ProductPerformance
         })($o);
     }
 
-    /** True when a real SEPARATE PARCEL upsell order lands in NO product column of
-     *  $teamProducts under the normal rules, and $product is the first one
-     *  (by $teamProducts order) matching the product its own "TSD UPSELL -
-     *  X" / "UPSELL TSD (X)" tag names — so every real upsell a TSA's own
-     *  totals count also shows in exactly one product column, never zero
-     *  and never two. Confirmed live (2026-10-14): SEPARATE PARCEL order
-     *  #1376764 (Lika, Oct 5, ₱1,700 "Belo Set", tagged "TSD UPSELL -
-     *  GINSENG SERUM") counted in TSA Performance's own Upsell w/
-     *  Confirmation (8) but in no product column, and only reached
-     *  Expected Income through the TSA card's unmatched-order top-up. */
-    /** The product an unclaimed SEPARATE PARCEL falls back to: the one its
+    /** The product a SEPARATE PARCEL's tags name (see
+     *  separateParcelTagProduct()): the one its
      *  "TSD UPSELL - X" tag names, else the first plain tag naming a product
      *  (e.g. "GINSENG SERUM") — explicit report, 2026-10-14: #1376764's
      *  stored tags had only "LIKA, GINSENG SERUM, Unreconciled, SEPARATE
@@ -424,22 +418,24 @@ class ProductPerformance
         return $bucket[$key];
     }
 
-    public static function claimsByUpsellTag(Product $product, $o, Collection $teamProducts): bool
+    /** For a real SEPARATE PARCEL upsell (tag OR note, see
+     *  Order::isSeparateParcel()), the product its TAGS name — and ONLY that
+     *  product — gets the order, whatever its item name/catalog ID says
+     *  (explicit request, 2026-10-15: "if it is separate parcel ... the
+     *  tagging is the basis of product"; order #1381155's item was the
+     *  "Nutrigain" catalog entry, its tags said NUTRILAY). Replaces the
+     *  2026-10-14 fallback that only used the tag when no product claimed
+     *  the order by item. Null (normal rules apply) when it isn't a
+     *  separate-parcel upsell or no tag names a product in $teamProducts.
+     *  Any other order keeps the existing deliberate rules (an add-on's
+     *  revenue goes to its base's column; a mismatched catalog ID isn't
+     *  overridden by a leftover tag). */
+    public static function separateParcelTagProduct($o, Collection $teamProducts): ?Product
     {
-        // SEPARATE PARCEL only — the whole parcel IS the upsell, often under
-        // a bundle name no product keyword knows. Any other order keeps the
-        // existing deliberate rules (an add-on's revenue goes to its base's
-        // column; a mismatched catalog ID isn't overridden by a leftover
-        // tag) and, if it still lands nowhere, shows in Tally Checker's
-        // "TSA Orders vs Product Columns" with the reason instead.
-        if (!Order::hasSeparateParcelTag($o->raw_tags ?? []) || !Order::isBroadRealUpsell($o)) return false;
-
-        $first = self::perOrder($o, 'tagFallback', $teamProducts, fn () => self::tagFallbackProduct($o, $teamProducts));
-        if ($first === null || $first->id !== $product->id) return false;
-
-        return !self::perOrder($o, 'claimedNormally', $teamProducts, fn () => $teamProducts->contains(fn (Product $p) => self::matchesNormally(
-            $p, $o, $teamProducts, collect($p->pancake_product_ids ?? [])->filter()->values()
-        )));
+        return self::perOrder($o, 'separateParcelTag', $teamProducts, function () use ($o, $teamProducts) {
+            if (!Order::isSeparateParcel($o) || !Order::isBroadRealUpsell($o)) return null;
+            return self::tagFallbackProduct($o, $teamProducts);
+        });
     }
 
     /** True when $product's own keyword does NOT match the order's cart item

@@ -97,6 +97,47 @@ class UpsellTagFallbackMatchingTest extends TestCase
         $this->assertNull(Order::upsellTagProductName(['SEPARATE PARCEL', 'LIKA']));
     }
 
+    /** 2026-10-15, order #1381155 (Marisol): "separate parcel" only in the
+     *  note, item is the "Nutrigain" catalog entry, tags say NUTRILAY — the
+     *  tag decides, even when another product claims the item name. */
+    private function nutrigainParcel(TsaShift $tsa, array $extra = []): Order
+    {
+        return Order::create(array_merge([
+            'pancake_order_id' => '1381155', 'team' => $tsa->team, 'tsa_name' => $tsa->tsa_key,
+            'product' => 'Nutrigain', 'base_product' => 'Nutrigain', 'bundle_description' => '2 Nutrilay + 2 Nutrigain',
+            'is_upsell' => true, 'amount' => 1300, 'status_code' => 3,
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'NUTRILAY', 'UPSELL TSD - NUTRILAY + NUTRIGAIN'],
+            'note' => 'separate parcel',
+            'pancake_created_at' => today()->toDateString() . ' 12:37:15', 'synced_at' => now(),
+        ], $extra));
+    }
+
+    public function test_a_separate_parcel_note_lands_on_the_tagged_product(): void
+    {
+        $tsa = TsaShift::first();
+        Product::forceCreate(['display_name' => 'NUTRILAY', 'team' => $tsa->team, 'sort_order' => 999]);
+
+        $this->assertSame(['NUTRILAY'], $this->matchedProducts($this->nutrigainParcel($tsa)));
+    }
+
+    public function test_a_separate_parcel_tag_beats_a_product_matching_its_item_name(): void
+    {
+        $tsa = TsaShift::first();
+        Product::forceCreate(['display_name' => 'NUTRIGAIN', 'team' => $tsa->team, 'sort_order' => 998]);
+        Product::forceCreate(['display_name' => 'NUTRILAY', 'team' => $tsa->team, 'sort_order' => 999]);
+
+        $this->assertSame(['NUTRILAY'], $this->matchedProducts($this->nutrigainParcel($tsa)));
+    }
+
+    public function test_without_a_separate_parcel_note_or_tag_the_base_product_rule_still_applies(): void
+    {
+        $tsa = TsaShift::first();
+        Product::forceCreate(['display_name' => 'NUTRIGAIN', 'team' => $tsa->team, 'sort_order' => 998]);
+        Product::forceCreate(['display_name' => 'NUTRILAY', 'team' => $tsa->team, 'sort_order' => 999]);
+
+        $this->assertSame(['NUTRIGAIN'], $this->matchedProducts($this->nutrigainParcel($tsa, ['note' => null])));
+    }
+
     public function test_tally_checker_lists_tsa_orders_missing_from_every_product_column(): void
     {
         $tsa = TsaShift::first();
