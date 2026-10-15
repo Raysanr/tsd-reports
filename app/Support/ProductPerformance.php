@@ -833,6 +833,13 @@ class ProductPerformance
      *  reason shown is always the one that actually decided it there. */
     public static function matchReason(Product $product, Order $order): string
     {
+        if (Order::isSeparateParcel($order) && Order::isBroadRealUpsell($order)
+            && ($tagProduct = self::tagFallbackProduct($order, collect([$product]))) !== null) {
+            foreach ($order->raw_tags ?? [] as $tag) {
+                if ($tagProduct->matchesText($tag)) return "separate parcel tag: \"{$tag}\"";
+            }
+        }
+
         $productIds = collect($product->pancake_product_ids ?? [])->filter()->values();
         if ($productIds->isNotEmpty() && !empty($order->pancake_product_ids)) {
             $shared = $productIds->intersect($order->pancake_product_ids);
