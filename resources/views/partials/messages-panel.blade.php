@@ -270,7 +270,11 @@
         });
 
         pollUnreadCount();
-        unreadPollInterval = setInterval(pollUnreadCount, 20000);
+        // Paused while the tab is hidden, refreshed once on return
+        // (2026-10-15 — this panel is on every page of every module, so
+        // background tabs added steady load to the 2-worker server).
+        unreadPollInterval = setInterval(() => { if (!document.hidden) pollUnreadCount(); }, 20000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) pollUnreadCount(); });
     });
 
     // A direct /messages/{user} visit (messages/thread.blade.php's own
@@ -322,7 +326,7 @@
         threadBody.innerHTML = '<p class="text-slate-400 text-center text-xs font-mono py-8">Loading…</p>';
         loadThread(userId, true);
         stopThreadPoll();
-        threadPollInterval = setInterval(() => loadThread(userId, false), 8000);
+        threadPollInterval = setInterval(() => { if (!document.hidden) loadThread(userId, false); }, 8000);
     }
 
     function stopThreadPoll() {
