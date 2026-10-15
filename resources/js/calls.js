@@ -257,9 +257,21 @@ function pollNotificationCounts() {
         .catch(() => {});
 }
 
+// Background polling that pauses while the tab is hidden (explicit request,
+// 2026-10-15: "what is the reason of all page is all loading?") — every
+// open Call Tracker tab polled the server every 5-15s even in the
+// background, ~200-350 requests/min at shift peak on a 2-worker server, so
+// every module queued. A hidden tab now skips its ticks and refreshes once
+// the moment it's visible again, so nothing is ever shown stale.
+function pollWhileVisible(fn, ms) {
+    const id = setInterval(() => { if (!document.hidden) fn(); }, ms);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); });
+    return id;
+}
+
 if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered')) {
     pollNotificationCounts();
-    setInterval(pollNotificationCounts, 30000);
+    pollWhileVisible(pollNotificationCounts, 30000);
 }
 
 // Own status badge (topbar, explicit request 2026-08-22) — Calling and Wrap
@@ -286,7 +298,7 @@ function pollOwnStatus() {
 }
 
 if (document.getElementById('statusTrigger-topbar')) {
-    setInterval(pollOwnStatus, 5000);
+    pollWhileVisible(pollOwnStatus, 5000);
 }
 
 // TSA status panel (calls/partials/tsa-status-panel.blade.php) — one shared
@@ -783,7 +795,7 @@ function pollLeadsTable(forceUrl, skipFocusGuard) {
 }
 
 if (document.getElementById('leads-table-container')) {
-    setInterval(pollLeadsTable, 15000);
+    pollWhileVisible(pollLeadsTable, 15000);
 }
 
 // Bulk select + actions (explicit request, 2026-08-26 — "like that for the
@@ -1914,7 +1926,7 @@ function initHistoryPanel() {
         }
     }
 
-    historyPanelInterval = setInterval(refresh, 8000);
+    historyPanelInterval = setInterval(() => { if (!document.hidden) refresh(); }, 8000);
 }
 
 // Inline "+ Add tag" chip in the POS Tags card — writes a real tag straight
@@ -2772,7 +2784,7 @@ function initPancakeNotesPanel() {
     if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
     pancakeNotesDraftRestoredFor = null;
     loadPancakeNotes();
-    pancakeNotesInterval = setInterval(loadPancakeNotes, 8000);
+    pancakeNotesInterval = setInterval(() => { if (!document.hidden) loadPancakeNotes(); }, 8000);
 
     // Debounced draft save — same 250ms convention as this file's other
     // input debounces (search boxes above), just writing to localStorage

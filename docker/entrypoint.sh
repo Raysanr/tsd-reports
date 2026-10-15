@@ -143,4 +143,15 @@ php artisan migrate --force
 # sustained, every request fast) while cutting resident memory back down
 # toward classic-mode levels, without giving up worker mode's lower-CPU
 # request handling entirely.
-exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=2 --max-requests=500
+#
+# --workers=4 (raised from 2, explicit request, 2026-10-15: "what is the
+# reason of all page is all loading?" — every module (Leads Report, Call
+# Tracker, Data Management) stalled at once during the 3pm shift peak).
+# The "well under 100 req/min" assumption above no longer holds: every
+# open Call Tracker tab auto-polls (own status, leads table, Monitor,
+# notification counts, history/notes panels), roughly 200-350 req/min with
+# ~12 TSAs online, so 2 workers queued every tab behind any slow page.
+# 4 doubles concurrency for ~2 more resident apps of memory (watch Railway's
+# memory graph); paired with pausing those polls in hidden tabs
+# (resources/js/calls.js), which cuts the request volume at the source.
+exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=4 --max-requests=500
