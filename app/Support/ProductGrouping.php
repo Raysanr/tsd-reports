@@ -34,7 +34,7 @@ class ProductGrouping
      *  two cases apart without checking products()->count(). */
     public static function rows(Collection $products, callable $sumFn): Collection
     {
-        $groupsByProductId = RequestMemo::remember('product_groups.with_products', fn () => ProductGroup::with('products')->get())
+        $groupsByProductId = ProductGroup::with('products')->get()
             ->flatMap(fn (ProductGroup $group) => $group->products->map(fn (Product $p) => [$p->id, $group]))
             ->mapWithKeys(fn ($pair) => [$pair[0] => $pair[1]]);
 

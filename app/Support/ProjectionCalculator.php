@@ -260,9 +260,7 @@ class ProjectionCalculator
      *  already cached the row list without it). */
     private static function customRows(): \Illuminate\Support\Collection
     {
-        // RequestMemo (2026-10-15) — flushed on any write in the same
-        // request, so the freshly-created-row case above stays correct.
-        return RequestMemo::remember('projection_custom_rows.ordered', fn () => ProjectionCustomRow::orderBy('sort_order')->get());
+        return ProjectionCustomRow::orderBy('sort_order')->get();
     }
 
     private static function customRowKeys(): array

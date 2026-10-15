@@ -65,16 +65,6 @@ class RowOrder
      *  'operating'. */
     public static function rows(array $builtinRows, string $section, array $otherBuiltinRows = []): array
     {
-        // RequestMemo (perf, 2026-10-15) — ensureSeeded()'s own inserts
-        // flush it, so the first call still seeds and later ones re-read.
-        return RequestMemo::remember(
-            'row_order.rows|' . $section . '|' . md5(serialize([$builtinRows, $otherBuiltinRows])),
-            fn () => self::computeRows($builtinRows, $section, $otherBuiltinRows)
-        );
-    }
-
-    private static function computeRows(array $builtinRows, string $section, array $otherBuiltinRows): array
-    {
         self::ensureSeeded($builtinRows, $section);
         self::ensureSeeded($otherBuiltinRows, $section === 'selling' ? 'operating' : 'selling');
 
@@ -106,7 +96,7 @@ class RowOrder
      *  ProjectionCustomRow query just to build this list. */
     public static function customRowKeys(): array
     {
-        return RequestMemo::remember('projection_custom_rows.keys', fn () => ProjectionCustomRow::get()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all());
+        return ProjectionCustomRow::get()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all();
     }
 
     /** Seeds row_sort_orders for every key in $builtinRows PLUS every real

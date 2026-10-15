@@ -24,14 +24,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // RequestMemo is never allowed to serve a value older than a write
-        // made earlier in the same request — see its own doc comment.
-        \Illuminate\Support\Facades\DB::listen(function ($query) {
-            if (preg_match('/^\s*(insert|update|delete|replace)\b/i', $query->sql)) {
-                \App\Support\RequestMemo::flush();
-            }
-        });
-
         // Render (like most PaaS hosts) terminates TLS at its edge and forwards
         // plain HTTP to the container, so Laravel's request-scheme detection
         // sees "http" and generates http:// asset/URL links even though the

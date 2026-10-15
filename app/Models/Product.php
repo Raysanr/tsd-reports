@@ -99,47 +99,20 @@ class Product extends Model
     {
         if ($text === null || $text === '') return false;
 
-        // Pure-function memo (perf, 2026-10-15) — the result depends ONLY on
-        // this product's keyword list and $text, so it's keyed by exactly
-        // those two (an edited match_keyword gets a new key, never a stale
-        // answer). Capped for long-lived Octane workers.
-        static $cache = [];
-        $key = ($this->match_keyword ?? '') . "\0" . ($this->display_name ?? '') . "\0" . $text;
-        if (isset($cache[$key])) {
-            return $cache[$key];
-        }
-        if (count($cache) > 50000) {
-            $cache = [];
-        }
-
         $normalizedText = self::normalizeForMatch($text);
         foreach ($this->keywords_array as $keyword) {
             $normalizedKeyword = self::normalizeForMatch($keyword);
             if ($normalizedKeyword !== '' && str_contains($normalizedText, $normalizedKeyword)) {
-                return $cache[$key] = true;
+                return true;
             }
         }
-        return $cache[$key] = false;
+        return false;
     }
 
     /** Uppercase and strip everything but A-Z/0-9, so containment checks ignore
      *  spacing, punctuation and case differences between keyword and source text. */
     public static function normalizeForMatch(string $s): string
     {
-        // Pure-function memo (perf, 2026-10-15) — matchesText() runs this
-        // for every order × product × conflicting product, recomputing the
-        // same handful of tag/keyword strings tens of thousands of times
-        // per page. Same input always gives the same output, so this can
-        // never change a result; capped so a long-lived Octane worker can't
-        // grow it without bound.
-        static $cache = [];
-        if (isset($cache[$s])) {
-            return $cache[$s];
-        }
-        if (count($cache) > 20000) {
-            $cache = [];
-        }
-
-        return $cache[$s] = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $s));
+        return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $s));
     }
 }
