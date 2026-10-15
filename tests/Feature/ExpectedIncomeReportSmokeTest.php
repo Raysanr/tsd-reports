@@ -2334,9 +2334,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'team' => 'SH Naturals', 'sort_order' => 999,
         ]);
 
-        // Confirms the race is actually reproduced: the pre-built map
-        // genuinely doesn't have her, same as the live bug.
-        $this->assertArrayNotHasKey($lateTsa->id, TsaDailyRateService::taxAllocationByTsaId());
+        // (2026-10-15) The roster memo is now flushed on any write, so the
+        // race no longer even reproduces — the fallback below stays covered.
 
         $expected = TsaDailyRateService::taxAllocationForTsa($lateTsa);
         $this->assertGreaterThan(0, $expected, 'test setup: expected a non-zero Tax Allocation figure for the fallback to prove');

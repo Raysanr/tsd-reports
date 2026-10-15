@@ -34,7 +34,48 @@
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
 @endphp
 
-<div class="space-y-8">
+{{-- Month picker + Add Cost Breakdown (explicit request, 2026-10-15: "like
+     in the projections page like monthly only and can add cost breakdown
+     too for this month"). Each month has its own Cost Breakdown; a month
+     without one uses the latest earlier month's (read-only here) until
+     it's added — "Add" copies that month as the starting point. --}}
+<div class="mb-6 flex items-end gap-3 flex-wrap">
+    @include('data._month-picker', ['name' => 'month', 'value' => $month, 'navigate' => true])
+    <button type="button" id="cbAddMonthBtn"
+            class="inline-flex items-center gap-1.5 text-sm font-mono font-semibold px-3 py-2 rounded-lg border border-line dark:border-slate-600 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 hover:text-primary transition-colors cursor-pointer">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        Add Cost Breakdown
+    </button>
+</div>
+
+@unless($hasOwnMonth)
+<div class="mb-6 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm font-mono text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 flex-wrap" id="cbFallbackBanner">
+    <span><strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</strong> has no Cost Breakdown yet — showing <strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $dataMonth)->format('F Y') }}</strong>'s figures (read-only), which is what this month currently uses.</span>
+    <form method="POST" action="{{ route('data.cost-breakdown.months.store') }}">
+        @csrf
+        <input type="hidden" name="month" value="{{ $month }}">
+        <button type="submit" class="text-sm px-3 py-1.5 rounded-lg bg-primary text-white font-semibold">Add Cost Breakdown for {{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</button>
+    </form>
+</div>
+@endunless
+
+<div id="cbAddMonthModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50" data-close-cb-month-modal></div>
+    <form method="POST" action="{{ route('data.cost-breakdown.months.store') }}" id="cbAddMonthForm"
+          class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
+        @csrf
+        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add Cost Breakdown</h3>
+        <p class="text-xs text-ink-muted dark:text-slate-400 mb-4">Pick a month — a new month starts as a copy of the latest earlier month; one that already has a Cost Breakdown just opens it.</p>
+        @include('data._month-picker', ['name' => 'month', 'value' => now('Asia/Manila')->format('Y-m'), 'navigate' => false])
+        <div class="flex justify-end gap-2 pt-5">
+            <button type="button" data-close-cb-month-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
+            <button type="submit" class="text-sm px-4 py-2 rounded-lg bg-primary text-white font-semibold">Add</button>
+        </div>
+    </form>
+</div>
+
+{{-- disabled = every input/button inside is read-only for a fallback month. --}}
+<fieldset class="space-y-8 min-w-0 border-0 p-0 m-0" @disabled(!$hasOwnMonth)>
 
     {{-- Salary breakdown — every field manual (explicit request,
          2026-09-29: no formula derives a CEO/Sales Director/Manager's real
@@ -526,12 +567,22 @@
             </table>
         </div>
     </div>
-</div>
+</fieldset>
 
 @endsection
 
 @push('scripts')
 <script>
+(() => {
+    // Add Cost Breakdown modal (2026-10-15).
+    const modal = document.getElementById('cbAddMonthModal');
+    const open = document.getElementById('cbAddMonthBtn');
+    if (!modal || !open) return;
+    open.addEventListener('click', () => { modal.hidden = false; });
+    modal.querySelectorAll('[data-close-cb-month-modal]').forEach((el) => el.addEventListener('click', () => { modal.hidden = true; }));
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') modal.hidden = true; });
+})();
+
 (function () {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const saveTimers = new WeakMap();

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\CostBreakdownPool;
+use App\Support\CostBreakdownMonths;
 use App\Models\CostBreakdownRole;
 use App\Models\CostBreakdownTsaEntry;
 use App\Models\Product;
@@ -63,21 +64,30 @@ class CostBreakdownController extends Controller
      *  own is_locked column. */
     public const LOCK_TABLES = ['salary', 'pools', 'tsa'];
 
-    public function index()
+    public function index(Request $request)
     {
+        // Month picker (explicit request, 2026-10-15: "like in the
+        // projections page like monthly only and can add cost breakdown
+        // too for this month"). A month with no Cost Breakdown of its own
+        // shows the month it falls back to, read-only, with an "Add Cost
+        // Breakdown" button — see CostBreakdownMonths.
+        $month = $this->resolveSelectedMonth($request);
+        $dataMonth = $this->enterMonth($month);
+        $hasOwnMonth = $dataMonth === $month;
+
         // Self-heals an empty table the same way ProjectionColumn::
         // ensureSeeded() does — a migrated-but-empty table is a real
         // failure mode already seen in this app (a dev DB reset after the
         // migration already ran).
-        CostBreakdownRole::ensureSeeded();
-        CostBreakdownPool::ensureSeeded();
-        CostBreakdownTsaEntry::ensureSeeded();
+        CostBreakdownRole::ensureSeeded($dataMonth);
+        CostBreakdownPool::ensureSeeded($dataMonth);
+        CostBreakdownTsaEntry::ensureSeeded($dataMonth);
 
-        $roles = CostBreakdownRole::orderBy('sort_order')->get();
-        $pools = CostBreakdownPool::orderBy('sort_order')->get();
+        $roles = CostBreakdownRole::where('month', $dataMonth)->orderBy('sort_order')->get();
+        $pools = CostBreakdownPool::where('month', $dataMonth)->orderBy('sort_order')->get();
 
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
-        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $entriesByTsaId = CostBreakdownTsaEntry::where('month', $dataMonth)->whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
 
         // One row per real TSA, seeded from her own saved entry (or a
         // fresh all-zero one with the default 30 days — same "a cell with
@@ -276,17 +286,77 @@ class CostBreakdownController extends Controller
             'dailyCostPerProductRow' => $dailyCostPerProductRow,
             'monthlyTaxPerShift' => $monthlyTaxPerShift,
             'monthlyTaxPerTsaByTeam' => $monthlyTaxPerTsaByTeam,
-            'tableLocks' => $this->tableLocks(),
+            'tableLocks' => $this->tableLocks($month),
+            'month' => $month,
+            'dataMonth' => $dataMonth,
+            'hasOwnMonth' => $hasOwnMonth,
         ]);
+    }
+
+    /** ?month= (picked in the picker) wins and is remembered; else the last
+     *  picked month; else the current month — same as Projections. */
+    private function resolveSelectedMonth(Request $request): string
+    {
+        $month = $request->input('month');
+        if ($month !== null && CostBreakdownMonths::isValid($month)) {
+            session(['cost_breakdown.month' => $month]);
+        } else {
+            $month = session('cost_breakdown.month', CostBreakdownMonths::current());
+        }
+
+        return CostBreakdownMonths::isValid($month) ? $month : CostBreakdownMonths::current();
+    }
+
+    /** The month the page's AJAX saves belong to (they carry no ?month=). */
+    private function sessionMonth(): string
+    {
+        $month = session('cost_breakdown.month', CostBreakdownMonths::current());
+
+        return CostBreakdownMonths::isValid($month) ? $month : CostBreakdownMonths::current();
+    }
+
+    /** Points TsaDailyRateService (and the TSA roster) at $month — today for
+     *  the current month, else the 1st — and returns the month whose saved
+     *  figures apply (CostBreakdownMonths::effective()). */
+    private function enterMonth(string $month): string
+    {
+        $date = $month === CostBreakdownMonths::current() ? now('Asia/Manila')->toDateString() : $month . '-01';
+        TsaDailyRateService::setContextDate($date);
+        TsaShift::showDeletedFrom($date);
+
+        return CostBreakdownMonths::effective($month);
+    }
+
+    /** A save into a month with no Cost Breakdown of its own is refused —
+     *  that month is shown read-only until someone adds it. */
+    private function ensureEditableMonth(string $month): void
+    {
+        CostBreakdownMonths::effective($month); // seeds the current month on an empty install
+        abort_unless(CostBreakdownMonths::exists($month), 422, 'Add a Cost Breakdown for this month first.');
+    }
+
+    /** "Add Cost Breakdown" — copies the month it currently falls back to
+     *  (explicit decision, 2026-10-15: "Copy last month"), then opens it. */
+    public function storeMonth(Request $request)
+    {
+        $data = $request->validate(['month' => ['required', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/']]);
+        $existed = CostBreakdownMonths::exists($data['month']);
+        CostBreakdownMonths::create($data['month']);
+        if (!$existed) {
+            $label = \Illuminate\Support\Carbon::createFromFormat('Y-m', $data['month'])->format('F Y');
+            ActivityLogger::log('cost_breakdown.month_added', null, "Added the Cost Breakdown for {$label}.");
+        }
+
+        return redirect()->route('data.cost-breakdown', ['month' => $data['month']]);
     }
 
     /** Current locked/unlocked state of all 3 tables, keyed by the same
      *  short table key the lock button/toggleLock() route both use (see
      *  LOCK_TABLES's own doc comment). */
-    private function tableLocks(): array
+    private function tableLocks(string $month): array
     {
         return collect(self::LOCK_TABLES)
-            ->mapWithKeys(fn (string $table) => [$table => Setting::get("cost_breakdown_lock_{$table}") === '1'])
+            ->mapWithKeys(fn (string $table) => [$table => CostBreakdownMonths::isLocked($table, $month)])
             ->all();
     }
 
@@ -306,8 +376,10 @@ class CostBreakdownController extends Controller
     {
         abort_unless(in_array($table, self::LOCK_TABLES, true), 404);
 
+        $month = $this->sessionMonth();
+        $this->ensureEditableMonth($month);
         $locked = $request->boolean('locked');
-        Setting::set("cost_breakdown_lock_{$table}", $locked ? '1' : '');
+        Setting::set(CostBreakdownMonths::lockKey($table, $month), $locked ? '1' : '');
         ActivityLogger::log($locked ? 'cost_breakdown.table_locked' : 'cost_breakdown.table_unlocked', null, ($locked ? 'Locked' : 'Unlocked') . " the \"{$table}\" table.");
 
         return response()->json([
@@ -424,6 +496,8 @@ class CostBreakdownController extends Controller
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
         ]);
 
+        $month = $costBreakdownRole->month;
+        $this->enterMonth($month);
         $old = $costBreakdownRole->only(array_keys($data));
         $costBreakdownRole->update($data);
 
@@ -436,7 +510,7 @@ class CostBreakdownController extends Controller
         return response()->json([
             'success' => true,
             'total' => $costBreakdownRole->base_salary,
-            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead($month),
         ]);
     }
 
@@ -475,6 +549,9 @@ class CostBreakdownController extends Controller
             'overhead_divisor' => ['required_with:overhead_group', 'nullable', 'string', 'in:total,team'],
         ]);
 
+        $month = $this->sessionMonth();
+        $this->ensureEditableMonth($month);
+        $this->enterMonth($month);
         $overheadGroup = $data['overhead_group'] ?? null;
 
         // A role joining an existing group MUST land adjacent to that
@@ -492,14 +569,15 @@ class CostBreakdownController extends Controller
         // every role from there on down by one, keeps every group
         // contiguous regardless of where a new member is added.
         if ($overheadGroup) {
-            $lastGroupMember = CostBreakdownRole::where('overhead_group', $overheadGroup)->max('sort_order');
-            $insertAt = $lastGroupMember !== null ? $lastGroupMember + 1 : CostBreakdownRole::max('sort_order') + 1;
-            CostBreakdownRole::where('sort_order', '>=', $insertAt)->increment('sort_order');
+            $lastGroupMember = CostBreakdownRole::where('month', $month)->where('overhead_group', $overheadGroup)->max('sort_order');
+            $insertAt = $lastGroupMember !== null ? $lastGroupMember + 1 : CostBreakdownRole::where('month', $month)->max('sort_order') + 1;
+            CostBreakdownRole::where('month', $month)->where('sort_order', '>=', $insertAt)->increment('sort_order');
         } else {
-            $insertAt = CostBreakdownRole::max('sort_order') + 1;
+            $insertAt = CostBreakdownRole::where('month', $month)->max('sort_order') + 1;
         }
 
         $role = CostBreakdownRole::create([
+            'month' => $month,
             'seed_key' => null,
             'label' => $data['label'],
             'person_name' => $data['person_name'] ?? null,
@@ -513,7 +591,7 @@ class CostBreakdownController extends Controller
         return response()->json([
             'success' => true,
             'role' => $role,
-            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead($month),
         ]);
     }
 
@@ -528,13 +606,15 @@ class CostBreakdownController extends Controller
             return response()->json(['success' => false, 'message' => 'A fixed role cannot be removed.'], 422);
         }
 
+        $month = $costBreakdownRole->month;
+        $this->enterMonth($month);
         $label = $costBreakdownRole->label;
         $costBreakdownRole->delete();
         ActivityLogger::log('cost_breakdown.role_deleted', null, "Removed role \"{$label}\" from the Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
-            'recomputedOverhead' => $this->recomputeAllRoleOverhead(),
+            'recomputedOverhead' => $this->recomputeAllRoleOverhead($month),
         ]);
     }
 
@@ -546,9 +626,9 @@ class CostBreakdownController extends Controller
      *  base_salary can change every OTHER role in the same overhead_group's
      *  own displayed figure too (they all show the SAME summed-then-divided
      *  number, per the real sheet's own merged cell). */
-    private function recomputeAllRoleOverhead(): array
+    private function recomputeAllRoleOverhead(string $month): array
     {
-        return $this->overheadByRoleId(CostBreakdownRole::all())->all();
+        return $this->overheadByRoleId(CostBreakdownRole::where('month', $month)->get())->all();
     }
 
     /** Every role's own overhead-per-TSA figure, keyed by role id — null
@@ -602,6 +682,8 @@ class CostBreakdownController extends Controller
             'amount' => ['required', 'numeric', 'min:0'],
         ]);
 
+        $month = $costBreakdownPool->month;
+        $this->enterMonth($month);
         $oldAmount = $costBreakdownPool->amount;
         $costBreakdownPool->update($data);
         if ((float) $oldAmount != (float) $data['amount']) {
@@ -620,7 +702,7 @@ class CostBreakdownController extends Controller
         // TsaDailyRateService::activeTsaCount()'s own doc comment for why
         // (2026-10-06 follow-up, right after this same mini-table's own
         // live-update fix).
-        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $poolAmounts = CostBreakdownPool::where('month', $month)->pluck('amount', 'key')->all();
         $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaDailyRateService::activeTsaCount());
         $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, TsaDailyRateService::productCount());
 
@@ -659,8 +741,11 @@ class CostBreakdownController extends Controller
             'days' => ['sometimes', 'integer', 'min:0'],
         ]);
 
-        $entry = CostBreakdownTsaEntry::where('tsa_id', $tsaShift->id)->first()
-            ?? new CostBreakdownTsaEntry(['tsa_id' => $tsaShift->id, 'days' => 30]);
+        $month = $this->sessionMonth();
+        $this->ensureEditableMonth($month);
+        $this->enterMonth($month);
+        $entry = CostBreakdownTsaEntry::where('month', $month)->where('tsa_id', $tsaShift->id)->first()
+            ?? new CostBreakdownTsaEntry(['month' => $month, 'tsa_id' => $tsaShift->id, 'days' => 30]);
         $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();
@@ -671,7 +756,7 @@ class CostBreakdownController extends Controller
             ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $tsaShift->display_name, $formatter);
         }
 
-        $roles = CostBreakdownRole::all();
+        $roles = CostBreakdownRole::where('month', $month)->get();
         $overheadRefs = $this->overheadRefsByTeam($roles, $this->overheadByRoleId($roles))->get($tsaShift->team) ?? [];
         $total = CostBreakdownCalculator::tsaTotal($entry->base_salary, $overheadRefs);
         $dailyRate = CostBreakdownCalculator::tsaDailyRate($total);
@@ -682,7 +767,7 @@ class CostBreakdownController extends Controller
         // save) since editing base_salary just moved $total/$dailyRate.
         $dailyRatePerProduct = TsaDailyRateService::perProductByTsaId()[$tsaShift->id] ?? 0.0;
 
-        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $poolAmounts = CostBreakdownPool::where('month', $month)->pluck('amount', 'key')->all();
         $dailyCostRow = CostBreakdownCalculator::dailyCostRow($poolAmounts, TsaDailyRateService::activeTsaCount());
         $dailyCostPerProductRow = CostBreakdownCalculator::dailyCostPerProductRow($dailyCostRow, TsaDailyRateService::productCount());
 
@@ -711,6 +796,7 @@ class CostBreakdownController extends Controller
             'has_cost_allocation' => ['required', 'boolean'],
         ]);
 
+        $this->enterMonth($this->sessionMonth());
         $wasChecked = $product->has_cost_allocation;
         $product->update($data);
         if ((bool) $wasChecked !== (bool) $data['has_cost_allocation']) {
@@ -738,9 +824,10 @@ class CostBreakdownController extends Controller
      *  separate from 'derived.products' above, never conflated). */
     private function recomputeAllTsaRows(): array
     {
+        $month = TsaDailyRateService::contextMonth();
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
-        $entriesByTsaId = CostBreakdownTsaEntry::whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
-        $poolAmounts = CostBreakdownPool::pluck('amount', 'key')->all();
+        $entriesByTsaId = CostBreakdownTsaEntry::where('month', $month)->whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $poolAmounts = CostBreakdownPool::where('month', $month)->pluck('amount', 'key')->all();
         $flaggedProductRows = TsaDailyRateService::flaggedProductRows();
         $flaggedProductCount = $flaggedProductRows->count();
         $salaryDailyRatePerProductByTsaId = TsaDailyRateService::perProductByTsaId();

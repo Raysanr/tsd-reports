@@ -10,7 +10,16 @@ use Illuminate\Database\Eloquent\Model;
  *  doc comment for why every field here is manual entry. */
 class CostBreakdownRole extends Model
 {
-    protected $fillable = ['seed_key', 'label', 'person_name', 'team', 'base_salary', 'overhead_group', 'overhead_divisor', 'sort_order'];
+    /** A row created without an explicit month belongs to the current
+     *  month (monthly Cost Breakdown, 2026-10-15). */
+    protected static function booted(): void
+    {
+        static::creating(function (self $row) {
+            $row->month ??= \App\Support\CostBreakdownMonths::current();
+        });
+    }
+
+    protected $fillable = ['month', 'seed_key', 'label', 'person_name', 'team', 'base_salary', 'overhead_group', 'overhead_divisor', 'sort_order'];
 
     protected $casts = [
         'base_salary' => 'float',
@@ -112,19 +121,21 @@ class CostBreakdownRole extends Model
      *  something else would make this method stop finding that row under
      *  the old label, firstOrCreate a brand-new duplicate "CEO" row, and
      *  silently orphan the renamed one from seeding forever after. */
-    public static function ensureSeeded(): void
+    /** $month (2026-10-15): roles are per month — see CostBreakdownMonths. */
+    public static function ensureSeeded(?string $month = null): void
     {
+        $month ??= \App\Support\CostBreakdownMonths::current();
         // One-time backfill (every call after the first is a no-op, since
         // every row then has a real seed_key) — an already-existing row
         // from BEFORE the seed_key column existed is matched by its own
         // label here, exactly once, to adopt the correct seed_key without
         // creating a duplicate.
         foreach (self::SEED_ROLES as $seed) {
-            static::where('label', $seed['label'])->whereNull('seed_key')->update(['seed_key' => $seed['seed_key']]);
+            static::where('month', $month)->where('label', $seed['label'])->whereNull('seed_key')->update(['seed_key' => $seed['seed_key']]);
         }
 
         foreach (self::SEED_ROLES as $seed) {
-            $role = static::firstOrCreate(['seed_key' => $seed['seed_key']], $seed);
+            $role = static::firstOrCreate(['seed_key' => $seed['seed_key'], 'month' => $month], $seed);
             $role->fill(collect($seed)->except(['seed_key', 'label', 'person_name', 'base_salary', 'sort_order'])->all());
             if ($role->isDirty()) {
                 $role->save();

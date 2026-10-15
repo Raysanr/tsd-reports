@@ -464,6 +464,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // rather than an upsert-by-(product,date) pattern.
         Route::middleware('role:super_admin,admin')->group(function () {
             Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
+            // Add Cost Breakdown for a month (copies last month) — 2026-10-15.
+            Route::post('/cost-breakdown/months', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'storeMonth'])->name('cost-breakdown.months.store');
             // Add/remove a role (explicit request, 2026-10-03: "i want you to
             // add role") — registered before the {costBreakdownRole} PATCH
             // below, same "static segment before the wildcard" convention
