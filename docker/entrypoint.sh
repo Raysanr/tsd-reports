@@ -154,4 +154,11 @@ php artisan migrate --force
 # 4 doubles concurrency for ~2 more resident apps of memory (watch Railway's
 # memory graph); paired with pausing those polls in hidden tabs
 # (resources/js/calls.js), which cuts the request volume at the source.
-exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=4 --max-requests=500
+#
+# --workers=3 --max-requests=100 (2026-10-16, explicit request — Railway
+# bill: RAM rose from ~1 GB to 5-10 GB after the 4-worker change, Memory
+# = 67% of the bill). A worker keeps whatever a heavy report page grew it
+# to until it restarts; recycling every 100 requests (was 500) hands that
+# memory back ~5x sooner, and 3 workers is enough now that background
+# polling pauses in hidden tabs and runs half as often (calls.js).
+exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=3 --max-requests=100

@@ -341,7 +341,7 @@
 
     // Paused while the tab is hidden, refreshed once on return (2026-10-15)
     // — same reason as calls.js's own pollWhileVisible().
-    setInterval(() => { if (!document.hidden) refresh(); }, 15000);
+    setInterval(() => { if (!document.hidden) refresh(); }, 30000); // was 15s — Railway cost, 2026-10-16
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();
 </script>
