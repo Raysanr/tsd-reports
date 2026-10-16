@@ -161,4 +161,7 @@ php artisan migrate --force
 # to until it restarts; recycling every 100 requests (was 500) hands that
 # memory back ~5x sooner, and 3 workers is enough now that background
 # polling pauses in hidden tabs and runs half as often (calls.js).
-exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=3 --max-requests=100
+#
+# --workers=2 (2026-10-16, explicit request: "okay back to 2 workers") —
+# further Railway cost cut; max-requests stays 100.
+exec php artisan octane:frankenphp --host=0.0.0.0 --port="${PORT:-8080}" --workers=2 --max-requests=100
