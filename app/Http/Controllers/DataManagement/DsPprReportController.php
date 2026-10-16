@@ -48,8 +48,13 @@ class DsPprReportController extends Controller
 
         $teams = collect(\App\Support\Teams::config());
 
+        // Every product on every team filter (explicit request, 2026-10-16:
+        // "when i filter per team the product is still displaying all
+        // because per team is handle all product now") — the team filter
+        // scopes the ORDERS/figures (Order.team = the shift that took the
+        // order, see $ordersByDate / $onlyOrderTeam below), not which
+        // product rows show.
         $products = Product::query()
-            ->when($teamSlug && $teams->has($teamSlug), fn ($q) => $q->where('team', $teams[$teamSlug]['order_team'] ?? '__none__'))
             ->orderBy('sort_order')
             ->get();
 
