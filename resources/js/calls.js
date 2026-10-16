@@ -298,7 +298,7 @@ function pollOwnStatus() {
 }
 
 if (document.getElementById('statusTrigger-topbar')) {
-    pollWhileVisible(pollOwnStatus, 5000);
+    pollWhileVisible(pollOwnStatus, 15000); // was 5s — Railway cost, 2026-10-16
 }
 
 // TSA status panel (calls/partials/tsa-status-panel.blade.php) — one shared
@@ -795,7 +795,7 @@ function pollLeadsTable(forceUrl, skipFocusGuard) {
 }
 
 if (document.getElementById('leads-table-container')) {
-    pollWhileVisible(pollLeadsTable, 15000);
+    pollWhileVisible(pollLeadsTable, 30000); // was 15s — Railway cost, 2026-10-16
 }
 
 // Bulk select + actions (explicit request, 2026-08-26 — "like that for the
@@ -1926,7 +1926,7 @@ function initHistoryPanel() {
         }
     }
 
-    historyPanelInterval = setInterval(() => { if (!document.hidden) refresh(); }, 8000);
+    historyPanelInterval = setInterval(() => { if (!document.hidden) refresh(); }, 20000); // was 8s — Railway cost, 2026-10-16
 }
 
 // Inline "+ Add tag" chip in the POS Tags card — writes a real tag straight
@@ -2784,7 +2784,7 @@ function initPancakeNotesPanel() {
     if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
     pancakeNotesDraftRestoredFor = null;
     loadPancakeNotes();
-    pancakeNotesInterval = setInterval(() => { if (!document.hidden) loadPancakeNotes(); }, 8000);
+    pancakeNotesInterval = setInterval(() => { if (!document.hidden) loadPancakeNotes(); }, 20000); // was 8s — Railway cost, 2026-10-16
 
     // Debounced draft save — same 250ms convention as this file's other
     // input debounces (search boxes above), just writing to localStorage

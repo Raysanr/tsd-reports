@@ -326,7 +326,7 @@
         threadBody.innerHTML = '<p class="text-slate-400 text-center text-xs font-mono py-8">Loading…</p>';
         loadThread(userId, true);
         stopThreadPoll();
-        threadPollInterval = setInterval(() => { if (!document.hidden) loadThread(userId, false); }, 8000);
+        threadPollInterval = setInterval(() => { if (!document.hidden) loadThread(userId, false); }, 20000); // was 8s — Railway cost, 2026-10-16
     }
 
     function stopThreadPoll() {
