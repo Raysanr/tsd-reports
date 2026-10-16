@@ -1270,15 +1270,30 @@ if (document.getElementById('leadDetailModal')) {
     if (lastOpenLead) window.openLeadModal(lastOpenLead);
 }
 
+// Which lead the open conversation modal belongs to — submitConversationReply()
+// posts to this lead's reply route and reloads its thread after sending.
+let conversationLeadId = null;
+
 window.openConversationModal = function (leadId) {
     const modal = document.getElementById('conversationModal');
     const body = document.getElementById('conversationModalBody');
     if (!modal || !body) return;
 
+    if (conversationLeadId !== leadId) {
+        const input = document.getElementById('conversationReplyInput');
+        if (input) input.value = '';
+    }
+    conversationLeadId = leadId;
     showModal(modal);
-    body.innerHTML = '<p class="text-slate-400 text-center py-10">Loading conversation…</p>';
+    loadConversationInto(leadId, body, true);
+};
 
-    fetch(`/calls/leads/${leadId}/conversation`, { headers: { Accept: 'application/json' } })
+// $showLoading=false on the post-send reload so the thread doesn't flash
+// to "Loading…" and lose its scroll position mid-conversation.
+function loadConversationInto(leadId, body, showLoading) {
+    if (showLoading) body.innerHTML = '<p class="text-slate-400 text-center py-10">Loading conversation…</p>';
+
+    return fetch(`/calls/leads/${leadId}/conversation`, { headers: { Accept: 'application/json' } })
         .then((res) => res.json())
         .then((data) => {
             if (!data.success) {
@@ -1302,7 +1317,68 @@ window.openConversationModal = function (leadId) {
         .catch(() => {
             body.innerHTML = '<p class="text-red-500 text-center py-10">Something went wrong loading this conversation.</p>';
         });
+}
+
+// Sends the reply box's text to the customer (REAL Pancake send — goes
+// straight to their Messenger). Keeps the typed text on failure so the TSA
+// can retry without retyping.
+window.submitConversationReply = function (event) {
+    event?.preventDefault();
+    const input = document.getElementById('conversationReplyInput');
+    const sendBtn = document.getElementById('conversationReplySend');
+    const body = document.getElementById('conversationModalBody');
+    const leadId = conversationLeadId;
+    const text = (input?.value || '').trim();
+    if (!leadId || !text || sendBtn?.disabled) return false;
+
+    sendBtn.disabled = true;
+    input.disabled = true;
+
+    fetch(`/calls/leads/${leadId}/conversation/reply`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({ message: text }),
+    })
+        .then((res) => res.json().catch(() => ({ success: false })))
+        .then((data) => {
+            if (!data.success) {
+                window.showToast?.(data.error || data.message || 'Could not send this message — try again.', 'error');
+                return;
+            }
+            input.value = '';
+            input.style.height = '';
+            window.showToast?.('Message sent.', 'success');
+            // Only reload if the TSA is still looking at the same lead.
+            if (conversationLeadId === leadId) return loadConversationInto(leadId, body, false);
+        })
+        .catch(() => window.showToast?.('Could not send this message — try again.', 'error'))
+        .finally(() => {
+            sendBtn.disabled = false;
+            input.disabled = false;
+            input.focus();
+        });
+
+    return false;
 };
+
+const conversationReplyInput = document.getElementById('conversationReplyInput');
+if (conversationReplyInput) {
+    conversationReplyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+            e.preventDefault();
+            window.submitConversationReply();
+        }
+    });
+    // Grow with the text up to max-h-32, then scroll.
+    conversationReplyInput.addEventListener('input', () => {
+        conversationReplyInput.style.height = 'auto';
+        conversationReplyInput.style.height = `${conversationReplyInput.scrollHeight}px`;
+    });
+}
 
 window.closeConversationModal = function () {
     hideModal(document.getElementById('conversationModal'));

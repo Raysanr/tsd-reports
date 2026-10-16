@@ -67,6 +67,20 @@
         <div id="conversationModalBody" class="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50 dark:bg-slate-950 font-mono text-sm">
             {{-- Populated by openConversationModal() in calls.js --}}
         </div>
+        {{-- Reply box (explicit request, 2026-10-16) — REAL send to the
+             customer's Messenger via submitConversationReply() in calls.js.
+             Enter sends, Shift+Enter adds a new line. --}}
+        <form id="conversationReplyForm" onsubmit="return submitConversationReply(event)"
+              class="flex items-end gap-2 px-3 py-3 border-t border-slate-200 dark:border-slate-700 shrink-0 bg-white dark:bg-slate-900">
+            <textarea id="conversationReplyInput" rows="1" maxlength="2000" placeholder="Reply to customer…"
+                      class="flex-1 resize-none max-h-32 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/40"></textarea>
+            <button type="submit" id="conversationReplySend" aria-label="Send reply"
+                    class="shrink-0 p-2.5 rounded-xl bg-primary text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+            </button>
+        </form>
     </div>
 </div>
 

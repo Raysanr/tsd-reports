@@ -2000,6 +2000,44 @@ class LeadController extends Controller
         return response()->json($api->getMessages($lead->pancake_page_id, $lead->pancake_conversation_id));
     }
 
+    /**
+     * Sends a text reply to the customer from the conversation modal
+     * (explicit request, 2026-10-16). REAL Pancake write — goes out to the
+     * customer's Messenger immediately, nothing to revert.
+     */
+    public function replyConversation(Request $request, Lead $lead, PancakeConversationApi $api)
+    {
+        $user = Auth::user();
+
+        if (!$this->canAccess($lead, $user)) {
+            abort(403);
+        }
+
+        if (!$lead->pancake_page_id || !$lead->pancake_conversation_id) {
+            return response()->json(['success' => false, 'error' => 'This lead has no linked Pancake conversation.'], 422);
+        }
+
+        $data = $request->validate(['message' => ['required', 'string', 'max:2000']]);
+        $text = trim($data['message']);
+        if ($text === '') {
+            return response()->json(['success' => false, 'error' => 'Message cannot be empty.'], 422);
+        }
+
+        $result = $api->sendMessage($lead->pancake_page_id, $lead->pancake_conversation_id, $text);
+
+        LeadActivity::log(
+            $lead, 'message_sent',
+            "Replied to customer by {$user->name}" . ($result['success'] ? '.' : ' — Pancake send failed.'),
+            $user
+        );
+
+        if (!$result['success']) {
+            return response()->json(['success' => false, 'error' => $result['error'] ?: 'Could not send this message — try again.'], 502);
+        }
+
+        return response()->json(['success' => true, 'id' => $result['id']]);
+    }
+
     public function updateDisposition(Request $request, Lead $lead, PancakeOrderTagApi $api)
     {
         $user = Auth::user();
