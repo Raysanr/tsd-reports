@@ -2144,15 +2144,26 @@ class ExpectedIncomeController extends Controller
      *  (migration add_coalesce_order_date_index) makes that sargable
      *  again, so one big BETWEEN scan here costs about the same per-row
      *  as the N small ones it replaces, just without the N multiplier. */
+    /** Every non-TikTok order in the range, fetched once per request and
+     *  shared by ordersByTeamAndDate()/ordersByTsaTeamAndDate() — the SAME
+     *  Order objects, so ProductPerformance::matchingOrders()' per-order
+     *  memo carries over between the two (perf fix, 2026-10-16). */
+    private static function rangeOrders(Carbon $rangeStart, Carbon $rangeEnd): \Illuminate\Support\Collection
+    {
+        return \App\Support\RequestMemo::remember(
+            'expected_income.range_orders.' . $rangeStart->toDateTimeString() . '.' . $rangeEnd->toDateTimeString(),
+            fn () => Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$rangeStart, $rangeEnd])
+                ->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+        );
+    }
+
     private function ordersByTeamAndDate($orderTeams, $dates, string $dateFrom, string $dateTo): \Illuminate\Support\Collection
     {
         $rangeStart = Carbon::parse($dateFrom)->startOfDay();
         $rangeEnd = Carbon::parse($dateTo)->endOfDay();
 
-        return Order::whereRaw(
-            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
-            [$rangeStart, $rangeEnd]
-        )->whereIn('team', $orderTeams)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+        return self::rangeOrders($rangeStart, $rangeEnd)
+            ->filter(fn (Order $o) => $orderTeams->contains($o->team))
             ->groupBy(function (Order $o) {
                 $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
                 return $o->team . ':' . ($ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString());
@@ -2206,10 +2217,7 @@ class ExpectedIncomeController extends Controller
 
         $tsaTeamByKey = TsaShift::pluck('team', 'tsa_key');
 
-        return Order::whereRaw(
-            'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
-            [$rangeStart, $rangeEnd]
-        )->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+        return self::rangeOrders($rangeStart, $rangeEnd)
             ->groupBy(function (Order $o) use ($tsaTeamByKey) {
                 $ts = $o->pancake_inserted_at ?? $o->pancake_created_at;
                 $dateStr = $ts instanceof \Illuminate\Support\Carbon ? $ts->toDateString() : \Illuminate\Support\Carbon::parse($ts)->toDateString();

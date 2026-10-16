@@ -49,6 +49,12 @@ class RequestMemo
         }
     }
 
+    /** True inside a web request (memoizing is safe), false in artisan. */
+    public static function active(): bool
+    {
+        return self::request() !== null;
+    }
+
     private static function request(): ?object
     {
         $app = app();

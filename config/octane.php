@@ -219,7 +219,12 @@ return [
     |
     */
 
-    'max_execution_time' => 30,
+    // 120s (was 30, explicit report 2026-10-16: DSPPR over Oct 1-15 → error
+    // 500). Multi-week Data Management ranges (DSPPR / Expected Income /
+    // Summary Sales) re-match every order to every product per day and can
+    // legitimately take longer than 30s on a busy month; normal pages are
+    // unaffected (they finish in well under a second either way).
+    'max_execution_time' => 120,
 
     /*
     |--------------------------------------------------------------------------
