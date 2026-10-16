@@ -165,12 +165,42 @@ class ProductPerformance
         // space) never substring-matches "CLEARSIGHT".
         // SEPARATE PARCEL: the tag decides the product — see
         // separateParcelTagProduct()'s own doc comment.
-        return $orders->filter(function ($o) use ($product, $teamProducts, $productIds) {
+        $decide = function ($o) use ($product, $teamProducts, $productIds) {
             $tagProduct = $teamProducts !== null ? self::separateParcelTagProduct($o, $teamProducts) : null;
             if ($tagProduct !== null) {
                 return $tagProduct->id === $product->id;
             }
             return self::matchesNormally($product, $o, $teamProducts, $productIds);
+        };
+
+        // Remembered per (order, product, product list) — perf fix,
+        // 2026-10-16 (explicit report: DSPPR over Oct 1-15 hit the 30s
+        // limit → error 500). The same order was re-matched against the
+        // same product by leadCounts, grossSales and every per-day pass;
+        // the answer only depends on those three things, so each pair is
+        // now decided once per request (same perOrder() memo the
+        // separate-parcel/item-matcher lookups already use).
+        if ($teamProducts === null || !\App\Support\RequestMemo::active()) {
+            return $orders->filter($decide);
+        }
+
+        self::$productListSignature ??= new \WeakMap();
+        $sig = self::$productListSignature[$teamProducts] ??= md5(serialize($teamProducts->map(fn (Product $p) => [
+            $p->id, $p->match_keyword, $p->match_exclude_keyword, $p->display_name, $p->team, $p->pancake_product_ids,
+        ])->all()));
+        $key = $sig . ':' . $product->id;
+        self::$matchMemo ??= new \WeakMap();
+
+        return $orders->filter(function ($o) use ($decide, $key) {
+            if (!$o instanceof Order) {
+                return $decide($o);
+            }
+            $box = self::$matchMemo[$o] ??= new \ArrayObject();
+            if (!isset($box[$key])) {
+                $box[$key] = $decide($o);
+            }
+
+            return $box[$key];
         });
     }
 
@@ -217,7 +247,7 @@ class ProductPerformance
             // add-on's own name tag is excluded structurally instead, by
             // returning false unconditionally below and never reaching the
             // tag loop or the ID-matching branch at all.
-            $isUpsoldAddon = Order::isBroadRealUpsell($o)
+            $isUpsoldAddon = self::orderFact($o, 'broad', fn () => Order::isBroadRealUpsell($o))
                 && !empty($o->base_product)
                 && !$product->matchesText($o->base_product)
                 && ($product->matchesText($o->product) || $product->matchesText($o->bundle_description));
@@ -251,9 +281,9 @@ class ProductPerformance
             // order, and its ID legitimately belongs to no catalog entry
             // or to itself, not to the base product (see the Separate
             // Parcel comment directly below for the full reasoning).
-            $isSeparateParcel = Order::isSeparateParcel($o);
+            $isSeparateParcel = self::orderFact($o, 'sep', fn () => Order::isSeparateParcel($o));
             $hasDifferentRealBase = !empty($o->base_product) && !$product->matchesText($o->base_product);
-            if (!$isSeparateParcel && $hasDifferentRealBase && Order::isBroadRealUpsell($o)) {
+            if (!$isSeparateParcel && $hasDifferentRealBase && self::orderFact($o, 'broad', fn () => Order::isBroadRealUpsell($o))) {
                 return false;
             }
 
@@ -280,7 +310,9 @@ class ProductPerformance
             // ($isSeparateParcel already computed above, reused here.)
 
             if (!$isSeparateParcel && $productIds->isNotEmpty() && !empty($o->pancake_product_ids)) {
-                return $productIds->intersect($o->pancake_product_ids)->isNotEmpty();
+                // Plain arrays, not Collection::intersect() — this runs once per
+                // (order, product) pair; perf, 2026-10-16.
+                return array_intersect($productIds->all(), (array) $o->pancake_product_ids) !== [];
             }
 
             // Exclusion checked against the order's OWN item fields only — never
@@ -400,6 +432,25 @@ class ProductPerformance
     private static ?\WeakMap $orderMemo = null;
     private static ?\WeakMap $productListSignature = null;
 
+    /** Product-independent per-order facts, remembered on the same
+     *  per-order box during a web request (perf, 2026-10-16) — each was
+     *  re-derived (tag regexes, JSON-decoded raw_tags) once per PRODUCT. */
+    private static function orderFact($o, string $name, \Closure $compute): bool
+    {
+        if (!$o instanceof Order || self::$matchMemo === null || !\App\Support\RequestMemo::active()) {
+            return $compute();
+        }
+        $box = self::$matchMemo[$o] ??= new \ArrayObject();
+        if (!isset($box[$name])) {
+            $box[$name] = $compute();
+        }
+
+        return $box[$name];
+    }
+
+    /** order => ArrayObject("listSig:productId" => bool) — matchingOrders()' own memo. */
+    private static ?\WeakMap $matchMemo = null;
+
     private static function perOrder($order, string $name, Collection $teamProducts, \Closure $compute): mixed
     {
         self::$productListSignature ??= new \WeakMap();
@@ -407,15 +458,15 @@ class ProductPerformance
             $p->id, $p->match_keyword, $p->match_exclude_keyword, $p->display_name, $p->team, $p->pancake_product_ids,
         ])->all()));
 
+        // ArrayObject box (no array copy-on-write per lookup) — perf, 2026-10-16.
         self::$orderMemo ??= new \WeakMap();
-        $bucket = self::$orderMemo[$order] ?? [];
+        $box = self::$orderMemo[$order] ??= new \ArrayObject();
         $key = $name . '|' . $sig;
-        if (!array_key_exists($key, $bucket)) {
-            $bucket[$key] = $compute();
-            self::$orderMemo[$order] = $bucket;
+        if (!$box->offsetExists($key)) {
+            $box[$key] = $compute();
         }
 
-        return $bucket[$key];
+        return $box[$key];
     }
 
     /** For a real SEPARATE PARCEL upsell (tag OR note, see
