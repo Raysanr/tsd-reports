@@ -104,6 +104,18 @@ class BackfillLostUpsellTagsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_skips_a_cancelled_upsell_instead_of_rewriting_its_tag_every_run(): void
+    {
+        $this->makeLostUpsell('9006', 'Eye Drops');
+        Order::where('pancake_order_id', '9006')->update(['is_cancelled_upsell' => true]);
+
+        Http::fake();
+
+        $this->artisan('calls:backfill-lost-upsell-tags')->assertSuccessful();
+
+        Http::assertNothingSent();
+    }
+
     public function test_a_failed_tag_add_report_that_still_fails_verification_is_not_silently_counted_as_fixed(): void
     {
         $this->makeLostUpsell('9004', 'Rose Body Oil');

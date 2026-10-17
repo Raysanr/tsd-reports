@@ -73,7 +73,7 @@ class BackfillLostUpsellTags extends Command
             ->keyBy('id');
 
         $ordersByPancakeId = Order::whereIn('pancake_order_id', $leadsById->pluck('pancake_order_id')->filter()->unique())
-            ->get(['id', 'pancake_order_id', 'is_upsell', 'is_returned_upsell', 'is_upsell_on_voided_order', 'raw_tags', 'pancake_created_at'])
+            ->get(['id', 'pancake_order_id', 'is_upsell', 'is_returned_upsell', 'is_upsell_on_voided_order', 'is_cancelled_upsell', 'raw_tags', 'pancake_created_at'])
             ->keyBy('pancake_order_id');
 
         $checked   = 0;
@@ -89,8 +89,11 @@ class BackfillLostUpsellTags extends Command
             if (!$order) continue;
 
             // Already correctly counted — a prior run, or a normal sync
-            // since, may have already caught this one.
-            if ($order->is_upsell || $order->is_returned_upsell || $order->is_upsell_on_voided_order) {
+            // since, may have already caught this one. is_cancelled_upsell
+            // too (2026-10-17): the tag DID land, the upsell was just
+            // cancelled — without this, every 5-minute run re-wrote the tag
+            // in Pancake and re-synced that whole day, forever.
+            if ($order->is_upsell || $order->is_returned_upsell || $order->is_upsell_on_voided_order || $order->is_cancelled_upsell) {
                 continue;
             }
 

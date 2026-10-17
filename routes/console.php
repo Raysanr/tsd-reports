@@ -245,3 +245,18 @@ Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlappin
 // file (a stuck run means literally waiting until tomorrow for the next
 // tick), so the stale-mutex protection matters here as much as anywhere.
 Schedule::command(LogoutAllTsasAtMidnight::class)->dailyAt('00:00')->timezone('Asia/Manila')->withoutOverlapping(10);
+
+// Hard runtime cap (2026-10-17, Railway cost spike): every withoutOverlapping()
+// job above is killed 30s before its own overlap lock expires. The short locks
+// are deliberate (2026-08-18/21 — an interrupted run must self-heal in
+// minutes), but on their own they let a HUNG run keep going for hours while a
+// fresh copy started every 5-10 minutes on top of it — confirmed live via the
+// upbeat-light scheduler's logs (runs of 3-6h) and metrics (RAM climbing
+// 2 GB -> 7-9 GB every day since 2026-10-13, ~80% of the Railway bill). With
+// the cap, a run can never outlive its lock, so copies can't stack. A killed
+// run exits 124 and shows as FAIL in the scheduler log, naming the culprit.
+// Only where coreutils' timeout exists (the Debian-based Railway image) —
+// local macOS `schedule:work` keeps running commands unwrapped.
+if (is_executable('/usr/bin/timeout')) {
+    \App\Console\Scheduling\ScheduleRuntimeCap::apply(Schedule::events());
+}

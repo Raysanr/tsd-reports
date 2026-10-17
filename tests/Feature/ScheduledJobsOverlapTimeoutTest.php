@@ -55,4 +55,22 @@ class ScheduledJobsOverlapTimeoutTest extends TestCase
 
         $this->assertCount(0, $tooLong, "These scheduled jobs have an overlap timeout over 60 minutes:\n" . $tooLong->implode("\n"));
     }
+
+    public function test_runtime_cap_kills_every_guarded_job_before_its_overlap_lock_expires(): void
+    {
+        $schedule = new Schedule();
+        $guarded  = $schedule->command('pancake:sync-leads')->everyMinute()->withoutOverlapping(10);
+        $short    = $schedule->command('calls:backfill-lost-upsell-tags')->everyFiveMinutes()->withoutOverlapping(5);
+        $unguard  = $schedule->command('inspire')->hourly();
+
+        \App\Console\Scheduling\ScheduleRuntimeCap::apply($schedule->events(), '/bin/timeout-test');
+        \App\Console\Scheduling\ScheduleRuntimeCap::apply($schedule->events(), '/bin/timeout-test'); // idempotent
+
+        $this->assertStringStartsWith('/bin/timeout-test -k 15 570 ', $guarded->command);
+        $this->assertStringStartsWith('/bin/timeout-test -k 15 270 ', $short->command);
+        $this->assertSame(1, substr_count($guarded->command, '/bin/timeout-test'));
+        $this->assertStringNotContainsString('timeout-test', $unguard->command);
+        // Hard kill (570s + 15s grace) lands before the 600s lock expires.
+        $this->assertLessThan(10 * 60, 570 + 15);
+    }
 }
