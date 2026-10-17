@@ -120,7 +120,11 @@
     @endforeach
 </div>
 
-<div class="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-3 mb-6">
+{{-- One equal-width column per status on wide screens (explicit request,
+     2026-10-17: HUDDLE/OTHERS were wrapping alone onto a 2nd row under a
+     fixed 9-col grid) — grid-flow-col + auto-cols-fr sizes to however many
+     statuses MONITOR_LEGEND_STATUSES has, so adding one never re-wraps. --}}
+<div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-none xl:grid-flow-col xl:auto-cols-fr gap-3 mb-6">
     @foreach(\App\Models\TsaShift::MONITOR_LEGEND_STATUSES as $s)
     <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 px-2 py-3 text-center">
         <p class="flex items-center justify-center gap-1.5 text-[9px] font-bold font-mono uppercase tracking-wide text-slate-400 mb-1 truncate">

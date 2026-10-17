@@ -937,28 +937,58 @@ document.addEventListener('submit', (e) => {
         .catch(() => {});
 });
 
-// TSA Management Save (explicit request, 2026-08-18) — submits via fetch
-// instead of a normal POST so the row's already-expanded edit panel and the
-// admin's scroll position stay exactly as they were: the old plain-POST form
-// redirected back to a fresh full-page render, which re-collapsed every row
-// (calls/tsa-management/_table.blade.php always server-renders each panel
-// closed) and lost scroll position on every single Save. Same delegated
-// document-level submit + FormData pattern as the pin-form above (FormData
-// carries the @csrf token along automatically), confirmed with a toast
-// (same convention as the dashboard's own Sync button) instead of the old
-// redirect+flash-message round trip. Accept: application/json is what makes
-// TsaManagementController::update() take its wantsJson() branch and return
-// JSON instead of redirecting.
-document.addEventListener('submit', (e) => {
-    if (!e.target.matches('.tsa-update-form')) return;
-    e.preventDefault();
-    const form = e.target;
-    const btn = form.querySelector('button[type="submit"]');
-    const originalLabel = btn?.textContent;
-    if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Saving…';
+// TSA Management autosave (explicit request, 2026-10-17: "remove the save
+// button ... when user check or uncheck it will auto save") — replaces the
+// 2026-08-18 fetch-based Save button. Still a fetch + FormData POST (keeps
+// the expanded panel/scroll position, @csrf rides along in FormData) with
+// Accept: application/json so TsaManagementController::update() takes its
+// wantsJson() branch. A product checkbox saves on toggle (short debounce so
+// a burst of clicks becomes one request); phone/dialer text fields save on
+// `change` (blur) or Enter. One request in flight per form — a change made
+// mid-save queues exactly one follow-up save of the form's latest state, so
+// requests can never land out of order. Checkboxes are NOT disabled while
+// saving: disabled inputs are dropped from FormData, which would silently
+// unassign them.
+const tsaAutosave = new WeakMap(); // form => { inFlight, pending, timer }
+
+function tsaSaveStatus(form, text, tone = 'muted') {
+    const el = form.querySelector('[data-tsa-save-status]');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('text-red-500', tone === 'error');
+    el.classList.toggle('text-emerald-600', tone === 'ok');
+    el.classList.toggle('text-slate-400', tone === 'muted');
+    el.classList.toggle('opacity-0', !text);
+}
+
+function tsaRefreshCounts(form) {
+    const checked = [...form.querySelectorAll('input[name="products[]"]:checked')];
+    const names = checked.map((cb) => cb.closest('label')?.textContent.trim()).filter(Boolean);
+    const selectedEl = form.querySelector('[data-tsa-selected-count]');
+    if (selectedEl) selectedEl.textContent = `· ${checked.length} selected`;
+
+    const cell = document.querySelector(`[data-tsa-handles-count="${form.dataset.tsaId}"]`);
+    if (!cell) return;
+    const span = document.createElement('span');
+    span.className = checked.length
+        ? 'text-xs font-mono font-semibold text-slate-600 dark:text-slate-300'
+        : 'text-xs font-mono text-slate-400';
+    span.textContent = checked.length ? `${checked.length} ${checked.length === 1 ? 'product' : 'products'}` : 'None';
+    if (checked.length) span.title = names.join(', ');
+    cell.replaceChildren(span);
+}
+
+function tsaAutosaveNow(form) {
+    const state = tsaAutosave.get(form) || {};
+    tsaAutosave.set(form, state);
+    clearTimeout(state.timer);
+    if (state.inFlight) {
+        state.pending = true;
+        return;
     }
+    state.inFlight = true;
+    state.pending = false;
+    tsaSaveStatus(form, 'Saving…');
 
     fetch(form.action, {
         method: 'POST',
@@ -966,15 +996,15 @@ document.addEventListener('submit', (e) => {
         body: new FormData(form),
     })
         .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-        .then((data) => {
-            window.showToast?.(data.message || 'Saved.', 'success');
-            if (btn) btn.textContent = '✓ Saved';
+        .then(() => {
+            if (state.pending) return;
+            tsaSaveStatus(form, '✓ Saved', 'ok');
+            clearTimeout(state.fade);
+            state.fade = setTimeout(() => tsaSaveStatus(form, ''), 1800);
         })
         .catch(async (res) => {
-            // A 422 here is a real validation failure (phone_number/dialer_host
-            // too long, an invalid product id) — surface Laravel's own first
-            // error message rather than a generic one, same as everywhere else
-            // in this app that reads response.errors.
+            // A 422 is a real validation failure (phone_number/dialer_host too
+            // long, an invalid product id) — surface Laravel's own first error.
             let message = 'Could not save — try again.';
             if (res?.json) {
                 try {
@@ -982,15 +1012,35 @@ document.addEventListener('submit', (e) => {
                     message = Object.values(data.errors || {})[0]?.[0] || data.message || message;
                 } catch (e) { /* not JSON — keep the generic message */ }
             }
+            tsaSaveStatus(form, 'Not saved', 'error');
             window.showToast?.(message, 'error');
         })
         .finally(() => {
-            if (!btn) return;
-            setTimeout(() => {
-                btn.disabled = false;
-                btn.textContent = originalLabel;
-            }, 900);
+            state.inFlight = false;
+            if (state.pending) tsaAutosaveNow(form);
         });
+}
+
+document.addEventListener('change', (e) => {
+    const form = e.target.closest?.('.tsa-update-form');
+    if (!form) return;
+    if (e.target.matches('input[type="checkbox"]')) {
+        tsaRefreshCounts(form);
+        const state = tsaAutosave.get(form) || {};
+        tsaAutosave.set(form, state);
+        clearTimeout(state.timer);
+        tsaSaveStatus(form, 'Saving…');
+        state.timer = setTimeout(() => tsaAutosaveNow(form), 350);
+        return;
+    }
+    tsaAutosaveNow(form);
+});
+
+// Enter in a text field (or any no-JS-style submit) saves instead of POSTing.
+document.addEventListener('submit', (e) => {
+    if (!e.target.matches('.tsa-update-form')) return;
+    e.preventDefault();
+    tsaAutosaveNow(e.target);
 });
 
 // MacroDroid token (re)generate (explicit request, 2026-08-27: "i want when

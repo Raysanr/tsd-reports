@@ -142,7 +142,7 @@
                             {{ $statuses[$tsa->status]['label'] ?? $tsa->status }}
                         </span>
                     </td>
-                    <td class="px-5 py-4">
+                    <td class="px-5 py-4" data-tsa-handles-count="{{ $tsa->id }}">
                         @if($handledNames->isEmpty())
                         <span class="text-xs font-mono text-slate-400">None</span>
                         @else
@@ -175,7 +175,12 @@
                         <div data-tsa-detail-grid="{{ $tsa->id }}" class="grid transition-[grid-template-rows] duration-300 ease-in-out" style="grid-template-rows: 0fr;">
                         <div class="overflow-hidden">
                         <div class="space-y-4 pt-4 pb-6">
-                            <form method="POST" action="{{ route('calls.tsa-management.update', $tsa) }}"
+                            {{-- Autosaves (explicit request, 2026-10-17 — no Save
+                                 button): a checkbox saves the moment it's
+                                 toggled, a text field when it loses focus or
+                                 on Enter. See calls.js's .tsa-update-form
+                                 handler. --}}
+                            <form method="POST" action="{{ route('calls.tsa-management.update', $tsa) }}" data-tsa-id="{{ $tsa->id }}"
                                   class="tsa-update-form bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
                                 @csrf
 
@@ -203,22 +208,32 @@
                                     <p class="text-[11px] text-slate-400 mt-1">{{ $tsa->display_name }}'s phone's own local IP:port, from Macros 2–4 in the setup guide below (Phone call automation card). Leave blank to skip auto-dial — clicking their leads' phone numbers still shows the number, it just won't dial by itself.</p>
                                 </div>
 
-                                <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-2">Handles</p>
-                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+                                <div class="flex items-center justify-between gap-3 mb-2">
+                                    <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                                        Handles
+                                        <span data-tsa-selected-count class="ml-1 normal-case tracking-normal text-slate-400">· {{ count($tsaProducts) }} selected</span>
+                                    </p>
+                                    <span data-tsa-save-status aria-live="polite" class="text-[11px] font-mono text-slate-400 transition-opacity duration-300 opacity-0"></span>
+                                </div>
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                     @foreach($teamProducts as $product)
-                                        <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                                        <label class="group relative flex items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 px-3.5 py-2.5 text-sm text-slate-700 dark:text-slate-200 cursor-pointer select-none shadow-xs transition-all duration-150
+                                                      hover:border-slate-300 hover:bg-slate-50 dark:hover:border-slate-600 dark:hover:bg-slate-800
+                                                      has-checked:border-primary has-checked:bg-primary/10 has-checked:text-slate-900 has-checked:ring-1 has-checked:ring-primary dark:has-checked:bg-primary/15 dark:has-checked:text-white
+                                                      has-focus-visible:ring-2 has-focus-visible:ring-yellow-500 has-disabled:opacity-60 has-disabled:cursor-wait">
                                             <input type="checkbox" name="products[]" value="{{ $product->id }}"
                                                    {{ in_array($product->id, $tsaProducts) ? 'checked' : '' }}
-                                                   class="rounded border-slate-300 dark:border-slate-600 text-primary focus:ring-yellow-500">
-                                            {{ $product->display_name }}
+                                                   class="peer sr-only">
+                                            <span aria-hidden="true" class="flex size-5 shrink-0 items-center justify-center rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 transition-colors duration-150
+                                                         group-has-checked:border-primary group-has-checked:bg-primary">
+                                                <svg class="size-3.5 text-white opacity-0 scale-50 transition-all duration-150 group-has-checked:opacity-100 group-has-checked:scale-100" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                                </svg>
+                                            </span>
+                                            <span class="truncate font-medium group-has-checked:font-semibold">{{ $product->display_name }}</span>
                                         </label>
                                     @endforeach
                                 </div>
-
-                                <button type="submit"
-                                        class="bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer">
-                                    Save
-                                </button>
                             </form>
 
                             {{-- Account link — explicit request, 2026-08-26: confirmed live
