@@ -113,7 +113,7 @@ class ExpectedIncomeController extends Controller
         // still renders, just with no share of Operating Costs allocated
         // to it, same as a flagged product's card already shows real
         // Operating Costs.
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
 
         // Computed ONCE here (this controller has DB access) and passed
         // explicitly into every derive()/sum() call below — see
@@ -260,7 +260,7 @@ class ExpectedIncomeController extends Controller
      *  per-day field on that page. */
     public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
@@ -464,7 +464,7 @@ class ExpectedIncomeController extends Controller
      *  already agrees on. */
     public static function teamNetIncomeByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
@@ -560,7 +560,7 @@ class ExpectedIncomeController extends Controller
      *  main/team-independent row). */
     public static function grossSalesAndNetIncomeByProductAndDate(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
     {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
@@ -630,6 +630,20 @@ class ExpectedIncomeController extends Controller
      *  flagged TSAs, TsaShift.tiktok_upsell, aren't a real team; they can
      *  belong to either real team), so it's special-cased rather than
      *  added there. */
+    /** Every product this module reports on: hidden ones (Product
+     *  Management's eye toggle) are left out entirely — no card, no share
+     *  of any total, and their saved ExpectedIncomeEntry rows (manual
+     *  costs included) are never fetched, since every entry query here is
+     *  whereIn('product_id', $products). Explicit request, 2026-10-17
+     *  ("hide everything"). Their orders are dropped from every order
+     *  fetch too (withoutHiddenProductOrders()), so product-agnostic
+     *  totals (teamUpsellTotals() etc.) and the narrowed matching roster
+     *  both stay consistent with this list. */
+    private static function reportProducts(): \Illuminate\Support\Collection
+    {
+        return Product::where('is_hidden', false)->orderBy('team')->orderBy('sort_order')->get();
+    }
+
     private function resolveSelectedTeam(Request $request, array $teamsConfig): string
     {
         $team = $request->input('team');
@@ -669,7 +683,7 @@ class ExpectedIncomeController extends Controller
         // comment) product list as index() above — this AJAX live-refresh
         // endpoint must never show a different product list than the
         // page's own initial render.
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
@@ -2056,13 +2070,12 @@ class ExpectedIncomeController extends Controller
      *  the non-sargable-query fix (PART 3, see Decisions.md). Lets
      *  TsaSalesReportController::index() compute this pair exactly once
      *  and pass the SAME pair into both calls, collapsing 2 passes to 1.
-     *  Uses the full, unfiltered product roster (Product::orderBy('team')
-     *  ->orderBy('sort_order')->get()) — the same roster every internal
-     *  caller already uses — so the returned maps are interchangeable with
+     *  Uses reportProducts() — the same roster every internal caller
+     *  already uses — so the returned maps are interchangeable with
      *  whatever any internal caller would have computed for itself. */
     public static function leadCountsAndGrossSalesForRange(string $dateFrom, string $dateTo): array
     {
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        $products = self::reportProducts();
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
         $controller = new self();
 
@@ -2150,10 +2163,12 @@ class ExpectedIncomeController extends Controller
      *  memo carries over between the two (perf fix, 2026-10-16). */
     private static function rangeOrders(Carbon $rangeStart, Carbon $rangeEnd): \Illuminate\Support\Collection
     {
+        // Hidden products' orders are dropped here (and in every other
+        // order fetch in this file) — see reportProducts().
         return \App\Support\RequestMemo::remember(
             'expected_income.range_orders.' . $rangeStart->toDateTimeString() . '.' . $rangeEnd->toDateTimeString(),
             fn () => Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$rangeStart, $rangeEnd])
-                ->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+                ->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)))
         );
     }
 
@@ -2481,7 +2496,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
 
         $tally = ProductPerformance::tally($orders);
 
@@ -2550,7 +2565,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
 
         return (float) ProductPerformance::tally($orders)['upsell_sales'];
     }
@@ -2568,7 +2583,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
 
         return (int) ProductPerformance::tally($orders)['upsell_confirmation'];
     }
@@ -2611,7 +2626,7 @@ class ExpectedIncomeController extends Controller
         return Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)))
             ->groupBy(fn (Order $o) => $o->tsa_name . ':' . Carbon::parse($o->pancake_inserted_at ?? $o->pancake_created_at)->toDateString())
             ->map(function ($orders) {
                 $tally = ProductPerformance::tally($orders);
@@ -2646,7 +2661,7 @@ class ExpectedIncomeController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
 
         return (float) ProductPerformance::tally($orders)['cancelled_upsell_sales'];
     }
@@ -3242,7 +3257,7 @@ class ExpectedIncomeController extends Controller
     private function renderProductCardHtml(Product $product, TsaShift $tsaShift, string $entryDate): string
     {
         $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
-        $groupProducts = $group ? $group->products()->orderBy('sort_order')->get() : collect([$product]);
+        $groupProducts = $group ? $group->products()->where('is_hidden', false)->orderBy('sort_order')->get() : collect([$product]);
 
         $row = [
             'label'    => $group->label ?? $product->display_name,
@@ -3358,12 +3373,14 @@ class ExpectedIncomeController extends Controller
             return $product->has_cost_allocation ? $this->withOperatingCostOverridesIfTsaScoped($derived, $tsaId) : $derived;
         }
 
-        $memberEntries = ExpectedIncomeEntry::whereIn('product_id', $group->products->pluck('id'))
+        // Hidden members drop out, same as reportProducts().
+        $members = $group->products->where('is_hidden', false)->values();
+        $memberEntries = ExpectedIncomeEntry::whereIn('product_id', $members->pluck('id'))
             ->where('tsa_id', $tsaId)
             ->whereDate('entry_date', $entryDate)
             ->get()
             ->keyBy('product_id');
-        $pooled = $group->products->map(function (Product $p) use ($memberEntries, $tsaId, $entryDate) {
+        $pooled = $members->map(function (Product $p) use ($memberEntries, $tsaId, $entryDate) {
             $memberEntry = $memberEntries->get($p->id) ?? new ExpectedIncomeEntry(['product_id' => $p->id, 'tsa_id' => $tsaId, 'entry_date' => $entryDate]);
             return $this->withCustomRowValues($memberEntry, $tsaId, $entryDate);
         });
@@ -3373,7 +3390,7 @@ class ExpectedIncomeController extends Controller
         // (same "the group's first member owns the edit" convention
         // ProductGrouping::rows()/TsaDailyRateService::flaggedProductRows()
         // already use).
-        return $group->products->first()->has_cost_allocation ? $this->withOperatingCostOverridesIfTsaScoped($summed, $tsaId) : $summed;
+        return ($members->first() ?? $group->products->first())->has_cost_allocation ? $this->withOperatingCostOverridesIfTsaScoped($summed, $tsaId) : $summed;
     }
 
     /** Every Operating Costs row AND Tax Allocation on a TSA-scoped card are
@@ -3467,7 +3484,7 @@ class ExpectedIncomeController extends Controller
         // (see that method's doc comment): matchingOrders()'s stale-tag
         // conflict guard needs every sibling product visible to correctly
         // exclude an order that actually belongs to one of them.
-        $leadCounts = $this->leadCountsByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
+        $leadCounts = $this->leadCountsByProductAndDate(self::reportProducts(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
         $row['number_of_leads'] = $this->leadsForTsaProductDate($leadCounts, $tsaId, $entry->product_id, Carbon::parse($entryDate)->toDateString());
 
         // Gross Sales/Number of Orders (2026-10-10) — same real-tally
@@ -3478,7 +3495,7 @@ class ExpectedIncomeController extends Controller
         // corrected gross_sales/number_of_orders and computes every
         // cascading figure fresh from them).
         $dateStr = Carbon::parse($entryDate)->toDateString();
-        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $this->grossSalesByProductAndDate(Product::all(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $this->grossSalesByProductAndDate(self::reportProducts(), collect([Carbon::parse($entryDate)]), $entryDate, $entryDate);
         $row['gross_sales'] = $this->grossSalesForTsaProductDate($grossSalesMap, $tsaId, $entry->product_id, $dateStr);
         $row['number_of_orders'] = (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $tsaId, $entry->product_id, $dateStr);
         // Cancelled (2026-10-13) — same single-cell direct override as

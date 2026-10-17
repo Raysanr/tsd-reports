@@ -173,12 +173,15 @@ class InsightsGenerator
         // different day than the one you picked" never fit it). Left at the
         // narrower single-day range since the only remaining reader
         // (peakExcessHourCard()) doesn't need more than that.
-        $attributionOrders = Order::whereRaw(
+        // Hidden products' orders drop out of every card — explicit request,
+        // 2026-10-17 (see withoutHiddenProductOrders()); per-product loops
+        // below skip is_hidden too, matching against the full list.
+        $attributionOrders = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeFrom, $rangeTo]
-        )->whereIn('team', $orderTeams)->get();
-        $activityOrders = Order::whereBetween('pancake_created_at', [$referenceDate->copy()->startOfDay(), $referenceDate->copy()->endOfDay()])
-            ->whereIn('team', $orderTeams)->get();
+        )->whereIn('team', $orderTeams)->get());
+        $activityOrders = ProductPerformance::withoutHiddenProductOrders(Order::whereBetween('pancake_created_at', [$referenceDate->copy()->startOfDay(), $referenceDate->copy()->endOfDay()])
+            ->whereIn('team', $orderTeams)->get());
 
         // $matchPool/$products — explicit request, 2026-09-01: Overview's "New
         // Leads"/Daily Recap totals disagreed with Leads Report/TSA Performance's
@@ -193,10 +196,10 @@ class InsightsGenerator
         // same reason LeadsReportController::index()'s own $matchPool isn't — a
         // cross-team combo order (e.g. a Pterygium order bundling Sinuxyl units)
         // would otherwise be invisible to the other team's product row.
-        $matchPool = Order::whereRaw(
+        $matchPool = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [$rangeFrom, $rangeTo]
-        )->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get();
+        )->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())->get());
         $products = $team && array_key_exists($team, $teamsConfig)
             ? Product::where('team', $teamsConfig[$team]['order_team'])->orderBy('sort_order')->get()
             : Product::orderBy('sort_order')->get();
@@ -446,7 +449,7 @@ class InsightsGenerator
 
         $best = null;
         $bestCount = 0;
-        foreach ($teamProducts as $product) {
+        foreach ($teamProducts->where('is_hidden', false) as $product) {
             $unanswered = ProductPerformance::buildRow($product, $dayOrders, $teamProducts)['unanswered'];
             if ($unanswered > $bestCount) {
                 $bestCount = $unanswered;
@@ -732,7 +735,7 @@ class InsightsGenerator
         $dayWord = $referenceDate->isToday() ? 'ngayong araw' : $referenceDate->format('M j');
         $cards = collect();
 
-        foreach ($teamProducts as $product) {
+        foreach ($teamProducts->where('is_hidden', false) as $product) {
             $row = ProductPerformance::buildRow($product, $dayOrders, $teamProducts);
             if ($row['total'] < self::MIN_LEADS_FOR_ZERO_SALES_CHECK || $row['upsell_confirmation'] > 0) {
                 continue;
@@ -909,8 +912,8 @@ class InsightsGenerator
             return null;
         }
 
-        $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
-        $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
+        $refRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
+        $prevRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
 
         return [
             'refRow' => $refRow,
@@ -1071,8 +1074,8 @@ class InsightsGenerator
             return null;
         }
 
-        $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
-        $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
+        $refRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $refOrders, $products)));
+        $prevRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $prevOrders, $products)));
         $refAov = $refRow['upsell_confirmation'] > 0 ? $refRow['upsell_sales'] / $refRow['upsell_confirmation'] : 0.0;
 
         $dateLabel = $referenceDate->format('F j, Y');
@@ -1109,8 +1112,8 @@ class InsightsGenerator
         $allTsaRows = $shifts->map(function ($shift) use ($refOrders, $prevOrders, $products) {
             $tsaRefOrders = $refOrders->where('tsa_name', $shift->tsa_key);
             $tsaPrevOrders = $prevOrders->where('tsa_name', $shift->tsa_key);
-            $refRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaRefOrders, $products)));
-            $prevRow = ProductPerformance::sumRows($products->map(fn ($p) => ProductPerformance::buildRow($p, $tsaPrevOrders, $products)));
+            $refRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $tsaRefOrders, $products)));
+            $prevRow = ProductPerformance::sumRows($products->where('is_hidden', false)->map(fn ($p) => ProductPerformance::buildRow($p, $tsaPrevOrders, $products)));
             return ['shift' => $shift, 'ref' => $refRow, 'prev' => $prevRow];
         });
 
@@ -1227,7 +1230,7 @@ class InsightsGenerator
 
         // Per-product excess ranking — same product-matched buildRow() every
         // other product-scoped card in this file already uses.
-        $productExcess = $products->map(fn ($p) => ['name' => $p->display_name, 'excess' => ProductPerformance::buildRow($p, $refOrders, $products)['excess']])
+        $productExcess = $products->where('is_hidden', false)->map(fn ($p) => ['name' => $p->display_name, 'excess' => ProductPerformance::buildRow($p, $refOrders, $products)['excess']])
             ->filter(fn ($p) => $p['excess'] > 0)
             ->sortByDesc('excess')
             ->values();

@@ -83,8 +83,8 @@ class TsaPerformanceController extends Controller
         // Sourced from the products table (Product Management page) instead of
         // config/teams.php — see docs/superpowers/specs/2026-07-06-product-management-design.md.
         // Hidden products never appear in this filter dropdown, regardless of date
-        // range — it's a picker shortcut, not a data view, and "All Products" (the
-        // default) already includes their data correctly either way.
+        // range, and their orders are dropped from "All Products" too (2026-10-17,
+        // see withoutHiddenProductOrders() on $orders below).
         // NOT team-scoped (changed 2026-10-05, explicit request): Product
         // Management's own page dropped its team grouping on 2026-09-06
         // because every TSA now handles every product, so a team-scoped list
@@ -143,9 +143,11 @@ class TsaPerformanceController extends Controller
         // timestamp) — an hourly CALL ACTIVITY view needs the hour work actually
         // happened in, not the hour the lead first arrived in Pancake; changing
         // that would make the hourly table stop meaning what its own columns say.
-        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+        // Hidden products' orders drop out of every number here — explicit
+        // request, 2026-10-17 (see withoutHiddenProductOrders()).
+        $orders = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->where('team', $teamsConfig[$selectedTeam]['order_team'])
-            ->get();
+            ->get());
 
         // A TSA's OWN per-row/per-hour totals below now credit her regardless
         // of which team's Order.team column a lead landed under (2026-09-07,
@@ -169,8 +171,8 @@ class TsaPerformanceController extends Controller
         $ordersByTsaNameAcrossTeams = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
             ->whereIn('tsa_name', $shifts->keys())
-            ->get()
-            ->groupBy('tsa_name');
+            ->get();
+        $ordersByTsaNameAcrossTeams = ProductPerformance::withoutHiddenProductOrders($ordersByTsaNameAcrossTeams)->groupBy('tsa_name');
 
         if ($selectedProduct !== 'all') {
             // matchesText() (not a hand-rolled stripos loop) — checks every
@@ -448,9 +450,11 @@ class TsaPerformanceController extends Controller
         // own flat summaries and hourly breakdowns. A TSA's individual page
         // was never affected by the "strictly team-column-scoped" 2026-08-21
         // rule those other views had — only they needed today's reversal.
-        $orders = Order::where('tsa_name', $tsaKey)
+        // Hidden products' orders drop out of every number here — explicit
+        // request, 2026-10-17 (see withoutHiddenProductOrders()).
+        $orders = ProductPerformance::withoutHiddenProductOrders(Order::where('tsa_name', $tsaKey)
             ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->get();
+            ->get());
 
         $summary = $this->buildRow($shift, $tsaKey, $orders);
         // Pick-up/Conversion rates need 'answered'/'unanswered' subtotals (same
@@ -729,9 +733,9 @@ class TsaPerformanceController extends Controller
         // popover opened while CLEAR SIGHT is selected must only show
         // CLEAR SIGHT's own orders, not every product's.
         if ($team === 'all') {
-            $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+            $orders = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
                 ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
-                ->get();
+                ->get());
 
             if ($product && $product !== 'all') {
                 $productModel = Product::where('display_name', $product)->first();
@@ -771,9 +775,9 @@ class TsaPerformanceController extends Controller
         // rows/totals represent).
         $shifts = TsaShift::where('team', $teamsConfig[$team]['order_team'])->get()->keyBy('tsa_key');
 
-        $teamScopedOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+        $teamScopedOrders = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->where('team', $teamsConfig[$team]['order_team'])
-            ->get();
+            ->get());
 
         $orders = ($tsaKey && $tsaKey !== '__all__' && $tsaKey !== 'unassigned' && $shifts->has($tsaKey))
             ? Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
@@ -781,6 +785,7 @@ class TsaPerformanceController extends Controller
                 ->where('tsa_name', $tsaKey)
                 ->get()
             : $teamScopedOrders;
+        $orders = ProductPerformance::withoutHiddenProductOrders($orders);
 
         if ($product && $product !== 'all') {
             // NOT team-scoped (2026-10-05, same change as index()'s own
@@ -863,9 +868,11 @@ class TsaPerformanceController extends Controller
         $teamKeyByOrderTeam = collect($teamsConfig)->mapWithKeys(fn($t, $key) => [$t['order_team'] => $key]);
 
         // Same POS-accurate date scope as index() (see that comment).
-        $orders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+        // Hidden products' orders drop out of every number here — explicit
+        // request, 2026-10-17 (see withoutHiddenProductOrders()).
+        $orders = ProductPerformance::withoutHiddenProductOrders(Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
             ->whereIn('team', $orderTeams)
-            ->get();
+            ->get());
 
         // Product filter (explicit request, 2026-10-05: ALL previously had no
         // product filter at all — picking one on a team page and then

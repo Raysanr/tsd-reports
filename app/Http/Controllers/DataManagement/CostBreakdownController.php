@@ -201,7 +201,9 @@ class CostBreakdownController extends Controller
         // every FLAGGED product's column shows the SAME figure, her own
         // Daily Rate ÷ flagged-product count — the sheet's own formula
         // never varies per product.
-        $products = Product::orderBy('team')->orderBy('sort_order')->get();
+        // Hidden products get no column (2026-10-17, same roster as
+        // TsaDailyRateService::flaggedProductRows()).
+        $products = Product::where('is_hidden', false)->orderBy('team')->orderBy('sort_order')->get();
         $productRows = ProductGrouping::rows($products, fn () => null);
         $flaggedProductCount = TsaDailyRateService::productCount();
 

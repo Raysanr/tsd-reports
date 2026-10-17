@@ -367,7 +367,11 @@ class TsaDailyRateService
      *  the checkbox and this list from ever disagreeing. */
     public static function flaggedProductRows()
     {
-        $products = RequestMemo::remember('products.by_team_sort', fn () => Product::orderBy('team')->orderBy('sort_order')->get());
+        // Hidden products (Product Management's eye toggle) are left out —
+        // explicit request, 2026-10-17: they vanish from Data Management
+        // entirely, so the divisor only counts what Expected Income still
+        // shows and Operating Costs stay fully spread across those.
+        $products = RequestMemo::remember('products.visible_by_team_sort', fn () => Product::where('is_hidden', false)->orderBy('team')->orderBy('sort_order')->get());
 
         return ProductGrouping::rows($products, fn () => null)
             ->filter(fn ($row) => $row['products']->first()->has_cost_allocation)

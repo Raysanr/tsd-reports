@@ -278,6 +278,12 @@ class LeadsReportController extends Controller
         // its row is a real, correct 0, not a hidden nonzero number. No
         // separate Grand Total scoping needed: the row sum IS Grand Total.
         $products = Product::orderBy('sort_order')->get();
+        // Hidden products (Product Management's eye toggle) never get a row
+        // here, nor count toward Grand Total — explicit request, 2026-10-17,
+        // replacing the old "still shown when it has leads in range" carve-
+        // out. $products (full list) is still what every buildRow() matches
+        // against, so a visible product's own attribution doesn't shift.
+        $visibleProducts = $products->where('is_hidden', false)->values();
 
         // Exactly one of these two ends up populated, matching $applyShiftCutoff
         // below — declared here so the closure that reads both further down
@@ -329,7 +335,7 @@ class LeadsReportController extends Controller
                     ->get();
                 $dayOrdersBySlot = $dayOrders->groupBy($slotKeyOf);
 
-                foreach ($products as $product) {
+                foreach ($visibleProducts as $product) {
                     foreach ($slots as $slot) {
                         $slotOrders = $dayOrdersBySlot->get($slot['key'], collect());
                         if ($slotOrders->isEmpty()) continue;
@@ -349,7 +355,7 @@ class LeadsReportController extends Controller
             // every slot lookup would silently return null (same class of
             // bug indexAll()'s own fix caught via its own test failure).
             $matchPoolBySlot = collect($slots)->mapWithKeys(fn ($slot) => [$slot['key'] => collect()]);
-            foreach ($products as $product) {
+            foreach ($visibleProducts as $product) {
                 foreach ($dailySlotRows[$product->id] ?? [] as $slotKey => $dayRows) {
                     $summed = array_merge(
                         ProductPerformance::sumRows(collect($dayRows)),
@@ -359,12 +365,12 @@ class LeadsReportController extends Controller
                 }
             }
 
-            $dailyTotalRowsByProductId = $products->mapWithKeys(
+            $dailyTotalRowsByProductId = $visibleProducts->mapWithKeys(
                 fn ($p) => [$p->id => collect($dailyTotalRows[$p->id] ?? [])]
             );
         }
 
-        $productTables = $products->map(function ($product) use (
+        $productTables = $visibleProducts->map(function ($product) use (
             $slots, $matchPoolBySlot, $matchPoolTotal, $dailyTotalRowsByProductId, $products,
             $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $lumpHour, $slotHourOf, $slotKeyForHour, $slotDateOf
         ) {
@@ -398,16 +404,8 @@ class LeadsReportController extends Controller
             ];
         })->values();
 
-        // Hidden products (Product Management's hide toggle) drop out of this list
-        // once they have nothing to show for the selected range — but a hidden
-        // product's table still renders for a range where it actually had leads, so
-        // looking back at an old month it was still active in isn't affected.
-        $productTables = $productTables->reject(
-            fn($table) => $table['product']->is_hidden && $table['total']['total'] === 0
-        )->values();
-
-        // Grand Total — the sum of the product rows above (post hidden-product
-        // rejection, so it matches exactly what's visibly shown), full stop.
+        // Grand Total — the sum of the product rows above (hidden
+        // products excluded, so it matches exactly what's visibly shown), full stop.
         // Explicit request (2026-08-21, reverting the two attempts right above
         // this in git history — a distinct-order tally() to match Dashboard/
         // TSA Performance, then an "Other/Unmatched Product" row to reconcile
@@ -454,12 +452,12 @@ class LeadsReportController extends Controller
             ? $this->buildHourlyRows(
                 $slots, $matchPoolBySlot,
                 fn (Collection $orders) => ProductPerformance::sumRows(
-                    $products->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
+                    $visibleProducts->map(fn ($product) => ProductPerformance::buildRow($product, $orders, $products))
                 ),
                 $applyShiftCutoff, $shiftCutoffHour, $shiftEndHour, $lumpHour, $slotHourOf, $slotKeyForHour, $slotDateOf
             )
-            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $products) {
-                $rows = $products->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
+            : collect($slots)->map(function ($slot) use ($matchPoolBySlot, $visibleProducts) {
+                $rows = $visibleProducts->map(fn ($product) => $matchPoolBySlot[$slot['key']]->firstWhere('product_id', $product->id))->filter();
                 if ($rows->isEmpty()) return null;
                 $row = ProductPerformance::sumRows($rows);
                 // 'hour'/'date' included (bug fix, 2026-09-21) — this branch's
@@ -600,6 +598,10 @@ class LeadsReportController extends Controller
         $products = Product::orderBy('sort_order')->get()
             ->sortBy(fn($p) => array_search($p->team, $orderTeams))
             ->values();
+        // Hidden products: no row, no share of any total — same rule as
+        // index() (explicit request, 2026-10-17). $products stays the full
+        // list for matching.
+        $visibleProducts = $products->where('is_hidden', false)->values();
 
         // Per-team breakdown built FIRST (2026-09-07, sixth revision — see
         // index()'s own shift-window comment for the full history): each
@@ -616,27 +618,22 @@ class LeadsReportController extends Controller
         // identical reason (see this method's git history for the original
         // comment on that root cause).
         $teamTables = collect($teamsConfig)
-            ->map(function ($t, $teamSlug) use ($products, $from, $to) {
-                $rowsByProductId = $products->mapWithKeys(fn ($p) => [$p->id => collect()]);
+            ->map(function ($t, $teamSlug) use ($products, $visibleProducts, $from, $to) {
+                $rowsByProductId = $visibleProducts->mapWithKeys(fn ($p) => [$p->id => collect()]);
                 for ($cursor = $from->copy()->startOfDay(); $cursor->lte($to); $cursor->addDay()) {
                     $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
                         ->where('team', $t['order_team'])
                         ->get();
-                    foreach ($products as $product) {
+                    foreach ($visibleProducts as $product) {
                         $rowsByProductId[$product->id]->push(ProductPerformance::buildRow($product, $dayOrders, $products));
                     }
                 }
 
-                $rows = $products
-                    ->map(fn ($product) => [
-                        'product' => $product,
-                        'row'     => array_merge(
-                            ProductPerformance::sumRows($rowsByProductId[$product->id]),
-                            ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
-                        ),
-                    ])
-                    ->reject(fn ($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
-                    ->pluck('row')
+                $rows = $visibleProducts
+                    ->map(fn ($product) => array_merge(
+                        ProductPerformance::sumRows($rowsByProductId[$product->id]),
+                        ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+                    ))
                     ->values();
 
                 return [
@@ -678,18 +675,12 @@ class LeadsReportController extends Controller
             }
         }
 
-        $productRowsWithProduct = $products
-            ->map(fn ($product) => [
-                'product' => $product,
-                'row' => array_merge(
-                    ProductPerformance::sumRows($rowsByProductId->get($product->id, collect())),
-                    ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
-                ),
-            ])
-            ->reject(fn ($item) => $item['product']->is_hidden && $item['row']['total'] === 0);
-
-        $products    = $productRowsWithProduct->pluck('product')->values();
-        $productRows = $productRowsWithProduct->pluck('row')->values();
+        $productRows = $visibleProducts
+            ->map(fn ($product) => array_merge(
+                ProductPerformance::sumRows($rowsByProductId->get($product->id, collect())),
+                ['product_id' => $product->id, 'display_name' => $product->display_name, 'team' => $product->team]
+            ))
+            ->values();
 
         // Grand Total — the sum of the product rows above, full stop. Explicit
         // request (2026-08-21) — see index()'s matching comment for the full

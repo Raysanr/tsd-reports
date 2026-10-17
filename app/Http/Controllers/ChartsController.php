@@ -58,6 +58,7 @@ class ChartsController extends Controller
                 'is_returned_upsell', 'is_cancelled_upsell', 'raw_tags', 'disposition',
                 'amount', 'product', 'base_product', 'bundle_description', 'returned_upsell_amount',
                 'tsa_name', 'excluded_upsell_seller', 'is_duplicated_by_logistics', 'is_upsell_on_voided_order',
+                'pancake_product_ids',
             ])
             ->get();
 
@@ -78,9 +79,17 @@ class ChartsController extends Controller
             ->select([
                 'id', 'status_code', 'is_upsell', 'is_returned_upsell', 'is_cancelled_upsell',
                 'raw_tags', 'disposition', 'excluded_upsell_seller', 'is_duplicated_by_logistics',
-                'is_upsell_on_voided_order',
+                'is_upsell_on_voided_order', 'team', 'product', 'base_product', 'bundle_description', 'pancake_product_ids',
             ])
             ->get();
+
+        // Hidden products' leads drop out of every chart/KPI on this page —
+        // explicit request, 2026-10-17 (see withoutHiddenProductOrders()).
+        // The match columns above (team/product/base_product/bundle/
+        // pancake_product_ids) exist for that check.
+        $allProducts = Product::orderBy('sort_order')->get();
+        $orders      = ProductPerformance::withoutHiddenProductOrders($orders, $allProducts);
+        $prevOrders  = ProductPerformance::withoutHiddenProductOrders($prevOrders, $allProducts);
 
         $currentTally = ProductPerformance::tally($orders);
         $previousTally = ProductPerformance::tally($prevOrders);
@@ -177,14 +186,14 @@ class ChartsController extends Controller
         }
 
         // --- Product comparison: Upselling Rate per product across the whole range ---
-        $products = Product::orderBy('sort_order')->get()
+        $products = $allProducts
             ->sortBy(fn($p) => array_search($p->team, $orderTeams))
             ->values();
-        // Same hidden-product rule as Leads Report: dropped only when there's
-        // genuinely nothing to show for the selected range.
+        // Same hidden-product rule as Leads Report: a hidden product never
+        // gets a bar (its orders were already dropped from $orders above).
         $productRows = $products
             ->map(fn($p) => ['product' => $p, 'row' => ProductPerformance::buildRow($p, $orders, $products)])
-            ->reject(fn($item) => $item['product']->is_hidden && $item['row']['total'] === 0)
+            ->reject(fn($item) => $item['product']->is_hidden)
             ->pluck('row')
             ->sortByDesc('upselling_rate')
             ->values();

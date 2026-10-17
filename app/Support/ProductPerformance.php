@@ -99,6 +99,43 @@ class ProductPerformance
         return $row;
     }
 
+    /** $orders minus every order that belongs ONLY to hidden products
+     *  (Product Management's eye toggle) — explicit request, 2026-10-17:
+     *  a hidden product disappears from every report AND its leads drop
+     *  out of every total, even for a range where it had data. Matched
+     *  against the full product list (hidden ones included) so a visible
+     *  product's own attribution — stale-tag conflicts, separate-parcel
+     *  tags — is exactly what it was before hiding anything. A combo
+     *  order that also matches a visible product is kept (it still
+     *  counts for that product); an order matching no product at all is
+     *  kept too (unchanged from before). No-op when nothing is hidden.
+     *  Reports only — Call Tracker routing / keyword checks don't use it. */
+    public static function withoutHiddenProductOrders(Collection $orders, ?Collection $products = null): Collection
+    {
+        $products ??= RequestMemo::remember('products.by_sort', fn () => Product::orderBy('sort_order')->get());
+        $hidden = $products->where('is_hidden', true);
+        if ($hidden->isEmpty() || $orders->isEmpty()) {
+            return $orders;
+        }
+
+        $hiddenIds = collect();
+        foreach ($hidden as $product) {
+            $hiddenIds = $hiddenIds->merge(self::matchingOrders($product, $orders, $products)->pluck('id'));
+        }
+        if ($hiddenIds->isEmpty()) {
+            return $orders;
+        }
+
+        $candidates = $orders->whereIn('id', $hiddenIds->unique());
+        $keepIds = collect();
+        foreach ($products->where('is_hidden', false) as $product) {
+            $keepIds = $keepIds->merge(self::matchingOrders($product, $candidates, $products)->pluck('id'));
+        }
+
+        $drop = $hiddenIds->unique()->diff($keepIds)->flip();
+        return $orders->reject(fn ($o) => isset($drop[$o->id]))->values();
+    }
+
     /** The distinct orders that make up sumRows()'s own 'total' across every
      *  product in $products — i.e. exactly the orders a Leads Report/TSA
      *  Performance Grand Total counts, matched then reduced to unique IDs

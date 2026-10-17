@@ -146,12 +146,21 @@ class DashboardController extends Controller
             // 25 comfortably fills that space on a normal day; the table's own
             // overflow-y-auto still scrolls internally on a busier one instead of
             // growing the card past its sibling's height.
-            $recentOrders = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->whereNotNull('tsa_name')
-                ->orderByDesc('pancake_created_at')
-                ->limit(25)
-                ->get();
+            // Hidden products (Product Management's eye toggle) drop out of
+            // every number and list on this page — explicit request,
+            // 2026-10-17 (see withoutHiddenProductOrders()). Over-fetched
+            // then trimmed back to 25 so a hidden product's orders don't
+            // leave this card short.
+            $allProducts  = Product::orderBy('sort_order')->get();
+            $recentOrders = ProductPerformance::withoutHiddenProductOrders(
+                Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                    ->whereIn('team', $orderTeams)
+                    ->whereNotNull('tsa_name')
+                    ->orderByDesc('pancake_created_at')
+                    ->limit(100)
+                    ->get(),
+                $allProducts
+            )->take(25)->values();
 
             // TSA upsells currently sitting in "Restocking" (awaiting stock) — excluded
             // from gross sales above, surfaced here so it's clear how much upsell
@@ -189,10 +198,14 @@ class DashboardController extends Controller
             // applied to this exact leaderboard once before (see $tsaTallyByKey's own
             // comment) — not "should match," but structurally cannot disagree, since
             // there's only one number being computed now.
-            $restocking = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->whereNotNull('tsa_name')
-                ->where('is_restocking_upsell', true);
+            $restocking = ProductPerformance::withoutHiddenProductOrders(
+                Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                    ->whereIn('team', $orderTeams)
+                    ->whereNotNull('tsa_name')
+                    ->where('is_restocking_upsell', true)
+                    ->get(),
+                $allProducts
+            );
 
             // Cancelled Upsells — computed further down, next to the
             // leaderboard (same rule as Expected Income's Cancelled row).
@@ -203,8 +216,8 @@ class DashboardController extends Controller
             $syncHealth = SyncHealth::status();
 
             $stats = [
-                'restocking_count' => (clone $restocking)->count(),
-                'restocking_value' => (clone $restocking)->sum('restocking_upsell_amount'),
+                'restocking_count' => $restocking->count(),
+                'restocking_value' => $restocking->sum('restocking_upsell_amount'),
                 'last_synced'      => $syncHealth['last_synced'],
                 'sync_interval'    => $syncHealth['sync_interval'],
                 'sync_stale'       => $syncHealth['sync_stale'],
@@ -248,6 +261,7 @@ class DashboardController extends Controller
             for ($cursor = $dateFrom->copy()->startOfDay(); $cursor->lte($dateTo); $cursor->addDay()) {
                 $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$cursor->copy()->startOfDay(), $cursor->copy()->endOfDay()])
                     ->whereIn('team', $orderTeams)->get();
+                $dayOrders = ProductPerformance::withoutHiddenProductOrders($dayOrders, $allProducts);
                 $leadTallyByDay->push(ProductPerformance::tally($dayOrders));
             }
             $leadTally = ProductPerformance::sumRows($leadTallyByDay);
@@ -288,7 +302,8 @@ class DashboardController extends Controller
             // around, since Leads Report's own row-sum-equals-Grand-Total
             // invariant depends on genuinely walking every product that
             // could match, not just the ones nominally owned by this team.
-            $allProducts = Product::orderBy('sort_order')->get();
+            // ($allProducts itself is loaded at the top of this try block.)
+            $visibleProducts = $allProducts->where('is_hidden', false)->values();
 
             // Grand Total computed one calendar day at a time, not the whole range's
             // orders loaded and matched in a single pass. Root-caused 2026-08-28:
@@ -322,7 +337,7 @@ class DashboardController extends Controller
                 }
                 $dayMatchPool = $dayMatchPoolQuery->get();
 
-                $dayProductRows = $allProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $dayMatchPool, $allProducts));
+                $dayProductRows = $visibleProducts->map(fn (Product $p) => ProductPerformance::buildRow($p, $dayMatchPool, $allProducts));
                 $dailyTotals->push(ProductPerformance::sumRows($dayProductRows));
             }
             $leadsGrandTotal = ProductPerformance::sumRows($dailyTotals);
@@ -375,9 +390,12 @@ class DashboardController extends Controller
             // Eyecare-team-only order in play still counted it, because
             // that TSA's real TsaShift row exists globally and this used to
             // pass every one of them into tsaRows() regardless of filter).
-            $dayOrdersAllTeams = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
-                ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
-                ->get();
+            $dayOrdersAllTeams = ProductPerformance::withoutHiddenProductOrders(
+                Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$dateFrom, $dateTo])
+                    ->whereIn('team', collect($teamsConfig)->pluck('order_team')->all())
+                    ->get(),
+                $allProducts
+            );
 
             $shiftsForLeaderboard = $selectedTeam === 'all'
                 ? $shiftsByKey->values()
@@ -508,15 +526,25 @@ class DashboardController extends Controller
 
             // Top upsell products — which items are actually driving today's cross-sell
             // revenue, not just which TSA is closing them.
-            $topProducts = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->realUpsell()
-                ->whereNotNull('product')
-                ->selectRaw('product, COUNT(*) as upsell_count, SUM(amount) as total_sales')
+            // Grouped in PHP (was a SQL GROUP BY) so hidden products' orders
+            // can be dropped first — same row shape the view reads.
+            $topProducts = ProductPerformance::withoutHiddenProductOrders(
+                Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                    ->whereIn('team', $orderTeams)
+                    ->realUpsell()
+                    ->whereNotNull('product')
+                    ->get(),
+                $allProducts
+            )
                 ->groupBy('product')
-                ->orderByDesc('upsell_count')
-                ->limit(6)
-                ->get();
+                ->map(fn (Collection $group, $product) => (object) [
+                    'product'      => $product,
+                    'upsell_count' => $group->count(),
+                    'total_sales'  => (float) $group->sum('amount'),
+                ])
+                ->sortByDesc('upsell_count')
+                ->take(6)
+                ->values();
 
             // Hourly activity — CALLS per hour, not raw lead volume: a lead Pancake
             // auto-creates from an inbound Facebook message counts here with zero calls
@@ -615,8 +643,11 @@ class DashboardController extends Controller
             // real story was 0 calls actually made (no one worked that day) and 106
             // raw leads that arrived and sat undispositioned. A raw order count can't
             // tell those two situations apart; total_called can.
-            $teamComparison = $selectedTeam !== 'all' ? collect() : collect($teamsConfig)->map(function ($teamConfig) use ($dateFrom, $dateTo) {
-                $orders      = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team'])->get();
+            $teamComparison = $selectedTeam !== 'all' ? collect() : collect($teamsConfig)->map(function ($teamConfig) use ($dateFrom, $dateTo, $allProducts) {
+                $orders      = ProductPerformance::withoutHiddenProductOrders(
+                    Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])->where('team', $teamConfig['order_team'])->get(),
+                    $allProducts
+                );
                 $totalCalled = ProductPerformance::tally($orders)['total_called'];
                 // Order::isRealUpsell(), not a bare is_upsell — see its own doc
                 // comment (same fix as Total Cross-Sell Sales/Top Upsell Products above).
@@ -641,14 +672,23 @@ class DashboardController extends Controller
             // Restocking breakdown — same "Restocking" upsells behind the Total
             // Restocking KPI tile above, broken out per TSA and per brand instead of
             // one lump sum.
-            $restockingByTsa = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                ->whereIn('team', $orderTeams)
-                ->where('is_restocking_upsell', true)
-                ->whereNotNull('tsa_name')
-                ->selectRaw('tsa_name, COUNT(*) as restocking_count, SUM(restocking_upsell_amount) as restocking_value')
+            // Grouped in PHP (was SQL) so hidden products' orders drop first.
+            $restockingByTsa = ProductPerformance::withoutHiddenProductOrders(
+                Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                    ->whereIn('team', $orderTeams)
+                    ->where('is_restocking_upsell', true)
+                    ->whereNotNull('tsa_name')
+                    ->get(),
+                $allProducts
+            )
                 ->groupBy('tsa_name')
-                ->orderByDesc('restocking_value')
-                ->get()
+                ->map(fn (Collection $group, $tsaName) => (object) [
+                    'tsa_name'         => $tsaName,
+                    'restocking_count' => $group->count(),
+                    'restocking_value' => (float) $group->sum('restocking_upsell_amount'),
+                ])
+                ->sortByDesc('restocking_value')
+                ->values()
                 ->map(function ($row) use ($shiftsByKey, $dateFrom, $dateTo) {
                     $shift = $shiftsByKey->get($row->tsa_name);
                     $row->display_name = $shift->display_name ?? $row->tsa_name;
@@ -663,17 +703,21 @@ class DashboardController extends Controller
             // showing the other, filtered-out team's data alongside it.
             $restockingByTeam = collect($teamsConfig)
                 ->filter(fn($teamConfig) => in_array($teamConfig['order_team'], $orderTeams, true))
-                ->map(function ($teamConfig) use ($dateFrom, $dateTo) {
-                    $base = Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
-                        ->where('team', $teamConfig['order_team'])
-                        ->where('is_restocking_upsell', true);
+                ->map(function ($teamConfig) use ($dateFrom, $dateTo, $allProducts) {
+                    $base = ProductPerformance::withoutHiddenProductOrders(
+                        Order::whereBetween('pancake_created_at', [$dateFrom, $dateTo])
+                            ->where('team', $teamConfig['order_team'])
+                            ->where('is_restocking_upsell', true)
+                            ->get(),
+                        $allProducts
+                    );
 
                     return [
                         // Dated (explicit follow-up request, 2026-09-04) —
                         // same reasoning as the Team Comparison panel above.
                         'name'             => Teams::nameForOrderTeamRange($teamConfig['order_team'], $dateFrom, $dateTo),
-                        'restocking_count' => (clone $base)->count(),
-                        'restocking_value' => (clone $base)->sum('restocking_upsell_amount'),
+                        'restocking_count' => $base->count(),
+                        'restocking_value' => $base->sum('restocking_upsell_amount'),
                     ];
                 })->values();
 

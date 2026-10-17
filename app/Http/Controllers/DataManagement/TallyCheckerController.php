@@ -411,7 +411,10 @@ class TallyCheckerController extends Controller
         $orders = Order::whereRaw(
             'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
             [$dateFrom, $dateTo]
-        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders))
+        // Hidden products' orders dropped on this side too (2026-10-17) —
+        // the shared path above already excludes them, so this checks the
+        // same scope instead of flagging every hidden product as a gap.
+        )->whereIn('tsa_name', $tsaKeys)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)))
             ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller)
             ->filter(fn (Order $o) => Order::isBroadRealUpsell($o));
 
@@ -451,10 +454,11 @@ class TallyCheckerController extends Controller
         $dayOrders = Order::whereRaw(
             'COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?',
             [Carbon::parse($dateFrom)->startOfDay(), Carbon::parse($dateTo)->endOfDay()]
-        )->where('team', $orderTeam)->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        )->where('team', $orderTeam)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders), $products));
 
+        // Visible products only, same scope as the shared path (2026-10-17).
         $independentTotal = 0;
-        foreach ($products as $product) {
+        foreach ($products->where('is_hidden', false) as $product) {
             $matched = ProductPerformance::matchingOrders($product, $dayOrders, $products)
                 ->reject(fn (Order $o) => $o->status_code === 7 || $o->excluded_upsell_seller);
             $independentTotal += $matched->count();

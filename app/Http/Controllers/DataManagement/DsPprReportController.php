@@ -54,7 +54,12 @@ class DsPprReportController extends Controller
         // scopes the ORDERS/figures (Order.team = the shift that took the
         // order, see $ordersByDate / $onlyOrderTeam below), not which
         // product rows show.
+        // Hidden products (Product Management's eye toggle) get no row and
+        // no share of any TOTAL — their saved entries are never fetched
+        // (whereIn below) and their orders drop out too. Explicit request,
+        // 2026-10-17 ("hide everything").
         $products = Product::query()
+            ->where('is_hidden', false)
             ->orderBy('sort_order')
             ->get();
 
@@ -96,7 +101,7 @@ class DsPprReportController extends Controller
         $ordersByDate = $dates->mapWithKeys(function ($date) use ($teamSlug, $teams) {
             $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
                 ->when($teamSlug && $teams->has($teamSlug), fn ($q) => $q->where('team', $teams[$teamSlug]['order_team'] ?? '__none__'))
-                ->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+                ->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
             return [$date->toDateString() => $dayOrders];
         });
 
@@ -414,19 +419,19 @@ class DsPprReportController extends Controller
         // has to resolve and return the true combined figures here
         // instead.
         $group = ProductGroup::whereHas('products', fn ($q) => $q->where('products.id', $product->id))->first();
-        $groupProducts = $group ? $group->products : collect([$product]);
+        $groupProducts = $group ? $group->products->where('is_hidden', false)->values() : collect([$product]);
 
         $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [
             Carbon::parse($entryDate)->startOfDay(), Carbon::parse($entryDate)->endOfDay(),
-        ])->get()->pipe(fn ($orders) => Order::withoutTiktokUpsells($orders));
+        ])->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
         $real = ProductPerformance::dsPprRow($groupProducts, $dayOrders);
 
         if ($group) {
-            $memberEntries = DsPprEntry::whereIn('product_id', $group->products->pluck('id'))
+            $memberEntries = DsPprEntry::whereIn('product_id', $groupProducts->pluck('id'))
                 ->whereDate('entry_date', $entryDate)
                 ->get()
                 ->keyBy('product_id');
-            $pooled = $group->products->map(
+            $pooled = $groupProducts->map(
                 fn (Product $p) => array_merge($memberEntries->get($p->id)?->toArray() ?? ['product_id' => $p->id, 'entry_date' => $entryDate], $real)
             );
             $derived = DsPprCalculator::sum($pooled->all());
