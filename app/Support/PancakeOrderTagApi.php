@@ -139,8 +139,23 @@ class PancakeOrderTagApi
      *
      * Returns [tagName => bool].
      */
-    public function addTagsToOrder(string $orderId, array $tagNames): array
+    /** Set when the last addTagsToOrder() call did nothing because the order
+     *  was edited in Pancake too recently (see $skipIfEditedWithinSeconds). */
+    public bool $lastWriteSkippedRecentEdit = false;
+
+    /**
+     * $skipIfEditedWithinSeconds — for AUTOMATIC callers only (scheduled
+     * jobs): Pancake's API only accepts the WHOLE order back, so even a tag
+     * write re-sends the address/notes as read a moment earlier. If a person
+     * edited the order in Pancake within this many seconds, skip (nothing
+     * is written) and let the caller retry on a later run, so an automatic
+     * write can never land on top of someone's in-progress edit
+     * (2026-10-20, explicit request: "no chance to auto delete the
+     * addresses or whatsoever").
+     */
+    public function addTagsToOrder(string $orderId, array $tagNames, ?int $skipIfEditedWithinSeconds = null): array
     {
+        $this->lastWriteSkippedRecentEdit = false;
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {
@@ -206,6 +221,15 @@ class PancakeOrderTagApi
                 // shape ReconcileOrderStatuses.php already relies on for this
                 // same endpoint.
                 $order = $getResponse->json('data') ?? $getResponse->json();
+
+                if ($skipIfEditedWithinSeconds !== null && !empty($order['updated_at'])) {
+                    $editedAt = \Illuminate\Support\Carbon::parse($order['updated_at'], 'UTC');
+                    if ($editedAt->greaterThan(now()->subSeconds($skipIfEditedWithinSeconds))) {
+                        Log::info('PancakeOrderTagApi: skipped automatic tag write — order edited recently, will retry', ['order_id' => $orderId, 'updated_at' => $order['updated_at']]);
+                        $this->lastWriteSkippedRecentEdit = true;
+                        return array_fill_keys($tagNames, false);
+                    }
+                }
 
                 $existingTags = collect($order['tags'] ?? []);
                 $existingIds  = $existingTags->pluck('id')->all();
@@ -732,6 +756,15 @@ class PancakeOrderTagApi
      */
     public function updateShippingAddress(string $orderId, array $shippingAddress): bool
     {
+        // Hard rule (2026-10-20): customer details (address, notes) are only
+        // ever written for a signed-in person who changed them — never by a
+        // scheduled job or any other automation. A job that calls this is
+        // refused and logged, not obeyed.
+        if (!auth()->check()) {
+            Log::error('PancakeOrderTagApi: refused an automatic customer-details write (no signed-in user)', ['order_id' => $orderId, 'method' => __FUNCTION__]);
+            return false;
+        }
+
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {
@@ -814,6 +847,15 @@ class PancakeOrderTagApi
      */
     public function updateNotes(string $orderId, ?string $note, ?string $notePrint): bool
     {
+        // Hard rule (2026-10-20): customer details (address, notes) are only
+        // ever written for a signed-in person who changed them — never by a
+        // scheduled job or any other automation. A job that calls this is
+        // refused and logged, not obeyed.
+        if (!auth()->check()) {
+            Log::error('PancakeOrderTagApi: refused an automatic customer-details write (no signed-in user)', ['order_id' => $orderId, 'method' => __FUNCTION__]);
+            return false;
+        }
+
         $apiKey = Setting::get('pancake_api_key', '');
         $shopId = Setting::get('shop_id', '');
         if (empty($apiKey) || empty($shopId)) {

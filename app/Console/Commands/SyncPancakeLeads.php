@@ -408,7 +408,7 @@ class SyncPancakeLeads extends Command
                 // logged a call outcome (see LeadController::
                 // tagTsaOnPancakeOrder()'s own doc comment).
                 if ($lead->tsa_id) {
-                    LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class));
+                    LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class), [], true);
                 }
             }
 
@@ -934,7 +934,7 @@ class SyncPancakeLeads extends Command
 
             // Same immediate POS name tag as a brand-new lead gets above —
             // see LeadController::tagTsaOnPancakeOrder()'s own doc comment.
-            LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class));
+            LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class), [], true);
 
             $caughtUp++;
         }

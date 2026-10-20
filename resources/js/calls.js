@@ -2383,6 +2383,10 @@ document.addEventListener('click', (e) => {
 let pancakeNotesInterval = null;
 let pancakeNotesDraftDebounce = null;
 let pancakeNotesDraftRestoredFor = null;
+// What Pancake last showed for each notes field (2026-10-20 fix): Save only
+// sends a field the TSA actually changed, plus this baseline so the server
+// can refuse to overwrite someone else's newer edit made directly in Pancake.
+let pancakeNotesServer = {};
 
 // Same "re-query fresh every call, track the interval so a stale poll
 // never survives the panel it was watching" reasoning as
@@ -2464,9 +2468,14 @@ function applyPancakeNotes(data) {
     const panel = document.getElementById('pancakeNotesPanel');
     if (!panel || !data) return;
     panel.querySelectorAll('[data-notes-field]').forEach((el) => {
-        if (document.activeElement === el) return;
         const key = el.dataset.notesField;
-        if (key in data) el.value = data[key] ?? '';
+        if (!(key in data)) return;
+        // A field still showing the old server value has no unsaved typing,
+        // so it can follow the server; anything else is the TSA's own edit.
+        const untouched = el.value === (pancakeNotesServer[key] ?? el.value);
+        pancakeNotesServer[key] = data[key] ?? '';
+        if (document.activeElement === el || !untouched) return;
+        el.value = data[key] ?? '';
     });
     restorePancakeNotesDraft();
 }
@@ -2493,8 +2502,18 @@ async function savePancakeNotesInner() {
     if (!leadId || !panel) return null;
 
     const statusEl = document.getElementById('pancakeNotesStatus');
-    const note      = panel.querySelector('[data-notes-field="note"]')?.value ?? '';
-    const notePrint = panel.querySelector('[data-notes-field="note_print"]')?.value ?? '';
+
+    // Only fields the TSA actually changed — an untouched note is never
+    // re-sent (it used to be, on every Save, overwriting newer edits).
+    const body = {};
+    panel.querySelectorAll('[data-notes-field]').forEach((el) => {
+        const key = el.dataset.notesField;
+        if (el.value !== (pancakeNotesServer[key] ?? '')) {
+            body[key] = el.value;
+            body[`original_${key}`] = pancakeNotesServer[key] ?? '';
+        }
+    });
+    if (Object.keys(body).length === 0) return null; // nothing changed here
 
     if (statusEl) statusEl.textContent = '';
 
@@ -2506,11 +2525,18 @@ async function savePancakeNotesInner() {
                 Accept: 'application/json',
                 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
             },
-            body: JSON.stringify({ note, note_print: notePrint }),
+            body: JSON.stringify(body),
         });
         const data = await res.json();
 
-        if (data.success) clearPancakeNotesDraft(leadId);
+        if (data.success) {
+            clearPancakeNotesDraft(leadId);
+            Object.keys(body).filter((k) => !k.startsWith('original_')).forEach((k) => { pancakeNotesServer[k] = body[k]; });
+        } else if (data.conflict) {
+            // Keep the TSA's text in the box; move the baseline to what's in
+            // Pancake now, so a second Save is a deliberate overwrite.
+            ['note', 'note_print'].forEach((k) => { if (k in data) pancakeNotesServer[k] = data[k] ?? ''; });
+        }
 
         if (statusEl) {
             statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
@@ -2542,6 +2568,26 @@ function deliveryLeadId() {
 // reset fresh on every initDeliveryPanel() call (see that function's own
 // comment for why this can't be a one-time module load).
 let deliveryAddressState = null;
+// The Delivery form exactly as it was when the lead opened (2026-10-20 fix):
+// Save skips an untouched address, and sends this so the server can refuse
+// to overwrite an address someone corrected in Pancake meanwhile.
+let deliveryOriginal = null;
+
+function currentDeliveryPayload() {
+    const st = deliveryAddressState || {};
+    return {
+        full_name:     document.getElementById('deliveryFullName')?.value ?? '',
+        phone_number:  document.getElementById('deliveryPhone')?.value ?? '',
+        address:       document.getElementById('deliveryAddress')?.value ?? '',
+        province_id:   st.province?.id || null,
+        province_name: st.province?.name || null,
+        district_id:   st.district?.id || null,
+        district_name: st.district?.name || null,
+        commune_id:    st.commune?.id || null,
+        commune_name:  st.commune?.name || null,
+        post_code:     document.getElementById('deliveryPostcode')?.value ?? '',
+    };
+}
 
 // The outside-click listener attached at the bottom of initDeliveryPanel()
 // below — tracked so it can be removed before a new one is attached (see
@@ -2754,6 +2800,7 @@ function initDeliveryPanel() {
         communes: [],
         activeLevel: 'province',
     };
+    deliveryOriginal = currentDeliveryPayload();
     updateDeliveryAddressChip();
 
     fetch(`/calls/leads/${leadId}/delivery/provinces`, { headers: { Accept: 'application/json' } })
@@ -2827,7 +2874,14 @@ async function saveDeliveryDetailsInner() {
     const leadId = panel.dataset.leadId;
     const statusEl = document.getElementById('deliveryStatus');
 
-    const { province, district, commune } = deliveryAddressState;
+    // Untouched address → don't send it at all (it used to be re-sent on
+    // every Save, which could put back an older address). Checked BEFORE
+    // validation so an order with no province isn't an error when the TSA
+    // never touched the address.
+    const payload = currentDeliveryPayload();
+    if (deliveryOriginal && JSON.stringify(payload) === JSON.stringify(deliveryOriginal)) return null;
+
+    const { province, district } = deliveryAddressState;
     if (!province || !district) {
         if (statusEl) {
             statusEl.textContent = 'Pick a province and district first.';
@@ -2836,18 +2890,7 @@ async function saveDeliveryDetailsInner() {
         return { success: false };
     }
 
-    const payload = {
-        full_name:    document.getElementById('deliveryFullName').value,
-        phone_number: document.getElementById('deliveryPhone').value,
-        address:      document.getElementById('deliveryAddress').value,
-        province_id:   province.id,
-        province_name: province.name,
-        district_id:   district.id,
-        district_name: district.name,
-        commune_id:    commune?.id || null,
-        commune_name:  commune?.name || null,
-        post_code:     document.getElementById('deliveryPostcode').value,
-    };
+    payload.original = deliveryOriginal;
 
     if (statusEl) statusEl.textContent = '';
 
@@ -2862,6 +2905,10 @@ async function saveDeliveryDetailsInner() {
             body: JSON.stringify(payload),
         });
         const data = await res.json();
+        if (data.success) {
+            const { original, ...saved } = payload;
+            deliveryOriginal = saved;
+        }
 
         if (statusEl) {
             statusEl.textContent = data.success ? 'Saved to Pancake ✓' : (data.error || 'Could not save.');
@@ -2909,6 +2956,8 @@ function initPancakeNotesPanel() {
 
     if (pancakeNotesInterval) clearInterval(pancakeNotesInterval);
     pancakeNotesDraftRestoredFor = null;
+    pancakeNotesServer = {};
+    panel.querySelectorAll('[data-notes-field]').forEach((el) => { pancakeNotesServer[el.dataset.notesField] = el.value; });
     loadPancakeNotes();
     pancakeNotesInterval = setInterval(() => { if (!document.hidden) loadPancakeNotes(); }, 20000); // was 8s — Railway cost, 2026-10-16
 

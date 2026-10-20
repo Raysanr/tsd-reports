@@ -1565,12 +1565,37 @@ class LeadController extends Controller
         }
 
         $data = $request->validate([
-            'note'       => ['nullable', 'string', 'max:5000'],
-            'note_print' => ['nullable', 'string', 'max:5000'],
+            'note'                => ['nullable', 'string', 'max:5000'],
+            'note_print'          => ['nullable', 'string', 'max:5000'],
+            // What the TSA's form last loaded from Pancake for each field —
+            // used to refuse a save that would overwrite someone else's
+            // newer edit (2026-10-20 fix, see updateDelivery()).
+            'original_note'       => ['nullable', 'string', 'max:5000'],
+            'original_note_print' => ['nullable', 'string', 'max:5000'],
         ]);
 
         if (!array_key_exists('note', $data) && !array_key_exists('note_print', $data)) {
             return response()->json(['success' => false, 'error' => 'Nothing to save.'], 422);
+        }
+
+        // Stale-form guard: if a submitted field changed in Pancake since the
+        // form loaded it (someone else edited it), don't overwrite their edit.
+        // getOrderDetail() (null when Pancake is unreachable — then skip the
+        // check) rather than getNotes(), which reports a failed read as two
+        // empty notes and would look like "someone cleared it".
+        $live = $api->getOrderDetail($lead->pancake_order_id);
+        foreach (['note' => 'Internal note', 'note_print' => 'Note for printing'] as $field => $label) {
+            if ($live === null || !array_key_exists($field, $data) || !$request->has("original_{$field}")) continue;
+            $was = (string) ($request->input("original_{$field}") ?? '');
+            $now = (string) ($live[$field] ?? '');
+            if ($now !== $was && $now !== (string) ($data[$field] ?? '')) {
+                return response()->json([
+                    'success' => false,
+                    'conflict' => true,
+                    'error' => "The {$label} was changed in Pancake by someone else since you opened this lead (now: \"" . \Illuminate\Support\Str::limit($now, 120) . "\"). Your text is still in the box — press Save again to replace it, or adjust it first.",
+                    $field => $now,
+                ], 409);
+            }
         }
 
         $success = $api->updateNotes(
@@ -1579,24 +1604,10 @@ class LeadController extends Controller
             array_key_exists('note_print', $data) ? ($data['note_print'] ?? '') : null,
         );
 
-        // Tag-loss self-healing, extended to Notes (explicit request,
-        // 2026-09-18: "even notes and the address when they edit or add
-        // it should be reflect to the pos" — see the app_added_tags
-        // migration's own doc comment for the underlying race this
-        // protects against). Overwrite fields, not a merge, so this
-        // records this app's own last-saved VALUE verbatim, only for the
-        // field(s) actually submitted this time — a save that only sent
-        // `note` must never overwrite the tracked note_print with a
-        // stale/absent value.
-        if ($success) {
-            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
-            if ($order) {
-                $updates = [];
-                if (array_key_exists('note', $data)) $updates['app_note'] = $data['note'] ?? '';
-                if (array_key_exists('note_print', $data)) $updates['app_note_print'] = $data['note_print'] ?? '';
-                if (!empty($updates)) $order->update($updates);
-            }
-        }
+        // No longer records app_note/app_note_print (2026-10-20): the
+        // 15-minute reconcile used them to "restore" notes, which reverted
+        // staff's legitimate later edits in Pancake. See
+        // ReconcileOrderStatuses::reconcileVanishedAppTags().
 
         if (!$success) {
             return response()->json(['success' => false, 'error' => 'Could not save this note in Pancake — try again or edit it directly in POS.'], 500);
@@ -1688,7 +1699,34 @@ class LeadController extends Controller
             'commune_id'    => ['nullable', 'string'],
             'commune_name'  => ['nullable', 'string'],
             'post_code'     => ['nullable', 'string', 'max:20'],
+            // The address exactly as the form showed it when the lead was
+            // opened — see the stale-form guard below.
+            'original'      => ['nullable', 'array'],
         ]);
+
+        // Stale-form guard (2026-10-20, root-caused from live Pancake history
+        // on #1380806): the Delivery form is filled once when the modal opens
+        // and never refreshed, so a TSA pressing Save could put back an
+        // address someone had just corrected in Pancake. If Pancake's address
+        // no longer matches what this form started from, refuse and say so.
+        if (!empty($data['original'])) {
+            $liveAddress = $api->getOrderDetail($lead->pancake_order_id)['shipping_address'] ?? null;
+            if (is_array($liveAddress)) {
+                $map = ['full_name' => 'full_name', 'phone_number' => 'phone_number', 'address' => 'address',
+                        'province_id' => 'province_id', 'district_id' => 'district_id', 'commune_id' => 'commune_id'];
+                foreach ($map as $formKey => $liveKey) {
+                    $was = trim((string) ($data['original'][$formKey] ?? ''));
+                    $now = trim((string) ($liveAddress[$liveKey] ?? ''));
+                    if ($was !== $now) {
+                        return response()->json([
+                            'success' => false,
+                            'conflict' => true,
+                            'error' => 'This address was changed in Pancake by someone else since you opened this lead (now: "' . ($liveAddress['full_address'] ?? $now) . '"). Close and reopen the lead to see it, then edit again.',
+                        ], 409);
+                    }
+                }
+            }
+        }
 
         $addressLine = trim($data['address'] ?? '');
         $fullAddress = collect([$addressLine, $data['commune_name'] ?? null, $data['district_name'], $data['province_name']])
@@ -1711,17 +1749,8 @@ class LeadController extends Controller
 
         $success = $api->updateShippingAddress($lead->pancake_order_id, $shippingAddress);
 
-        // Tag-loss self-healing, extended to Delivery/Address (explicit
-        // request, 2026-09-18: "even notes and the address when they
-        // edit or add it should be reflect to the pos" — see the
-        // app_added_tags migration's own doc comment for the underlying
-        // race). Records this app's own last-saved shipping address
-        // verbatim, restored if a later live check shows Pancake no
-        // longer matches it.
-        if ($success) {
-            $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
-            $order?->update(['app_shipping_address' => $shippingAddress]);
-        }
+        // No longer records app_shipping_address (2026-10-20) — see the
+        // matching note in updateNotes() above.
 
         LeadActivity::log(
             $lead, 'delivery_updated',
@@ -2243,7 +2272,7 @@ class LeadController extends Controller
      * createTagIfMissing() on the bare tsa_key is now only a last resort
      * for a TSA who genuinely has no matching tag under ANY alias yet.
      */
-    public static function tagTsaOnPancakeOrder(Lead $lead, PancakeOrderTagApi $api, array $extraTags = []): void
+    public static function tagTsaOnPancakeOrder(Lead $lead, PancakeOrderTagApi $api, array $extraTags = [], bool $automatic = false): void
     {
         if (!$lead->pancake_order_id) {
             return;
@@ -2257,7 +2286,15 @@ class LeadController extends Controller
             return;
         }
 
-        $results = $api->addTagsToOrder($lead->pancake_order_id, $tagNames);
+        // $automatic (scheduled sync): back off from an order someone edited in
+        // Pancake in the last 3 minutes; the tags are queued instead and the
+        // 15-minute reconcile adds them once the order is quiet.
+        $results = $api->addTagsToOrder($lead->pancake_order_id, $tagNames, $automatic ? 180 : null);
+
+        if ($automatic && $api->lastWriteSkippedRecentEdit) {
+            Order::where('pancake_order_id', $lead->pancake_order_id)->first()?->trackAppAddedTags($tagNames);
+            return;
+        }
 
         $succeeded = [];
         foreach ($results as $tagName => $success) {

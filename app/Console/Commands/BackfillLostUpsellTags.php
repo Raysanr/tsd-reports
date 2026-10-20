@@ -113,7 +113,7 @@ class BackfillLostUpsellTags extends Command
                 continue;
             }
 
-            $result = $api->addTagsToOrder($lead->pancake_order_id, [$tagName]);
+            $result = $api->addTagsToOrder($lead->pancake_order_id, [$tagName], 180);
 
             if (!($result[$tagName] ?? false)) {
                 $this->error("  Could not re-add tag \"{$tagName}\" — skipping (verify manually in POS).");

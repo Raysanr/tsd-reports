@@ -1119,7 +1119,13 @@ class ReconcileOrderStatusesTest extends TestCase
      * pos" — same underlying race as the tag case, updateNotes() uses
      * the identical GET-then-PUT-whole-order pattern.
      */
-    public function test_restores_a_note_that_no_longer_matches_what_this_app_last_saved(): void
+    /**
+     * Flipped 2026-10-20: restoring notes reverted staff's legitimate later
+     * edits in Pancake (#1380173/#1380141 — staff internal notes deleted by
+     * "API (For TSD)"). A note that differs from the app's last save must be
+     * LEFT ALONE now — and the order isn't even a candidate any more.
+     */
+    public function test_never_restores_a_note_someone_changed_directly_in_pancake(): void
     {
         Order::factory()->create([
             'pancake_order_id' => '1369290',
@@ -1128,20 +1134,15 @@ class ReconcileOrderStatusesTest extends TestCase
 
         Http::fake([
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
-            // Both the reconciliation's own read AND updateNotes()'s own
-            // GET-before-PUT hit this same order id — one fake response
-            // pattern serves both, matching the real single-order GET
-            // endpoint they both actually call.
             'pos.pages.fm/api/v1/shops/*/orders/1369290*' => Http::response(['data' => [
                 'id'   => 1369290,
-                'note' => 'A totally different note someone typed directly in POS',
+                'note' => 'INCOMPLETE ADDRESS',
             ]], 200),
         ]);
 
         $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
 
-        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['note'] ?? null) === 'Call back after 5pm');
-        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
 
     public function test_does_not_restore_a_note_that_already_matches(): void
@@ -1169,14 +1170,18 @@ class ReconcileOrderStatusesTest extends TestCase
      * case above — updateShippingAddress() uses the same GET-then-PUT
      * pattern.
      */
-    public function test_restores_a_shipping_address_that_no_longer_matches_what_this_app_last_saved(): void
+    /**
+     * Flipped 2026-10-20 — the real incident (#1380806): Alconera added the
+     * barangay in Pancake at 13:17 and this pass put the older address back
+     * at 13:18. An address someone changed in Pancake must be LEFT ALONE.
+     */
+    public function test_never_restores_an_address_someone_corrected_directly_in_pancake(): void
     {
         Order::factory()->create([
             'pancake_order_id'     => '1369292',
             'app_shipping_address' => [
-                'full_name' => 'Criselda Roda', 'phone_number' => '09526088371',
-                'address' => 'Timanan Gym', 'province_id' => '63_719', 'province_name' => 'Maguindanao',
-                'district_id' => '63_71933', 'district_name' => 'South-upi',
+                'full_name' => 'Imran D Lao on', 'address' => 'kilala street',
+                'district_name' => 'Butig', 'province_name' => 'Lanao-del-sur',
             ],
         ]);
 
@@ -1184,16 +1189,16 @@ class ReconcileOrderStatusesTest extends TestCase
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
             'pos.pages.fm/api/v1/shops/*/orders/1369292*' => Http::response(['data' => [
                 'id' => 1369292,
-                // A genuinely different address, as if someone else typed
-                // over it directly in Pancake POS.
-                'shipping_address' => ['full_name' => 'Criselda Roda', 'address' => 'Somewhere else entirely'],
+                'shipping_address' => [
+                    'full_name' => 'Imran D Lao on', 'address' => 'kilala street',
+                    'commune_name' => 'Bayabao poblacion', 'district_name' => 'Butig', 'province_name' => 'Lanao-del-sur',
+                ],
             ]], 200),
         ]);
 
         $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
 
-        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['shipping_address']['address'] ?? null) === 'Timanan Gym');
-        $this->assertSame(1, (int) Setting::get('order_status_reconcile_last_corrected'));
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
     }
 
     public function test_does_not_restore_a_shipping_address_that_already_matches(): void

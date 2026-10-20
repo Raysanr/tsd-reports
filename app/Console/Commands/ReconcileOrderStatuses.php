@@ -261,6 +261,17 @@ class ReconcileOrderStatuses extends Command
      * addUpsellItem() doing its item-add and tag-add in one GET/PUT
      * cycle rather than two.
      *
+     * NOTES/ADDRESS RESTORE REMOVED (2026-10-20, root-caused from live
+     * Pancake history): restoring whole-value fields reverted legitimate
+     * later edits by staff — e.g. #1380806, Alconera added the barangay at
+     * 13:17 and this pass ("API (For TSD)") put the old address back at
+     * 13:18; #1380173/#1380141, staff-added internal notes deleted. The
+     * pass can't tell "lost to a race" from "deliberately changed by a
+     * person", and the lead modal's single Save sent address + notes even
+     * when the TSA never touched them, so every saved lead's address/note
+     * was guarded FOREVER. Tags stay (a merge that only ever ADDS a
+     * missing tag, so it can't undo anyone's work).
+     *
      * Deliberately takes no date window, unlike the other passes above —
      * the candidate query itself is already narrow (only orders THIS
      * app has actually written something trackable to), so there's no
@@ -278,12 +289,7 @@ class ReconcileOrderStatuses extends Command
         // 2026-09-18 — caught live while verifying an unrelated same-day
         // fix). whereJsonLength() compiles to the correct native JSON
         // function for either driver.
-        $candidates = Order::where(fn ($q) => $q
-                ->whereJsonLength('app_added_tags', '>', 0)
-                ->orWhereNotNull('app_note')
-                ->orWhereNotNull('app_note_print')
-                ->orWhereNotNull('app_shipping_address'))
-            ->get();
+        $candidates = Order::whereJsonLength('app_added_tags', '>', 0)->get();
 
         $checked   = 0;
         $corrected = 0;
@@ -304,42 +310,10 @@ class ReconcileOrderStatuses extends Command
                 $missingTags  = $tracked->reject(fn ($t) => $liveTagNames->contains(strtolower(trim($t))))->values();
 
                 if ($missingTags->isNotEmpty()) {
-                    $results   = $api->addTagsToOrder($local->pancake_order_id, $missingTags->all());
+                    $results   = $api->addTagsToOrder($local->pancake_order_id, $missingTags->all(), 180);
                     $reapplied = collect($results)->filter()->keys();
                     if ($reapplied->isNotEmpty()) {
                         $repaired[] = 'tag(s) "' . $reapplied->implode('", "') . '"';
-                    }
-                }
-            }
-
-            // Notes — whole-value overwrite, only the field(s) this app
-            // actually has a tracked value for.
-            $liveNote      = $live['note'] ?? null;
-            $liveNotePrint = $live['note_print'] ?? null;
-            $noteChanged      = $local->app_note !== null && $local->app_note !== $liveNote;
-            $notePrintChanged = $local->app_note_print !== null && $local->app_note_print !== $liveNotePrint;
-
-            if ($noteChanged || $notePrintChanged) {
-                $success = $api->updateNotes(
-                    $local->pancake_order_id,
-                    $noteChanged ? $local->app_note : null,
-                    $notePrintChanged ? $local->app_note_print : null,
-                );
-                if ($success) {
-                    $repaired[] = 'note(s)';
-                }
-            }
-
-            // Delivery/shipping address — whole-value overwrite.
-            if (!empty($local->app_shipping_address)) {
-                $liveAddress = $live['shipping_address'] ?? [];
-                $addressChanged = collect($local->app_shipping_address)
-                    ->some(fn ($value, $key) => ($liveAddress[$key] ?? null) !== $value);
-
-                if ($addressChanged) {
-                    $success = $api->updateShippingAddress($local->pancake_order_id, $local->app_shipping_address);
-                    if ($success) {
-                        $repaired[] = 'delivery address';
                     }
                 }
             }

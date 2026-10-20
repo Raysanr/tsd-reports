@@ -1539,52 +1539,87 @@ class LeadControllerTest extends TestCase
      * side; these cover only that a successful save records this app's
      * own last-saved value.
      */
-    public function test_saving_a_note_records_it_in_app_note(): void
+    /** Flipped 2026-10-20: saves no longer "guard" the note/address for the
+     *  15-minute reconcile to restore — that reverted staff edits in Pancake. */
+    public function test_saving_a_note_no_longer_guards_it_for_restore(): void
     {
-        Setting::set('pancake_api_key', 'fake-api-key');
-        Setting::set('shop_id', '4');
-        Http::fake([
-            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1]], 200),
-        ]);
+        [$lead, $user] = $this->leadForStaleGuard('gemma23@test.com', ['note' => 'old note']);
 
-        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
-        $product = Product::where('display_name', 'SINUXYL')->first();
-        $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
-        Order::factory()->create(['pancake_order_id' => '1']);
-        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma23@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
-
-        $this->actingAs($user)->postJson(route('calls.leads.notes.update', $lead), ['note' => 'Call back after 5pm'])->assertOk();
+        $this->actingAs($user)->postJson(route('calls.leads.notes.update', $lead), ['note' => 'Call back after 5pm', 'original_note' => 'old note'])->assertOk();
 
         $order = Order::where('pancake_order_id', '1')->first();
-        $this->assertSame('Call back after 5pm', $order->app_note);
-        // note_print wasn't submitted this time — must stay untouched, not
-        // overwritten with an absent/null value.
+        $this->assertNull($order->app_note);
         $this->assertNull($order->app_note_print);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['note'] ?? null) === 'Call back after 5pm');
     }
 
-    public function test_saving_delivery_details_records_the_address_in_app_shipping_address(): void
+    public function test_saving_delivery_details_no_longer_guards_the_address_for_restore(): void
+    {
+        [$lead, $user] = $this->leadForStaleGuard('gemma24@test.com', ['shipping_address' => ['full_name' => 'Criselda Roda', 'phone_number' => '09526088371', 'address' => 'Old street', 'province_id' => '63_719', 'district_id' => '63_71933']]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.delivery.update', $lead), $this->deliveryPayload([
+            'original' => ['full_name' => 'Criselda Roda', 'phone_number' => '09526088371', 'address' => 'Old street', 'province_id' => '63_719', 'district_id' => '63_71933', 'commune_id' => null],
+        ]))->assertOk();
+
+        $this->assertNull(Order::where('pancake_order_id', '1')->first()->app_shipping_address);
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && ($r['shipping_address']['address'] ?? null) === 'Timanan Gym');
+    }
+
+    /** The real #1380806 case: someone added the barangay in Pancake while
+     *  the TSA's modal was open — Save must refuse, not put the old one back. */
+    public function test_delivery_save_refuses_to_overwrite_an_address_changed_in_pancake_meanwhile(): void
+    {
+        [$lead, $user] = $this->leadForStaleGuard('gemma25@test.com', ['shipping_address' => [
+            'full_name' => 'Imran D Lao on', 'phone_number' => '09367117381', 'address' => 'kilala street',
+            'province_id' => '63_719', 'district_id' => '63_71933', 'commune_id' => '63_7193301', 'full_address' => 'kilala street, Bayabao poblacion, Butig, Lanao-del-sur',
+        ]]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.delivery.update', $lead), $this->deliveryPayload([
+            'original' => ['full_name' => 'Imran D Lao on', 'phone_number' => '09367117381', 'address' => 'kilala street', 'province_id' => '63_719', 'district_id' => '63_71933', 'commune_id' => null],
+        ]))->assertStatus(409)->assertJson(['success' => false, 'conflict' => true]);
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+    }
+
+    public function test_note_save_refuses_to_overwrite_a_note_changed_in_pancake_meanwhile(): void
+    {
+        [$lead, $user] = $this->leadForStaleGuard('gemma26@test.com', ['note' => 'INCOMPLETE ADDRESS']);
+
+        $this->actingAs($user)->postJson(route('calls.leads.notes.update', $lead), ['note' => 'Call back after 5pm', 'original_note' => ''])
+            ->assertStatus(409)->assertJson(['conflict' => true, 'note' => 'INCOMPLETE ADDRESS']);
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'PUT');
+
+        // a second, deliberate Save (now based on what Pancake shows) goes through
+        $this->actingAs($user)->postJson(route('calls.leads.notes.update', $lead), ['note' => 'INCOMPLETE ADDRESS — called, will resend', 'original_note' => 'INCOMPLETE ADDRESS'])->assertOk();
+        Http::assertSent(fn ($r) => $r->method() === 'PUT');
+    }
+
+    /** A lead on order #1 whose live Pancake order looks like $live. */
+    private function leadForStaleGuard(string $email, array $live): array
     {
         Setting::set('pancake_api_key', 'fake-api-key');
         Setting::set('shop_id', '4');
         Http::fake([
-            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => ['id' => 1]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/1*' => Http::response(['success' => true, 'data' => array_merge(['id' => 1], $live)], 200),
         ]);
 
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $product = Product::where('display_name', 'SINUXYL')->first();
         $lead = Lead::create(['pancake_order_id' => '1', 'customer_name' => 'Test', 'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
         Order::factory()->create(['pancake_order_id' => '1']);
-        $user = User::create(['name' => 'Gemma User', 'email' => 'gemma24@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+        $user = User::create(['name' => 'Gemma User', 'email' => $email, 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
 
-        $this->actingAs($user)->postJson(route('calls.leads.delivery.update', $lead), [
+        return [$lead, $user];
+    }
+
+    private function deliveryPayload(array $extra = []): array
+    {
+        return array_merge([
             'full_name' => 'Criselda Roda', 'phone_number' => '09526088371', 'address' => 'Timanan Gym',
             'province_id' => '63_719', 'province_name' => 'Maguindanao',
             'district_id' => '63_71933', 'district_name' => 'South-upi',
-        ])->assertOk();
-
-        $order = Order::where('pancake_order_id', '1')->first();
-        $this->assertSame('Timanan Gym', $order->app_shipping_address['address']);
-        $this->assertSame('Criselda Roda', $order->app_shipping_address['full_name']);
+        ], $extra);
     }
 
     /**
