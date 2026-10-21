@@ -113,6 +113,30 @@ class ExpectedIncomeCalculator
      *  subtraction, confirmed J307='=J304-J305-J306'). */
     public const PROJECTED_RETURNS_RATE = 0.25;
 
+    /** Actual Income (explicit request, 2026-10-21: "same as … expected
+     *  income but it is all actual income") — the revenue side split by each
+     *  real upsell order's CURRENT Pancake status instead of projected
+     *  rates. Cancelled stays its existing [6 Canceled, 11 Restocking]
+     *  basis (ProductPerformance::tally()'s cancelled_upsell_sales);
+     *  Delivered (3 Received, 16 Collected money) is the remainder, so the
+     *  five lines always add back up to Gross Sales, same as the IS Report
+     *  sheet (Delivered = Gross − Cancelled − Unfulfilled − Fulfilled −
+     *  Returns). */
+    public const ACTUAL_STATUS_BUCKETS = [
+        'unfulfilled'    => [0, 17, 1, 20, 12, 13, 8, 9], // new/waiting … waiting for pick up
+        'fulfilled'      => [2],                          // shipped, not yet received
+        'actual_returns' => [4, 15, 5],                   // returning / partial return / returned
+    ];
+
+    /** Every per-status amount threaded through Expected Income's raw rows. */
+    public const STATUS_AMOUNT_KEYS = ['cancelled', 'unfulfilled', 'fulfilled', 'actual_returns'];
+
+    /** true only while ActualIncomeController renders — derive() then uses
+     *  the real status amounts above instead of the projected 25% Returns.
+     *  Always set and reset in a try/finally around one request's render
+     *  (Octane worker mode keeps statics alive between requests). */
+    public static bool $actual = false;
+
     /** Every row added via the + icon on Projections (projection_custom_rows
      *  — a SHARED definition table, not scoped to that page) — explicit
      *  request, 2026-09-28: "when i add in the + icon in the projections it
@@ -252,9 +276,11 @@ class ExpectedIncomeCalculator
         // field as a plain per-row average).
         $aov            = $orders > 0 ? $grossSales / $orders : 0.0;
         $cancelled      = (float) ($row['cancelled'] ?? 0);
-        $returns        = $grossSales * self::PROJECTED_RETURNS_RATE;
-        $delivered      = $grossSales - $cancelled - $returns;
-        $grossProfit    = $grossSales - $cancelled - $returns - $taxAllocation - $productCost;
+        $unfulfilled    = self::$actual ? (float) ($row['unfulfilled'] ?? 0) : 0.0;
+        $fulfilled      = self::$actual ? (float) ($row['fulfilled'] ?? 0) : 0.0;
+        $returns        = self::$actual ? (float) ($row['actual_returns'] ?? 0) : $grossSales * self::PROJECTED_RETURNS_RATE;
+        $delivered      = $grossSales - $cancelled - $unfulfilled - $fulfilled - $returns;
+        $grossProfit    = $delivered - $taxAllocation - $productCost;
 
         // Safe to unconditionally ->put() these 2 keys below regardless of
         // $sellingKeys' actual contents — same reasoning as
@@ -294,6 +320,11 @@ class ExpectedIncomeCalculator
             'gross_sales_pct' => $grossSales > 0 ? 1.0 : 0.0,
             'cancelled' => $cancelled,
             'cancelled_pct' => $grossSales > 0 ? $cancelled / $grossSales : 0.0,
+            'unfulfilled' => $unfulfilled,
+            'unfulfilled_pct' => $grossSales > 0 ? $unfulfilled / $grossSales : 0.0,
+            'fulfilled' => $fulfilled,
+            'fulfilled_pct' => $grossSales > 0 ? $fulfilled / $grossSales : 0.0,
+            'actual_returns' => self::$actual ? $returns : 0.0,
             'returns' => $returns,
             'returns_pct' => $grossSales > 0 ? $returns / $grossSales : 0.0,
             'delivered' => $delivered,
@@ -407,7 +438,7 @@ class ExpectedIncomeCalculator
     public static function withOverriddenTaxAllocation(array $derived, float $taxAllocation): array
     {
         $grossSales = $derived['gross_sales'];
-        $grossProfit = $grossSales - $derived['cancelled'] - $derived['returns'] - $taxAllocation - $derived['product_cost'];
+        $grossProfit = $derived['delivered'] - $taxAllocation - $derived['product_cost'];
         $incomeBeforeOpex = $grossProfit - $derived['total_selling_costs'];
         $netIncome = $incomeBeforeOpex - $derived['total_operating_costs'];
 
@@ -447,7 +478,7 @@ class ExpectedIncomeCalculator
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $sumKeys = array_merge(
-            ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'returns', 'delivered', 'tax_allocation', 'product_cost'],
+            ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'unfulfilled', 'fulfilled', 'actual_returns', 'returns', 'delivered', 'tax_allocation', 'product_cost'],
             $sellingKeys,
             $operatingKeys
         );

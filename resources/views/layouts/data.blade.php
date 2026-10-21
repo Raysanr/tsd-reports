@@ -112,6 +112,15 @@
             Expected Income
         </a>
 
+        {{-- Actual Income, right after Expected Income (2026-10-21). --}}
+        <a href="{{ route('data.actual-income') }}"
+           class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.actual-income*') ? 'nav-active' : '' }}">
+            <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Actual Income
+        </a>
+
         {{-- Cost Breakdown, right next to Expected Income (explicit
              request, 2026-09-29: "add new page in data management (COST
              BREAKDOWN)"). Admin-only (explicit request, 2026-10-07: "for

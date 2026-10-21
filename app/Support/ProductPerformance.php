@@ -698,6 +698,14 @@ class ProductPerformance
             ->filter(fn (Order $o) => in_array($o->status_code, [6, 11], true))
             ->sum(fn (Order $o) => $o->realUpsellAmount());
 
+        // Actual Income's per-status split (same real-upsell basis as
+        // cancelled_upsell_sales above) — see ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS.
+        foreach (\App\Support\ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $bucket => $codes) {
+            $row[$bucket . '_upsell_sales'] = (float) $orders->filter($isRealUpsell)
+                ->filter(fn (Order $o) => in_array($o->status_code, $codes, true))
+                ->sum(fn (Order $o) => $o->realUpsellAmount());
+        }
+
         $row['answered'] = $row['confirmed_via_call'] + $row['upsell_confirmation'] + $row['call_back'] + $row['call_dropped']
             + $row['repeat_order_upsell'] + $row['rude_customer'] + $row['relatives_confirmation'];
         $row['unanswered'] = $row['dfr'] + $row['double_order'] + $row['fsd_uncleared'] + $row['not_answering']

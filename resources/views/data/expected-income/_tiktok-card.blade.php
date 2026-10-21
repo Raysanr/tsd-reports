@@ -44,6 +44,7 @@
     $customRowKeys are intentionally NOT accepted as params for this
     reason — always ignore whatever the page-level fetch passed in.
 --}}
+@php($editable = ($editable ?? false) && ! \App\Support\ExpectedIncomeCalculator::$actual) {{-- Actual Income: read-only --}}
 @php($locked = (bool) ($card['locked'] ?? false))
 <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
      data-tiktok-card="1"

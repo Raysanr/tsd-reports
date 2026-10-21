@@ -100,13 +100,17 @@ class ExpectedIncomeController extends Controller
         return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::grossSalesAndNetIncomeByProductAndDateInMonth($dateFrom, $dateTo, $onlyOrderTeam));
     }
 
+    /** DateRangeFilter's remembered-range key — ActualIncomeController
+     *  overrides it so the two pages don't share one remembered range. */
+    protected const RANGE_SESSION_KEY = 'expected-income';
+
     public function index(Request $request)
     {
         // See DateRangeFilter's own doc comment — remembers the last range
         // picked on THIS page across separate visits (a fresh sidebar-link
         // navigation has no query string of its own to fall back to),
         // defaulting to "today only" on a brand-new session.
-        $range = DateRangeFilter::resolve($request, 'expected-income');
+        $range = DateRangeFilter::resolve($request, static::RANGE_SESSION_KEY);
         $dateFrom = $range['from'];
         \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
         \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
@@ -365,8 +369,8 @@ class ExpectedIncomeController extends Controller
                     'gross_sales'      => $real['gross_sales'] - (float) array_sum(array_column($dayRaw, 'gross_sales')),
                     'number_of_orders' => $real['number_of_orders'] - (float) array_sum(array_column($dayRaw, 'number_of_orders')),
                     'cancelled'        => $real['cancelled'] - (float) array_sum(array_column($dayRaw, 'cancelled')),
-                ];
-                if (abs($gap['gross_sales']) > 0.005 || abs($gap['number_of_orders']) > 0.005 || abs($gap['cancelled']) > 0.005) {
+                ] + self::bucketGaps($real, $dayRaw);
+                if (self::hasGap($gap)) {
                     $dayRaw[] = $gap;
                 }
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
@@ -695,7 +699,7 @@ class ExpectedIncomeController extends Controller
      *  diverge. */
     public function summary(Request $request)
     {
-        $range = DateRangeFilter::resolve($request, 'expected-income');
+        $range = DateRangeFilter::resolve($request, static::RANGE_SESSION_KEY);
         $dateFrom = $range['from'];
         \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
         \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
@@ -963,7 +967,7 @@ class ExpectedIncomeController extends Controller
         // per-product share here regardless of whether she has an entry on
         // THIS specific product, same as the rollup regardless of whether
         // she has an entry at all).
-        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap) {
+        $cards = ProductGrouping::rows($products, function ($groupProducts) use ($rawByProductAndDate, $sellingKeys, $operatingKeys, $dates, $dateFrom, $dateTo, $onlyTsaIds, $onlyOrderTeam, $productCardLookups, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
             $pooledRaw = $groupProducts->flatMap(fn (Product $p) => $rawByProductAndDate->get($p->id)->flatMap(fn ($rowsForDate) => $rowsForDate))
                 ->map(fn ($row) => isset($row['tsa_id']) && $row['tsa_id'] !== null ? array_merge($row, array_fill_keys($operatingKeys, 0.0)) : $row);
 
@@ -1000,8 +1004,10 @@ class ExpectedIncomeController extends Controller
             $realCancelled = $this->totalRealGrossSales($cancelledMap, $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo);
             $pooledCancelled = (float) $pooledRaw->sum('cancelled');
             $cancelledGap = $realCancelled - $pooledCancelled;
-            if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005 || abs($cancelledGap) > 0.005) {
-                $pooledRaw = $pooledRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap]);
+            $bucketGaps = self::bucketGaps(collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+                ->mapWithKeys(fn ($b) => [$b => $this->totalRealGrossSales($grossSalesAndOrders[$b], $groupProducts, $onlyOrderTeam, $dateFrom, $dateTo)])->all(), $pooledRaw->all());
+            if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005 || abs($cancelledGap) > 0.005 || self::hasGap($bucketGaps)) {
+                $pooledRaw = $pooledRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap] + $bucketGaps);
             }
 
             $derived = ExpectedIncomeCalculator::sum($pooledRaw->all(), $sellingKeys, $operatingKeys);
@@ -1105,7 +1111,8 @@ class ExpectedIncomeController extends Controller
         // SAME tally() call teamUpsellGrossSales()/teamUpsellOrderCount()
         // each made separately — no behavior change, just one fetch
         // instead of two.
-        ['grossSales' => $realGrossSales, 'orders' => $realOrders, 'cancelled' => $realCancelled] = $this->teamUpsellTotals($onlyOrderTeam, $dateFrom, $dateTo);
+        $teamReal = $this->teamUpsellTotals($onlyOrderTeam, $dateFrom, $dateTo);
+        ['grossSales' => $realGrossSales, 'orders' => $realOrders, 'cancelled' => $realCancelled] = $teamReal;
         $pooledGrossSales = (float) $allRaw->sum('gross_sales');
         $grossSalesGap = $realGrossSales - $pooledGrossSales;
         $pooledOrders = (float) $allRaw->sum('number_of_orders');
@@ -1117,8 +1124,9 @@ class ExpectedIncomeController extends Controller
         // doc comment for the basis.
         $pooledCancelled = (float) $allRaw->sum('cancelled');
         $cancelledGap = $realCancelled - $pooledCancelled;
-        if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005 || abs($cancelledGap) > 0.005) {
-            $allRaw = $allRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap]);
+        $bucketGaps = self::bucketGaps($teamReal, $allRaw->all());
+        if (abs($grossSalesGap) > 0.005 || abs($ordersGap) > 0.005 || abs($cancelledGap) > 0.005 || self::hasGap($bucketGaps)) {
+            $allRaw = $allRaw->push(['gross_sales' => $grossSalesGap, 'number_of_orders' => $ordersGap, 'cancelled' => $cancelledGap] + $bucketGaps);
         }
         $derived = ExpectedIncomeCalculator::sum($allRaw->all(), $sellingKeys, $operatingKeys);
         $overallTotal = $this->addActiveTsasOverviewOperatingCosts($derived, $dates, $onlyTsaIds, $rollupLookups);
@@ -1576,8 +1584,9 @@ class ExpectedIncomeController extends Controller
                     // own comment below (2026-10-14).
                     $pooledOrders = (float) array_sum(array_column($rangeRaw, 'number_of_orders'));
                     $ordersGap = $this->tsaUpsellOrderCount($tsa, $dateFrom, $dateTo) - $pooledOrders;
-                    if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005) {
-                        $rangeRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap];
+                    $bucketGaps = self::bucketGaps($this->tsaUpsellBuckets($tsa, $dateFrom, $dateTo), $rangeRaw);
+                    if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005 || self::hasGap($bucketGaps)) {
+                        $rangeRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap] + $bucketGaps;
                     }
                     $summed = ExpectedIncomeCalculator::sum($rangeRaw, $sellingKeys, $operatingKeys);
                     $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverridesForRange);
@@ -1659,8 +1668,9 @@ class ExpectedIncomeController extends Controller
                 // team-level rollup's own gap already topped up all three).
                 $pooledOrders = (float) array_sum(array_column($dayRaw, 'number_of_orders'));
                 $ordersGap = $this->tsaUpsellOrderCount($tsa, $dateStr, $dateStr) - $pooledOrders;
-                if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005) {
-                    $dayRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap];
+                $bucketGaps = self::bucketGaps($this->tsaUpsellBuckets($tsa, $dateStr, $dateStr), $dayRaw);
+                if (abs($grossSalesGap) > 0.005 || abs($cancelledGap) > 0.005 || abs($ordersGap) > 0.005 || self::hasGap($bucketGaps)) {
+                    $dayRaw[] = ['gross_sales' => $grossSalesGap, 'cancelled' => $cancelledGap, 'number_of_orders' => $ordersGap] + $bucketGaps;
                 }
                 $summed = ExpectedIncomeCalculator::sum($dayRaw, $sellingKeys, $operatingKeys);
                 $summed = ExpectedIncomeCalculator::withOverriddenOperatingCosts($summed, $overviewCardOverrides);
@@ -1980,8 +1990,8 @@ class ExpectedIncomeController extends Controller
         $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
         ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $grossSalesAndOrders;
 
-        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId) {
+        $raw = $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId, $grossSalesAndOrders) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $tsaId, $grossSalesAndOrders) {
                 $dateStr = $date->toDateString();
                 $entry = $entries->get($p->id . ':' . $dateStr);
                 $row = $entry ? $entry->toArray() : [];
@@ -1990,6 +2000,9 @@ class ExpectedIncomeController extends Controller
                 $row['gross_sales'] = $this->grossSalesForTsaProductDate($grossSalesMap, $tsaId, $p->id, $dateStr);
                 $row['number_of_orders'] = (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $tsaId, $p->id, $dateStr);
                 $row['cancelled'] = $this->grossSalesForTsaProductDate($cancelledMap, $tsaId, $p->id, $dateStr);
+                foreach (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $b => $_) {
+                    $row[$b] = $this->grossSalesForTsaProductDate($grossSalesAndOrders[$b], $tsaId, $p->id, $dateStr);
+                }
                 return [$dateStr => $row];
             })];
         });
@@ -2346,6 +2359,7 @@ class ExpectedIncomeController extends Controller
         // ProductPerformance::tally()'s own cancelled_upsell_sales doc
         // comment for the full basis.
         $cancelled = [];
+        $buckets = array_fill_keys(array_keys(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS), []);
 
         foreach ($dates as $date) {
             $dateStr = $date->toDateString();
@@ -2373,12 +2387,19 @@ class ExpectedIncomeController extends Controller
                         if ($cancelledForTsa->isNotEmpty()) {
                             $cancelled[$key] = ($cancelled[$key] ?? 0.0) + $cancelledForTsa->sum(fn (Order $o) => $o->realUpsellAmount());
                         }
+                        foreach (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $bucket => $codes) {
+                            $inBucket = $ordersForTsa->filter(fn (Order $o) => in_array($o->status_code, $codes, true));
+                            if ($inBucket->isNotEmpty()) {
+                                $buckets[$bucket][$key] = ($buckets[$bucket][$key] ?? 0.0) + $inBucket->sum(fn (Order $o) => $o->realUpsellAmount());
+                            }
+                        }
                     }
                 }
             }
         }
 
-        return ['grossSales' => collect($sales), 'numberOfOrders' => collect($orderCounts), 'cancelled' => collect($cancelled)];
+        return ['grossSales' => collect($sales), 'numberOfOrders' => collect($orderCounts), 'cancelled' => collect($cancelled)]
+            + array_map(fn ($m) => collect($m), $buckets);
     }
 
     /** The TELESALES/per-team rollup's own Gross Sales — explicit
@@ -2515,7 +2536,7 @@ class ExpectedIncomeController extends Controller
             : TsaShift::where('team', $onlyOrderTeam)->pluck('tsa_key');
 
         if ($tsaKeys->isEmpty()) {
-            return ['grossSales' => 0.0, 'orders' => 0, 'cancelled' => 0.0];
+            return ['grossSales' => 0.0, 'orders' => 0, 'cancelled' => 0.0] + self::zeroBuckets();
         }
 
         $orders = Order::whereRaw(
@@ -2529,7 +2550,7 @@ class ExpectedIncomeController extends Controller
             'grossSales' => (float) $tally['upsell_sales'],
             'orders' => (int) $tally['upsell_confirmation'],
             'cancelled' => (float) $tally['cancelled_upsell_sales'],
-        ];
+        ] + self::bucketsFromTally($tally);
     }
 
     /** Public wrapper around teamUpsellTotals() — built for
@@ -2660,13 +2681,57 @@ class ExpectedIncomeController extends Controller
                     'gross_sales'      => (float) $tally['upsell_sales'],
                     'number_of_orders' => (int) $tally['upsell_confirmation'],
                     'cancelled'        => (float) $tally['cancelled_upsell_sales'],
-                ];
+                ] + self::bucketsFromTally($tally);
             });
     }
 
     private function tsaUpsellOrderCount(TsaShift $tsa, string $dateFrom, string $dateTo): int
     {
         return $this->upsellOrderCountForTsaKeys(collect([$tsa->tsa_key]), $dateFrom, $dateTo);
+    }
+
+    /** Actual Income's per-status amounts for one TSA (zeros on Expected
+     *  Income — skipped there, it doesn't show them). */
+    private function tsaUpsellBuckets(TsaShift $tsa, string $dateFrom, string $dateTo): array
+    {
+        if (! ExpectedIncomeCalculator::$actual) {
+            return self::zeroBuckets();
+        }
+        $orders = Order::whereRaw(
+            'DATE(COALESCE(pancake_inserted_at, pancake_created_at)) BETWEEN ? AND ?',
+            [$dateFrom, $dateTo]
+        )->where('tsa_name', $tsa->tsa_key)->get()->pipe(fn ($orders) => ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders)));
+
+        return self::bucketsFromTally(ProductPerformance::tally($orders));
+    }
+
+    private static function bucketsFromTally(array $tally): array
+    {
+        return collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+            ->mapWithKeys(fn ($b) => [$b => (float) ($tally[$b . '_upsell_sales'] ?? 0)])->all();
+    }
+
+    private static function zeroBuckets(): array
+    {
+        return array_fill_keys(array_keys(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS), 0.0);
+    }
+
+    /** $real[bucket] − what the pooled rows already hold, per bucket. */
+    private static function bucketGaps(array $real, array $pooledRows): array
+    {
+        return collect(ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS)->keys()
+            ->mapWithKeys(fn ($b) => [$b => (float) ($real[$b] ?? 0) - (float) array_sum(array_column($pooledRows, $b))])->all();
+    }
+
+    private static function hasGap(array $gaps): bool
+    {
+        foreach ($gaps as $g) {
+            if (abs($g) > 0.005) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function tsaUpsellCancelled(TsaShift $tsa, string $dateFrom, string $dateTo): float
@@ -2932,10 +2997,11 @@ class ExpectedIncomeController extends Controller
         // real totals (totalRealGrossSales(), same "missing entry ≠ zero"
         // gap this file already covers for leads) get folded in before
         // derive() runs.
-        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        $grossSalesAndOrders = $precomputedGrossSalesAndOrders ?? $this->grossSalesByProductAndDate($products, $dates, $dateFrom, $dateTo);
+        ['grossSales' => $grossSalesMap, 'numberOfOrders' => $numberOfOrdersMap, 'cancelled' => $cancelledMap] = $grossSalesAndOrders;
 
-        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap) {
-            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap) {
+        return $products->mapWithKeys(function (Product $p) use ($dates, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
+            return [$p->id => $dates->mapWithKeys(function ($date) use ($p, $entries, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
                 $dateStr = $date->toDateString();
                 $rowsForThisCell = $entries->get($p->id . ':' . $dateStr, collect());
 
@@ -2943,12 +3009,15 @@ class ExpectedIncomeController extends Controller
                     return [$dateStr => collect([array_merge(['number_of_leads' => 0, 'gross_sales' => 0.0, 'number_of_orders' => 0, 'cancelled' => 0.0], $customValuesFor($p->id, $dateStr, null))])];
                 }
 
-                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap) {
+                $rows = $rowsForThisCell->map(function (ExpectedIncomeEntry $entry) use ($p, $dateStr, $customValuesFor, $operatingOverridesFor, $leadCounts, $grossSalesMap, $numberOfOrdersMap, $cancelledMap, $grossSalesAndOrders) {
                     $row = array_merge($entry->toArray(), $customValuesFor($p->id, $dateStr, $entry->tsa_id));
                     $row['number_of_leads'] = $entry->tsa_id === null ? 0 : $this->leadsForTsaProductDate($leadCounts, $entry->tsa_id, $p->id, $dateStr);
                     $row['gross_sales'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesMap, $entry->tsa_id, $p->id, $dateStr);
                     $row['number_of_orders'] = $entry->tsa_id === null ? 0 : (int) $this->grossSalesForTsaProductDate($numberOfOrdersMap, $entry->tsa_id, $p->id, $dateStr);
                     $row['cancelled'] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($cancelledMap, $entry->tsa_id, $p->id, $dateStr);
+                    foreach (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS as $b => $_) {
+                        $row[$b] = $entry->tsa_id === null ? 0.0 : $this->grossSalesForTsaProductDate($grossSalesAndOrders[$b], $entry->tsa_id, $p->id, $dateStr);
+                    }
                     return $entry->tsa_id === null ? $row : array_merge($row, $operatingOverridesFor($entry->tsa_id, $dateStr));
                 });
 

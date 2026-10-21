@@ -16,6 +16,7 @@
     $d = $row['derived'];
     $product = $row['products']->first();
     $locked = (bool) ($entry?->is_locked ?? false);
+    $actual = \App\Support\ExpectedIncomeCalculator::$actual; // Actual Income: read-only
 @endphp
 <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0"
      data-product-id="{{ $product->id }}"
@@ -30,6 +31,7 @@
              its own first member product's entry, same "writes land on
              the first member" convention update()/updateCustomRow()
              already use for saves. --}}
+        @unless($actual)
         <button type="button" data-ei-lock-toggle data-locked="{{ $locked ? '1' : '0' }}"
                 title="{{ $locked ? 'Unlock this card' : 'Lock this card' }}"
                 aria-label="{{ $locked ? 'Unlock this card' : 'Lock this card' }}"
@@ -44,6 +46,7 @@
             </svg>
             @endif
         </button>
+        @endunless
     </div>
-    @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => true, 'tsaScoped' => true, 'locked' => $locked])
+    @include('data.expected-income._card-body', ['d' => $d, 'entry' => $entry, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => ! $actual, 'tsaScoped' => true, 'locked' => $locked])
 </div>

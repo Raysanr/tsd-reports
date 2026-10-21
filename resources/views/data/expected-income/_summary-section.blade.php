@@ -10,8 +10,8 @@
 --}}
 <div id="eiSummarySection">
     <div class="flex items-center justify-between mb-3">
-        <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">Telesales Expected Performance</div>
-        @include('partials.table-actions', ['target' => 'eiSummaryScroller', 'name' => 'telesales-expected-performance', 'title' => 'Telesales Expected Performance', 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
+        <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">{{ \App\Support\ExpectedIncomeCalculator::$actual ? 'Telesales Actual Performance' : 'Telesales Expected Performance' }}</div>
+        @include('partials.table-actions', ['target' => 'eiSummaryScroller', 'name' => \App\Support\ExpectedIncomeCalculator::$actual ? 'telesales-actual-performance' : 'telesales-expected-performance', 'title' => \App\Support\ExpectedIncomeCalculator::$actual ? 'Telesales Actual Performance' : 'Telesales Expected Performance', 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
     </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
         <div class="flex items-start gap-5 w-max">

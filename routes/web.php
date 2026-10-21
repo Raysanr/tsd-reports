@@ -446,6 +446,9 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // scroller's client-side re-sum can keep it live; the page re-asks
         // the server for fresh totals after every autosave instead).
         Route::get('/expected-income/summary', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'summary'])->name('expected-income.summary');
+        // Actual Income (2026-10-21) — Expected Income's page with the
+        // revenue split by real Pancake order status. Read-only.
+        Route::get('/actual-income', [\App\Http\Controllers\DataManagement\ActualIncomeController::class, 'index'])->name('actual-income');
 
         // Cost Breakdown (explicit request, 2026-09-29: "add new page in
         // data management (COST BREAKDOWN)") — admin-only within the

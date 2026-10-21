@@ -1,6 +1,11 @@
 @extends('layouts.data')
+@if(\App\Support\ExpectedIncomeCalculator::$actual)
+@section('title', 'Actual Income')
+@section('subtitle', 'Daily P&L per product from real order statuses — costs come from Expected Income')
+@else
 @section('title', 'Expected Income')
 @section('subtitle', 'Daily P&L per product — every figure auto-saves as you type')
+@endif
 
 @section('content')
 
@@ -33,7 +38,12 @@
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         <input type="hidden" name="team" value="{{ $selectedTeam }}">
+        @if(\App\Support\ExpectedIncomeCalculator::$actual)
+            {{-- Actual Income: month picker only (2026-10-21) --}}
+            @include('data._month-picker', ['name' => 'month', 'value' => substr($dateFrom, 0, 7), 'navigate' => true])
+        @else
         @include('data._date-range-filter', ['fromName' => 'date_from', 'toName' => 'date_to', 'fromValue' => $dateFrom, 'toValue' => $dateTo])
+        @endif
 
         {{-- Team filter (explicit request, 2026-09-30: "i want to add team
              filter like this ... ALL / TEAM CLOSING / TEAM OPENING") — ALL

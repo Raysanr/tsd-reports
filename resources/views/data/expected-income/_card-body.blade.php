@@ -169,7 +169,7 @@
          stay fully manual (no real Product/Pancake assignee data behind
          either). --}}
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-red-600 dark:text-red-400">Cancelled</span>
+        <span class="text-red-600 dark:text-red-400">{{ \App\Support\ExpectedIncomeCalculator::$actual ? 'Cancelled & Waiting' : 'Cancelled' }}</span>
         @if(($editable ?? false) && !($tsaScoped ?? false) && !($autoSales ?? false))
             <input type="text" inputmode="decimal" value="{{ number_format($entry?->cancelled ?? 0, 2) }}"
                    data-field="cancelled" data-money="1" @if($locked ?? false) disabled @endif
@@ -180,7 +180,14 @@
         <span data-out="cancelled_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d['cancelled_pct']) }}</span>
     </div>
 
-    @foreach([
+    {{-- Actual Income: the real per-status split instead of the projected
+         25% Returns (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS). --}}
+    @foreach(\App\Support\ExpectedIncomeCalculator::$actual ? [
+        ['key' => 'unfulfilled', 'label' => 'Unfulfilled'],
+        ['key' => 'fulfilled', 'label' => 'Fulfilled'],
+        ['key' => 'returns', 'label' => 'Returns'],
+        ['key' => 'delivered', 'label' => 'Delivered'],
+    ] : [
         ['key' => 'returns', 'label' => 'Projected Returns'],
         ['key' => 'delivered', 'label' => 'Projected Delivered'],
     ] as $col)
