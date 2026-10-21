@@ -1238,16 +1238,24 @@ class LeadController extends Controller
         // remainingItemIsJustTheBase() recognizes most robustly (see that
         // method's doc comment, app/Models/Order.php), not one of the
         // looser "TSD UPSELL X" no-dash forms confirmed to sometimes slip
-        // past it. Created in Pancake's real tag catalog first if this
-        // exact product's never been upsold before.
-        $upsellTagName = 'UPSELL TSD - ' . $data['name'];
-        $api->createTagIfMissing($upsellTagName);
+        // past it. Only attached if it ALREADY exists in Pancake — the app
+        // no longer creates new upsell tags (explicit request, 2026-10-21:
+        // "remove this — adding an upsell product in the lead modal"); a
+        // missing one is skipped and the TSA is told to add it in POS.
+        // Without ANY upsell tag the sync won't count the sale as an upsell
+        // (Order::hasUpsellTag()), so a missing product tag falls back to an
+        // existing plain "UPSELL TSD" / "TSD UPSELL" tag when there is one.
+        $productTagName = 'UPSELL TSD - ' . $data['name'];
+        $catalogNames = collect($api->listTags())->pluck('name')->map(fn ($n) => trim((string) $n));
+        $existing = fn (string $name) => $catalogNames->first(fn ($n) => strcasecmp($n, $name) === 0);
+        $upsellTagName = $existing($productTagName) ?? $existing('UPSELL TSD') ?? $existing('TSD UPSELL');
+        $upsellTagExists = $upsellTagName !== null;
 
-        $success = $api->addUpsellItem($lead->pancake_order_id, $data, $upsellTagName, $lead->tsa?->tsa_key);
+        $success = $api->addUpsellItem($lead->pancake_order_id, $data, $upsellTagName ?? $productTagName, $lead->tsa?->tsa_key);
 
         if ($success) {
             $order = Order::where('pancake_order_id', $lead->pancake_order_id)->first();
-            $order?->trackAppAddedTags(array_filter([$upsellTagName, $lead->tsa?->tsa_key]));
+            $order?->trackAppAddedTags(array_filter([$upsellTagExists ? $upsellTagName : null, $lead->tsa?->tsa_key]));
         }
 
         $description = "Added upsell \"{$data['name']}\" (₱" . number_format($data['retail_price'], 2) . " × {$data['quantity']}) by {$user->name}"
@@ -1262,7 +1270,11 @@ class LeadController extends Controller
             return response()->json(['success' => false, 'error' => 'Saved locally, but could not add this product to the order in Pancake — try again or add it directly in POS.'], 500);
         }
 
-        return response()->json(['success' => true, 'message' => "Added \"{$data['name']}\" to order #{$lead->pancake_order_id}."]);
+        return response()->json(array_filter([
+            'success' => true,
+            'message' => "Added \"{$data['name']}\" to order #{$lead->pancake_order_id}.",
+            'warning' => $upsellTagExists ? null : "No upsell tag in Pancake for \"{$data['name']}\" — add an UPSELL TSD tag to this order in POS so it counts as an upsell.",
+        ]));
     }
 
     /**

@@ -70,35 +70,58 @@ class LeadUpsellTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_add_upsell_writes_a_real_item_and_tag_to_pancake_and_logs_locally(): void
+    /** The app never creates upsell tags anymore (2026-10-21: "there are so
+     *  many tagging because of that") — a missing "UPSELL TSD - X" tag is
+     *  skipped, the item still goes in, and the TSA gets a warning. */
+    public function test_add_upsell_does_not_create_a_missing_upsell_tag(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $lead  = $this->leadFor($gemma);
         $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
 
         Http::fake([
-            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::sequence()
-                // Pre-check inside createTagIfMissing(): catalog doesn't
-                // have the upsell tag yet.
-                ->push(['success' => true, 'data' => [
-                    ['id' => 40, 'name' => 'Gemma'],
-                ]], 200)
-                // The POST create.
-                ->push(['success' => true, 'data' => ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm']], 200)
-                // addUpsellItem()'s own listTags() read, after the cache
-                // was busted by createTagIfMissing() — now includes it.
-                ->push(['success' => true, 'data' => [
-                    ['id' => 40, 'name' => 'Gemma'],
-                    ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'],
-                ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 40, 'name' => 'Gemma'],
+            ]], 200),
             'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
-                // Pre-write GET.
-                ->push(['success' => true, 'data' => [
-                    'id' => 9001, 'items' => [], 'tags' => [],
-                ]], 200)
-                // PUT response.
+                ->push(['success' => true, 'data' => ['id' => 9001, 'items' => [], 'tags' => []]], 200)
                 ->push(['success' => true], 200)
-                // Post-write verify GET: item + both tags landed.
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'var-1', 'quantity' => 2, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [['id' => 40, 'name' => 'Gemma']],
+                ]], 200),
+        ]);
+
+        $response = $this->actingAs($user)->postJson(route('calls.leads.upsell', $lead), [
+            'variation_id' => 'var-1', 'product_id' => 'prod-1', 'name' => 'Haplunas Balm', 'retail_price' => 499.0, 'quantity' => 2,
+        ]);
+
+        $response->assertOk()->assertJson(['success' => true])
+            ->assertJsonPath('warning', fn ($w) => str_contains($w, 'Haplunas Balm'));
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/orders/tags'));
+        Http::assertSent(function ($r) {
+            if ($r->method() !== 'PUT') return false;
+            $item = collect($r['items'])->first();
+            return $item['variation_id'] === 'var-1' && collect($r['tags'])->pluck('name')->all() === ['Gemma'];
+        });
+        $this->assertSame(1, LeadActivity::where('lead_id', $lead->id)->where('type', 'upsell_added')->count());
+    }
+
+    public function test_add_upsell_attaches_an_existing_upsell_tag(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 40, 'name' => 'Gemma'],
+                ['id' => 30, 'name' => 'UPSELL TSD - Haplunas Balm'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                ->push(['success' => true, 'data' => ['id' => 9001, 'items' => [], 'tags' => []]], 200)
+                ->push(['success' => true], 200)
                 ->push(['success' => true, 'data' => [
                     'id' => 9001,
                     'items' => [['variation_id' => 'var-1', 'quantity' => 2, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
@@ -110,19 +133,9 @@ class LeadUpsellTest extends TestCase
             'variation_id' => 'var-1', 'product_id' => 'prod-1', 'name' => 'Haplunas Balm', 'retail_price' => 499.0, 'quantity' => 2,
         ]);
 
-        $response->assertOk()->assertJson(['success' => true]);
-
-        Http::assertSent(function ($r) {
-            if ($r->method() !== 'PUT') return false;
-            $item = collect($r['items'])->first();
-            return $item['variation_id'] === 'var-1' && $item['quantity'] === 2
-                && (float) $item['variation_info']['retail_price'] === 499.0;
-        });
-        // The tag was auto-created (no pre-existing "UPSELL TSD - Haplunas
-        // Balm" tag in the fake catalog above) before being merged in.
-        Http::assertSent(fn ($r) => $r->method() === 'POST' && ($r['name'] ?? null) === 'UPSELL TSD - Haplunas Balm');
-
-        $this->assertSame(1, LeadActivity::where('lead_id', $lead->id)->where('type', 'upsell_added')->count());
+        $response->assertOk()->assertJson(['success' => true])->assertJsonMissingPath('warning');
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/orders/tags'));
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && collect($r['tags'])->pluck('name')->contains('UPSELL TSD - Haplunas Balm'));
     }
 
     public function test_a_tsa_cannot_add_upsell_on_another_tsas_lead(): void
@@ -156,5 +169,35 @@ class LeadUpsellTest extends TestCase
 
         $response->assertStatus(500)->assertJson(['success' => false]);
         $this->assertSame(1, LeadActivity::where('lead_id', $lead->id)->where('type', 'upsell_added')->count());
+    }
+
+    public function test_add_upsell_falls_back_to_a_plain_upsell_tsd_tag(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $lead  = $this->leadFor($gemma);
+        $user  = User::create(['name' => 'Gemma User', 'email' => 'gemma@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/4/orders/tags*' => Http::response(['success' => true, 'data' => [
+                ['id' => 40, 'name' => 'Gemma'],
+                ['id' => 50, 'name' => 'UPSELL TSD'],
+            ]], 200),
+            'pos.pages.fm/api/v1/shops/4/orders/9001*' => Http::sequence()
+                ->push(['success' => true, 'data' => ['id' => 9001, 'items' => [], 'tags' => []]], 200)
+                ->push(['success' => true], 200)
+                ->push(['success' => true, 'data' => [
+                    'id' => 9001,
+                    'items' => [['variation_id' => 'var-1', 'quantity' => 1, 'variation_info' => ['name' => 'Haplunas Balm', 'retail_price' => 499]]],
+                    'tags' => [['id' => 50, 'name' => 'UPSELL TSD'], ['id' => 40, 'name' => 'Gemma']],
+                ]], 200),
+        ]);
+
+        $this->actingAs($user)->postJson(route('calls.leads.upsell', $lead), [
+            'variation_id' => 'var-1', 'product_id' => 'prod-1', 'name' => 'Haplunas Balm', 'retail_price' => 499.0, 'quantity' => 1,
+        ])->assertOk()->assertJsonMissingPath('warning');
+
+        Http::assertNotSent(fn ($r) => $r->method() === 'POST' && str_contains($r->url(), '/orders/tags'));
+        Http::assertSent(fn ($r) => $r->method() === 'PUT' && collect($r['tags'])->pluck('name')->contains('UPSELL TSD'));
+        $this->assertTrue(\App\Models\Order::hasUpsellTag(['UPSELL TSD']));
     }
 }

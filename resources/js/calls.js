@@ -1810,6 +1810,7 @@ window.submitInlineUpsell = async function () {
 
         if (data.success) {
             window.showToast?.('Added to order.', 'success');
+            if (data.warning) window.showToast?.(data.warning, 'error');
             window.refreshLeadDetail(leadId);
         } else {
             errorEl.textContent = data.error || 'Could not add this product — try again.';
@@ -2127,11 +2128,16 @@ function renderInlineTagAddResults(tags) {
     // comment: "the frontend picker/chips code doesn't need to know which
     // Pancake API a tag came from"), same field the existing outcome-tag
     // picker (renderOutcomeTagModalResults() below) already reads.
-    results.innerHTML = tags.map((t, i) => `
-        <div class="inline-tag-add-result-row flex items-start gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40 text-slate-700 dark:text-slate-200" data-index="${i}">
+    const onOrder = currentTagNames();
+    results.innerHTML = tags.map((t, i) => {
+        const added = onOrder.has((t.text || '').toLowerCase());
+        return `
+        <div class="inline-tag-add-result-row flex items-start gap-2 px-3 py-2 text-xs ${added ? 'opacity-50 cursor-default' : 'cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-950/40'} text-slate-700 dark:text-slate-200" data-index="${i}" ${added ? 'data-added="1"' : ''}>
             <span class="w-2 h-2 rounded-full shrink-0 mt-1" style="background:${escapeHtml(t.color || '#94a3b8')}"></span>
             <span class="flex-1 min-w-0 break-words">${escapeHtml(t.text)}</span>
-        </div>`).join('');
+            ${added ? '<span class="shrink-0 text-emerald-600 font-semibold">✓ Added</span>' : ''}
+        </div>`;
+    }).join('');
     results.dataset.tags = JSON.stringify(tags);
 }
 
@@ -2141,60 +2147,73 @@ document.addEventListener('click', (e) => {
     const results = document.getElementById('inlineTagAddResults');
     const tags = JSON.parse(results?.dataset.tags || '[]');
     const tag = tags[parseInt(row.dataset.index, 10)];
-    if (tag) submitInlineTagAdd(tag.text);
+    if (!tag || row.dataset.added) return;
+    markResultAdded(row);
+    submitInlineTagAdd(tag.text);
 });
 
-async function submitInlineTagAdd(tagName) {
+/** Lower-cased names of the tags already shown on the order. */
+function currentTagNames() {
+    const list = document.getElementById('inlineTagsList');
+    return new Set(Array.from(list?.querySelectorAll('.real-tag-chip') || []).map((c) => (c.dataset.tagName || '').toLowerCase()));
+}
+
+/** Grey out a picked result in place (no re-render, so the panel and the
+ *  typed search stay exactly as they are for the next pick). */
+function markResultAdded(row) {
+    row.dataset.added = '1';
+    row.classList.add('opacity-50', 'cursor-default');
+    row.classList.remove('cursor-pointer');
+    if (!row.querySelector('.tag-added-mark')) {
+        row.insertAdjacentHTML('beforeend', '<span class="tag-added-mark shrink-0 text-emerald-600 font-semibold">✓ Added</span>');
+    }
+}
+
+// Tag writes go out one at a time (each is a whole-order GET→PUT in
+// Pancake, so two in flight could overwrite each other), but the
+// associate never waits: the pill shows immediately and they can pick the
+// next tag while the previous one is still saving (explicit request,
+// 2026-10-21: "they will search immediately to next tag").
+let inlineTagQueue = Promise.resolve();
+
+function submitInlineTagAdd(tagName) {
     const list = document.getElementById('inlineTagsList');
     if (!list) return;
     const leadId = list.dataset.leadId;
-    // Explicit follow-up request, 2026-09-04: "when users add tag like one
-    // tag it will not be closed and can add more tag like that", then
-    // 2026-09-18: "i want it to still open ... not just every add tag will
-    // be page reload like that" — the first fix kept the PANEL open but
-    // still drove a full refreshLeadDetail() reload of the whole detail
-    // card underneath it (a brand new #inlineTagAddPanel element replaces
-    // the old one, then gets manually reopened), which is visibly a
-    // flash/reload even though the popup itself didn't technically close.
-    // No detail-card refresh at all now — the new pill is appended
-    // directly into the DOM (same markup _detail.blade.php's own
-    // @foreach($displayTags) renders) and the search panel just stays
-    // exactly as it was, so adding several tags in a row never re-renders
-    // anything else on the card.
+    // Panel stays open with the typed search and its results untouched
+    // (explicit request, 2026-10-21: "the search bar will be not close and
+    // the previous tag search will be not delete") — focus goes back to
+    // the search box so the next tag is one click or a few keystrokes away.
+    const chip = appendTagChip(list, leadId, tagName);
+    chip?.classList.add('opacity-60');
+    const search = document.getElementById('inlineTagAddSearch');
+    if (search) search.focus();
 
-    const addBtn = document.getElementById('inlineTagAddBtn');
-    if (addBtn) { addBtn.disabled = true; }
+    inlineTagQueue = inlineTagQueue.then(async () => {
+        try {
+            const res = await fetch(`/calls/leads/${leadId}/tags/add`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: JSON.stringify({ tag: tagName }),
+            });
+            const data = await res.json();
 
-    try {
-        const res = await fetch(`/calls/leads/${leadId}/tags/add`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
-            },
-            body: JSON.stringify({ tag: tagName }),
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            window.showToast?.(`Added "${tagName}".`, 'success');
-            appendTagChip(list, leadId, tagName);
-            // Keep the panel open, ready for the next search — same as
-            // openInlineTagAdd()'s own "fresh search" reset, just without
-            // the open/close toggle it also does.
-            const results = document.getElementById('inlineTagAddResults');
-            const search = document.getElementById('inlineTagAddSearch');
-            if (results) results.innerHTML = '<p class="text-slate-400 text-center text-[11px] py-3">Type to search…</p>';
-            if (search) { search.value = ''; search.focus(); }
-        } else {
-            window.showToast?.(data.error || `Could not add "${tagName}".`, 'error');
+            if (data.success) {
+                chip?.classList.remove('opacity-60');
+                window.showToast?.(`Added "${tagName}".`, 'success');
+            } else {
+                chip?.remove();
+                window.showToast?.(data.error || `Could not add "${tagName}".`, 'error');
+            }
+        } catch (e) {
+            chip?.remove();
+            window.showToast?.(`Could not add "${tagName}" — try again.`, 'error');
         }
-    } catch (e) {
-        window.showToast?.('Could not reach the server — try again.', 'error');
-    } finally {
-        if (addBtn) { addBtn.disabled = false; }
-    }
+    });
 }
 
 /** Appends one tag pill to the POS Tags list without touching anything
@@ -2209,7 +2228,7 @@ function appendTagChip(list, leadId, tagName) {
     const already = Array.from(list.querySelectorAll('.real-tag-chip')).some(
         (chip) => (chip.dataset.tagName || '').toLowerCase() === tagName.toLowerCase()
     );
-    if (already) return;
+    if (already) return null;
 
     const chip = document.createElement('span');
     chip.className = 'real-tag-chip inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-full pl-2.5 pr-1.5 py-1';
@@ -2220,9 +2239,14 @@ function appendTagChip(list, leadId, tagName) {
         <button type="button" class="real-tag-remove hover:text-red-600 cursor-pointer leading-none" data-lead-id="${leadId}" data-tag="${escapeHtml(tagName)}" title="Remove tag from order" aria-label="Remove ${escapeHtml(tagName)}">×</button>
     `;
     list.appendChild(chip);
+    return chip;
 }
 
 document.addEventListener('click', (e) => {
+    // A click on something that was just redrawn (e.g. a result row the
+    // search replaced mid-click) is no longer in the page — not an outside
+    // click, so it must not close the panel.
+    if (!e.target.isConnected) return;
     if (!e.target.closest('#inlineTagAddWrap')) {
         document.getElementById('inlineTagAddPanel')?.classList.add('hidden');
     }
