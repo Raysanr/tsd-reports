@@ -186,14 +186,15 @@
         ['key' => 'unfulfilled', 'label' => 'Unfulfilled'],
         ['key' => 'fulfilled', 'label' => 'Fulfilled'],
         ['key' => 'returns', 'label' => 'Returns'],
-        ['key' => 'delivered', 'label' => 'Delivered'],
+        ['key' => 'delivered', 'label' => 'Delivered', 'green' => true],
     ] : [
         ['key' => 'returns', 'label' => 'Projected Returns'],
         ['key' => 'delivered', 'label' => 'Projected Delivered'],
     ] as $col)
+    @php($tone = ($col['green'] ?? false) ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400')
     <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="text-red-600 dark:text-red-400">{{ $col['label'] }}</span>
-        <span data-out="{{ $col['key'] }}" class="text-right font-semibold text-red-600 dark:text-red-400">{{ $fmtMoney($d[$col['key']]) }}</span>
+        <span class="{{ $tone }}">{{ $col['label'] }}</span>
+        <span data-out="{{ $col['key'] }}" class="text-right font-semibold {{ $tone }}">{{ $fmtMoney($d[$col['key']]) }}</span>
         <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
     </div>
     @endforeach
