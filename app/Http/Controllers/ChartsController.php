@@ -142,6 +142,12 @@ class ChartsController extends Controller
             $salesSeries[$team]  = [];
         }
 
+        // Delivered/RTS series: same rules as Actual Income (ActualSplit,
+        // 2026-10-21) — every real TSA's orders on the COALESCE date basis.
+        $splitOrdersByDate = \App\Support\ActualSplit::ordersFor(
+            \App\Models\TsaShift::whereIn('team', $orderTeams)->pluck('tsa_key'), $from->toDateString(), $to->toDateString()
+        )->groupBy(fn ($o) => \App\Support\ActualSplit::dateOf($o));
+
         foreach ($days as $day) {
             $dailyLabels[] = $day->format('M d');
             $dayOrders     = $ordersByDate->get($day->toDateString(), collect());
@@ -181,8 +187,9 @@ class ChartsController extends Controller
             // amount + is_upsell, because VOID_STATUSES forces is_upsell false on
             // Returning/Returned orders and leaves amount holding the whole
             // shipment's price (see RtsReportController / SyncTodayOrders).
-            $deliveredSeries[] = (float) $dayOrders->where('is_upsell', true)->where('status_code', 3)->sum('amount');
-            $rtsSeries[]       = (float) $dayOrders->where('is_returned_upsell', true)->sum('returned_upsell_amount');
+            $daySplit = \App\Support\ActualSplit::fromOrders($splitOrdersByDate->get($day->toDateString(), collect()));
+            $deliveredSeries[] = $daySplit['delivered'];
+            $rtsSeries[]       = $daySplit['returns'];
         }
 
         // --- Product comparison: Upselling Rate per product across the whole range ---

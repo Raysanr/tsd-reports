@@ -214,7 +214,7 @@ class InsightsGenerator
             $allShifts = $allShifts->merge($shifts);
 
             $cards = $cards->merge($this->tsaTrendCards($shifts, $teamOrders, $referenceDate));
-            $cards = $cards->merge($this->rtsRateCards($shifts, $teamOrders));
+            $cards = $cards->merge($this->rtsRateCards($shifts, $rangeFrom, $rangeTo));
             $cards = $cards->merge($this->targetMetricsCards($shifts, $teamOrders, $referenceDate, $orderTeam));
             $cards = $cards->merge($this->cancelledUpsellCards($shifts, $teamOrders, $referenceDate));
             $cards = $cards->merge($this->zeroSalesProductCards($orderTeam, $teamOrders, $referenceDate));
@@ -623,9 +623,12 @@ class InsightsGenerator
      *  is_upsell+status=3/amount split RtsReportController itself uses,
      *  just with a rate + relative comparison on top instead of a raw
      *  table. */
-    private function rtsRateCards(Collection $shifts, Collection $teamOrders): Collection
+    private function rtsRateCards(Collection $shifts, $rangeFrom, $rangeTo): Collection
     {
-        $ordersByTsa = $teamOrders->groupBy(fn ($o) => $o->tsa_name ?? '__unassigned__');
+        // Same RTS/Delivered rules as Actual Income (ActualSplit, 2026-10-21).
+        $ordersByTsa = \App\Support\ActualSplit::ordersFor(
+            $shifts->pluck('tsa_key'), Carbon::parse($rangeFrom)->toDateString(), Carbon::parse($rangeTo)->toDateString()
+        )->groupBy('tsa_name');
 
         $rates = [];
         foreach ($shifts as $shift) {
@@ -634,8 +637,9 @@ class InsightsGenerator
                 continue;
             }
 
-            $rts = (float) $orders->where('is_returned_upsell', true)->sum('returned_upsell_amount');
-            $delivered = (float) $orders->filter(fn (Order $o) => $o->is_upsell && $o->status_code === 3)->sum('amount');
+            $split = \App\Support\ActualSplit::fromOrders($orders);
+            $rts = $split['returns'];
+            $delivered = $split['delivered'];
             $sample = $rts + $delivered;
 
             if ($sample < self::MIN_RTS_SAMPLE_PESOS) {

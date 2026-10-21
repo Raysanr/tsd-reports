@@ -417,7 +417,7 @@ class InsightsTest extends TestCase
     {
         // 3 comparable SH Naturals TSAs (Gemma, Mariel, Kathleen) — Gemma's
         // RTS rate is way above the other two, who have none at all.
-        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'returned_upsell_amount' => 800, 'amount' => 800]);
+        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'status_code' => 5, 'returned_upsell_amount' => 800, 'amount' => 800]);
         $this->order(['tsa_name' => 'Mariel', 'is_upsell' => true, 'status_code' => 3, 'amount' => 800]);
         $this->order(['tsa_name' => 'Kathleen', 'is_upsell' => true, 'status_code' => 3, 'amount' => 800]);
 
@@ -428,7 +428,7 @@ class InsightsTest extends TestCase
 
     public function test_does_not_flag_rts_with_fewer_than_three_comparable_tsas(): void
     {
-        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'returned_upsell_amount' => 800, 'amount' => 800]);
+        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'status_code' => 5, 'returned_upsell_amount' => 800, 'amount' => 800]);
         $this->order(['tsa_name' => 'Mariel', 'is_upsell' => true, 'status_code' => 3, 'amount' => 800]);
 
         $cards = (new InsightsGenerator())->generate();
@@ -438,7 +438,7 @@ class InsightsTest extends TestCase
 
     public function test_does_not_flag_rts_below_the_minimum_sample_size(): void
     {
-        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'returned_upsell_amount' => 50, 'amount' => 50]);
+        $this->order(['tsa_name' => 'Gemma', 'is_upsell' => true, 'is_returned_upsell' => true, 'status_code' => 5, 'returned_upsell_amount' => 50, 'amount' => 50]);
         $this->order(['tsa_name' => 'Mariel', 'is_upsell' => true, 'status_code' => 3, 'amount' => 50]);
         $this->order(['tsa_name' => 'Kathleen', 'is_upsell' => true, 'status_code' => 3, 'amount' => 50]);
 

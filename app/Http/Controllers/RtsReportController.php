@@ -32,26 +32,15 @@ class RtsReportController extends Controller
             $shifts = TsaShift::where('team', $teamConfig['order_team'])
                 ->orderBy('sort_order')->get();
 
-            $rows = $shifts->map(function ($shift) use ($teamConfig, $from, $to) {
-                // Upsell-only, per the request — a TSA's RTS/Delivered numbers here
-                // reflect just their upsell add-on sales, not the customer's whole order.
-                $scoped = fn() => Order::where('team', $teamConfig['order_team'])
-                    ->where('tsa_name', $shift->tsa_key)
-                    ->whereBetween('pancake_created_at', [$from, $to]);
-
-                // RTS reads from is_returned_upsell/returned_upsell_amount, NOT
-                // is_upsell + status — Order::VOID_STATUSES forces is_upsell false for
-                // any Returning/Returned order (same as Cancelled/Restocking/Deleted), so
-                // that combination can never exist. These two columns exist specifically
-                // to preserve "this was an upsell" and its true add-on-only amount for
-                // that case (see SyncTodayOrders' $isReturnedUpsell).
-                $rtsAmount = (float) $scoped()->where('is_returned_upsell', true)->sum('returned_upsell_amount');
-
-                $deliveredAmount = (float) $scoped()
-                    ->where('is_upsell', true)
-                    ->where('status_code', self::DELIVERED_STATUS)
-                    ->sum('amount');
-
+            // Same order set and status rules as Actual Income (ActualSplit,
+            // 2026-10-21 "make it all accurate"): every order of this team's
+            // TSAs, RTS = Returning/Partial return/Returned, Delivered =
+            // Received + Collected money.
+            $byTsa = \App\Support\ActualSplit::ordersFor($shifts->pluck('tsa_key'), $from->toDateString(), $to->toDateString())->groupBy('tsa_name');
+            $rows = $shifts->map(function ($shift) use ($byTsa) {
+                $split = \App\Support\ActualSplit::fromOrders($byTsa->get($shift->tsa_key, collect()));
+                $rtsAmount = $split['returns'];
+                $deliveredAmount = $split['delivered'];
                 return [
                     'display_name'     => $shift->display_name,
                     'rts_amount'       => $rtsAmount,
