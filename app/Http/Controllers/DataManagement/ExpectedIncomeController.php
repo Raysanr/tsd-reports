@@ -77,6 +77,29 @@ use Illuminate\Support\Carbon;
  */
 class ExpectedIncomeController extends Controller
 {
+    /** Public entry points run in the projection month of $dateFrom, so
+     *  they use that month's Projections rows (rows are per month,
+     *  2026-10-21). */
+    public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    {
+        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::netIncomeByTsaAndDateInMonth($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders));
+    }
+
+    public static function tiktokTotalsByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    {
+        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::tiktokTotalsByTsaAndDateInMonth($dateFrom, $dateTo));
+    }
+
+    public static function teamNetIncomeByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    {
+        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::teamNetIncomeByDateInMonth($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders));
+    }
+
+    public static function grossSalesAndNetIncomeByProductAndDate(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
+    {
+        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::grossSalesAndNetIncomeByProductAndDateInMonth($dateFrom, $dateTo, $onlyOrderTeam));
+    }
+
     public function index(Request $request)
     {
         // See DateRangeFilter's own doc comment — remembers the last range
@@ -85,6 +108,7 @@ class ExpectedIncomeController extends Controller
         // defaulting to "today only" on a brand-new session.
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
         \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
@@ -258,7 +282,7 @@ class ExpectedIncomeController extends Controller
      *  method's own per-day values itself, same as Summary Sales Report's
      *  own TsaSalesCalculator::sum() already does for every other
      *  per-day field on that page. */
-    public static function netIncomeByTsaAndDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    private static function netIncomeByTsaAndDateInMonth(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
         $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -388,7 +412,7 @@ class ExpectedIncomeController extends Controller
      *  returned as 0 for those 3 fields, same "field this source table
      *  can't represent stays 0" convention TsaTiktokEntry itself already
      *  uses for fields it has no formula for. */
-    public static function tiktokTotalsByTsaAndDate(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
+    private static function tiktokTotalsByTsaAndDateInMonth(string $dateFrom, string $dateTo): \Illuminate\Support\Collection
     {
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
         $flaggedTsas = TsaShift::where('tiktok_upsell', true)->get();
@@ -462,7 +486,7 @@ class ExpectedIncomeController extends Controller
      *  (same $teamTsaIds exclusion buildSummary() itself applies), same
      *  scope boundary Summary Sales Report's own TikTok Upsell section
      *  already agrees on. */
-    public static function teamNetIncomeByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    private static function teamNetIncomeByDateInMonth(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
         $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -558,7 +582,7 @@ class ExpectedIncomeController extends Controller
      *  DSPPR's own per-team filter, or null for DSPPR's own ALL view
      *  (every real TSA site-wide, mirroring buildSummaryRow()'s own
      *  main/team-independent row). */
-    public static function grossSalesAndNetIncomeByProductAndDate(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
+    private static function grossSalesAndNetIncomeByProductAndDateInMonth(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
     {
         $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -673,6 +697,7 @@ class ExpectedIncomeController extends Controller
     {
         $range = DateRangeFilter::resolve($request, 'expected-income');
         $dateFrom = $range['from'];
+        \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7)); // that month's Projections rows
         \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
         $dateTo   = $range['to'];
 
@@ -2941,6 +2966,7 @@ class ExpectedIncomeController extends Controller
      *  for her own card (route data.expected-income.update-tsa). */
     public function update(Request $request, Product $product, string $date, ?TsaShift $tsaShift = null)
     {
+        \App\Support\ProjectionMonth::set(substr($date, 0, 7));
         $data = $request->validate([
             'roas'                       => ['sometimes', 'numeric', 'min:0'],
             'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
@@ -3095,6 +3121,7 @@ class ExpectedIncomeController extends Controller
      *  only ever these 2 cards. */
     public function updateTiktok(Request $request, string $cardKey, TsaShift $tsaShift, string $date)
     {
+        \App\Support\ProjectionMonth::set(substr($date, 0, 7));
         if (!array_key_exists($cardKey, ExpectedIncomeTiktokEntry::CARDS)) {
             abort(404);
         }
@@ -3289,6 +3316,7 @@ class ExpectedIncomeController extends Controller
      *  key)" convention as ProjectionController::updateRates(). */
     public function updateCustomRow(Request $request, Product $product, string $date, ?TsaShift $tsaShift = null)
     {
+        \App\Support\ProjectionMonth::set(substr($date, 0, 7));
         $data = $request->validate([
             'key'   => ['required', 'string', 'in:' . implode(',', ExpectedIncomeCalculator::customRowKeys())],
             'value' => ['required', 'numeric', 'min:0'],

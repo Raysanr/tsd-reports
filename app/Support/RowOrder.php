@@ -68,7 +68,7 @@ class RowOrder
         // RequestMemo (perf, 2026-10-15) — ensureSeeded()'s own inserts
         // flush it, so the first call still seeds and later ones re-read.
         return RequestMemo::remember(
-            'row_order.rows|' . $section . '|' . md5(serialize([$builtinRows, $otherBuiltinRows])),
+            'row_order.rows|' . ProjectionMonth::current() . '|' . $section . '|' . md5(serialize([$builtinRows, $otherBuiltinRows])),
             fn () => self::computeRows($builtinRows, $section, $otherBuiltinRows)
         );
     }
@@ -106,7 +106,7 @@ class RowOrder
      *  ProjectionCustomRow query just to build this list. */
     public static function customRowKeys(): array
     {
-        return RequestMemo::remember('projection_custom_rows.keys', fn () => ProjectionCustomRow::get()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all());
+        return RequestMemo::remember('projection_custom_rows.keys|' . ProjectionMonth::current(), fn () => ProjectionCustomRow::get()->mapWithKeys(fn (ProjectionCustomRow $row) => [$row->key => $row->label])->all());
     }
 
     /** Seeds row_sort_orders for every key in $builtinRows PLUS every real
@@ -146,7 +146,7 @@ class RowOrder
 
         $rows = collect($missingBuiltins)
             ->values()
-            ->map(fn ($key, $i) => ['row_key' => $key, 'section' => $section, 'sort_order' => $i * 10, 'created_at' => now(), 'updated_at' => now()])
+            ->map(fn ($key, $i) => ['month' => ProjectionMonth::current(), 'row_key' => $key, 'section' => $section, 'sort_order' => $i * 10, 'created_at' => now(), 'updated_at' => now()])
             // Built-ins only seed their OWN gap-free 0,10,20... sequence
             // when the section has no rows at all yet (a brand-new
             // install) — once anything exists, a missing built-in (e.g. a
@@ -158,7 +158,7 @@ class RowOrder
                 return $row;
             }))
             ->concat(collect($missingCustom)->values()->map(fn ($key, $i) => [
-                'row_key' => $key, 'section' => $section,
+                'month' => ProjectionMonth::current(), 'row_key' => $key, 'section' => $section,
                 'sort_order' => $nextOrder + (count($missingBuiltins) + $i) * 10,
                 'created_at' => now(), 'updated_at' => now(),
             ]))

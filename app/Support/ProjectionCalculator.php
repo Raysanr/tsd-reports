@@ -227,7 +227,7 @@ class ProjectionCalculator
      *  to 0.0 (no cost) until the add/edit modal sets it. */
     public static function rate(string $key): float
     {
-        $stored = Setting::get("projection_rate.{$key}");
+        $stored = Setting::get(ProjectionMonth::rateKey($key));
         return $stored !== null ? (float) $stored : (self::DEFAULT_RATES[$key] ?? 0.0);
     }
 
@@ -262,7 +262,7 @@ class ProjectionCalculator
     {
         // RequestMemo (2026-10-15) — flushed on any write in the same
         // request, so the freshly-created-row case above stays correct.
-        return RequestMemo::remember('projection_custom_rows.ordered', fn () => ProjectionCustomRow::orderBy('sort_order')->get());
+        return RequestMemo::remember('projection_custom_rows.ordered|' . ProjectionMonth::current(), fn () => ProjectionCustomRow::orderBy('sort_order')->get());
     }
 
     private static function customRowKeys(): array

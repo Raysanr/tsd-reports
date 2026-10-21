@@ -914,13 +914,13 @@ class ProjectionsTest extends TestCase
         $row = \App\Models\ProjectionCustomRow::create([
             'key' => 'custom_test_row', 'section' => 'operating', 'label' => 'Test Row', 'is_fixed' => false, 'sort_order' => 0,
         ]);
-        \App\Models\Setting::set('projection_rate.custom_test_row', 0.02);
+        \App\Models\Setting::set(\App\Support\ProjectionMonth::rateKey('custom_test_row'), 0.02);
 
         $response = $this->actingAs($admin)->deleteJson(route('data.projections.custom-rows.destroy', $row));
 
         $response->assertOk();
         $this->assertDatabaseMissing('projection_custom_rows', ['id' => $row->id]);
-        $this->assertNull(\App\Models\Setting::get('projection_rate.custom_test_row'));
+        $this->assertNull(\App\Models\Setting::get(\App\Support\ProjectionMonth::rateKey('custom_test_row')));
 
         $computed = collect($response->json('computed'));
         $opening = $computed->firstWhere('column.key', 'opening_shift');
@@ -972,7 +972,7 @@ class ProjectionsTest extends TestCase
         $admin = User::factory()->create(['role' => 'admin']);
         // A deliberately huge rate forces every column's own Net Income
         // negative regardless of its real inputs.
-        \App\Models\Setting::set('projection_rate.advertising_cost', 50);
+        \App\Models\Setting::set(\App\Support\ProjectionMonth::rateKey('advertising_cost'), 50);
 
         $response = $this->actingAs($admin)->get(route('data.projections'));
 

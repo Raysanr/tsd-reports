@@ -9,8 +9,10 @@ use App\Models\RowSortOrder;
 use App\Models\Setting;
 use App\Support\ActivityLogger;
 use App\Support\ProjectionCalculator;
+use App\Support\ProjectionMonth;
 use App\Support\RowOrder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 /**
@@ -33,6 +35,7 @@ class ProjectionController extends Controller
         // month filter would silently reset to the current month every
         // time, same bug those two already got fixed for.
         $month = $this->resolveSelectedMonth($request);
+        ProjectionMonth::set($month);
 
         // Self-heals this month's own 7 rows (seen in practice for the
         // single-month version of this table: a dev DB reset after a
@@ -114,6 +117,7 @@ class ProjectionController extends Controller
         // TypeErrors deep inside ProjectionCalculator::forColumn() instead
         // of at the actual point of failure.
         $column = $projectionColumn;
+        ProjectionMonth::set($column->month ?? $this->currentSessionMonth());
         $data = $request->validate([
             'roas'                       => ['sometimes', 'numeric', 'min:0'],
             'standard_cost_per_message'  => ['sometimes', 'numeric', 'min:0'],
@@ -223,6 +227,7 @@ class ProjectionController extends Controller
      *  changing affects all of them at once. */
     public function updateRates(Request $request)
     {
+        ProjectionMonth::set($this->currentSessionMonth());
         // Whitelist includes every custom row's own key too (not just
         // DEFAULT_RATES) — a custom row's rate lives in Settings exactly
         // like a built-in one, see ProjectionCalculator::allRates()'s own
@@ -232,9 +237,9 @@ class ProjectionController extends Controller
             'value' => ['required', 'numeric'],
         ]);
 
-        $oldValue = Setting::get("projection_rate.{$data['key']}");
-        Setting::set("projection_rate.{$data['key']}", (float) $data['value']);
-        ActivityLogger::logFieldUpdate('projection.rate_updated', null, $data['key'], $oldValue, $data['value'], 'the shared rate settings', fn ($v) => number_format((float) $v, 4));
+        $oldValue = Setting::get(ProjectionMonth::rateKey($data['key']));
+        Setting::set(ProjectionMonth::rateKey($data['key']), (float) $data['value']);
+        ActivityLogger::logFieldUpdate('projection.rate_updated', null, $data['key'], $oldValue, $data['value'], Carbon::createFromFormat('Y-m', ProjectionMonth::current())->format('F Y') . ' rates', fn ($v) => number_format((float) $v, 4));
 
         $rates   = ProjectionCalculator::allRates();
         // Scoped to the session-remembered month (explicit decision,
@@ -266,6 +271,7 @@ class ProjectionController extends Controller
      *  never renders with a misleading 0.00 for even one page load. */
     public function storeCustomRow(Request $request)
     {
+        ProjectionMonth::set($this->currentSessionMonth());
         $data = $request->validate([
             'section'        => ['required', 'string', 'in:selling,operating'],
             'label'          => ['required', 'string', 'max:255'],
@@ -293,7 +299,7 @@ class ProjectionController extends Controller
         ]);
 
         if (($data['initial_value'] ?? 0) > 0 && ($data['gross_sales'] ?? 0) > 0) {
-            Setting::set("projection_rate.{$key}", $data['initial_value'] / $data['gross_sales']);
+            Setting::set(ProjectionMonth::rateKey($key), $data['initial_value'] / $data['gross_sales']);
         }
 
         ActivityLogger::log('projection.custom_row_created', $row, "Added custom row \"{$data['label']}\" to " . ($data['section'] === 'selling' ? 'Selling And Marketing' : 'Operating Costs') . '.');
@@ -317,10 +323,14 @@ class ProjectionController extends Controller
      *  showing it immediately, same as it appeared everywhere the moment
      *  it was added) — also clears its Settings rate so a later row that
      *  happens to slugify to the same key never inherits a stale value. */
-    public function destroyCustomRow(ProjectionCustomRow $projectionCustomRow)
+    public function destroyCustomRow(int $projectionCustomRow)
     {
+        // This month's copy only (rows are per month, 2026-10-21).
+        ProjectionMonth::set($this->currentSessionMonth());
+        $projectionCustomRow = ProjectionCustomRow::findOrFail($projectionCustomRow);
         $label = $projectionCustomRow->label;
-        Setting::where('key', "projection_rate.{$projectionCustomRow->key}")->delete();
+        Setting::where('key', ProjectionMonth::rateKey($projectionCustomRow->key))->delete();
+        RowSortOrder::where('row_key', $projectionCustomRow->key)->delete();
         ActivityLogger::log('projection.custom_row_deleted', null, "Removed custom row \"{$label}\".");
         $projectionCustomRow->delete();
 
@@ -377,6 +387,7 @@ class ProjectionController extends Controller
      *  branch already established, just for every card instead of one. */
     public function reorderRows(Request $request)
     {
+        ProjectionMonth::set($this->currentSessionMonth());
         $data = $request->validate([
             'row_key'        => ['required', 'string'],
             'after_row_key'  => ['nullable', 'string'],
