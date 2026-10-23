@@ -175,13 +175,16 @@ class TsaManagementController extends Controller
         // Auto-text (SMSGate) fields — only touched when the form sent
         // them, so an older form/POST without them changes nothing. A blank
         // password keeps the saved one (the field never echoes it back).
-        if ($request->has('sms_enabled')) {
+        // A paired partner shares the primary's phone — their auto-text
+        // settings live on the primary only (TsaShift::smsPhoneOwner()).
+        $sharesPhone = $tsaShift->paired_with_tsa_id !== null;
+        if (!$sharesPhone && $request->has('sms_enabled')) {
             $tsaShift->sms_enabled = $request->boolean('sms_enabled');
         }
-        if ($request->has('smsgate_username')) {
+        if (!$sharesPhone && $request->has('smsgate_username')) {
             $tsaShift->smsgate_username = $data['smsgate_username'] ?: null;
         }
-        if (filled($data['smsgate_password'] ?? null)) {
+        if (!$sharesPhone && filled($data['smsgate_password'] ?? null)) {
             $tsaShift->smsgate_password = $data['smsgate_password'];
         }
         $tsaShift->save();

@@ -52,7 +52,9 @@ class LeadAutoText
 
     private static function attempt(Lead $lead): void
     {
-        $tsa = $lead->tsa;
+        // A paired partner shares the primary's phone — that phone's
+        // switch and login decide, and the text goes out from it.
+        $tsa = $lead->tsa?->smsPhoneOwner();
         if (!self::enabled() || !$tsa || !$tsa->sms_enabled) {
             return;
         }

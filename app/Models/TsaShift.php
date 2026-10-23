@@ -465,12 +465,25 @@ class TsaShift extends Model
      *  already-paired TSA would silently orphan its existing partner, so
      *  callers must unpair() first (TsaManagementController::pair() does
      *  this before calling in). */
+    /** Whose phone actually sends this TSA's auto-texts — a pair's
+     *  partner shares the primary's phone, so the primary's SMSGate
+     *  switch/login apply (explicit request, 2026-10-23). */
+    public function smsPhoneOwner(): self
+    {
+        return $this->paired_with_tsa_id !== null ? ($this->pairedWith ?? $this) : $this;
+    }
+
     public function pairWith(self $partner): void
     {
         $partner->update([
             'paired_with_tsa_id' => $this->id,
             'api_token'          => null,
             'dialer_host'        => null,
+            // Shared phone — the partner's own SMSGate login no longer
+            // applies (smsPhoneOwner()), so don't keep a stale one around.
+            'sms_enabled'        => false,
+            'smsgate_username'   => null,
+            'smsgate_password'   => null,
         ]);
     }
 

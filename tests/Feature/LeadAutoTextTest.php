@@ -189,4 +189,36 @@ class LeadAutoTextTest extends TestCase
         Http::assertNothingSent();
         $this->assertStringContainsString('no address', $lead->activities()->where('type', 'sms_skipped')->value('description'));
     }
+
+    public function test_a_paired_partners_lead_is_texted_from_the_primarys_phone(): void
+    {
+        $partner = TsaShift::where('id', '!=', $this->tsa->id)->first();
+        $this->tsa->pairWith($partner);
+        $this->fakeSmsGate();
+        $lead = Lead::create([
+            'pancake_order_id' => 'sms-pair', 'customer_name' => 'Ana Reyes', 'phone_number' => '09181234567',
+            'product_id' => $this->product->id, 'tsa_id' => $partner->id, 'status' => 'assigned',
+        ]);
+
+        LeadAutoText::sendForNewLead($lead);
+
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/messages')
+            && $r->hasHeader('Authorization', 'Basic ' . base64_encode('GEMMA1:secret')));
+    }
+
+    public function test_a_paired_partner_cannot_set_their_own_sms_login(): void
+    {
+        $partner = TsaShift::where('id', '!=', $this->tsa->id)->first();
+        $this->tsa->pairWith($partner);
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+
+        $this->post(route('calls.tsa-management.update', $partner), [
+            'products' => [], 'sms_enabled' => '1', 'smsgate_username' => 'X', 'smsgate_password' => 'Y',
+        ]);
+
+        $fresh = $partner->fresh();
+        $this->assertFalse($fresh->sms_enabled);
+        $this->assertNull($fresh->smsgate_username);
+        $this->get(route('calls.tsa-management'))->assertOk()->assertSee("Shared phone — {$partner->display_name}", false);
+    }
 }

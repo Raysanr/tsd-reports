@@ -241,6 +241,24 @@
                                      phone (message per product, set in "Auto-text
                                      messages" above the table). Autosaves like the rest
                                      of this form; a blank password keeps the saved one. --}}
+                                @if($tsa->paired_with_tsa_id && $tsa->pairedWith)
+                                {{-- Shared phone (explicit request, 2026-10-23): this TSA's
+                                     leads are texted from the primary's phone, so there's
+                                     nothing to enter here — settings live on the primary. --}}
+                                @php $phoneOwner = $tsa->pairedWith; @endphp
+                                <div class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
+                                    <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Auto-text (SMSGate)</p>
+                                    <div class="mt-2 flex items-start gap-2.5 rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/20 px-3.5 py-2.5 text-sm text-amber-800 dark:text-amber-300 sm:max-w-xl">
+                                        <svg class="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                                        <p>
+                                            Shared phone — {{ $tsa->display_name }}'s leads are texted from <strong>{{ $phoneOwner->display_name }}'s phone</strong>, using {{ $phoneOwner->display_name }}'s auto-text settings.
+                                            <span class="block text-xs mt-0.5 {{ $phoneOwner->sms_enabled && $phoneOwner->smsgate_username ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700/80 dark:text-amber-400/80' }}">
+                                                {{ $phoneOwner->sms_enabled && $phoneOwner->smsgate_username ? '● Auto-text is on for that phone' : '○ Auto-text is off or not set up on that phone' }}
+                                            </span>
+                                        </p>
+                                    </div>
+                                </div>
+                                @else
                                 <div class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
                                     <div class="flex items-center justify-between gap-3 mb-3">
                                         <div>
@@ -269,6 +287,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                @endif
                             </form>
 
                             {{-- Account link — explicit request, 2026-08-26: confirmed live
