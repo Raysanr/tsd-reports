@@ -1043,6 +1043,20 @@ document.addEventListener('change', (e) => {
     tsaAutosaveNow(form);
 });
 
+// Show/hide password eye (TSA Management SMSGate login, 2026-10-23).
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('[data-password-toggle]');
+    if (!btn) return;
+    const input = btn.parentElement.querySelector('input');
+    if (!input) return;
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    btn.querySelector('[data-eye-open]')?.classList.toggle('hidden', show);
+    btn.querySelector('[data-eye-closed]')?.classList.toggle('hidden', !show);
+});
+
 // Enter in a text field (or any no-JS-style submit) saves instead of POSTing.
 document.addEventListener('submit', (e) => {
     if (!e.target.matches('.tsa-update-form')) return;
