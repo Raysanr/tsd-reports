@@ -94,7 +94,10 @@ class CostBreakdownController extends Controller
         // nothing typed yet still renders, just at 0" convention as every
         // other page in this module).
         $tsaRows = $tsas->map(function (TsaShift $tsa) use ($entriesByTsaId) {
-            $entry = $entriesByTsaId->get($tsa->id) ?? new CostBreakdownTsaEntry(['tsa_id' => $tsa->id, 'days' => 30]);
+            // base_salary 0 (bug fix, 2026-10-23): without it the fallback's
+            // base_salary was null and tsaTotal(float) 500'd the whole page
+            // for any TSA with no entry yet this month (e.g. newly added).
+            $entry = $entriesByTsaId->get($tsa->id) ?? new CostBreakdownTsaEntry(['tsa_id' => $tsa->id, 'base_salary' => 0, 'days' => 30]);
             return ['tsa' => $tsa, 'entry' => $entry];
         });
 
@@ -747,7 +750,7 @@ class CostBreakdownController extends Controller
         $this->ensureEditableMonth($month);
         $this->enterMonth($month);
         $entry = CostBreakdownTsaEntry::where('month', $month)->where('tsa_id', $tsaShift->id)->first()
-            ?? new CostBreakdownTsaEntry(['month' => $month, 'tsa_id' => $tsaShift->id, 'days' => 30]);
+            ?? new CostBreakdownTsaEntry(['month' => $month, 'tsa_id' => $tsaShift->id, 'base_salary' => 0, 'days' => 30]);
         $old = $entry->only(array_keys($data));
         $entry->fill($data);
         $entry->save();

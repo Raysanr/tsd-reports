@@ -37,6 +37,20 @@ class CostBreakdownSmokeTest extends TestCase
         $response->assertSee('Cost Allocation Per TSA');
     }
 
+    /** Production 500 (2026-10-23): a TSA with no entry for the month got
+     *  a fallback entry with a null base_salary, which tsaTotal(float)
+     *  rejected — taking the whole page down. */
+    public function test_a_tsa_with_no_entry_this_month_does_not_break_the_page(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $this->actingAs($admin)->get(route('data.cost-breakdown'))->assertOk(); // seeds entries
+
+        $tsa = TsaShift::where('tiktok_upsell', false)->firstOrFail();
+        CostBreakdownTsaEntry::where('tsa_id', $tsa->id)->delete();
+
+        $this->actingAs($admin)->get(route('data.cost-breakdown'))->assertOk()->assertSee($tsa->display_name);
+    }
+
     /** CSV-download + PNG-snapshot icons (explicit request, 2026-10-05) on
      *  the Salary Breakdown and Cost Allocation Per TSA tables (real
      *  <table>s), and PNG-only on Shared Monthly Cost Pools (a CSS grid of
