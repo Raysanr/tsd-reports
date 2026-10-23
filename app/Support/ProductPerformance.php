@@ -579,6 +579,20 @@ class ProductPerformance
      *  team-level or company-wide aggregates (e.g. the Analytics tab's daily/hourly
      *  trends) where there's no single product to match against. buildRow() is just
      *  this plus a product-matching filter step beforehand. */
+    /** The order carries Pancake's "RESTOCKING ORDERS" tag (exact, any case). */
+    public const RESTOCKING_TAG = 'RESTOCKING ORDERS';
+
+    public static function hasRestockingTag($order): bool
+    {
+        foreach ((array) ($order->raw_tags ?? []) as $tag) {
+            if (strcasecmp(trim((string) $tag), self::RESTOCKING_TAG) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function tally(Collection $orders): array
     {
         // Drop orders Pancake itself no longer has (Order::DELETED_STATUSES: Canceled
@@ -744,9 +758,10 @@ class ProductPerformance
         // &date_to=2026-08-31 500'd after this was first added the expensive
         // way). Restricting to the Restocking subset keeps the exact same
         // called-orders definition at a fraction of the cost.
-        $restockingStatus = $orders->where('status_code', 11);
-        $calledRestockingIds = self::ordersForColumn($restockingStatus, 'total_called')->pluck('id');
-        $row['restocking'] = $restockingStatus->whereNotIn('id', $calledRestockingIds)->count();
+        // 2026-10-23 (explicit request): counted by the "RESTOCKING ORDERS"
+        // POS TAG, not Pancake's Restocking status — the two barely overlap
+        // (Oct 2026: 252 tagged vs 121 in that status, only 15 both).
+        $row['restocking'] = self::ordersForColumn($orders, 'restocking')->count();
 
         // Excess = Total - Catered - Restocking: the reconciling remainder once both
         // known non-lead buckets are pulled out, so every row still adds up visibly
@@ -1008,8 +1023,14 @@ class ProductPerformance
         // Restocking — see tally()'s 'restocking' line: orders Pancake has parked
         // in Restocking status (status_code 11), pulled out of Excess as their own
         // bucket.
+        // By the "RESTOCKING ORDERS" tag (2026-10-23), minus any order already
+        // counted as called — same set the column's number counts, so the
+        // pop-up always lists exactly that many orders.
         if ($column === 'restocking') {
-            return $orders->where('status_code', 11)->values();
+            $tagged = $orders->filter(fn ($o) => self::hasRestockingTag($o))->values();
+            $calledIds = self::ordersForColumn($tagged, 'total_called')->pluck('id');
+
+            return $tagged->whereNotIn('id', $calledIds)->values();
         }
 
         // Excess = Total - Catered - Restocking (see tally()'s 'excess' line) — the
