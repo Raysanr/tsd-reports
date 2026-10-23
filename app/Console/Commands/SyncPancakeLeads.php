@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
+use App\Support\LeadAutoText;
 use App\Support\PancakeOrderTagApi;
 use App\Models\LeadSyncSkip;
 use App\Support\RoundRobinAssigner;
@@ -345,6 +346,8 @@ class SyncPancakeLeads extends Command
                     // fields on a Pancake order; customer.phone_numbers is a
                     // plural array fallback.
                     'customer_name'      => $raw['bill_full_name'] ?? $raw['customer']['name'] ?? null,
+                    // For the auto-text {address} placeholder (2026-10-23).
+                    'customer_address'   => self::shippingAddressText($raw),
                     'phone_number'       => $rawPhone,
                     'conversation_link'  => $raw['customer']['conversation_link'] ?? null,
                     'pancake_page_id'         => isset($raw['page_id']) ? (string) $raw['page_id'] : null,
@@ -409,6 +412,8 @@ class SyncPancakeLeads extends Command
                 // tagTsaOnPancakeOrder()'s own doc comment).
                 if ($lead->tsa_id) {
                     LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class), [], true);
+                    // Auto-text from the TSA's own phone (2026-10-23).
+                    LeadAutoText::sendForNewLead($lead);
                 }
             }
 
@@ -935,6 +940,8 @@ class SyncPancakeLeads extends Command
             // Same immediate POS name tag as a brand-new lead gets above —
             // see LeadController::tagTsaOnPancakeOrder()'s own doc comment.
             LeadController::tagTsaOnPancakeOrder($lead, app(PancakeOrderTagApi::class), [], true);
+            // First TSA this lead ever got — same auto-text as a new lead.
+            LeadAutoText::sendForNewLead($lead);
 
             $caughtUp++;
         }
@@ -953,5 +960,22 @@ class SyncPancakeLeads extends Command
             'success'        => $success,
             'error_message'  => $errorMessage,
         ]);
+    }
+
+    /** One-line shipping address from a raw Pancake order — full_address
+     *  when Pancake built one, else its parts joined. */
+    private static function shippingAddressText(array $raw): ?string
+    {
+        $a = $raw['shipping_address'] ?? null;
+        if (!is_array($a)) {
+            return null;
+        }
+        $text = trim((string) ($a['full_address'] ?? ''));
+        if ($text === '') {
+            $text = collect([$a['address'] ?? null, $a['commune_name'] ?? null, $a['district_name'] ?? null, $a['province_name'] ?? null])
+                ->filter(fn ($v) => filled($v))->implode(', ');
+        }
+
+        return $text !== '' ? $text : null;
     }
 }

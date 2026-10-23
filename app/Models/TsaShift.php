@@ -29,7 +29,11 @@ class TsaShift extends Model
         'tiktok_upsell',
         // Display-only "eye" toggle — see add_is_hidden_to_tsa_shifts_table.
         'is_hidden',
+        // Auto-text from this TSA's own phone — see LeadAutoText.
+        'sms_enabled', 'smsgate_username', 'smsgate_password',
     ];
+
+    protected $hidden = ['smsgate_password'];
 
     /** Replaces SoftDeletes' own boot (class method wins over the trait's)
      *  with the date-aware TsaRosterScope — see its doc comment. */
@@ -71,6 +75,8 @@ class TsaShift extends Model
         'is_hidden' => 'boolean',
         'status_changed_at' => 'datetime',
         'tiktok_upsell' => 'boolean',
+        'sms_enabled' => 'boolean',
+        'smsgate_password' => 'encrypted',
     ];
 
     /** Real-time availability states a TSA switches between via the topbar

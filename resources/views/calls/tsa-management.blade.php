@@ -76,6 +76,21 @@
             </button>
         </div>
 
+        {{-- Global auto-text switch — explicit request, 2026-10-23. Same
+             toggle as the two above; each TSA also has their own on/off in
+             their edit panel. OFF = no texts at all. --}}
+        <div class="flex items-center gap-2" title="When on, each new lead gets a text from their TSA's own phone (SMSGate), for TSAs with auto-text on.">
+            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Auto-text</span>
+            <button type="button" id="autoSmsToggle"
+                    data-action="{{ route('calls.tsa-management.toggle-auto-sms') }}"
+                    data-enabled="{{ $autoSmsEnabled ? '1' : '0' }}"
+                    aria-pressed="{{ $autoSmsEnabled ? 'true' : 'false' }}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoSmsEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
+                <span id="autoSmsKnob"
+                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoSmsEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
+            </button>
+        </div>
+
         <button type="button" id="addTsaBtn"
                 class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -84,6 +99,75 @@
             Add TSA
         </button>
     </div>
+</div>
+
+{{-- Auto-text message per product — explicit request, 2026-10-23 ("per
+     product"). Each textarea autosaves on blur. Blank = that product's
+     leads get no text (logged on the lead as skipped). --}}
+<details class="mb-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm group/sms">
+    <summary class="flex items-center justify-between gap-3 px-6 py-4 cursor-pointer select-none list-none">
+        <div>
+            <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Auto-text messages</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">
+                One message per product. Click <span class="font-mono font-semibold">{ }</span> to insert the customer's name, address and more — shown in blue, filled in per lead when sent.
+                {{ $products->filter(fn ($p) => filled($p->sms_template))->count() }} of {{ $products->count() }} set.
+            </p>
+        </div>
+        <svg class="w-4 h-4 text-slate-400 transition-transform duration-150 group-open/sms:rotate-180 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+    </summary>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 px-6 pb-6">
+        @foreach($products->sortBy(fn ($p) => [$p->team, $p->sort_order]) as $product)
+        <div data-sms-editor>
+            <div class="flex items-center justify-between gap-2 mb-1">
+                <label for="smsTemplate-{{ $product->id }}" class="text-[11px] font-mono font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">{{ $product->display_name }}</label>
+                <div class="flex items-center gap-2">
+                    <span data-sms-template-status class="text-[11px] font-mono text-slate-400"></span>
+                    <button type="button" data-sms-insert-btn title="Insert customer info"
+                            class="inline-flex items-center justify-center h-6 w-7 rounded-md border border-slate-200 dark:border-slate-700 text-[11px] font-mono font-bold text-slate-500 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-800 cursor-pointer">{ }</button>
+                </div>
+            </div>
+            {{-- Blue placeholder highlight: the textarea's own text is
+                 transparent (caret still shows) and sits over a mirror div
+                 that renders the same text with {placeholders} wrapped in
+                 blue — a textarea can't style part of its own text. Both
+                 share one grid cell so the mirror's height drives the
+                 auto-grow. Fonts/padding/border must stay identical. --}}
+            <div class="grid text-sm leading-6">
+                <div data-sms-mirror aria-hidden="true"
+                     class="[grid-area:1/1] min-h-[4.25rem] whitespace-pre-wrap break-words border border-transparent rounded-lg px-3 py-2 text-slate-800 dark:text-slate-100 pointer-events-none"></div>
+                <textarea id="smsTemplate-{{ $product->id }}" rows="2" maxlength="480" spellcheck="false"
+                          data-sms-template-action="{{ route('calls.tsa-management.sms-template', $product) }}"
+                          placeholder="e.g. Hi {first_name}! Salamat sa order mo ng {product}. Tatawagan ka ni {tsa} shortly."
+                          class="[grid-area:1/1] min-h-[4.25rem] w-full overflow-hidden resize-none border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-transparent text-transparent caret-slate-800 dark:caret-slate-100 placeholder:text-slate-400 selection:bg-blue-200/60 focus:outline-none focus:ring-2 focus:ring-yellow-500">{{ $product->sms_template }}</textarea>
+            </div>
+        </div>
+        @endforeach
+    </div>
+</details>
+
+{{-- Shared { } insert menu for the auto-text editors above. --}}
+<div id="smsInsertMenu" role="menu"
+     class="hidden fixed z-50 w-56 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl p-1.5">
+    @php
+        $smsIcons = [
+            'first_name' => 'M15 9h3m-3 3h3m-9 4.5h6M4.5 5.25h15A1.5 1.5 0 0121 6.75v10.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.25V6.75a1.5 1.5 0 011.5-1.5zM9 10.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z',
+            'last_name'  => 'M6.75 3h10.5A1.5 1.5 0 0118.75 4.5v15a1.5 1.5 0 01-1.5 1.5H6.75a1.5 1.5 0 01-1.5-1.5v-15A1.5 1.5 0 016.75 3zM9 16.5h6M14.25 10.5a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z',
+            'full_name'  => 'M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.964 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z',
+            'phone'      => 'M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106a1.125 1.125 0 00-1.173.417l-.97 1.293a1.125 1.125 0 01-1.21.38 12.035 12.035 0 01-7.143-7.143 1.125 1.125 0 01.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z',
+            'address'    => 'M15 10.5a3 3 0 11-6 0 3 3 0 016 0zM19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z',
+            'product'    => 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z',
+            'tsa'        => 'M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z',
+        ];
+    @endphp
+    @foreach(\App\Support\LeadAutoText::PLACEHOLDERS as $key => $label)
+    <button type="button" role="menuitem" data-sms-insert="{{ '{' . $key . '}' }}"
+            class="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-left">
+        <svg class="w-5 h-5 text-slate-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="{{ $smsIcons[$key] }}"/></svg>
+        {{ $label }}
+    </button>
+    @endforeach
 </div>
 
 <div id="tsaMgmtTableContainer" class="transition-opacity duration-150">
@@ -370,6 +454,134 @@
                 .finally(() => { midnightAutoLogoutToggle.disabled = false; });
         });
     }
+
+    // Global auto-text switch — same optimistic-paint/rollback shape as
+    // the midnight auto-logout toggle above.
+    const autoSmsToggle = document.getElementById('autoSmsToggle');
+    const autoSmsKnob   = document.getElementById('autoSmsKnob');
+    if (autoSmsToggle && autoSmsKnob) {
+        function paintAutoSms(enabled) {
+            autoSmsToggle.dataset.enabled = enabled ? '1' : '0';
+            autoSmsToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoSmsToggle.classList.toggle('bg-primary', enabled);
+            autoSmsToggle.classList.toggle('bg-slate-300', !enabled);
+            autoSmsToggle.classList.toggle('dark:bg-slate-600', !enabled);
+            autoSmsKnob.classList.toggle('translate-x-6', enabled);
+            autoSmsKnob.classList.toggle('translate-x-1', !enabled);
+        }
+
+        autoSmsToggle.addEventListener('click', () => {
+            const next = autoSmsToggle.dataset.enabled !== '1';
+            paintAutoSms(next);
+            autoSmsToggle.disabled = true;
+
+            fetch(autoSmsToggle.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: `enabled=${next ? '1' : '0'}`,
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => window.showToast?.(data.message || 'Saved.', 'success'))
+                .catch(() => {
+                    paintAutoSms(!next);
+                    window.showToast?.('Could not save — try again.', 'error');
+                })
+                .finally(() => { autoSmsToggle.disabled = false; });
+        });
+    }
+
+    // Auto-text message per product: { } insert menu, blue placeholder
+    // highlight (mirror div under a transparent textarea), autosave on blur
+    // and right after an insert. Only {keys} the server knows are blue.
+    const smsKnownKeys = @json(array_merge(array_keys(\App\Support\LeadAutoText::PLACEHOLDERS), ['name', 'fullname']));
+    const smsEscape = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    function smsRenderMirror(ta) {
+        const mirror = ta.parentElement.querySelector('[data-sms-mirror]');
+        if (!mirror) return;
+        const html = smsEscape(ta.value).replace(/\{([a-z_]+)\}/g, (m, key) => smsKnownKeys.includes(key)
+            ? `<span class="rounded bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300">${m}</span>`
+            : m);
+        // Trailing space keeps the mirror as tall as a textarea ending in a newline.
+        mirror.innerHTML = html + ' ';
+    }
+    function smsSaveTemplate(ta) {
+        if (ta.value === ta.dataset.saved) return;
+        const value = ta.value;
+        const status = ta.closest('[data-sms-editor]')?.querySelector('[data-sms-template-status]');
+        if (status) status.textContent = 'Saving…';
+        fetch(ta.dataset.smsTemplateAction, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+            body: new URLSearchParams({ sms_template: value }),
+        })
+            .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+            .then(() => {
+                ta.dataset.saved = value;
+                if (status) status.textContent = '✓ Saved';
+                setTimeout(() => { if (status && status.textContent === '✓ Saved') status.textContent = ''; }, 1800);
+            })
+            .catch(() => {
+                if (status) status.textContent = 'Not saved';
+                window.showToast?.('Could not save the message — try again.', 'error');
+            });
+    }
+    document.querySelectorAll('[data-sms-template-action]').forEach((ta) => {
+        ta.dataset.saved = ta.value;
+        smsRenderMirror(ta);
+        ta.addEventListener('input', () => smsRenderMirror(ta));
+        ta.addEventListener('change', () => smsSaveTemplate(ta));
+    });
+
+    const smsMenu = document.getElementById('smsInsertMenu');
+    let smsMenuTarget = null;
+    function smsCloseMenu() {
+        smsMenu?.classList.add('hidden');
+        smsMenuTarget = null;
+    }
+    document.querySelectorAll('[data-sms-insert-btn]').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ta = btn.closest('[data-sms-editor]')?.querySelector('textarea');
+            if (!smsMenu || !ta) return;
+            if (smsMenuTarget === ta) { smsCloseMenu(); return; }
+            smsMenuTarget = ta;
+            const r = btn.getBoundingClientRect();
+            smsMenu.classList.remove('hidden');
+            const left = Math.min(r.right - smsMenu.offsetWidth, window.innerWidth - smsMenu.offsetWidth - 8);
+            const below = r.bottom + 6;
+            const top = below + smsMenu.offsetHeight > window.innerHeight ? r.top - smsMenu.offsetHeight - 6 : below;
+            smsMenu.style.left = `${Math.max(8, left)}px`;
+            smsMenu.style.top = `${Math.max(8, top)}px`;
+        });
+    });
+    smsMenu?.querySelectorAll('[data-sms-insert]').forEach((item) => {
+        item.addEventListener('click', () => {
+            const ta = smsMenuTarget;
+            if (!ta) return;
+            const token = item.dataset.smsInsert;
+            const start = ta.selectionStart ?? ta.value.length;
+            const end = ta.selectionEnd ?? ta.value.length;
+            ta.value = ta.value.slice(0, start) + token + ta.value.slice(end);
+            ta.focus();
+            ta.setSelectionRange(start + token.length, start + token.length);
+            smsRenderMirror(ta);
+            smsCloseMenu();
+            smsSaveTemplate(ta);
+        });
+    });
+    document.addEventListener('click', (e) => { if (smsMenu && !smsMenu.contains(e.target)) smsCloseMenu(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') smsCloseMenu(); });
+    window.addEventListener('scroll', smsCloseMenu, true);
 
     // Add TSA modal
     const tsaModal      = document.getElementById('tsaModal');

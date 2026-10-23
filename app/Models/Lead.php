@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Lead extends Model
 {
     protected $fillable = [
-        'pancake_order_id', 'customer_name', 'phone_number', 'conversation_link',
+        'pancake_order_id', 'customer_name', 'customer_address', 'phone_number', 'conversation_link',
         'pancake_page_id', 'pancake_conversation_id',
         'product_id', 'tsa_id', 'assigned_at',
         'status', 'disposition', 'callback_at', 'notes', 'called_at', 'called_by_user_id',

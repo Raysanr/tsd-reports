@@ -234,6 +234,41 @@
                                         </label>
                                     @endforeach
                                 </div>
+
+                                {{-- Auto-text (SMSGate) — explicit request, 2026-10-23.
+                                     This TSA's own phone runs the SMSGate app in Cloud
+                                     mode; new leads assigned to them get a text from that
+                                     phone (message per product, set in "Auto-text
+                                     messages" above the table). Autosaves like the rest
+                                     of this form; a blank password keeps the saved one. --}}
+                                <div class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
+                                    <div class="flex items-center justify-between gap-3 mb-3">
+                                        <div>
+                                            <p class="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Auto-text (SMSGate)</p>
+                                            <p class="text-[11px] text-slate-400 mt-0.5">From the SMSGate app on {{ $tsa->display_name }}'s phone → Cloud server section.</p>
+                                        </div>
+                                        <label class="relative inline-flex items-center gap-2 cursor-pointer select-none">
+                                            <input type="hidden" name="sms_enabled" value="0">
+                                            <input type="checkbox" name="sms_enabled" value="1" {{ $tsa->sms_enabled ? 'checked' : '' }} class="peer sr-only">
+                                            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">On</span>
+                                            <span aria-hidden="true" class="relative h-6 w-11 rounded-full bg-slate-300 dark:bg-slate-600 transition-colors duration-300 peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-500
+                                                         after:absolute after:top-1 after:left-1 after:size-4 after:rounded-full after:bg-white after:shadow-md after:transition-transform after:duration-300 peer-checked:after:translate-x-5"></span>
+                                        </label>
+                                    </div>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:max-w-xl">
+                                        <div>
+                                            <label class="block text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Username</label>
+                                            <input type="text" name="smsgate_username" value="{{ $tsa->smsgate_username }}" autocomplete="off" placeholder="from the SMSGate app"
+                                                   class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                        </div>
+                                        <div>
+                                            <label class="block text-[11px] font-mono font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Password</label>
+                                            <input type="password" name="smsgate_password" value="" autocomplete="new-password"
+                                                   placeholder="{{ $tsa->smsgate_password ? '•••••• saved — type to replace' : 'from the SMSGate app' }}"
+                                                   class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                                        </div>
+                                    </div>
+                                </div>
                             </form>
 
                             {{-- Account link — explicit request, 2026-08-26: confirmed live

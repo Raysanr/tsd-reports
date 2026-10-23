@@ -351,6 +351,18 @@
                         @else — @endif
                     </dd>
 
+                    {{-- Auto-text result (2026-10-23) — the history panel
+                         shows Pancake's own history, so this app's own
+                         sms_sent/sms_skipped log needs its own line here. --}}
+                    @php $smsActivity = $lead->activities->whereIn('type', ['sms_sent', 'sms_skipped'])->sortByDesc('created_at')->first(); @endphp
+                    @if($smsActivity)
+                    <dt class="text-slate-400">Auto-text</dt>
+                    <dd class="text-xs {{ $smsActivity->type === 'sms_sent' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400' }}" title="{{ $smsActivity->description }}">
+                        {{ $smsActivity->type === 'sms_sent' ? '✓ Sent' : 'Not sent' }} · {{ $smsActivity->created_at?->format('M j, g:i A') }}
+                        <span class="block text-slate-400 truncate">{{ \Illuminate\Support\Str::after($smsActivity->description, $smsActivity->type === 'sms_sent' ? 'phone: ' : '— ') }}</span>
+                    </dd>
+                    @endif
+
                     @if($lead->conversation_link || ($lead->pancake_page_id && $lead->pancake_conversation_id))
                     <dt class="text-slate-400">Conversation</dt>
                     <dd class="text-slate-700 dark:text-slate-200 flex items-center gap-3">

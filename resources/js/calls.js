@@ -997,6 +997,13 @@ function tsaAutosaveNow(form) {
     })
         .then((res) => (res.ok ? res.json() : Promise.reject(res)))
         .then(() => {
+            // The SMSGate password is never echoed back — once saved, clear
+            // the field so a later autosave doesn't resend it.
+            const pw = form.querySelector('input[name="smsgate_password"]');
+            if (pw && pw.value) {
+                pw.value = '';
+                pw.placeholder = '•••••• saved — type to replace';
+            }
             if (state.pending) return;
             tsaSaveStatus(form, '✓ Saved', 'ok');
             clearTimeout(state.fade);

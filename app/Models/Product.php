@@ -13,7 +13,7 @@ class Product extends Model
 
     protected $fillable = [
         'display_name', 'match_keyword', 'match_exclude_keyword', 'pancake_product_ids', 'team', 'sort_order',
-        'has_cost_allocation',
+        'has_cost_allocation', 'sms_template',
     ];
 
     protected $casts = [

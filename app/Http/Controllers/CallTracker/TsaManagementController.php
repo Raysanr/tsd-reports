@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
+use App\Support\LeadAutoText;
 use App\Support\ActivityLogger;
 use App\Support\Teams;
 use Illuminate\Http\JsonResponse;
@@ -97,6 +98,7 @@ class TsaManagementController extends Controller
             // LogoutAllTsasAtMidnight's own doc comment for why this exists
             // and why it defaults to ON.
             'midnightAutoLogoutEnabled' => (bool) Setting::get('midnight_auto_logout_enabled', true),
+            'autoSmsEnabled' => LeadAutoText::enabled(),
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -154,6 +156,9 @@ class TsaManagementController extends Controller
             'products.*'   => ['integer', 'exists:products,id'],
             'phone_number' => ['nullable', 'string', 'max:32'],
             'dialer_host'  => ['nullable', 'string', 'max:64'],
+            'sms_enabled'      => ['sometimes', 'boolean'],
+            'smsgate_username' => ['nullable', 'string', 'max:255'],
+            'smsgate_password' => ['nullable', 'string', 'max:255'],
         ]);
 
         // No 'active' here (explicit request, 2026-08-24 — the checkbox that
@@ -166,6 +171,20 @@ class TsaManagementController extends Controller
             'phone_number' => $data['phone_number'] ?? null,
             'dialer_host'  => $data['dialer_host'] ?? null,
         ]);
+
+        // Auto-text (SMSGate) fields — only touched when the form sent
+        // them, so an older form/POST without them changes nothing. A blank
+        // password keeps the saved one (the field never echoes it back).
+        if ($request->has('sms_enabled')) {
+            $tsaShift->sms_enabled = $request->boolean('sms_enabled');
+        }
+        if ($request->has('smsgate_username')) {
+            $tsaShift->smsgate_username = $data['smsgate_username'] ?: null;
+        }
+        if (filled($data['smsgate_password'] ?? null)) {
+            $tsaShift->smsgate_password = $data['smsgate_password'];
+        }
+        $tsaShift->save();
 
         $selected = collect($data['products'] ?? [])->map(fn ($id) => (int) $id);
         $current  = $tsaShift->products()->pluck('products.id');
@@ -428,6 +447,44 @@ class TsaManagementController extends Controller
         }
 
         return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /**
+     * Global auto-text switch (explicit request, 2026-10-23) — same shape
+     * as toggleAutoTagging(). OFF stops every TSA's auto-text instantly;
+     * each TSA also has their own sms_enabled. See LeadAutoText.
+     */
+    public function toggleAutoSms(Request $request)
+    {
+        $enabled = $request->boolean('enabled');
+        Setting::set(LeadAutoText::SETTING_KEY, $enabled);
+
+        $message = $enabled
+            ? 'Auto-text turned on — new leads get a text from their TSA\'s own phone (for TSAs with auto-text on).'
+            : 'Auto-text turned off — no texts will be sent to new leads.';
+
+        ActivityLogger::log('tsa.auto_sms_toggled', null, $message);
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled]);
+        }
+
+        return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** Saves one product's auto-text message (blank = no text for it). */
+    public function updateSmsTemplate(Request $request, Product $product)
+    {
+        $data = $request->validate([
+            'sms_template' => ['nullable', 'string', 'max:480'],
+        ]);
+
+        $product->sms_template = trim((string) ($data['sms_template'] ?? '')) ?: null;
+        $product->save();
+
+        ActivityLogger::log('product.sms_template_updated', $product, "Updated auto-text message for {$product->display_name}.");
+
+        return response()->json(['success' => true, 'message' => "Saved {$product->display_name}'s message."]);
     }
 
     /** AJAX — search the real Pancake POS user list for the Add TSA picker. */
