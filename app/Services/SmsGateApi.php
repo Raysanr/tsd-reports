@@ -32,12 +32,31 @@ class SmsGateApi
      *  couldn't be reached / credentials were rejected. */
     public function isOnline(string $username, string $password): ?bool
     {
-        $res = Http::withBasicAuth($username, $password)
-            ->acceptJson()->connectTimeout(4)->timeout(8)
-            ->get(self::BASE_URL . '/devices');
+        return match ($this->status($username, $password)['state']) {
+            'online'  => true,
+            'offline' => false,
+            default   => null,
+        };
+    }
 
+    /** Connection check for TSA Management's "Test connection" button —
+     *  same lastSeen rule auto-text itself uses before every send.
+     *  @return array{state: 'online'|'offline'|'rejected'|'error', lastSeen: ?Carbon} */
+    public function status(string $username, string $password): array
+    {
+        try {
+            $res = Http::withBasicAuth($username, $password)
+                ->acceptJson()->connectTimeout(4)->timeout(8)
+                ->get(self::BASE_URL . '/devices');
+        } catch (\Illuminate\Http\Client\ConnectionException) {
+            return ['state' => 'error', 'lastSeen' => null];
+        }
+
+        if (in_array($res->status(), [401, 403], true)) {
+            return ['state' => 'rejected', 'lastSeen' => null];
+        }
         if (!$res->successful()) {
-            return null;
+            return ['state' => 'error', 'lastSeen' => null];
         }
 
         $lastSeen = collect($res->json() ?? [])
@@ -45,7 +64,9 @@ class SmsGateApi
             ->map(fn ($t) => Carbon::parse($t))
             ->max();
 
-        return $lastSeen !== null && $lastSeen->gt(now()->subMinutes(self::ONLINE_WITHIN_MINUTES));
+        $online = $lastSeen !== null && $lastSeen->gt(now()->subMinutes(self::ONLINE_WITHIN_MINUTES));
+
+        return ['state' => $online ? 'online' : 'offline', 'lastSeen' => $lastSeen];
     }
 
     /** @return array{ok: bool, id: ?string, error: ?string} */

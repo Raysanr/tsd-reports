@@ -1043,6 +1043,52 @@ document.addEventListener('change', (e) => {
     tsaAutosaveNow(form);
 });
 
+// SMSGate "Test connection" (2026-10-23) — checks the SAVED login, so it
+// first waits for this form's autosave (e.g. a password typed then the
+// button clicked straight away) to land.
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest?.('[data-sms-test]');
+    if (!btn) return;
+    const form = btn.closest('form');
+    const result = btn.parentElement.querySelector('[data-sms-test-result]');
+    const paint = (text, cls) => {
+        if (!result) return;
+        result.textContent = text;
+        result.className = `text-xs ${cls}`;
+    };
+
+    btn.disabled = true;
+    paint('Checking…', 'text-slate-400');
+    for (let i = 0; form && i < 50; i++) {
+        const state = tsaAutosave.get(form);
+        if (!state || (!state.inFlight && !state.pending)) break;
+        await new Promise((r) => setTimeout(r, 100));
+    }
+
+    try {
+        const res = await fetch(btn.dataset.smsTest, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                Accept: 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+            },
+        });
+        const data = await res.json();
+        const tone = {
+            online: ['✅ ', 'text-emerald-600 dark:text-emerald-400'],
+            offline: ['⚠️ ', 'text-amber-600 dark:text-amber-400'],
+            rejected: ['❌ ', 'text-red-600 dark:text-red-400'],
+            missing: ['', 'text-slate-500'],
+        }[data.state] || ['❌ ', 'text-red-600 dark:text-red-400'];
+        paint(tone[0] + (data.message || 'Unknown result.'), tone[1]);
+    } catch (err) {
+        paint('❌ Could not run the test — try again.', 'text-red-600 dark:text-red-400');
+    } finally {
+        btn.disabled = false;
+    }
+});
+
 // Show/hide password eye (TSA Management SMSGate login, 2026-10-23).
 document.addEventListener('click', (e) => {
     const btn = e.target.closest?.('[data-password-toggle]');

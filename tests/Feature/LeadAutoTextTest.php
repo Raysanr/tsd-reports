@@ -221,4 +221,22 @@ class LeadAutoTextTest extends TestCase
         $this->assertNull($fresh->smsgate_username);
         $this->get(route('calls.tsa-management'))->assertOk()->assertSee("Shared phone — {$partner->display_name}", false);
     }
+
+    public function test_connection_test_reports_online_offline_rejected_and_missing(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $url = route('calls.tsa-management.test-sms', $this->tsa);
+
+        Http::fake(['api.sms-gate.app/*' => Http::sequence()
+            ->push([['id' => 'd', 'lastSeen' => now()->toIso8601String()]])
+            ->push([['id' => 'd', 'lastSeen' => now()->subHours(3)->toIso8601String()]])
+            ->push(['message' => 'Unauthorized'], 401)]);
+
+        $this->postJson($url)->assertOk()->assertJson(['state' => 'online']);
+        $this->postJson($url)->assertJson(['state' => 'offline']);
+        $this->postJson($url)->assertJson(['state' => 'rejected']);
+
+        $this->tsa->update(['smsgate_username' => null]);
+        $this->postJson($url)->assertJson(['state' => 'missing']);
+    }
 }

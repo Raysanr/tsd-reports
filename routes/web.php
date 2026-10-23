@@ -249,6 +249,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             // Same wildcard-collision reasoning as toggle-auto-tagging above.
             Route::post('/tsa-management/toggle-midnight-auto-logout', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleMidnightAutoLogout'])->name('tsa-management.toggle-midnight-auto-logout');
             Route::post('/tsa-management/toggle-auto-sms', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoSms'])->name('tsa-management.toggle-auto-sms');
+            Route::post('/tsa-management/{tsaShift}/test-sms', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'testSms'])->name('tsa-management.test-sms');
             Route::post('/tsa-management/sms-template/{product}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'updateSmsTemplate'])->name('tsa-management.sms-template');
             Route::post('/tsa-management/{tsaShift}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'update'])->name('tsa-management.update');
             Route::post('/tsa-management/{tsaShift}/regenerate-token', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'regenerateApiToken'])->name('tsa-management.regenerate-token');

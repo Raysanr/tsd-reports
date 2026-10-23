@@ -257,6 +257,14 @@
                                             </span>
                                         </p>
                                     </div>
+                                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                                        <button type="button" data-sms-test="{{ route('calls.tsa-management.test-sms', $tsa) }}"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"/></svg>
+                                            Test connection
+                                        </button>
+                                        <span data-sms-test-result aria-live="polite" class="text-xs"></span>
+                                    </div>
                                 </div>
                                 @else
                                 <div class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
@@ -294,6 +302,14 @@
                                                 </button>
                                             </div>
                                         </div>
+                                    </div>
+                                    <div class="mt-3 flex flex-wrap items-center gap-3">
+                                        <button type="button" data-sms-test="{{ route('calls.tsa-management.test-sms', $tsa) }}"
+                                                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-mono font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"/></svg>
+                                            Test connection
+                                        </button>
+                                        <span data-sms-test-result aria-live="polite" class="text-xs"></span>
                                     </div>
                                 </div>
                                 @endif

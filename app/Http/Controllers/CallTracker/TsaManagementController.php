@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Models\User;
+use App\Services\SmsGateApi;
 use App\Support\LeadAutoText;
 use App\Support\ActivityLogger;
 use App\Support\Teams;
@@ -473,6 +474,31 @@ class TsaManagementController extends Controller
         }
 
         return redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
+    /** "Test connection" for a TSA's SMSGate phone (2026-10-23) — checks
+     *  the SAVED login against SMSGate's cloud and reports whether that
+     *  phone is online, using the same rule auto-text uses before sending.
+     *  A paired partner is checked against the shared (primary's) phone. */
+    public function testSms(TsaShift $tsaShift): JsonResponse
+    {
+        $owner = $tsaShift->smsPhoneOwner();
+
+        if (!$owner->smsgate_username || !$owner->smsgate_password) {
+            return response()->json(['state' => 'missing', 'message' => 'Enter the SMSGate username and password first.']);
+        }
+
+        ['state' => $state, 'lastSeen' => $lastSeen] = app(SmsGateApi::class)->status($owner->smsgate_username, $owner->smsgate_password);
+        $seen = $lastSeen ? ' (last seen ' . $lastSeen->diffForHumans() . ')' : '';
+
+        $message = match ($state) {
+            'online'   => "Connected — {$owner->display_name}'s phone is online{$seen}.",
+            'offline'  => "Login OK, but the phone is offline{$seen}. Open the SMSGate app and tap Start Service, and check the phone's internet.",
+            'rejected' => 'Login rejected — the username or password doesn\'t match the SMSGate app.',
+            default    => 'Couldn\'t reach SMSGate right now — try again in a minute.',
+        };
+
+        return response()->json(['state' => $state, 'message' => $message]);
     }
 
     /** Saves one product's auto-text message (blank = no text for it). */
