@@ -505,7 +505,7 @@ class TsaManagementController extends Controller
     public function updateSmsTemplate(Request $request, Product $product)
     {
         $data = $request->validate([
-            'sms_template' => ['nullable', 'string', 'max:480'],
+            'sms_template' => ['nullable', 'string'],
         ]);
 
         $product->sms_template = trim((string) ($data['sms_template'] ?? '')) ?: null;

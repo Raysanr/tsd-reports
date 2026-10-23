@@ -137,7 +137,7 @@
             <div class="grid text-sm leading-6">
                 <div data-sms-mirror aria-hidden="true"
                      class="[grid-area:1/1] min-h-[4.25rem] whitespace-pre-wrap break-words border border-transparent rounded-lg px-3 py-2 text-slate-800 dark:text-slate-100 pointer-events-none"></div>
-                <textarea id="smsTemplate-{{ $product->id }}" rows="2" maxlength="480" spellcheck="false"
+                <textarea id="smsTemplate-{{ $product->id }}" rows="2" spellcheck="false"
                           data-sms-template-action="{{ route('calls.tsa-management.sms-template', $product) }}"
                           placeholder="e.g. Hi {first_name}! Salamat sa order mo ng {product}. Tatawagan ka ni {tsa} shortly."
                           class="[grid-area:1/1] min-h-[4.25rem] w-full overflow-hidden resize-none border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-transparent text-transparent caret-slate-800 dark:caret-slate-100 placeholder:text-slate-400 selection:bg-blue-200/60 focus:outline-none focus:ring-2 focus:ring-yellow-500">{{ $product->sms_template }}</textarea>
