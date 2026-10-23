@@ -173,7 +173,11 @@ class CostBreakdownCalculator
      *  values, in any order — summed here). */
     public static function tsaTotal(float $baseSalary, array $overheadRefs): float
     {
-        return $baseSalary + array_sum($overheadRefs);
+        // A TSA with no salary yet (0, e.g. just added) carries no share of
+        // the managers' salaries either — Total, Daily Rate and Daily Rate /
+        // Product all stay 0 until a salary is entered (explicit request,
+        // 2026-10-23: "it is 0.00 base salary but why there's still Total").
+        return $baseSalary > 0 ? $baseSalary + array_sum($overheadRefs) : 0.0;
     }
 
     /** One overhead group's own per-TSA figure — confirmed a LIVE FORMULA

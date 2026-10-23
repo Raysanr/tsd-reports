@@ -310,7 +310,7 @@
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             @else
-                            @php $monthlyTaxPerTsa = $monthlyTaxPerTsaByTeam[$tsa->team] ?? 0.0; @endphp
+                            @php $monthlyTaxPerTsa = (float) $entry->base_salary > 0 ? ($monthlyTaxPerTsaByTeam[$tsa->team] ?? 0.0) : 0.0; @endphp
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
                             <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
                             @endif

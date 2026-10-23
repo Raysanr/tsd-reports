@@ -2333,6 +2333,12 @@ class ExpectedIncomeReportSmokeTest extends TestCase
             'tsa_key' => 'late-arrival', 'display_name' => 'Late Arrival',
             'team' => 'SH Naturals', 'sort_order' => 999,
         ]);
+        // A TSA only takes a tax share once they have a salary (2026-10-23).
+        CostBreakdownTsaEntry::updateOrCreate(
+            ['month' => \App\Support\CostBreakdownMonths::current(), 'tsa_id' => $lateTsa->id],
+            ['base_salary' => 15600.00, 'days' => 30]
+        );
+        \App\Support\RequestMemo::flush();
 
         // (2026-10-15) The roster memo is now flushed on any write, so the
         // race no longer even reproduces — the fallback below stays covered.

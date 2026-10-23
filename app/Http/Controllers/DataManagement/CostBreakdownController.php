@@ -272,7 +272,7 @@ class CostBreakdownController extends Controller
         }, []);
         $grandTotal = array_sum($poolTotalsRow);
 
-        ['perShift' => $monthlyTaxPerShift, 'perTsaByTeam' => $monthlyTaxPerTsaByTeam] = $this->taxFigures($tsas);
+        ['perShift' => $monthlyTaxPerShift, 'perTsaByTeam' => $monthlyTaxPerTsaByTeam] = $this->taxFigures($tsas, $entriesByTsaId);
 
         return view('data.cost-breakdown', [
             'roles' => $roles,
@@ -437,7 +437,7 @@ class CostBreakdownController extends Controller
      *  Salary Breakdown table's own interleaved rows — Expected Income's
      *  own TsaDailyRateService::taxAllocationByTsaId() already resolves
      *  straight to one tsa_id, no by-team grouping needed there. */
-    private function taxFigures($tsas): array
+    private function taxFigures($tsas, $entriesByTsaId): array
     {
         $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
 
@@ -452,7 +452,12 @@ class CostBreakdownController extends Controller
         // Her own Monthly Tax/Daily Tax cells render blank in the view
         // (same "no figure" convention as every non-Supervisor role row),
         // not just a 0.00 that would misread as her own computed share.
-        $perTsaByTeam = $tsas->where('tiktok_upsell', false)->groupBy('team')->map(
+        // A TSA with 0 base salary takes no tax share either, so the
+        // shift's tax is split only among TSAs with a salary (2026-10-23)
+        // — same rule as TsaDailyRateService::taxAllocationByTsaId().
+        $perTsaByTeam = $tsas->where('tiktok_upsell', false)
+            ->filter(fn ($t) => (float) ($entriesByTsaId->get($t->id)?->base_salary ?? 0) > 0)
+            ->groupBy('team')->map(
             fn ($teamTsas) => $teamTsas->count() > 0 ? $perShift / $teamTsas->count() : 0.0
         )->all();
 

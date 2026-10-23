@@ -432,7 +432,7 @@ class TsaDailyRateService
         // match its position in the flattened result. `+` (array union)
         // keeps each sub-array's own keys intact instead.
         return self::allTsas()->groupBy('team')->reduce(function (array $carry, $teamTsas) use ($perShift) {
-            $realTeamTsas = $teamTsas->where('tiktok_upsell', false);
+            $realTeamTsas = $teamTsas->where('tiktok_upsell', false)->reject(fn (TsaShift $tsa) => self::hasNoSalary($tsa));
             $teamCount = $realTeamTsas->count();
             $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
@@ -440,8 +440,16 @@ class TsaDailyRateService
             // present so callers elsewhere never fall back to a stale/
             // missing-key default), just worth 0 — her own "no tax"
             // (explicit request above), not her team's own per-TSA share.
-            return $carry + $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $tsa->tiktok_upsell ? 0.0 : $monthly / 24])->all();
+            return $carry + $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => ($tsa->tiktok_upsell || self::hasNoSalary($tsa)) ? 0.0 : $monthly / 24])->all();
         }, []);
+    }
+
+    /** No Cost Breakdown salary this month (none saved, or 0) — such a TSA
+     *  takes no share of the shift's tax, and her teammates split it
+     *  instead (2026-10-23). */
+    private static function hasNoSalary(TsaShift $tsa): bool
+    {
+        return (float) (self::costBreakdownTsaEntriesByTsaId()->get($tsa->id)?->base_salary ?? 0) <= 0;
     }
 
     /** Same formula as taxAllocationByTsaId() above, computed directly for
@@ -460,12 +468,13 @@ class TsaDailyRateService
         // real teammates" rule as taxAllocationByTsaId() above (explicit
         // request, 2026-10-07) — this fallback must never silently
         // disagree with the pre-built map it stands in for.
-        if ($tsa->tiktok_upsell) {
+        if ($tsa->tiktok_upsell || self::hasNoSalary($tsa)) {
             return 0.0;
         }
 
         $perShift = self::departmentTaxAllocationPerShift();
-        $teamCount = self::allTsas()->where('team', $tsa->team)->where('tiktok_upsell', false)->count();
+        $teamCount = self::allTsas()->where('team', $tsa->team)->where('tiktok_upsell', false)
+            ->reject(fn (TsaShift $t) => self::hasNoSalary($t))->count();
         $monthly = $teamCount > 0 ? $perShift / $teamCount : 0.0;
 
         return $monthly / 24;
