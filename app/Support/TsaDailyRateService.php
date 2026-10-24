@@ -61,7 +61,22 @@ class TsaDailyRateService
         // after a removal, every split goes to the remaining TSAs only.
         return RequestMemo::remember("tsa_daily_rate.tsas:{$date}", fn () => TsaShift::withTrashed()
             ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>=', $date . ' 00:00:00'))
-            ->get());
+            ->get()
+            ->filter(fn (TsaShift $tsa) => self::belongsToMonth($tsa, substr($date, 0, 7), self::costBreakdownTsaEntriesByTsaId()))
+            ->values());
+    }
+
+    /** A TSA counts in a month only if they were added on or before that
+     *  month, or have their own Cost Breakdown entry for it — so a TSA added
+     *  in November never shows up in (or changes the splits of) October
+     *  (explicit request, 2026-10-24). */
+    public static function belongsToMonth(TsaShift $tsa, string $month, \Illuminate\Support\Collection $entriesByTsaId): bool
+    {
+        if ($entriesByTsaId->has($tsa->id) || $tsa->created_at === null) {
+            return true;
+        }
+
+        return $tsa->created_at->timezone('Asia/Manila')->format('Y-m') <= $month;
     }
 
     /** The TSAs on the roster on contextDate() — see allTsas(). */

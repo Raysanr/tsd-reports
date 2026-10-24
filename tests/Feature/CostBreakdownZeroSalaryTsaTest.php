@@ -48,4 +48,32 @@ class CostBreakdownZeroSalaryTsaTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'super_admin']))
             ->get(route('data.cost-breakdown'))->assertOk();
     }
+
+    /** A TSA added in a later month doesn't appear in, or change, an earlier
+     *  month (2026-10-24). */
+    public function test_a_tsa_added_next_month_does_not_change_last_month(): void
+    {
+        $month = CostBreakdownMonths::current();
+        $last = \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->subMonth()->format('Y-m');
+        $next = \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->addMonth();
+
+        $new = TsaShift::create(['tsa_key' => 'later', 'display_name' => 'Added Later', 'team' => 'SH Naturals', 'sort_order' => 999]);
+        $new->forceFill(['created_at' => $next->copy()->startOfMonth()->addDays(4)])->saveQuietly();
+        $existing = TsaShift::where('tsa_key', '!=', 'later')->first();
+        $existing->forceFill(['created_at' => $next->copy()->subMonths(3)])->saveQuietly();
+
+        $none = collect();
+        $this->assertFalse(TsaDailyRateService::belongsToMonth($new->fresh(), $month, $none));
+        $this->assertFalse(TsaDailyRateService::belongsToMonth($new->fresh(), $last, $none));
+        $this->assertTrue(TsaDailyRateService::belongsToMonth($new->fresh(), $next->format('Y-m'), $none));
+        $this->assertTrue(TsaDailyRateService::belongsToMonth($existing->fresh(), $month, $none));
+        // an entry for the month keeps them in it, whatever their added date
+        $this->assertTrue(TsaDailyRateService::belongsToMonth($new->fresh(), $month, collect([$new->id => true])));
+
+        // not on this month's roster, so they don't change its splits
+        RequestMemo::flush();
+        $this->assertFalse(TsaDailyRateService::roster()->contains('id', $new->id));
+        $this->actingAs(User::factory()->create(['role' => 'super_admin']))
+            ->get(route('data.cost-breakdown', ['month' => $month]))->assertOk()->assertDontSee('Added Later');
+    }
 }

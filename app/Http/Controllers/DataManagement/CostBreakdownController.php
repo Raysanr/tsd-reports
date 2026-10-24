@@ -88,6 +88,8 @@ class CostBreakdownController extends Controller
 
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
         $entriesByTsaId = CostBreakdownTsaEntry::where('month', $dataMonth)->whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        // TSAs added after this month aren't part of it (2026-10-24).
+        $tsas = $tsas->filter(fn (TsaShift $t) => TsaDailyRateService::belongsToMonth($t, $month, $entriesByTsaId))->values();
 
         // One row per real TSA, seeded from her own saved entry (or a
         // fresh all-zero one with the default 30 days — same "a cell with
@@ -837,6 +839,7 @@ class CostBreakdownController extends Controller
         $month = TsaDailyRateService::contextMonth();
         $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
         $entriesByTsaId = CostBreakdownTsaEntry::where('month', $month)->whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $tsas = $tsas->filter(fn (TsaShift $t) => TsaDailyRateService::belongsToMonth($t, substr(TsaDailyRateService::contextDate(), 0, 7), $entriesByTsaId))->values();
         $poolAmounts = CostBreakdownPool::where('month', $month)->pluck('amount', 'key')->all();
         $flaggedProductRows = TsaDailyRateService::flaggedProductRows();
         $flaggedProductCount = $flaggedProductRows->count();
