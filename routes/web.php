@@ -217,6 +217,9 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/delivery', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateDelivery'])->name('leads.delivery.update');
 
         Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
+        // Smart callback reminders (2026-10-24)
+        Route::get('/api/callback-reminders', [\App\Http\Controllers\CallTracker\CallbackReminderController::class, 'index'])->name('callback-reminders');
+        Route::post('/leads/{lead}/callback-snooze', [\App\Http\Controllers\CallTracker\CallbackReminderController::class, 'snooze'])->name('leads.callback-snooze');
         Route::post('/tsa-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'update'])->name('tsa-status.update');
         Route::get('/api/own-status', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'own'])->name('tsa-status.own');
 

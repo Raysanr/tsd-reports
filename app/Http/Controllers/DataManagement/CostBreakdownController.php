@@ -808,9 +808,17 @@ class CostBreakdownController extends Controller
             'has_cost_allocation' => ['required', 'boolean'],
         ]);
 
-        $this->enterMonth($this->sessionMonth());
+        // Saved for the month being viewed only (per month, 2026-10-24) —
+        // earlier months keep their own checkboxes.
+        $month = $this->sessionMonth();
+        $this->ensureEditableMonth($month);
+        $this->enterMonth($month);
         $wasChecked = $product->has_cost_allocation;
-        $product->update($data);
+        \App\Models\CostBreakdownProductFlag::updateOrCreate(
+            ['month' => $month, 'product_id' => $product->id],
+            ['has_cost_allocation' => (bool) $data['has_cost_allocation']]
+        );
+        \App\Support\RequestMemo::flush();
         if ((bool) $wasChecked !== (bool) $data['has_cost_allocation']) {
             ActivityLogger::log('cost_breakdown.product_cost_allocation_toggled', $product, ($data['has_cost_allocation'] ? 'Checked' : 'Unchecked') . " \"{$product->display_name}\" in Cost Allocation Per TSA.");
         }

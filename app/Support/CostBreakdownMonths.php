@@ -79,7 +79,7 @@ class CostBreakdownMonths
         $source = self::effective($month);
 
         DB::transaction(function () use ($source, $month) {
-            foreach ([CostBreakdownRole::class, CostBreakdownPool::class, CostBreakdownTsaEntry::class] as $model) {
+            foreach ([CostBreakdownRole::class, CostBreakdownPool::class, CostBreakdownTsaEntry::class, \App\Models\CostBreakdownProductFlag::class] as $model) {
                 foreach ($model::where('month', $source)->get() as $row) {
                     $copy = $row->replicate();
                     $copy->month = $month;

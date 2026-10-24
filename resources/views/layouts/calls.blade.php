@@ -15,6 +15,7 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @if(auth()->user()?->tsa_id)<meta name="callback-reminders" content="{{ route('calls.callback-reminders') }}">@endif
     <title>TSD Call Tracker — @yield('title', 'Dashboard')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('images/call-tracker-favicon.svg') }}">
     {{-- Ported from call-tracker (merged into one app 2026-08-12), unmodified
@@ -359,6 +360,7 @@
             </svg>
             Monitor TSA
         </a>
+
 
         {{-- isAtLeastAdmin() (super_admin OR admin), not the original bare
              isAdmin() — matches the merged app's role convention (super_admin

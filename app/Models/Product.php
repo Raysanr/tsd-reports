@@ -22,6 +22,30 @@ class Product extends Model
         'pancake_product_ids'  => 'array',
     ];
 
+    /** "Cost Allocation Per TSA" is per month (2026-10-24): the checkbox for
+     *  the Cost Breakdown month being worked on (TsaDailyRateService's
+     *  context month), falling back to this column when that month has no
+     *  saved value for the product. */
+    public function getHasCostAllocationAttribute($value): bool
+    {
+        if (! $this->exists) {
+            return (bool) $value;
+        }
+        // Same month choice as CostBreakdownMonths::effective(), but read-only
+        // (never seeds anything just because a product was read).
+        $months = \App\Support\CostBreakdownMonths::existing();
+        if ($months === []) {
+            return (bool) $value;
+        }
+        $wanted = substr(\App\Support\TsaDailyRateService::contextDate(), 0, 7);
+        $earlier = array_filter($months, fn ($m) => $m <= $wanted);
+        $month = $earlier !== [] ? max($earlier) : min($months);
+        $flags = \App\Support\RequestMemo::remember('cost_breakdown.product_flags.' . $month,
+            fn () => CostBreakdownProductFlag::where('month', $month)->pluck('has_cost_allocation', 'product_id'));
+
+        return $flags->has($this->id) ? (bool) $flags[$this->id] : (bool) $value;
+    }
+
     /** Ported from call-tracker (merged into one app 2026-08-12) — this
      *  product's round-robin roster (see product_tsa's 'position' column
      *  for rotation order). */

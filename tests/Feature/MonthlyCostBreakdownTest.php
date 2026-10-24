@@ -142,4 +142,26 @@ class MonthlyCostBreakdownTest extends TestCase
         $this->assertEqualsWithDelta($r1 + $r2, $rr, 0.01);
         $this->assertNotEqualsWithDelta($r1, $r2, 0.01, 'November uses its own Rent');
     }
+
+    /** "Cost Allocation Per TSA" product checkboxes are per month (2026-10-24). */
+    public function test_cost_allocation_checkboxes_are_per_month(): void
+    {
+        $product = \App\Models\Product::where('is_hidden', false)->orderBy('sort_order')->first();
+        \App\Models\CostBreakdownProductFlag::create(['month' => '2026-10', 'product_id' => $product->id, 'has_cost_allocation' => true]);
+        $count = fn (string $date) => TsaDailyRateService::withDate($date, fn () => TsaDailyRateService::productCount());
+        $octCount = $count('2026-10-20');
+
+        // a new month starts with a copy of October's checkboxes
+        $this->addMonth('2026-11');
+        $this->assertTrue((bool) \App\Models\CostBreakdownProductFlag::where('month', '2026-11')->where('product_id', $product->id)->value('has_cost_allocation'));
+        $this->assertSame($octCount, $count('2026-11-20'));
+
+        // unticking it while viewing November leaves October alone
+        $this->get(route('data.cost-breakdown', ['month' => '2026-11']))->assertOk();
+        $this->patchJson(route('data.cost-breakdown.update-product-has-cost-allocation', $product), ['has_cost_allocation' => false])->assertOk();
+        $this->assertSame($octCount - 1, $count('2026-11-20'));
+        $this->assertSame($octCount, $count('2026-10-20'));
+        $this->assertTrue(TsaDailyRateService::withDate('2026-10-20', fn () => $product->fresh()->has_cost_allocation));
+        $this->assertFalse(TsaDailyRateService::withDate('2026-11-20', fn () => $product->fresh()->has_cost_allocation));
+    }
 }

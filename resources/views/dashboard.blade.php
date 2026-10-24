@@ -226,6 +226,8 @@
 
 </div>
 
+@include('partials.sales-target-card', ['salesTargets' => $salesTargets])
+
 {{-- RECENT ORDERS + HOURLY ACTIVITY — side by side, same height (stacks on mobile). --}}
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
 

@@ -4353,3 +4353,143 @@ function swapInputsForSnapshot(root) {
         });
     };
 }
+
+// ---------------------------------------------------------------------------
+// Smart callback reminders (explicit request, 2026-10-24). For a signed-in
+// TSA (layouts/calls.blade.php only adds the meta tag for one), checks their
+// own callbacks every 30s — every 60s while the tab is in the background, so
+// a desktop notification still fires — and shows a card 5 minutes before
+// and again when one is due: Call now / Snooze 10 min / Dismiss, a short
+// sound, and a desktop notification if the browser allows it. Each
+// reminder shows once per callback time (a snoozed callback has a new time,
+// so it reminds again).
+// ---------------------------------------------------------------------------
+(function () {
+    const endpoint = document.querySelector('meta[name="callback-reminders"]')?.content;
+    if (!endpoint) return;
+
+    const SEEN_KEY = 'callsCallbackReminderSeen';
+    const seen = () => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); } catch (e) { return {}; } };
+    const markSeen = (key) => {
+        const s = seen();
+        s[key] = Date.now();
+        // forget entries older than 2 days
+        Object.keys(s).forEach((k) => { if (Date.now() - s[k] > 172800000) delete s[k]; });
+        try { localStorage.setItem(SEEN_KEY, JSON.stringify(s)); } catch (e) { /* private mode */ }
+    };
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    let stack = null;
+    function container() {
+        if (stack) return stack;
+        stack = document.createElement('div');
+        stack.className = 'fixed bottom-4 right-4 z-[90] flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3';
+        stack.setAttribute('aria-live', 'polite');
+        document.body.appendChild(stack);
+        return stack;
+    }
+
+    function beep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            [0, 0.18].forEach((t) => {
+                const o = ctx.createOscillator(), g = ctx.createGain();
+                o.type = 'sine'; o.frequency.value = 880;
+                g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+                g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + t + 0.02);
+                g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.15);
+                o.connect(g).connect(ctx.destination);
+                o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.16);
+            });
+        } catch (e) { /* audio blocked until the page is clicked once — the card still shows */ }
+    }
+
+    function desktopNotify(r) {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        try {
+            const n = new Notification(r.due ? 'Callback due now' : `Callback at ${r.time}`, {
+                body: `${r.customer}${r.product ? ' · ' + r.product : ''}${r.phone ? ' · ' + r.phone : ''}`,
+                tag: 'callback-' + r.id,
+            });
+            n.onclick = () => { window.focus(); openLead(r.id); n.close(); };
+        } catch (e) { /* some browsers only allow notifications from a service worker */ }
+    }
+
+    function openLead(id) {
+        if (document.getElementById('leadDetailModal') && window.openLeadModal) window.openLeadModal(id);
+        else window.location.href = '/calls/leads/' + id;
+    }
+
+    function show(r) {
+        const card = document.createElement('div');
+        card.className = 'rounded-2xl bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-black/5 dark:ring-white/10 p-4 transition duration-200 ease-out translate-y-2 opacity-0';
+        card.dataset.reminder = r.id;
+        const askPerm = 'Notification' in window && Notification.permission === 'default';
+        card.innerHTML = `
+            <div class="flex items-start gap-3">
+                <span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${r.due ? 'bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'}">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
+                </span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold uppercase tracking-wide ${r.due ? 'text-rose-600 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}">${r.due ? 'Callback due now' : 'Callback in a few minutes · ' + esc(r.time)}</p>
+                    <p class="mt-0.5 truncate font-semibold text-slate-800 dark:text-slate-100">${esc(r.customer)}</p>
+                    <p class="truncate text-xs text-slate-500 dark:text-slate-400">${esc(r.product || '')}${r.phone ? ' · ' + esc(r.phone) : ''} · ${esc(r.time)}</p>
+                </div>
+                <button type="button" data-act="dismiss" class="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 cursor-pointer" aria-label="Dismiss">✕</button>
+            </div>
+            <div class="mt-3 flex items-center gap-2">
+                <button type="button" data-act="call" class="flex-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-dark cursor-pointer">Call now</button>
+                <button type="button" data-act="snooze" class="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800 cursor-pointer">Snooze 10 min</button>
+            </div>
+            ${askPerm ? '<button type="button" data-act="perm" class="mt-2 text-[11px] font-medium text-primary hover:underline cursor-pointer">Also alert me when this tab is in the background</button>' : ''}`;
+        const close = () => { card.classList.add('opacity-0', 'translate-y-2'); setTimeout(() => card.remove(), 200); };
+        card.addEventListener('click', async (e) => {
+            const act = e.target.closest('[data-act]')?.dataset.act;
+            if (act === 'dismiss') close();
+            if (act === 'call') { close(); openLead(r.id); }
+            if (act === 'perm') { Notification.requestPermission().then(() => e.target.remove()); }
+            if (act === 'snooze') {
+                try {
+                    const res = await fetch(`/calls/leads/${r.id}/callback-snooze`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '' },
+                        body: JSON.stringify({ minutes: 10 }),
+                    });
+                    if (!res.ok) throw new Error();
+                    close();
+                    window.showToast?.(`Callback snoozed 10 minutes.`, 'success');
+                } catch (err) {
+                    window.showToast?.('Could not snooze — try again.', 'error');
+                }
+            }
+        });
+        container().appendChild(card);
+        requestAnimationFrame(() => card.classList.remove('opacity-0', 'translate-y-2'));
+    }
+
+    async function check() {
+        try {
+            const res = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+            if (!res.ok) return;
+            const { reminders } = await res.json();
+            let fresh = false;
+            (reminders || []).forEach((r) => {
+                const key = `${r.id}|${r.at}|${r.due ? 'due' : 'soon'}`;
+                if (seen()[key]) return;
+                markSeen(key);
+                container().querySelectorAll(`[data-reminder="${r.id}"]`).forEach((el) => el.remove());
+                show(r);
+                desktopNotify(r);
+                fresh = true;
+            });
+            if (fresh) beep();
+        } catch (e) { /* offline — try again next tick */ }
+    }
+
+    check();
+    let last = Date.now();
+    setInterval(() => {
+        const every = document.hidden ? 60000 : 30000;
+        if (Date.now() - last >= every - 500) { last = Date.now(); check(); }
+    }, 30000);
+})();
