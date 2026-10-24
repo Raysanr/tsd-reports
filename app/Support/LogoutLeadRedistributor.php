@@ -47,12 +47,15 @@ use App\Models\TsaShift;
  * matters at all here, only whether she's online and checked for the
  * lead's own product in TSA Management. Down to 2 tiers:
  *   1. Online (any team), checked for this lead's product
- *   2. Online (any team), ANY product — "someone answers the phone" as
- *      the absolute last resort
- * A lead with no matched product (product_id null) skips straight to
- * tier 2 — there's no roster to check it against, same "no product,
- * no eligibility to check" convention RoundRobinAssigner::next() and
- * SyncPancakeLeads' catch-up sweep already use.
+ *   2. Online (any team), ANY product — ONLY for a lead with no matched
+ *      product (product_id null): there's no roster to check it against,
+ *      same "no product, no eligibility to check" convention
+ *      RoundRobinAssigner::next() and SyncPancakeLeads' catch-up sweep use.
+ * The old "anyone online" fallback for a lead WITH a product was removed
+ * (explicit request, 2026-10-24: Prime Man / Scar Erase / Nutrilay leads
+ * landed on a TSA not checked for them because nobody who was, was online).
+ * Now such a lead stays put until someone checked for its product is
+ * online — the login sweep (sweepStrandedBacklogs()) moves it then.
  *
  * Dialed leads excluded from the backlog 2026-09-16 (explicit follow-up,
  * after a real report: "look at this it is catered but it is redistributed
@@ -191,6 +194,8 @@ class LogoutLeadRedistributor
             if ($tier1->isNotEmpty()) {
                 $tier = 1;
                 $pool = $tier1;
+            } elseif ($lead->product_id) {
+                continue; // nobody checked for this product is online — it waits for one to log in
             } else {
                 $tier = 2;
                 $pool = $online;
@@ -208,7 +213,7 @@ class LogoutLeadRedistributor
             // lead for a product she isn't checked for (tier 2).
             $tierNote = match ($tier) {
                 1 => '',
-                2 => ' (nobody checked for this product was online — any-online fallback)',
+                2 => ' (lead has no product — any-online)',
             };
 
             // Resets assigned_at to now(), same convention LeadController::

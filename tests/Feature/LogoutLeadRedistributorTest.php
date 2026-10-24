@@ -34,6 +34,16 @@ class LogoutLeadRedistributorTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** Every TSA handles SINUXYL by default here, so ordinary moves go to a
+     *  product-checked TSA (the "anyone online" fallback was removed,
+     *  2026-10-24); tests about product eligibility override this. */
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $sinuxyl = Product::where('display_name', 'SINUXYL')->first();
+        TsaShift::all()->each(fn ($t) => $t->products()->syncWithoutDetaching([$sinuxyl->id]));
+    }
+
     private function leadFor(TsaShift $tsa, string $status = 'assigned', ?string $orderId = null): Lead
     {
         $product = Product::where('display_name', 'SINUXYL')->first();
@@ -350,21 +360,41 @@ class LogoutLeadRedistributorTest extends TestCase
      *  same team or otherwise — is checked for the product: any online
      *  TSA, regardless of product setup, same "someone answers the phone"
      *  reasoning as before this fix. */
-    public function test_falls_back_to_any_online_teammate_when_nobody_anywhere_handles_the_product(): void
+    /** No "anyone online" fallback any more (2026-10-24): if nobody checked
+     *  for the lead's product is online, it stays put, and moves once
+     *  someone checked for it logs in. */
+    public function test_a_lead_waits_when_nobody_checked_for_its_product_is_online(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first(); // SH Naturals
         $julie = TsaShift::where('tsa_key', 'Julie')->first(); // Eyecare Team — not checked for Sinuxyl
         $julie->update(['status' => 'login']);
         $julie->products()->sync([]);
-        TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
+        TsaShift::whereNotIn('id', [$gemma->id, $julie->id])->update(['status' => 'logout']);
+        $mariel = TsaShift::where('team', 'SH Naturals')->where('id', '!=', $gemma->id)->first();
 
         $lead = $this->leadFor($gemma);
 
         $this->logOutAndRedistribute($gemma);
 
+        $this->assertSame($gemma->id, $lead->fresh()->tsa_id, 'must not go to a TSA not checked for the product');
+        $this->assertSame(0, LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->count());
+
+        // someone checked for Sinuxyl logs in → the login sweep moves it to them
+        $this->logInAndSweep($mariel);
+        $this->assertSame($mariel->id, $lead->fresh()->tsa_id);
+    }
+
+    public function test_a_lead_with_no_product_still_goes_to_anyone_online(): void
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
+        $julie = TsaShift::where('tsa_key', 'Julie')->first();
+        $julie->update(['status' => 'login']);
+        TsaShift::where('id', '!=', $julie->id)->where('id', '!=', $gemma->id)->update(['status' => 'logout']);
+        $lead = Lead::create(['pancake_order_id' => '777001', 'customer_name' => 'Juan', 'product_id' => null, 'tsa_id' => $gemma->id, 'status' => 'assigned']);
+
+        $this->logOutAndRedistribute($gemma);
+
         $this->assertSame($julie->id, $lead->fresh()->tsa_id);
-        $activity = LeadActivity::where('lead_id', $lead->id)->where('type', 'transferred')->first();
-        $this->assertStringContainsString('any-online fallback', $activity->description);
     }
 
     /**
