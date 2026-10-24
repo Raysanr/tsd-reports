@@ -726,11 +726,7 @@ class DashboardController extends Controller
             Log::error('DashboardController DB error: ' . $e->getMessage());
         }
 
-        // "This month vs target" card (2026-10-24), following the team filter.
-        $salesTargets = \App\Support\SalesTargets::forMonth(null, $selectedTeam === 'all' ? null : ($teamsConfig[$selectedTeam]['order_team'] ?? null));
-
         return view('dashboard', compact(
-            'salesTargets',
             'stats', 'recentOrders', 'apiConnected', 'dbError',
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'hourlyLeads', 'teamComparison',
