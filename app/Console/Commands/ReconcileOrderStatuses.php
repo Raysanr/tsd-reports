@@ -289,7 +289,29 @@ class ReconcileOrderStatuses extends Command
         // 2026-09-18 — caught live while verifying an unrelated same-day
         // fix). whereJsonLength() compiles to the correct native JSON
         // function for either driver.
-        $candidates = Order::whereJsonLength('app_added_tags', '>', 0)->get();
+        //
+        // Only recent orders whose tracked tag is actually missing from the
+        // locally-synced tags (bug fix, 2026-10-25): this used to re-check
+        // EVERY order the app ever tagged (6,699 and growing) with one
+        // Pancake call each, which ran past the job's 9½-minute cap and was
+        // killed every run from Oct 24 — so TSA name tags queued by the
+        // catch-up assigner (deferred because the order had just been
+        // edited) were never added. Local raw_tags is kept fresh by the
+        // order sync, so an order whose tags are all there locally needs no
+        // Pancake call at all.
+        // Only orders that came in after this fix was deployed — past
+        // orders are left exactly as they are (2026-10-25).
+        $repairFrom = \Illuminate\Support\Carbon::parse(Setting::get('app_tag_repair_from') ?? now());
+        $candidates = Order::whereJsonLength('app_added_tags', '>', 0)
+            ->where('synced_at', '>=', now()->subDays(3))
+            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) >= ?', [$repairFrom])
+            ->get()
+            ->filter(function (Order $o) {
+                $local = collect($o->raw_tags ?? [])->map(fn ($t) => strtolower(trim((string) $t)));
+
+                return collect($o->app_added_tags ?? [])->filter()
+                    ->contains(fn ($t) => ! $local->contains(strtolower(trim((string) $t))));
+            });
 
         $checked   = 0;
         $corrected = 0;

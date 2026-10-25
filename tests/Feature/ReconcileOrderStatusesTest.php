@@ -1113,6 +1113,43 @@ class ReconcileOrderStatusesTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->url(), 'orders/1369282'));
     }
 
+    /** Bug fix 2026-10-25: the job used to re-check every order the app ever
+     *  tagged (6,699) and ran past its time cap every run. Now an order
+     *  whose tracked tag is already in its synced tags, or that hasn't
+     *  synced in 3+ days, costs no Pancake call. */
+    public function test_only_recent_orders_actually_missing_a_tracked_tag_are_checked(): void
+    {
+        Order::factory()->create(['pancake_order_id' => '1369290', 'app_added_tags' => ['MARIEL'], 'raw_tags' => ['mariel', 'ROOSTER MEDALLION'], 'synced_at' => now()]);
+        Order::factory()->create(['pancake_order_id' => '1369291', 'app_added_tags' => ['LIKA'], 'raw_tags' => [], 'synced_at' => now()->subDays(5)]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'orders/1369290') || str_contains($r->url(), 'orders/1369291'));
+    }
+
+    /** Only orders that came in after the fix deployed are repaired — past
+     *  orders are left as they are (2026-10-25). */
+    public function test_orders_from_before_the_fix_was_deployed_are_left_alone(): void
+    {
+        Setting::set('app_tag_repair_from', now()->toIso8601String());
+        Order::factory()->create([
+            'pancake_order_id' => '1369292', 'app_added_tags' => ['MARIEL'], 'raw_tags' => [],
+            'synced_at' => now(), 'pancake_created_at' => now()->subHour(), 'pancake_inserted_at' => now()->subHour(),
+        ]);
+
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => []], 200),
+        ]);
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'orders/1369292'));
+    }
+
     /**
      * Extended to Notes, explicit follow-up 2026-09-18: "even notes and
      * the address when they edit or add it should be reflect to the

@@ -195,9 +195,21 @@ class RoundRobinAssigner
         $roster     = self::eligibleRoster($product);
         $hasRoster  = $roster->isNotEmpty();
 
+        // Someone on the roster whose shift has already started (or has no
+        // shift time) means the shift is on now — no reason to wait for a
+        // later shift's start.
+        $someoneOnShift = $roster->contains(fn (TsaShift $tsa) => ! $tsa->shift_start || ! Carbon::parse($tsa->shift_start)->isFuture());
         if ($hasRoster && !$state->roster_available_since) {
-            $anchor = self::earliestUpcomingShiftStart($roster) ?? now();
+            $anchor = $someoneOnShift ? now() : (self::earliestUpcomingShiftStart($roster) ?? now());
             $state->update(['roster_available_since' => $anchor]);
+        } elseif ($hasRoster && $state->roster_available_since->isFuture() && $someoneOnShift) {
+            // Bug fix, 2026-10-25 (Rooster Medallion 2.0 backlog held until
+            // 10:03): an early login for a LATER shift (Jhun, 10:00 shift,
+            // logged in 6:01) set the anchor to 10:00, and it was never
+            // pulled back when the 6:00 team came online right after — so
+            // the backlog waited 4 hours. Once anyone whose shift has
+            // already started is on the roster, the countdown starts now.
+            $state->update(['roster_available_since' => now()]);
         } elseif (!$hasRoster && $state->roster_available_since) {
             $state->update(['roster_available_since' => null]);
         }
