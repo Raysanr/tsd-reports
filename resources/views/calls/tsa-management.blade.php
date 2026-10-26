@@ -94,7 +94,7 @@
         {{-- Global auto-call switch (2026-10-26) — one toggle for everyone.
              ON: every TSA with a Dialer address gets their next lead dialed
              by itself while Ready to Call (App\Support\AutoCall). --}}
-        <div class="flex items-center gap-2" title="When on, every TSA with a Dialer address gets their next lead dialed automatically while Ready to Call. New leads go to whoever has been Ready the longest; if nobody is free, they wait in line.">
+        <div class="flex items-center gap-2" title="When on, every TSA with a Dialer address gets their next lead dialed automatically once logged in or Ready to Call. New leads go to whoever has been Ready the longest; if nobody is free, they wait in line.">
             <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Auto-call</span>
             <button type="button" id="autoCallToggle"
                     data-action="{{ route('calls.tsa-management.toggle-auto-call') }}"

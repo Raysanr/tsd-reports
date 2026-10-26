@@ -27,6 +27,10 @@ use Illuminate\Support\Facades\DB;
  */
 class AutoCall
 {
+    /** Statuses auto-call dials for. Login counts too (explicit request,
+     *  2026-10-26: calls start right after logging in, no extra click). */
+    public const AVAILABLE_STATUSES = [TsaShift::STATUS_LOGIN, TsaShift::STATUS_READY_TO_CALL];
+
     public static function enabled(): bool
     {
         return (bool) \App\Models\Setting::get('auto_call_enabled', false);
@@ -52,7 +56,7 @@ class AutoCall
     public static function canTakeNewLead(TsaShift $tsa): bool
     {
         return self::isOn($tsa)
-            && $tsa->status === TsaShift::STATUS_READY_TO_CALL
+            && in_array($tsa->status, self::AVAILABLE_STATUSES, true)
             && self::pendingLead($tsa) === null;
     }
 
@@ -61,7 +65,7 @@ class AutoCall
      *  so two browsers can never take the same lead). */
     public static function next(TsaShift $tsa): ?Lead
     {
-        if (! self::isOn($tsa) || $tsa->status !== TsaShift::STATUS_READY_TO_CALL) {
+        if (! self::isOn($tsa) || ! in_array($tsa->status, self::AVAILABLE_STATUSES, true)) {
             return null;
         }
         if ($own = self::pendingLead($tsa)) {

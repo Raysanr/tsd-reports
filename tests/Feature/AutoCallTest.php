@@ -106,7 +106,8 @@ class AutoCallTest extends TestCase
     {
         $gemma = $this->tsa('Gemma', 'wrap_up');
         $this->lead();
-        $this->assertNull(AutoCall::next($gemma));                // not Ready
+        $this->assertNull(AutoCall::next($gemma));                // busy (wrap-up)
+        $this->assertNull(AutoCall::next($this->tsa('Gemma', 'break')));    // on break
 
         $julie = $this->tsa('Julie', 'ready_to_call', false);
         $this->assertNull(AutoCall::next($julie));                // no Dialer address
@@ -176,5 +177,15 @@ class AutoCallTest extends TestCase
         $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
         \App\Support\LogoutLeadRedistributor::redistribute($gemma->fresh());
         $this->assertSame($gemma->id, $held->fresh()->tsa_id);
+    }
+
+    /** Logging in is enough — the first lead dials right away (2026-10-26). */
+    public function test_a_tsa_who_just_logged_in_gets_auto_dialed(): void
+    {
+        $gemma = $this->tsa('Gemma', 'login');
+        $waiting = $this->lead();
+
+        $this->assertSame($waiting->id, AutoCall::next($gemma)->id);
+        $this->assertTrue(AutoCall::canTakeNewLead($this->tsa('Julie', 'login')));
     }
 }

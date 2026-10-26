@@ -444,7 +444,7 @@ class TsaManagementController extends Controller
         Setting::set('auto_call_enabled', $enabled);
 
         $message = $enabled
-            ? 'Auto-call turned on — every TSA with a Dialer address gets their next lead dialed automatically while Ready to Call.'
+            ? 'Auto-call turned on — every TSA with a Dialer address gets their next lead dialed automatically as soon as they log in (and after each call).'
             : 'Auto-call turned off — back to round-robin and click-to-call for everyone.';
         ActivityLogger::log('tsa.auto_call_toggled', null, $message);
 
