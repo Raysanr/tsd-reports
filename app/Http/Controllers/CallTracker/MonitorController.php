@@ -221,8 +221,10 @@ class MonitorController extends Controller
             'leadCounts'           => $leadCounts,
             'unassignedLeadsCount' => $unassignedLeadsCount,
             // "Leads waiting" panel (2026-10-26): the unassigned leads
-            // themselves, oldest first — the line auto-call works through.
-            'waitingLeads'         => (clone $unassignedLeadsQuery)->with('product')->orderBy('pancake_created_at')->limit(50)->get(),
+            // themselves, newest first, only for products in Product
+            // Management (a lead with no matched product isn't listed).
+            'waitingLeads'         => (clone $unassignedLeadsQuery)->whereNotNull('product_id')->with('product')->orderByDesc('pancake_created_at')->limit(50)->get(),
+            'waitingLeadsCount'    => (clone $unassignedLeadsQuery)->whereNotNull('product_id')->count(),
             'unassignedCallbacksDueCount' => $unassignedCallbacksDueCount,
             'statusCounts'         => $statusCounts,
             'q'                    => $q,

@@ -442,10 +442,10 @@
             </span>
             <div>
                 <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Leads waiting</h3>
-                <p class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Unassigned · oldest first</p>
+                <p class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Unassigned · newest first</p>
             </div>
         </div>
-        <span class="inline-flex min-w-8 items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold tabular-nums {{ $unassignedLeadsCount > 0 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' }}">{{ $unassignedLeadsCount }}</span>
+        <span class="inline-flex min-w-8 items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold tabular-nums {{ $waitingLeadsCount > 0 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' }}">{{ $waitingLeadsCount }}</span>
     </div>
 
     @if($waitingLeads->isEmpty())
@@ -466,7 +466,7 @@
                     <span class="min-w-0 flex-1">
                         <span class="block truncate text-sm font-semibold text-slate-800 group-hover:text-primary dark:text-slate-100">{{ $lead->customer_name ?: 'Customer' }}</span>
                         <span class="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                            <span class="truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $lead->product?->display_name ?? 'No product yet' }}</span>
+                            <span class="truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $lead->product?->display_name }}</span>
                             <span class="shrink-0 font-mono">#{{ $lead->pancake_order_id }}</span>
                         </span>
                     </span>
@@ -475,8 +475,8 @@
             </li>
             @endforeach
         </ol>
-        @if($unassignedLeadsCount > $waitingLeads->count())
-        <p class="shrink-0 border-t border-slate-100 px-5 py-2.5 text-center text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">+ {{ $unassignedLeadsCount - $waitingLeads->count() }} more</p>
+        @if($waitingLeadsCount > $waitingLeads->count())
+        <p class="shrink-0 border-t border-slate-100 px-5 py-2.5 text-center text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">+ {{ $waitingLeadsCount - $waitingLeads->count() }} more</p>
         @endif
     @endif
 </aside>

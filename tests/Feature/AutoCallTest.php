@@ -142,15 +142,17 @@ class AutoCallTest extends TestCase
         $this->getJson(route('calls.auto-call.next'))->assertOk()->assertJsonPath('lead', null);
     }
 
-    /** Monitor TSA's "Leads waiting" panel lists the unassigned leads, oldest first. */
+    /** Monitor TSA's "Leads waiting" panel: unassigned leads with a product, newest first. */
     public function test_monitor_shows_the_leads_waiting_panel(): void
     {
         $this->lead(null, ['customer_name' => 'Newer Lead', 'pancake_created_at' => now()->subMinutes(2)]);
         $this->lead(null, ['customer_name' => 'Older Lead', 'pancake_created_at' => now()->subMinutes(20)]);
+        $this->lead(null, ['customer_name' => 'No Product Lead', 'product_id' => null]);
 
         $this->actingAs(User::factory()->create(['role' => 'admin']))
             ->get(route('calls.monitor'))->assertOk()
             ->assertSee('Leads waiting')
-            ->assertSeeInOrder(['Older Lead', 'Newer Lead']);
+            ->assertSeeInOrder(['Newer Lead', 'Older Lead'])   // newest at the top
+            ->assertDontSee('No Product Lead');                 // product not in Product Management
     }
 }
