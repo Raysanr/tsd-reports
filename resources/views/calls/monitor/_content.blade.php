@@ -468,6 +468,7 @@
                         <span class="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
                             <span class="truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $lead->product?->display_name }}</span>
                             <span class="shrink-0 font-mono">#{{ $lead->pancake_order_id }}</span>
+                            @if($lead->high_rts)<span class="shrink-0 rounded-md bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white" title="Not auto-assigned — HIGH RTS customer. Assign by hand if needed.">High RTS</span>@endif
                         </span>
                     </span>
                     <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset {{ $waitTone($lead->pancake_created_at) }}" title="Waiting since {{ $lead->pancake_created_at?->timezone('Asia/Manila')->format('g:i A') }}">{{ $waitShort($lead->pancake_created_at) }}</span>

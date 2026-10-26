@@ -155,4 +155,26 @@ class AutoCallTest extends TestCase
             ->assertSeeInOrder(['Newer Lead', 'Older Lead'])   // newest at the top
             ->assertDontSee('No Product Lead');                 // product not in Product Management
     }
+
+    /** HIGH RTS leads are never claimed by auto-call or moved by a logout
+     *  (2026-10-26); a note added on the order after the lead came in counts too. */
+    public function test_high_rts_leads_are_never_auto_distributed(): void
+    {
+        $gemma = $this->tsa('Gemma', 'ready_to_call');
+        $flagged = $this->lead(null, ['high_rts' => true, 'pancake_created_at' => now()->subMinutes(30)]);
+        $this->assertNull(AutoCall::next($gemma));           // only a HIGH RTS lead waiting — not taken
+        $this->assertSame('unassigned', $flagged->fresh()->status);
+
+        $later = $this->lead();
+        \App\Models\Order::create(['pancake_order_id' => $later->pancake_order_id, 'note' => 'HIGH RTS', 'synced_at' => now()]);
+        $this->assertTrue(\App\Support\HighRts::lead($later));
+        $this->assertTrue($later->fresh()->high_rts);
+
+        // a supervisor-assigned HIGH RTS lead stays with its TSA when they log out
+        $julie = $this->tsa('Julie', 'ready_to_call', false);
+        $held = $this->lead($gemma, ['high_rts' => true]);
+        $gemma->applyStatusChange(TsaShift::STATUS_LOGOUT);
+        \App\Support\LogoutLeadRedistributor::redistribute($gemma->fresh());
+        $this->assertSame($gemma->id, $held->fresh()->tsa_id);
+    }
 }

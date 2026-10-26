@@ -377,8 +377,10 @@ class SyncPancakeLeads extends Command
                     'pancake_created_at' => $rawCreatedAt,
                     'synced_at'          => now(),
                 ]);
+                // HIGH RTS customers are never auto-assigned (2026-10-26).
+                $lead->high_rts = \App\Support\HighRts::inRawOrder($raw);
 
-                if ($product) {
+                if ($product && !$lead->high_rts) {
                     $tsa = RoundRobinAssigner::next($product);
                     if ($tsa) {
                         $lead->tsa_id      = $tsa->id;
@@ -399,6 +401,9 @@ class SyncPancakeLeads extends Command
                 LeadSyncSkip::where('pancake_order_id', $id)->delete();
 
                 LeadActivity::log($lead, 'created', "Lead pulled in from Pancake order #{$id}.");
+                if ($lead->high_rts) {
+                    LeadActivity::log($lead, 'high_rts_held', 'Not auto-assigned — HIGH RTS customer. Left Unassigned for a supervisor to decide.');
+                }
 
                 if ($lead->tsa) {
                     LeadActivity::log($lead, 'assigned', "Round-robin assigned to {$lead->tsa->display_name}.");
@@ -904,6 +909,7 @@ class SyncPancakeLeads extends Command
         $caughtUp = 0;
         foreach ($leads as $lead) {
             if (!$lead->product) continue; // product deleted since — nothing to rotate against
+            if (\App\Support\HighRts::lead($lead)) continue; // HIGH RTS — supervisor decides (2026-10-26)
 
             // Handover buffer (explicit request, 2026-09-17) — hold off on
             // THIS product's backlog until its roster has been continuously

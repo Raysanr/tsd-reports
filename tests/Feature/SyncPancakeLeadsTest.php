@@ -78,6 +78,43 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame('SINUXYL', $lead->product->display_name);
     }
 
+    /** HIGH RTS customers are never auto-assigned (2026-10-26): Pancake's
+     *  internal note or a customer tag says HIGH RTS → the lead stays
+     *  Unassigned, and the catch-up never hands it out either. */
+    public function test_a_high_rts_order_is_left_unassigned(): void
+    {
+        $base = fn (int $id, array $extra) => array_merge([
+            'id' => $id, 'bill_full_name' => 'Juan', 'bill_phone_number' => '0917123' . $id,
+            'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(), 'customer' => [],
+        ], $extra);
+        $this->fakePancake([
+            $base(9101, ['note' => 'HIGH RTS']),
+            $base(9102, ['note' => 'jhun - high rts']),
+            $base(9103, ['customer' => ['tags' => [['name' => 'HIGH RTS'], ['name' => 'FLAGGED']]]]),
+            $base(9104, ['customer' => ['tags' => ['HIGH RTS']]]),
+            $base(9105, ['note' => 'Please call after 3pm']),
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        foreach (['9101', '9102', '9103', '9104'] as $id) {
+            $lead = Lead::where('pancake_order_id', $id)->first();
+            $this->assertTrue($lead->high_rts, $id);
+            $this->assertSame('unassigned', $lead->status, $id);
+            $this->assertNull($lead->tsa_id, $id);
+            $this->assertTrue(\App\Models\LeadActivity::where('lead_id', $lead->id)->where('type', 'high_rts_held')->exists());
+        }
+        $normal = Lead::where('pancake_order_id', '9105')->first();
+        $this->assertFalse($normal->high_rts);
+        $this->assertSame('assigned', $normal->status);
+
+        // a later sync's catch-up still doesn't hand them out
+        \App\Models\RoundRobinState::query()->update(['roster_available_since' => now()->subHour()]);
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('unassigned', Lead::where('pancake_order_id', '9101')->first()->status);
+    }
+
     /**
      * Regression test — root-caused live on production, 2026-09-18: "why is
      * it like no leads distributed in the leads page?" at 07:41 AM Manila

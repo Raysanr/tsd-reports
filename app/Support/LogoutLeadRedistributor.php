@@ -146,6 +146,7 @@ class LogoutLeadRedistributor
         // else now.
         $backlog = Lead::where('tsa_id', $tsa->id)
             ->where('status', 'assigned')
+            ->where('high_rts', false) // HIGH RTS stays where a supervisor put it (2026-10-26)
             ->whereNull('dialed_at')
             ->whereNotExists(function ($sub) {
                 $sub->selectRaw('1')

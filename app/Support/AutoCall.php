@@ -74,6 +74,7 @@ class AutoCall
         }
         $candidates = self::callable(Lead::query())
             ->where('status', 'unassigned')
+            ->where('high_rts', false) // HIGH RTS waits for a supervisor (2026-10-26)
             ->whereIn('product_id', $productIds)
             ->orderBy('pancake_created_at')
             ->limit(5)
