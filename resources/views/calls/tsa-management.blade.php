@@ -91,6 +91,21 @@
             </button>
         </div>
 
+        {{-- Global auto-call switch (2026-10-26) — one toggle for everyone.
+             ON: every TSA with a Dialer address gets their next lead dialed
+             by itself while Ready to Call (App\Support\AutoCall). --}}
+        <div class="flex items-center gap-2" title="When on, every TSA with a Dialer address gets their next lead dialed automatically while Ready to Call. New leads go to whoever has been Ready the longest; if nobody is free, they wait in line.">
+            <span class="text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">Auto-call</span>
+            <button type="button" id="autoCallToggle"
+                    data-action="{{ route('calls.tsa-management.toggle-auto-call') }}"
+                    data-enabled="{{ $autoCallEnabled ? '1' : '0' }}"
+                    aria-pressed="{{ $autoCallEnabled ? 'true' : 'false' }}"
+                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-300 ease-in-out cursor-pointer active:scale-95 {{ $autoCallEnabled ? 'bg-primary' : 'bg-slate-300 dark:bg-slate-600' }}">
+                <span id="autoCallKnob"
+                      class="inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] will-change-transform {{ $autoCallEnabled ? 'translate-x-6' : 'translate-x-1' }}"></span>
+            </button>
+        </div>
+
         <button type="button" id="addTsaBtn"
                 class="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white text-sm font-semibold font-mono px-4 py-2 rounded-lg cursor-pointer shrink-0">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -452,6 +467,41 @@
                     window.showToast?.(message, 'error');
                 })
                 .finally(() => { midnightAutoLogoutToggle.disabled = false; });
+        });
+    }
+
+    // Global auto-call switch (2026-10-26) — same optimistic-paint/rollback
+    // shape as the midnight auto-logout toggle above.
+    const autoCallToggle = document.getElementById('autoCallToggle');
+    const autoCallKnob   = document.getElementById('autoCallKnob');
+    if (autoCallToggle && autoCallKnob) {
+        const paintAutoCall = (enabled) => {
+            autoCallToggle.dataset.enabled = enabled ? '1' : '0';
+            autoCallToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+            autoCallToggle.classList.toggle('bg-primary', enabled);
+            autoCallToggle.classList.toggle('bg-slate-300', !enabled);
+            autoCallToggle.classList.toggle('dark:bg-slate-600', !enabled);
+            autoCallKnob.classList.toggle('translate-x-6', enabled);
+            autoCallKnob.classList.toggle('translate-x-1', !enabled);
+        };
+        autoCallToggle.addEventListener('click', () => {
+            const next = autoCallToggle.dataset.enabled !== '1';
+            paintAutoCall(next);
+            autoCallToggle.disabled = true;
+            fetch(autoCallToggle.dataset.action, {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                },
+                body: `enabled=${next ? '1' : '0'}`,
+            })
+                .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+                .then((data) => window.showToast?.(data.message || 'Saved.', 'success'))
+                .catch(() => { paintAutoCall(!next); window.showToast?.('Could not save — try again.', 'error'); })
+                .finally(() => { autoCallToggle.disabled = false; });
         });
     }
 

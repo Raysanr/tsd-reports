@@ -100,6 +100,7 @@ class TsaManagementController extends Controller
             // and why it defaults to ON.
             'midnightAutoLogoutEnabled' => (bool) Setting::get('midnight_auto_logout_enabled', true),
             'autoSmsEnabled' => LeadAutoText::enabled(),
+            'autoCallEnabled' => \App\Support\AutoCall::enabled(),
         ];
 
         // Same X-Table-Refresh convention as Leads Setup's own team-filter
@@ -172,6 +173,7 @@ class TsaManagementController extends Controller
             'phone_number' => $data['phone_number'] ?? null,
             'dialer_host'  => $data['dialer_host'] ?? null,
         ]);
+
 
         // Auto-text (SMSGate) fields — only touched when the form sent
         // them, so an older form/POST without them changes nothing. A blank
@@ -435,6 +437,22 @@ class TsaManagementController extends Controller
      * this flag and no-ops entirely that night — every TSA's status stays
      * exactly as they left it, same as before this feature existed.
      */
+    /** Global auto-call switch (2026-10-26) — see App\Support\AutoCall. */
+    public function toggleAutoCall(Request $request)
+    {
+        $enabled = $request->boolean('enabled');
+        Setting::set('auto_call_enabled', $enabled);
+
+        $message = $enabled
+            ? 'Auto-call turned on — every TSA with a Dialer address gets their next lead dialed automatically while Ready to Call.'
+            : 'Auto-call turned off — back to round-robin and click-to-call for everyone.';
+        ActivityLogger::log('tsa.auto_call_toggled', null, $message);
+
+        return $request->wantsJson()
+            ? response()->json(['success' => true, 'message' => $message, 'enabled' => $enabled])
+            : redirect()->route('calls.tsa-management')->with('success', $message);
+    }
+
     public function toggleMidnightAutoLogout(Request $request)
     {
         $enabled = $request->boolean('enabled');

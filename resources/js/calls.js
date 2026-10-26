@@ -4493,3 +4493,80 @@ function swapInputsForSnapshot(root) {
         if (Date.now() - last >= every - 500) { last = Date.now(); check(); }
     }, 30000);
 })();
+
+// ---------------------------------------------------------------------------
+// Auto-call (explicit request, 2026-10-26). Only for a TSA whose Auto-call
+// switch is on and Dialer address is set (layouts/calls.blade.php adds the
+// meta tag). While they're "Ready to Call", this asks the server every few
+// seconds for their next lead (App\Support\AutoCall::next()) and dials it
+// through the normal click-to-call path — same calling screen, same phone
+// macro, same "Calling" status and call log — just without the click.
+// ---------------------------------------------------------------------------
+(function () {
+    const endpoint = document.querySelector('meta[name="auto-call"]')?.content;
+    if (!endpoint) return;
+
+    const pill = document.createElement('div');
+    pill.className = 'fixed bottom-4 left-4 z-[80] inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-white shadow-lg';
+    pill.innerHTML = '<span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span><span data-auto-call-label>Auto-call on</span>';
+    pill.title = 'Your next lead dials by itself while you are Ready to Call.';
+    document.body.appendChild(pill);
+    const label = pill.querySelector('[data-auto-call-label]');
+
+    const LAST_KEY = 'callsAutoCallLast';
+    let busy = false;
+
+    // The server's "Ready to Call" status decides when the next lead may
+    // dial; the browser only holds off while the calling screen is open.
+    function inCall() {
+        const modal = document.getElementById('callingModal');
+        return !!(modal && !modal.classList.contains('hidden'));
+    }
+
+    function dial(lead) {
+        // Never re-dial the same lead within 2 minutes (e.g. a slow status update).
+        try {
+            const last = JSON.parse(sessionStorage.getItem(LAST_KEY) || 'null');
+            if (last && String(last.id) === String(lead.id) && Date.now() - last.at < 120000) return;
+            sessionStorage.setItem(LAST_KEY, JSON.stringify({ id: lead.id, at: Date.now() }));
+        } catch (e) { /* private mode */ }
+
+        // Run the exact click-to-call flow (see the tel: click handler above).
+        const a = document.createElement('a');
+        a.href = 'tel:' + (lead.dialNumber || lead.number || '');
+        a.textContent = lead.number || '';
+        a.dataset.leadId = lead.id;
+        a.dataset.name = lead.name;
+        a.dataset.dialHost = lead.dialHost || '';
+        a.dataset.dialNumber = lead.dialNumber || '';
+        a.className = 'hidden';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.showToast?.(`Auto-calling ${lead.name}${lead.product ? ' · ' + lead.product : ''}`, 'success');
+    }
+
+    async function tick() {
+        if (busy) return;
+        if (inCall()) { label.textContent = 'Auto-call on · close the calling screen to continue'; return; }
+        busy = true;
+        try {
+            const res = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+            if (!res.ok) return;
+            const { lead } = await res.json();
+            if (lead && !inCall()) dial(lead);
+            label.textContent = lead ? 'Auto-call on · dialing' : 'Auto-call on · waiting for a lead';
+        } catch (e) {
+            label.textContent = 'Auto-call on · offline';
+        } finally {
+            busy = false;
+        }
+    }
+
+    tick();
+    let last = Date.now();
+    setInterval(() => {
+        const every = document.hidden ? 8000 : 4000;
+        if (Date.now() - last >= every - 200) { last = Date.now(); tick(); }
+    }, 2000);
+})();

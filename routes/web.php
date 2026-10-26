@@ -217,6 +217,8 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/leads/{lead}/delivery', [\App\Http\Controllers\CallTracker\LeadController::class, 'updateDelivery'])->name('leads.delivery.update');
 
         Route::get('/api/notification-counts', [\App\Http\Controllers\CallTracker\NotificationController::class, 'counts'])->name('notifications.counts');
+        // Auto-call (2026-10-26): the TSA's browser asks for its next lead to dial
+        Route::get('/api/auto-call/next', [\App\Http\Controllers\CallTracker\AutoCallController::class, 'next'])->name('auto-call.next');
         // Smart callback reminders (2026-10-24)
         Route::get('/api/callback-reminders', [\App\Http\Controllers\CallTracker\CallbackReminderController::class, 'index'])->name('callback-reminders');
         Route::post('/leads/{lead}/callback-snooze', [\App\Http\Controllers\CallTracker\CallbackReminderController::class, 'snooze'])->name('leads.callback-snooze');
@@ -251,6 +253,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::post('/tsa-management/toggle-auto-tagging', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoTagging'])->name('tsa-management.toggle-auto-tagging');
             // Same wildcard-collision reasoning as toggle-auto-tagging above.
             Route::post('/tsa-management/toggle-midnight-auto-logout', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleMidnightAutoLogout'])->name('tsa-management.toggle-midnight-auto-logout');
+            Route::post('/tsa-management/toggle-auto-call', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoCall'])->name('tsa-management.toggle-auto-call');
             Route::post('/tsa-management/toggle-auto-sms', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'toggleAutoSms'])->name('tsa-management.toggle-auto-sms');
             Route::post('/tsa-management/{tsaShift}/test-sms', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'testSms'])->name('tsa-management.test-sms');
             Route::post('/tsa-management/sms-template/{product}', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'updateSmsTemplate'])->name('tsa-management.sms-template');

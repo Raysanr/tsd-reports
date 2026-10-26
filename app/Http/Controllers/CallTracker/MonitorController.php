@@ -220,6 +220,9 @@ class MonitorController extends Controller
             'dailyRecords'         => $dailyRecords,
             'leadCounts'           => $leadCounts,
             'unassignedLeadsCount' => $unassignedLeadsCount,
+            // "Leads waiting" panel (2026-10-26): the unassigned leads
+            // themselves, oldest first — the line auto-call works through.
+            'waitingLeads'         => (clone $unassignedLeadsQuery)->with('product')->orderBy('pancake_created_at')->limit(50)->get(),
             'unassignedCallbacksDueCount' => $unassignedCallbacksDueCount,
             'statusCounts'         => $statusCounts,
             'q'                    => $q,

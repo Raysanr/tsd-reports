@@ -228,12 +228,15 @@
     </div>
 </div>
 
+{{-- TSA cards (left) + "Leads waiting" panel (right), 2026-10-26 --}}
+<div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] gap-5 items-start">
+<div class="min-w-0">
 @if($tsas->isEmpty())
 <div class="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 py-16 text-center text-sm font-mono text-slate-400">
     No TSAs match this search/filter.
 </div>
 @else
-<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+<div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5">
     @foreach($tsas as $tsa)
     @php
         $tsaSeconds = $dailyRecords[$tsa->id] ?? [];
@@ -416,3 +419,65 @@
     @endforeach
 </div>
 @endif
+</div>
+
+@php
+    $waitShort = function ($since) {
+        if (! $since) return '—';
+        $m = (int) floor(now()->diffInMinutes($since, true));
+        return $m < 1 ? 'just now' : ($m < 60 ? "{$m}m" : floor($m / 60) . 'h ' . ($m % 60) . 'm');
+    };
+    $waitTone = function ($since) {
+        $m = $since ? now()->diffInMinutes($since, true) : 0;
+        return $m >= 15 ? 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30'
+            : ($m >= 5 ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30'
+            : 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30');
+    };
+@endphp
+<aside class="flex min-h-[24rem] flex-col xl:sticky xl:top-4 xl:h-[calc(100vh-2rem)] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm" aria-label="Leads waiting">
+    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-700 px-5 py-4">
+        <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-xl {{ $waitingLeads->isNotEmpty() ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' }}">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            </span>
+            <div>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Leads waiting</h3>
+                <p class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Unassigned · oldest first</p>
+            </div>
+        </div>
+        <span class="inline-flex min-w-8 items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold tabular-nums {{ $unassignedLeadsCount > 0 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' }}">{{ $unassignedLeadsCount }}</span>
+    </div>
+
+    @if($waitingLeads->isEmpty())
+        <div class="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
+            <span class="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+            </span>
+            <p class="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">No leads waiting</p>
+            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Every new lead has a TSA.</p>
+        </div>
+    @else
+        <ol class="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
+            @foreach($waitingLeads as $i => $lead)
+            <li>
+                <a href="{{ route('calls.leads.show', $lead) }}" target="_blank" rel="noopener"
+                   class="group flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400">{{ $i + 1 }}</span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-semibold text-slate-800 group-hover:text-primary dark:text-slate-100">{{ $lead->customer_name ?: 'Customer' }}</span>
+                        <span class="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span class="truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $lead->product?->display_name ?? 'No product yet' }}</span>
+                            <span class="shrink-0 font-mono">#{{ $lead->pancake_order_id }}</span>
+                        </span>
+                    </span>
+                    <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ring-1 ring-inset {{ $waitTone($lead->pancake_created_at) }}" title="Waiting since {{ $lead->pancake_created_at?->timezone('Asia/Manila')->format('g:i A') }}">{{ $waitShort($lead->pancake_created_at) }}</span>
+                </a>
+            </li>
+            @endforeach
+        </ol>
+        @if($unassignedLeadsCount > $waitingLeads->count())
+        <p class="shrink-0 border-t border-slate-100 px-5 py-2.5 text-center text-[11px] text-slate-500 dark:border-slate-800 dark:text-slate-400">+ {{ $unassignedLeadsCount - $waitingLeads->count() }} more</p>
+        @endif
+    @endif
+</aside>
+</div>

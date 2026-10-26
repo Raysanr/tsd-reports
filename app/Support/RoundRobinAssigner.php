@@ -68,6 +68,18 @@ class RoundRobinAssigner
         $roster = self::eligibleRoster($product);
         if ($roster->isEmpty()) return null;
 
+        // Auto-call (2026-10-26, one global switch): a Ready TSA with nothing waiting
+        // gets the lead first — the one Ready the longest. Busy auto-call
+        // TSAs get nothing pushed; they pull the next lead themselves once
+        // Ready (AutoCall::next()). Everyone else keeps the rotation below.
+        $autoReady = $roster->filter(fn (TsaShift $tsa) => AutoCall::canTakeNewLead($tsa))
+            ->sortBy(fn (TsaShift $tsa) => $tsa->status_changed_at?->timestamp ?? 0)->values();
+        if ($autoReady->isNotEmpty()) {
+            return $autoReady->first();
+        }
+        $roster = $roster->reject(fn (TsaShift $tsa) => AutoCall::isOn($tsa))->values();
+        if ($roster->isEmpty()) return null; // only busy auto-call TSAs — the lead waits in line
+
         // Fairness-by-count, not just fairness-by-turn (explicit request,
         // 2026-09-18: "angel, mariel, lika, kathleen is same online but why
         // is it not equal of the leads and why kathleen is leading for
