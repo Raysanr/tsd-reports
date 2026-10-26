@@ -4544,6 +4544,10 @@ function swapInputsForSnapshot(root) {
         a.click();
         a.remove();
         window.showToast?.(`Auto-calling ${lead.name}${lead.product ? ' · ' + lead.product : ''}`, 'success');
+        // Show the lead in the Leads table right away (behind the calling
+        // screen) instead of waiting for the 30-second refresh (2026-10-26).
+        setTimeout(() => pollLeadsTable(null, true), 400);
+        setTimeout(() => pollLeadsTable(null, true), 3000); // again once the call is logged (dialed ✓)
     }
 
     async function tick() {
