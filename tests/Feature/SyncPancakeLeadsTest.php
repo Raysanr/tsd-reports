@@ -1025,6 +1025,46 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame(6, $gemmaCount + $marielCount);
     }
 
+    /** 2026-10-28: auto-call claimed a lead while the catch-up sweep was
+     *  still busy with an earlier one in its batch, and the sweep then
+     *  handed the same lead to a second TSA. */
+    public function test_catch_up_skips_a_lead_auto_call_claimed_mid_sweep(): void
+    {
+        $product = Product::where('display_name', 'SINUXYL')->first();
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+        $mariel  = TsaShift::where('tsa_key', 'Mariel')->first();
+        TsaShift::where('tsa_key', '!=', 'Gemma')->update(['status' => TsaShift::STATUS_LOGOUT]);
+
+        $first = Lead::create([
+            'pancake_order_id' => 'race-0', 'customer_name' => 'First', 'product_id' => $product->id,
+            'status' => 'unassigned', 'pancake_created_at' => now()->subHours(2),
+        ]);
+        $second = Lead::create([
+            'pancake_order_id' => 'race-1', 'customer_name' => 'Second', 'product_id' => $product->id,
+            'status' => 'unassigned', 'pancake_created_at' => now()->subHours(1),
+        ]);
+        RoundRobinState::updateOrCreate(['product_id' => $product->id], ['roster_available_since' => now()->subMinutes(5)]);
+
+        // Right after the sweep assigns the first lead (its Pancake tag
+        // round-trip), Mariel's auto-call claims the second one.
+        $claimedMidSweep = false;
+        Http::fake(function () use (&$claimedMidSweep, $first, $second, $mariel) {
+            if (!$claimedMidSweep && $first->fresh()->status === 'assigned') {
+                $claimedMidSweep = true;
+                Lead::whereKey($second->id)->update(['tsa_id' => $mariel->id, 'status' => 'assigned', 'assigned_at' => now()]);
+            }
+
+            return Http::response(['success' => true], 200);
+        });
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertTrue($claimedMidSweep);
+        $this->assertSame($gemma->id, $first->fresh()->tsa_id);
+        $this->assertSame($mariel->id, $second->fresh()->tsa_id);
+        $this->assertSame(0, LeadActivity::where('lead_id', $second->id)->where('description', 'like', 'Round-robin assigned%')->count());
+    }
+
     /**
      * Originally root-caused 2026-09-08 (explicit request: "all of the
      * leads in the pos that has unattended and not answering tag is

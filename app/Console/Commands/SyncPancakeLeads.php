@@ -931,11 +931,19 @@ class SyncPancakeLeads extends Command
             // Performance/Dashboard attribution, both anchored on
             // assigned_at) should start from THIS moment, not however many
             // hours it sat unassigned overnight.
-            $lead->update([
+            // Conditional claim, same as AutoCall::next() — $leads was read
+            // at the start of this loop, and each lead before this one can
+            // take seconds (Pancake tag + auto-text), so auto-call may have
+            // claimed this one meanwhile. Overwriting it handed one lead to
+            // two TSAs (2026-10-28: one calling it, the other's auto-call
+            // modal showing it).
+            $claimed = Lead::whereKey($lead->id)->where('status', 'unassigned')->update([
                 'tsa_id'      => $tsa->id,
                 'assigned_at' => now(),
                 'status'      => 'assigned',
             ]);
+            if (!$claimed) continue;
+            $lead->refresh();
             LeadActivity::log(
                 $lead,
                 'assigned',
