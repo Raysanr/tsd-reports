@@ -325,6 +325,25 @@ class Order extends Model
                 return true;
             }
         }
+
+        // A "Quick add" product line (typed in by hand in POS, not picked
+        // from the catalog) on an otherwise normal-source order — real
+        // production order #1385734, source "Online", 2026-10-29. Such a
+        // line carries product_id/variation_id keys but both are empty;
+        // only counted when Pancake actually sent the keys, so an item
+        // payload that just omits them isn't mistaken for one.
+        foreach ($raw['items'] ?? [] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            if (!empty($item['is_quick_add']) || !empty($item['quick_add'])) {
+                return true;
+            }
+            if (array_key_exists('product_id', $item) && array_key_exists('variation_id', $item)
+                && empty($item['product_id']) && empty($item['variation_id'])) {
+                return true;
+            }
+        }
         return false;
     }
 

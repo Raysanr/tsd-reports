@@ -358,6 +358,36 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertDatabaseHas('leads', ['pancake_order_id' => '9104']);
     }
 
+    /** #1385734: source "Online" but its product line is a Quick add item
+     *  (no catalog product) — not distributed, even with no Assignee. */
+    public function test_an_order_with_a_quick_add_product_line_is_not_pulled_in_as_a_lead(): void
+    {
+        $this->fakePancake([
+            [
+                'id'                 => 9105,
+                'bill_full_name'     => 'Quick Add Item Customer',
+                'tags'               => [],
+                'items'              => [['product_id' => null, 'variation_id' => null, 'variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'        => now()->subMinutes(10)->toIso8601String(),
+                'order_sources_name' => 'Online',
+            ],
+            [
+                'id'                 => 9106,
+                'bill_full_name'     => 'Catalog Item Customer',
+                'tags'               => [],
+                'items'              => [['product_id' => 'p-1', 'variation_id' => 'v-1', 'variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'        => now()->subMinutes(10)->toIso8601String(),
+                'order_sources_name' => 'Online',
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9105']);
+        $this->assertDatabaseHas('lead_sync_skips', ['pancake_order_id' => '9105', 'reason' => 'quick_add']);
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9106']);
+    }
+
     /** Explicit request, 2026-10-29: an order with no Assignee in Pancake
      *  waits 5 minutes before it's distributed; one with an Assignee, or
      *  one already 5+ minutes old, goes out right away. */
