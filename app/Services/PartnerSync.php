@@ -52,7 +52,8 @@ class PartnerSync
     {
         $rows = $this->feed->rows($slug, 'tsas');
         $this->upsertMapped($slug, 'tsa', 'tsa_shifts', array_map(
-            fn ($r) => ['team' => $team, 'tsa_key' => self::tsaKey($team, $r['tsa_key'])] + $r,
+            // No TikTok in Partners Data Management: never flag a TSA for it.
+            fn ($r) => ['team' => $team, 'tsa_key' => self::tsaKey($team, $r['tsa_key']), 'tiktok_upsell' => 0] + $r,
             $rows
         ));
 

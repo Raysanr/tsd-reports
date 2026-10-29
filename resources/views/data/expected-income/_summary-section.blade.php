@@ -35,7 +35,7 @@
                  ALL/the TIKTOK TEAM filter, same scope the removed card
                  itself had — a REAL team's own summary row never includes
                  TikTok. --}}
-            @if($selectedTeam === 'all' || $selectedTeam === 'tiktok')
+            @if(!\App\Support\DataSet::isPartners() && ($selectedTeam === 'all' || $selectedTeam === 'tiktok'))
             @foreach($tiktokCardTotals as $cardTotal)
             @include('data.expected-income._card', ['d' => $cardTotal['derived'], 'label' => $cardTotal['label'], 'headerBg' => '#c9daf8', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach

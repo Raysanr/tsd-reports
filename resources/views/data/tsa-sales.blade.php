@@ -210,6 +210,8 @@
                 </tr>
             </tbody>
             @endforeach
+            {{-- No TikTok in Partners Data Management. --}}
+            @unless(\App\Support\DataSet::isPartners())
             <tbody>
                 @foreach($tiktokSummary['rows'] as $rs)
                 @php $d = $rs['derived']; @endphp
@@ -238,6 +240,7 @@
                     <td class="px-3 py-2.5 text-right" data-out="upselling_rate">{{ $fmtPct($gt['upselling_rate']) }}</td>
                 </tr>
             </tbody>
+            @endunless
             <tfoot>
                 <tr class="bg-black text-white font-bold tsr-overall-total-row">
                     <td class="tsr-sticky tsr-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
@@ -290,14 +293,14 @@
         'isTiktok' => false,
         'updateUrlTemplate' => route('data.tsa-sales.update-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']),
         'emptyMessage' => 'No TSAs on this team yet — add one via TSA Management.',
-    ])->push([
+    ])->when(!\App\Support\DataSet::isPartners(), fn ($groups) => $groups->push([
         'label' => $tiktokSummary['label'], 'orderTeam' => null, 'tsas' => $tiktokSummary['tsas'],
         'columns' => $tiktokDayColumns, 'lastColIndex' => $tiktokLastColIndex,
         'dailyByKey' => $tiktokDailyByKey, 'emptyRaw' => $emptyTiktokRaw,
         'isTiktok' => true,
         'updateUrlTemplate' => route('data.tsa-sales.update-tiktok-entry', ['tsaShift' => '__TSA__', 'date' => '__DATE__']),
         'emptyMessage' => 'No TSAs in TikTok Upsell yet — add one via TSA Management.',
-    ]);
+    ]));
 @endphp
 @foreach($dateChunks as $chunkIndex => $dates)
 <div class="flex items-center justify-between mb-3">
@@ -576,7 +579,8 @@
                             // $teamDayRawRows above) — same reasoning as
                             // the group TOTAL row's own identical override.
                             $tiktokDayRawRows = $dailyGroups->firstWhere('isTiktok', true);
-                            $tiktokDayRawRows = $tiktokDayRawRows['tsas']->map(fn ($tsa) => $tiktokDayRawRows['dailyByKey']->get($tsa->id . ':' . $dateStr, $tiktokDayRawRows['emptyRaw']))->all();
+                            // (none in Partners Data Management — no TikTok group there)
+                            $tiktokDayRawRows = $tiktokDayRawRows ? $tiktokDayRawRows['tsas']->map(fn ($tsa) => $tiktokDayRawRows['dailyByKey']->get($tsa->id . ':' . $dateStr, $tiktokDayRawRows['emptyRaw']))->all() : [];
                             $allDayPooledNetIncome = $dailyGroups->reject(fn ($g) => $g['isTiktok'])
                                 ->sum(fn ($g) => (float) ($teamNetIncomeByDate->get($g['orderTeam'] . ':' . $dateStr) ?? 0.0))
                                 + (float) array_sum(array_column($tiktokDayRawRows, 'net_income'));

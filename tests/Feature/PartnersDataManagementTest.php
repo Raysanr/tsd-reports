@@ -53,7 +53,7 @@ class PartnersDataManagementTest extends TestCase
                 ['id' => 7, 'display_name' => 'PEAKGLOW', 'match_keyword' => 'PEAKGLOW', 'team' => 'Opening', 'sort_order' => 1, 'is_hidden' => 0, 'has_cost_allocation' => 1, 'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00', 'deleted_at' => null],
             ]]),
             'peak-co*/api/tsd-feed/tsas' => Http::response(['rows' => [
-                ['id' => 3, 'tsa_key' => 'JOANA', 'display_name' => 'Joana', 'team' => 'Opening', 'tiktok_upsell' => 0, 'active' => 1, 'sort_order' => 1, 'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00', 'deleted_at' => null],
+                ['id' => 3, 'tsa_key' => 'JOANA', 'display_name' => 'Joana', 'team' => 'Opening', 'tiktok_upsell' => 1, 'active' => 1, 'sort_order' => 1, 'created_at' => '2026-10-01 00:00:00', 'updated_at' => '2026-10-01 00:00:00', 'deleted_at' => null],
             ]]),
             'peak-co*/api/tsd-feed/orders*' => Http::sequence()->push(['rows' => [$order(1, 3, 1000), $order(2, 1, 500)]])
                 ->push(['rows' => $laterOrders])->whenEmpty(Http::response(['rows' => []])),
@@ -72,7 +72,7 @@ class PartnersDataManagementTest extends TestCase
             $this->assertSame(['PEAKGLOW'], Product::pluck('display_name')->all(), 'TSD products seeded by migrations are removed');
             $this->assertSame('PEAK.CO', Product::first()->team);
             $tsa = TsaShift::sole();
-            $this->assertSame(['PEAK.CO:JOANA', 'Joana', 'PEAK.CO'], [$tsa->tsa_key, $tsa->display_name, $tsa->team]);
+            $this->assertSame(['PEAK.CO:JOANA', 'Joana', 'PEAK.CO', false], [$tsa->tsa_key, $tsa->display_name, $tsa->team, (bool) $tsa->tiktok_upsell]);
             $this->assertSame(['peak-co:901', 'peak-co:902'], DB::table('orders')->orderBy('pancake_order_id')->pluck('pancake_order_id')->all());
             $this->assertSame('PEAK.CO:JOANA', DB::table('orders')->value('tsa_name'));
         });
@@ -117,9 +117,10 @@ class PartnersDataManagementTest extends TestCase
 
         $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=peak-co')->assertOk()
             ->assertSee('Partners Data Management')->assertSee('PEAK.CO')->assertSee('M&amp;J', false)->assertSee('Joana')->assertSee('PEAKGLOW')
-            ->assertSee(url('/partners/expected-income'), false)->assertDontSee('href="' . url('/partners/dsppr') . '"', false);
+            ->assertDontSee('TIKTOK')->assertSee(url('/partners/expected-income'), false)->assertDontSee('href="' . url('/partners/dsppr') . '"', false);
         $this->get('/partners/actual-income?month=2026-10')->assertOk()->assertSee('PEAKGLOW');
         $this->get('/partners/tsa-sales?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('JOANA')
+            ->assertDontSee('class="tsr-group-total-row tsr-tiktok-total-row', false)->assertDontSee('No TSAs in TikTok Upsell yet')
             ->assertSee(url('/partners/tsa-sales/lock'), false);
         $this->get('/partners/projections?month=2026-10')->assertOk()->assertSee('PEAK.CO: Monthly Target')->assertSee('MLC — Individual TSA: Daily Target');
         $this->get('/partners/cost-breakdown')->assertOk()->assertSee('Telesales Supervisor')->assertSee('Joana')->assertDontSee('Lhiza Alconera');
