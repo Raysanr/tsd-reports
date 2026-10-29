@@ -22,7 +22,7 @@
     // card's own P&L is already always read-only, so a lock icon on it
     // would toggle nothing. is_locked freezes every field exactly like a
     // derived card already renders, without touching stored values.
-    $isLockable = in_array($column->key, ['opening_shift', 'closing_shift'], true);
+    $isLockable = in_array($column->key, \App\Models\ProjectionColumn::shiftKeys(), true);
     $editable = $isLockable && !$column->is_locked;
 
     $headerColors = [
@@ -34,7 +34,11 @@
         'closing_individual_tsa_monthly'  => ['bg' => '#274e13', 'text' => '#ffffff'],
         'closing_individual_tsa_daily'    => ['bg' => '#274e13', 'text' => '#ffffff'],
     ];
-    $hc = $headerColors[$column->key] ?? ['bg' => '#f1f1f1', 'text' => '#111827'];
+    // Partner columns (Partners Data Management): shift cards light, their
+    // Individual TSA cards dark — same pattern as Opening's.
+    $hc = $headerColors[$column->key] ?? ($isLockable
+        ? ['bg' => '#c9daf8', 'text' => '#111827']
+        : ($column->key === 'telesales_department' ? ['bg' => '#f1f1f1', 'text' => '#111827'] : ['bg' => '#111827', 'text' => '#ffffff']));
 @endphp
 
 <div class="pj-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden"

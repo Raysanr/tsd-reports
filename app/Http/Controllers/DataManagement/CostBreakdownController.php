@@ -558,7 +558,7 @@ class CostBreakdownController extends Controller
             'person_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'base_salary' => ['sometimes', 'numeric', 'min:0'],
             'overhead_group' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'overhead_divisor' => ['required_with:overhead_group', 'nullable', 'string', 'in:total,team'],
+            'overhead_divisor' => ['required_with:overhead_group', 'nullable', 'string', \Illuminate\Validation\Rule::in(\App\Support\DataSet::isPartners() ? ['total', 'team', 'partner'] : ['total', 'team'])],
         ]);
 
         $month = $this->sessionMonth();
@@ -658,7 +658,7 @@ class CostBreakdownController extends Controller
             }
 
             $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
+            $tsaCount = CostBreakdownRole::divisorCount($role->overhead_divisor);
 
             return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
         });
@@ -673,6 +673,9 @@ class CostBreakdownController extends Controller
      *  sees the SAME 3 refs, only her own base_salary differs. */
     private function overheadRefsByTeam($roles, $overheadByRoleId)
     {
+        if (\App\Support\DataSet::isPartners()) {
+            return \App\Support\TsaDailyRateService::partnerOverheadRefsByTeam($roles, $overheadByRoleId);
+        }
         $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
             ->unique('overhead_group')
             ->map(fn (CostBreakdownRole $role) => $overheadByRoleId->get($role->id))

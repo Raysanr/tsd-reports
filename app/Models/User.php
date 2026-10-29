@@ -10,6 +10,13 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
+    /** Always the main database, even inside Partners Data Management
+     *  (App\Support\DataSet), which switches the default connection. */
+    public function getConnectionName()
+    {
+        return \App\Support\DataSet::mainConnection();
+    }
+
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 

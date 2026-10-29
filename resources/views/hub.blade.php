@@ -378,6 +378,22 @@
             <span class="card-open">Open →</span>
         </a>
 
+        {{-- Partners Data Management (2026-10-29) — Data Management on the
+             partners' synced data (App\Support\DataSet). Admin-only. --}}
+        @if(auth()->user()->isAtLeastAdmin())
+        <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.projections', ['dm' => 'partners']) }}">
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"/>
+                </svg>
+            </div>
+            <span class="card-tag">Finance</span>
+            <h3>Partners Data Management</h3>
+            <p>Data Management for PEAK.CO, M&amp;J and MLC — their leads and orders, your costs and projections, per partner or all together.</p>
+            <span class="card-open">Open →</span>
+        </a>
+        @endif
+
     </div>
 </main>
 <script>

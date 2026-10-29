@@ -71,9 +71,59 @@ class ProjectionColumn extends Model
      *  for a month that already has data is a safe no-op — "Add
      *  Projection" on an existing month just switches to viewing it
      *  (explicit decision, same day), never duplicates or errors. */
+    /** The independently-editable shift columns: Opening/Closing for TSD,
+     *  one per partner in Partners Data Management (App\Support\DataSet). */
+    public static function shiftKeys(): array
+    {
+        return array_keys(self::shiftKeyLabels());
+    }
+
+    /** shift column key => its team's label. */
+    public static function shiftKeyLabels(): array
+    {
+        if (!\App\Support\DataSet::isPartners()) {
+            return ['opening_shift' => 'Opening', 'closing_shift' => 'Closing'];
+        }
+
+        return collect(\App\Support\DataSet::partnerTeams())
+            ->mapWithKeys(fn ($team, $slug) => [self::partnerPrefix($slug) . '_shift' => $team['name']])->all();
+    }
+
+    /** Each shift column's derived Individual TSA Monthly/Daily keys, in order. */
+    public static function shiftRowKeys(string $shiftKey): array
+    {
+        $prefix = substr($shiftKey, 0, -strlen('_shift'));
+
+        return [$shiftKey, "{$prefix}_individual_tsa_monthly", "{$prefix}_individual_tsa_daily"];
+    }
+
+    private static function partnerPrefix(string $slug): string
+    {
+        return str_replace('-', '_', $slug);
+    }
+
+    /** SEED_COLUMNS for TSD; for partners the same 3 cards per partner,
+     *  starting blank (no target typed yet). */
+    public static function seedColumns(): array
+    {
+        if (!\App\Support\DataSet::isPartners()) {
+            return self::SEED_COLUMNS;
+        }
+
+        $columns = [['key' => 'telesales_department', 'label' => 'Telesales Department', 'net_income_target' => 0, 'average_order_value' => 800, 'tsa_count' => 1, 'sort_order' => 0]];
+        foreach (self::shiftKeyLabels() as $shiftKey => $name) {
+            [$shift, $monthly, $daily] = self::shiftRowKeys($shiftKey);
+            foreach ([$shift => "{$name}: Monthly Target", $monthly => "{$name} — Individual TSA: Monthly Target", $daily => "{$name} — Individual TSA: Daily Target"] as $key => $label) {
+                $columns[] = ['key' => $key, 'label' => $label, 'net_income_target' => 0, 'average_order_value' => 800, 'tsa_count' => 1, 'sort_order' => count($columns)];
+            }
+        }
+
+        return $columns;
+    }
+
     public static function ensureSeededForMonth(string $month): void
     {
-        foreach (self::SEED_COLUMNS as $seed) {
+        foreach (self::seedColumns() as $seed) {
             static::firstOrCreate(['key' => $seed['key'], 'month' => $month], array_merge($seed, ['month' => $month]));
         }
     }

@@ -30,8 +30,9 @@ class CostBreakdownMonths
      *  the marker — every month always has the full fixed pool list. */
     public static function existing(): array
     {
-        return RequestMemo::remember('cost_breakdown.months', fn () => CostBreakdownPool::query()
-            ->distinct()->orderBy('month')->pluck('month')->all());
+        // Roles too, not just pools: Partners Data Management has no pools.
+        return RequestMemo::remember('cost_breakdown.months', fn () => CostBreakdownPool::query()->distinct()->pluck('month')
+            ->merge(CostBreakdownRole::query()->distinct()->pluck('month'))->unique()->sort()->values()->all());
     }
 
     public static function exists(string $month): bool

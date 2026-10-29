@@ -86,10 +86,12 @@
     // layout diagram) — Telesales Department pulled OUT of this grid
     // entirely and rendered separately, floated to the right and
     // vertically centered against the whole 2-row block.
-    $openingRowKeys = ['opening_shift', 'opening_individual_tsa_monthly', 'opening_individual_tsa_daily'];
-    $closingRowKeys = ['closing_shift', 'closing_individual_tsa_monthly', 'closing_individual_tsa_daily'];
-    $openingRow = $computed->whereIn('column.key', $openingRowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $openingRowKeys));
-    $closingRow = $computed->whereIn('column.key', $closingRowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $closingRowKeys));
+    // One row per shift column — Opening/Closing, or one per partner in
+    // Partners Data Management (ProjectionColumn::shiftKeys()).
+    $shiftRows = collect(\App\Models\ProjectionColumn::shiftKeys())->map(function ($shiftKey) use ($computed) {
+        $rowKeys = \App\Models\ProjectionColumn::shiftRowKeys($shiftKey);
+        return $computed->whereIn('column.key', $rowKeys)->sortBy(fn ($e) => array_search($e['column']->key, $rowKeys));
+    });
     $telesalesEntry = $computed->firstWhere('column.key', 'telesales_department');
 @endphp
 
@@ -116,11 +118,10 @@
         @endif
 
         <div class="grid grid-cols-3 gap-5">
-            @foreach($openingRow as $entry)
-                @include('data.projections._column', ['entry' => $entry])
-            @endforeach
-            @foreach($closingRow as $entry)
-                @include('data.projections._column', ['entry' => $entry])
+            @foreach($shiftRows as $shiftRow)
+                @foreach($shiftRow as $entry)
+                    @include('data.projections._column', ['entry' => $entry])
+                @endforeach
             @endforeach
         </div>
     </div>
@@ -705,7 +706,7 @@
         if (removeBtn) {
             if (!(await window.confirmDataModal('Remove this row from every card?'))) return;
             const rowId = removeBtn.dataset.removeCustomRow;
-            fetch(`{{ url('/data/projections/custom-rows') }}/${rowId}`, {
+            fetch(`{{ \App\Support\DataSet::url('projections/custom-rows') }}/${rowId}`, {
                 method: 'DELETE',
                 headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
             })

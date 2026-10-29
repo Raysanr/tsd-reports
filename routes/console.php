@@ -246,6 +246,11 @@ Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlappin
 // tick), so the stale-mutex protection matters here as much as anywhere.
 Schedule::command(LogoutAllTsasAtMidnight::class)->dailyAt('00:00')->timezone('Asia/Manila')->withoutOverlapping(10);
 
+// Partners Data Management (2026-10-29): pull PEAK.CO / M&J / MLC products,
+// TSAs and orders into the partners database (App\Services\PartnerSync).
+// Incremental, so a run is short; one partner failing doesn't stop the rest.
+Schedule::command(\App\Console\Commands\SyncPartners::class)->everyTenMinutes()->withoutOverlapping(30);
+
 // Hard runtime cap (2026-10-17, Railway cost spike): every withoutOverlapping()
 // job above is killed 30s before its own overlap lock expires. The short locks
 // are deliberate (2026-08-18/21 — an interrupted run must self-heal in

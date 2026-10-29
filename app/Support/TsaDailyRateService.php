@@ -568,11 +568,28 @@ class TsaDailyRateService
         $all = ProjectionCalculator::forAllColumns($columns, $rates);
 
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'] ?? 0.0;
-        $perShift = $departmentTaxAllocation / 2;
+        $perShift = $departmentTaxAllocation / max(1, count(ProjectionColumn::shiftKeys()));
 
         app()->scoped('tsa_daily_rate.department_tax_allocation_per_shift', fn () => $perShift);
 
         return $perShift;
+    }
+
+    /** Partners Data Management: every overhead role is shared by all
+     *  partners — $overheadByRoleId already holds ONE partner's share (see
+     *  CostBreakdownRole::divisorCount()), which is split again across that
+     *  partner's own non-TikTok TSAs. Keyed by partner team, like
+     *  overheadRefsByTeam(). */
+    public static function partnerOverheadRefsByTeam($roles, $overheadByRoleId)
+    {
+        $groupShares = $roles->whereNotNull('overhead_group')->unique('overhead_group')
+            ->map(fn (CostBreakdownRole $role) => (float) $overheadByRoleId->get($role->id))->values();
+
+        return collect(\App\Support\Teams::config())->mapWithKeys(function (array $team) use ($groupShares) {
+            $tsaCount = TsaShift::where('team', $team['order_team'])->where('tiktok_upsell', false)->count();
+
+            return [$team['order_team'] => $groupShares->map(fn ($share) => $tsaCount > 0 ? $share / $tsaCount : 0.0)->all()];
+        });
     }
 
     /** Identical to CostBreakdownController::overheadByRoleId(). */
@@ -586,7 +603,7 @@ class TsaDailyRateService
             }
 
             $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] ?? 0;
+            $tsaCount = CostBreakdownRole::divisorCount($role->overhead_divisor);
 
             return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
         });
@@ -595,6 +612,9 @@ class TsaDailyRateService
     /** Identical to CostBreakdownController::overheadRefsByTeam(). */
     private static function overheadRefsByTeam($roles, $overheadByRoleId)
     {
+        if (\App\Support\DataSet::isPartners()) {
+            return self::partnerOverheadRefsByTeam($roles, $overheadByRoleId);
+        }
         $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
             ->unique('overhead_group')
             ->map(fn (CostBreakdownRole $role) => $overheadByRoleId->get($role->id))

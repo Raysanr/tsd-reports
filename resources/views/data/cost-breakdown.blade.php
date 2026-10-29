@@ -225,7 +225,9 @@
                                  marks it as its own distinct merged region,
                                  same as the real sheet's own cell borders. --}}
                             @php
-                                $overheadTitle = 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::OVERHEAD_DIVISOR_COUNTS[$role->overhead_divisor] . ' TSAs (matches the sheet) — reference only, not added to any total';
+                                $overheadTitle = $role->overhead_divisor === 'partner'
+                                    ? 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::divisorCount('partner') . ' partners, then ÷ each partner\'s TSAs'
+                                    : 'Combined salary ÷ ' . \App\Models\CostBreakdownRole::divisorCount($role->overhead_divisor) . ' TSAs (matches the sheet) — reference only, not added to any total';
                             @endphp
                             <td rowspan="{{ $item['rowspan'] }}" data-overhead-anchor-role-id="{{ $role->id }}" class="px-4 py-2 text-center font-mono font-bold text-ink-muted dark:text-slate-400 bg-slate-100 dark:bg-slate-800/60 border-x border-b-8 border-line dark:border-slate-700 border-b-white dark:border-b-slate-900 align-middle" title="{{ $overheadTitle }}">
                                 {{ $fmtMoney($item['overhead']) }}
@@ -1055,7 +1057,7 @@
         if (!(await window.confirmDataModal('Remove this role?'))) return;
 
         const roleId = removeBtn.dataset.removeRole;
-        fetch(`{{ url('/data/cost-breakdown/roles') }}/${roleId}`, {
+        fetch(`{{ \App\Support\DataSet::url('cost-breakdown/roles') }}/${roleId}`, {
             method: 'DELETE',
             headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
         })
@@ -1133,7 +1135,7 @@
         const nowLocked = lockBtn.dataset.locked !== '1';
 
         lockBtn.disabled = true;
-        fetch(`{{ url('/data/cost-breakdown/lock') }}/${table}`, {
+        fetch(`{{ \App\Support\DataSet::url('cost-breakdown/lock') }}/${table}`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',

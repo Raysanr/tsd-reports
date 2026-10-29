@@ -300,7 +300,13 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     // own nested role:super_admin,admin gate further down, same "CONFIG
     // pages only" convention as line 85's own group. Projections/DSPPR/
     // Summary Sales Report/Expected Income are all now normal-accessible.
-    Route::prefix('data')->name('data.')->middleware('role:super_admin,admin,normal')->group(function () {
+    //
+    // Registered under a {dm} prefix (2026-10-29): /data/... is TSD's own
+    // data, /partners/... is Partners Data Management — the same pages on a
+    // separate database of PEAK.CO / M&J / MLC data, admin-only. See
+    // App\Support\DataSet and App\Http\Middleware\DataManagementDataset;
+    // URL::defaults() fills {dm} in, so route('data.*') needs no change.
+    Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
         Route::get('/', fn () => redirect()->route('data.projections'));
 
         // Activity Log (explicit request, 2026-10-07: "can you add another

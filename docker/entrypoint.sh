@@ -66,6 +66,10 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 php artisan migrate --force
+# Partners Data Management's own database/schema (App\Support\DataSet).
+# Never fatal: if it fails, only that module is affected, not the whole app.
+{ php artisan partners:prepare-db && php artisan migrate --database=partners --force; } \
+    || echo "[partners] database setup failed — Partners Data Management unavailable until fixed"
 
 # Self-diagnostic: after the server has had a moment to boot, request the
 # health-check path ourselves and print the status code (plus the response

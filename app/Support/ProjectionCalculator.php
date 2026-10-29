@@ -327,6 +327,19 @@ class ProjectionCalculator
         'closing_individual_tsa_daily'   => 'closing_shift',
     ];
 
+    /** DERIVED_FROM_SHIFT for whichever shift columns are in use
+     *  (ProjectionColumn::shiftKeys() — partners have one per partner). */
+    public static function derivedFromShift(): array
+    {
+        $map = [];
+        foreach (ProjectionColumn::shiftKeys() as $shiftKey) {
+            [, $monthly, $daily] = ProjectionColumn::shiftRowKeys($shiftKey);
+            $map[$monthly] = $map[$daily] = $shiftKey;
+        }
+
+        return $map;
+    }
+
     /** Individual TSA Daily = Individual TSA Monthly ÷ this many working
      *  days/month, for every dollar line — confirmed against the sheet
      *  (320,000 ÷ 24 = 13,333.33, the sheet's own real Daily Gross Sales).
@@ -578,21 +591,23 @@ class ProjectionCalculator
     {
         $byKey = $columns->keyBy('key');
 
+        $shiftKeys = ProjectionColumn::shiftKeys();
+        $derivedFromShift = self::derivedFromShift();
         $shiftBasePnl = [];
-        foreach (['opening_shift', 'closing_shift'] as $shiftKey) {
+        foreach ($shiftKeys as $shiftKey) {
             $shiftColumn = $byKey->get($shiftKey);
             $shiftBasePnl[$shiftKey] = $shiftColumn ? self::basePnl($shiftColumn, $rates) : self::pnlFromOrders(0, 0, $rates);
         }
 
-        $telesalesPnl = self::sumPnl($shiftBasePnl['opening_shift'], $shiftBasePnl['closing_shift']);
+        $telesalesPnl = array_reduce(array_slice($shiftBasePnl, 1), fn ($sum, $pnl) => self::sumPnl($sum, $pnl), reset($shiftBasePnl));
 
-        return $byKey->mapWithKeys(function (ProjectionColumn $column, string $key) use ($byKey, $shiftBasePnl, $telesalesPnl, $rates) {
+        return $byKey->mapWithKeys(function (ProjectionColumn $column, string $key) use ($byKey, $shiftBasePnl, $telesalesPnl, $rates, $shiftKeys, $derivedFromShift) {
             if ($key === 'telesales_department') {
                 $pnl = $telesalesPnl;
-            } elseif (in_array($key, ['opening_shift', 'closing_shift'], true)) {
+            } elseif (in_array($key, $shiftKeys, true)) {
                 $pnl = $shiftBasePnl[$key];
-            } elseif (isset(self::DERIVED_FROM_SHIFT[$key])) {
-                $shiftKey = self::DERIVED_FROM_SHIFT[$key];
+            } elseif (isset($derivedFromShift[$key])) {
+                $shiftKey = $derivedFromShift[$key];
                 $shiftColumn = $byKey->get($shiftKey);
                 $basePnl = $shiftBasePnl[$shiftKey];
 

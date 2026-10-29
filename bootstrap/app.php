@@ -20,6 +20,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // platform's own edge, never arbitrary internet traffic.
         $middleware->trustProxies(at: '*');
 
+        // Data Management's TSD/Partners switch (App\Support\DataSet): reset
+        // on every request, and picked before route-model binding.
+        $middleware->prepend(\App\Http\Middleware\ResetDataSet::class);
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            prepend: \App\Http\Middleware\DataManagementDataset::class,
+        );
+
         $middleware->alias([
             'active'    => \App\Http\Middleware\EnsureUserIsActive::class,
             'role'      => \App\Http\Middleware\EnsureUserHasRole::class,

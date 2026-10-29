@@ -1368,7 +1368,7 @@
         if (!(await window.confirmDataModal('Add this product to the combined row?'))) return;
         const body = new URLSearchParams();
         body.set('product_id', productId);
-        fetch(`{{ url('/data/product-groups') }}/${groupId}/members`, {
+        fetch(`{{ \App\Support\DataSet::url('product-groups') }}/${groupId}/members`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -1424,7 +1424,7 @@
         btn.addEventListener('click', async () => {
             if (!(await window.confirmDataModal('Split this combined row back into its own separate products?'))) return;
             const groupId = btn.dataset.ungroup;
-            fetch(`{{ url('/data/product-groups') }}/${groupId}`, {
+            fetch(`{{ \App\Support\DataSet::url('product-groups') }}/${groupId}`, {
                 method: 'DELETE',
                 headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
             })
@@ -1478,7 +1478,7 @@
         const nowLocked = lockBtn.dataset.locked !== '1';
 
         lockBtn.disabled = true;
-        fetch(`{{ url('/data/dsppr/lock') }}/${dateStr}`, {
+        fetch(`{{ \App\Support\DataSet::url('dsppr/lock') }}/${dateStr}`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',

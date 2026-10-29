@@ -1259,7 +1259,7 @@
         const nowLocked = lockBtn.dataset.locked !== '1';
 
         lockBtn.disabled = true;
-        fetch(`{{ url('/data/tsa-sales/lock') }}/${dateStr}`, {
+        fetch(`{{ \App\Support\DataSet::url('tsa-sales/lock') }}/${dateStr}`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',

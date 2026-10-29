@@ -9,7 +9,7 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>TSD Data Management — @yield('title', 'Projections')</title>
+    <title>{{ \App\Support\DataSet::isPartners() ? 'Partners' : 'TSD' }} Data Management — @yield('title', 'Projections')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('images/data-management-favicon.svg') }}">
     {{--
         Reuses Call Tracker's own calls.css/calls.js bundle rather than a new
@@ -47,8 +47,8 @@
                     </svg>
                 </div>
                 <div class="min-w-0">
-                    <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">TSD Data Management</div>
-                    <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">TSD Telesales</div>
+                    <div class="text-white font-bold text-sm leading-tight font-mono tracking-tight truncate">{{ \App\Support\DataSet::isPartners() ? 'Partners Data Management' : 'TSD Data Management' }}</div>
+                    <div class="text-yellow-300 text-[10px] font-mono tracking-[0.15em] uppercase truncate">{{ \App\Support\DataSet::isPartners() ? 'PEAK.CO · M&J · MLC' : 'TSD Telesales' }}</div>
                 </div>
             </div>
             <button id="sidebarClose" type="button" aria-label="Close menu"
@@ -82,6 +82,7 @@
 
         {{-- DSPPR - TSM Report, right next to Projections (explicit
              request, 2026-09-24: "it is next to the projections page"). --}}
+@unless(\App\Support\DataSet::isPartners())
         <a href="{{ route('data.dsppr') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.dsppr') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -89,6 +90,7 @@
             </svg>
             DSPPR - TSM Report
         </a>
+        @endunless
 
         {{-- Summary Sales Report, right next to DSPPR (explicit request,
              2026-09-24: "add page summary sales report in data

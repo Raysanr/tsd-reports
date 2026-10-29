@@ -23,7 +23,7 @@ class ActivityLogger
             'action'       => $action,
             'subject_type' => $subject ? $subject::class : null,
             'subject_id'   => $subject?->getKey(),
-            'description'  => $description,
+            'description'  => (DataSet::isPartners() ? '[Partners] ' : '') . $description,
         ]);
     }
 

@@ -80,6 +80,24 @@ class CostBreakdownRole extends Model
      *  TsaShift roster — an earlier version divided by the real live
      *  headcount instead, which produced different figures than the sheet
      *  while the real roster is still below 12. */
+    /** Partners Data Management (App\Support\DataSet) starts from ONE
+     *  supervisor shared by all partners: her salary is split equally per
+     *  partner (divisor "partner"), then across that partner's TSAs. */
+    public const PARTNER_SEED_ROLES = [
+        ['seed_key' => 'supervisor', 'label' => 'Telesales Supervisor', 'person_name' => null, 'base_salary' => 0, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'partner', 'sort_order' => 0],
+    ];
+
+    public static function seedRoles(): array
+    {
+        return \App\Support\DataSet::isPartners() ? self::PARTNER_SEED_ROLES : self::SEED_ROLES;
+    }
+
+    /** How many ways an overhead group is divided; "partner" = one share per partner. */
+    public static function divisorCount(?string $divisor): int
+    {
+        return $divisor === 'partner' ? count(\App\Support\Teams::config()) : (self::OVERHEAD_DIVISOR_COUNTS[$divisor] ?? 0);
+    }
+
     public const OVERHEAD_DIVISOR_COUNTS = [
         'total' => 12,
         'team' => 6,
@@ -130,11 +148,11 @@ class CostBreakdownRole extends Model
         // from BEFORE the seed_key column existed is matched by its own
         // label here, exactly once, to adopt the correct seed_key without
         // creating a duplicate.
-        foreach (self::SEED_ROLES as $seed) {
+        foreach (self::seedRoles() as $seed) {
             static::where('month', $month)->where('label', $seed['label'])->whereNull('seed_key')->update(['seed_key' => $seed['seed_key']]);
         }
 
-        foreach (self::SEED_ROLES as $seed) {
+        foreach (self::seedRoles() as $seed) {
             $role = static::firstOrCreate(['seed_key' => $seed['seed_key'], 'month' => $month], $seed);
             $role->fill(collect($seed)->except(['seed_key', 'label', 'person_name', 'base_salary', 'sort_order'])->all());
             if ($role->isDirty()) {

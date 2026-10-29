@@ -24,6 +24,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Partners Data Management's separate database + /data|/partners
+        // URL prefix — see App\Support\DataSet.
+        \App\Support\DataSet::boot();
+
         // RequestMemo is never allowed to serve a value older than a write
         // made earlier in the same request — see its own doc comment.
         \Illuminate\Support\Facades\DB::listen(function ($query) {
