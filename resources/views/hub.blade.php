@@ -168,6 +168,138 @@
         max-width: 620px;
         line-height: 1.5;
     }
+    /* Hero row — brand + subtitle on the left, the Partners card on the
+       right. Stacks on narrow screens. */
+    .hero {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 40px;
+    }
+    @media (max-width: 900px) {
+        .hero { flex-direction: column; align-items: flex-start; }
+    }
+
+    /* Partners card — each partner (MLC, M&J, PEAK.CO) runs its own
+       deployment of this app; the card only links out to them. Hover
+       (or focus / tap) expands the list with a staggered reveal. */
+    .partners { position: relative; flex-shrink: 0; }
+    .partners-card {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 16px 20px;
+        background: #fff;
+        border: 1px solid #E7E3D6;
+        border-radius: 14px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        transition: border-color 200ms ease, box-shadow 200ms ease, transform 200ms ease;
+    }
+    .partners:hover .partners-card,
+    .partners:has(:focus-visible) .partners-card,
+    .partners.open .partners-card {
+        border-color: var(--primary);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.10);
+        transform: translateY(-2px);
+    }
+    .partners-icon {
+        width: 40px; height: 40px;
+        border-radius: 10px;
+        display: grid; place-items: center;
+        background: rgba(202, 138, 4, 0.12);
+        color: var(--primary-dark);
+    }
+    .partners-icon svg { width: 22px; height: 22px; }
+    .partners-label {
+        font-family: 'Fira Code', ui-monospace, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: var(--accent);
+        text-transform: uppercase;
+        display: block;
+    }
+    .partners-title { font-size: 17px; font-weight: 700; color: #0f172a; display: block; margin-top: 2px; }
+    .partners-chevron { width: 14px; height: 14px; color: #94a3b8; transition: transform 250ms ease; }
+    .partners:hover .partners-chevron,
+    .partners:has(:focus-visible) .partners-chevron,
+    .partners.open .partners-chevron { transform: rotate(180deg); color: var(--primary); }
+
+    /* padding-top bridges the gap so the cursor can travel card → menu
+       without the hover dropping. */
+    .partners-menu {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 100%;
+        width: 260px;
+        padding-top: 10px;
+        z-index: 20;
+        visibility: hidden;
+        pointer-events: none;
+    }
+    .partners-menu-inner {
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+        padding: 8px;
+        opacity: 0;
+        transform: translateY(-8px) scale(0.97);
+        transform-origin: top right;
+        transition: opacity 200ms ease, transform 250ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+    }
+    .partners:hover .partners-menu,
+    .partners:has(:focus-visible) .partners-menu,
+    .partners.open .partners-menu { visibility: visible; pointer-events: auto; }
+    .partners:hover .partners-menu-inner,
+    .partners:has(:focus-visible) .partners-menu-inner,
+    .partners.open .partners-menu-inner { opacity: 1; transform: none; }
+
+    .partner-link {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        text-decoration: none;
+        color: #1e293b;
+        opacity: 0;
+        transform: translateX(10px);
+        transition: background 150ms ease, opacity 250ms ease, transform 300ms ease;
+    }
+    .partners:hover .partner-link,
+    .partners:has(:focus-visible) .partner-link,
+    .partners.open .partner-link { opacity: 1; transform: none; }
+    .partners:hover .partner-link:nth-child(2), .partners:has(:focus-visible) .partner-link:nth-child(2), .partners.open .partner-link:nth-child(2) { transition-delay: 0ms, 60ms, 60ms; }
+    .partners:hover .partner-link:nth-child(3), .partners:has(:focus-visible) .partner-link:nth-child(3), .partners.open .partner-link:nth-child(3) { transition-delay: 0ms, 120ms, 120ms; }
+    .partner-link:hover, .partner-link:focus-visible { background: var(--bg); outline: none; }
+    .partner-badge {
+        width: 36px; height: 36px;
+        border-radius: 9px;
+        display: grid; place-items: center;
+        font-family: 'Fira Code', ui-monospace, monospace;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        background: var(--partner-color);
+        flex-shrink: 0;
+    }
+    .partner-name { font-weight: 700; font-size: 15px; display: block; }
+    .partner-sub { font-size: 12px; color: #94a3b8; display: block; }
+    .partner-arrow { margin-left: auto; color: #cbd5e1; transition: transform 150ms ease, color 150ms ease; }
+    .partner-link:hover .partner-arrow { transform: translateX(3px); color: var(--partner-color); }
+    @media (max-width: 900px) {
+        .partners-menu { left: 0; right: auto; }
+        .partners-menu-inner { transform-origin: top left; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        .partners-card, .partners-menu-inner, .partner-link, .partners-chevron { transition: none; }
+    }
+
     .section-label {
         font-family: 'Fira Code', ui-monospace, monospace;
         font-size: 12px;
@@ -306,11 +438,53 @@
     </div>
 </header>
 <main>
-    <div class="brand">
-        <img src="{{ asset('images/sellershub-logo.png') }}" alt="Seller's Hub" class="brand-logo">
-        <h1>Seller's Hub<br><span class="gold">TSD</span></h1>
+    <div class="hero">
+        <div>
+            <div class="brand">
+                <img src="{{ asset('images/sellershub-logo.png') }}" alt="Seller's Hub" class="brand-logo">
+                <h1>Seller's Hub<br><span class="gold">TSD</span></h1>
+            </div>
+            <p class="subtitle">Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
+        </div>
+
+        {{-- Partners — each runs its own Railway deployment (separate repo,
+             database and login); this only links out. Admin-only. --}}
+        @if(auth()->user()->isAtLeastAdmin())
+        @php
+            $partners = [
+                ['name' => 'PEAK.CO', 'badge' => 'PK', 'color' => '#0f766e', 'url' => 'https://peak-co-production.up.railway.app'],
+                ['name' => 'M&J',     'badge' => 'MJ', 'color' => '#7c3aed', 'url' => 'https://mj-leads-production.up.railway.app'],
+                ['name' => 'MLC',     'badge' => 'MLC', 'color' => '#2563eb', 'url' => 'https://mlc-leads-production.up.railway.app'],
+            ];
+        @endphp
+        <div class="partners" data-partners>
+            <button type="button" class="partners-card" aria-haspopup="true" aria-expanded="false">
+                <span class="partners-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"/></svg>
+                </span>
+                <span>
+                    <span class="partners-label">Partners</span>
+                    <span class="partners-title">{{ count($partners) }} partner systems</span>
+                </span>
+                <svg class="partners-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="partners-menu">
+                <div class="partners-menu-inner">
+                    @foreach($partners as $p)
+                    <a class="partner-link" style="--partner-color:{{ $p['color'] }}" href="{{ $p['url'] }}" target="_blank" rel="noopener">
+                        <span class="partner-badge">{{ $p['badge'] }}</span>
+                        <span>
+                            <span class="partner-name">{{ $p['name'] }}</span>
+                            <span class="partner-sub">Leads Reports</span>
+                        </span>
+                        <span class="partner-arrow">↗</span>
+                    </a>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+        @endif
     </div>
-    <p class="subtitle">Everything running the telesales operation, in one place — reporting, TSA performance, and lead assignment.</p>
 
     <p class="section-label">Select a system</p>
     <div class="grid">
@@ -394,6 +568,7 @@
         </a>
         @endif
 
+
     </div>
 </main>
 <script>
@@ -405,7 +580,20 @@
             toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
         });
     });
+    // Partners — hover opens it on desktop; a tap toggles it on touch.
+    document.querySelectorAll('[data-partners]').forEach(function (box) {
+        var card = box.querySelector('.partners-card');
+        card.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var isOpen = box.classList.toggle('open');
+            card.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        });
+    });
     document.addEventListener('click', function () {
+        document.querySelectorAll('[data-partners].open').forEach(function (box) {
+            box.classList.remove('open');
+            box.querySelector('.partners-card').setAttribute('aria-expanded', 'false');
+        });
         document.querySelectorAll('[data-manage-dropdown].open').forEach(function (dropdown) {
             dropdown.classList.remove('open');
             dropdown.querySelector('.manage-dropdown-toggle').setAttribute('aria-expanded', 'false');
