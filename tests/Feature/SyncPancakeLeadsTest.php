@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadSyncRun;
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\RoundRobinState;
 use App\Models\Setting;
@@ -405,6 +406,41 @@ class SyncPancakeLeadsTest extends TestCase
 
         $this->assertDatabaseHas('leads', ['pancake_order_id' => '9110']);
         $this->assertDatabaseCount('pending_assignee_orders', 0);
+    }
+
+    /** Root-caused 2026-10-29 (Lika's "Deleted recently" pile): a second
+     *  order that only matched its product on retry was handed out without
+     *  the duplicate check, since that check needs a product. It's now
+     *  removed and recorded as a duplicate skip instead; a stuck lead with
+     *  no earlier order for that phone still gets its product as usual. */
+    public function test_a_lead_matched_to_its_product_on_retry_is_dropped_if_it_duplicates_an_earlier_order(): void
+    {
+        $product = Product::create(['display_name' => 'Rooster Medallion 2.0', 'match_keyword' => 'Rooster', 'team' => 'SH Naturals', 'sort_order' => 0]);
+        $gemma   = TsaShift::where('tsa_key', 'Gemma')->first();
+
+        Lead::create([
+            'pancake_order_id' => '1385510', 'customer_name' => 'Allan Rubang', 'phone_number' => '09693168696',
+            'product_id' => $product->id, 'tsa_id' => $gemma->id, 'status' => 'assigned', 'assigned_at' => now(),
+            'pancake_created_at' => now()->subMinutes(30),
+        ]);
+        foreach (['1385511' => '09693168696', '1385999' => '09170000000'] as $orderId => $phone) {
+            Lead::create([
+                'pancake_order_id' => $orderId, 'customer_name' => 'Customer', 'phone_number' => $phone,
+                'product_id' => null, 'status' => 'unassigned', 'pancake_created_at' => now()->subMinutes(29),
+            ]);
+            Order::create([
+                'pancake_order_id' => $orderId, 'team' => 'SH Naturals', 'tsa_name' => null,
+                'product' => 'Rooster Medallion 2.0', 'is_upsell' => false,
+                'status_code' => 0, 'pancake_created_at' => now()->subMinutes(29), 'synced_at' => now(),
+            ]);
+        }
+        $this->fakePancake([]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '1385511']);
+        $this->assertDatabaseHas('lead_sync_skips', ['pancake_order_id' => '1385511', 'reason' => 'duplicate', 'detail' => 'Duplicate of #1385510 (' . $gemma->display_name . ')']);
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '1385999', 'product_id' => $product->id]);
     }
 
     public function test_an_order_matching_no_known_product_is_pulled_in_as_unassigned(): void

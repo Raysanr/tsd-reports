@@ -915,6 +915,31 @@ class SyncPancakeLeads extends Command
             $product ??= $products->first(fn (Product $p) => $p->matchesText($order->product) || $tagNames->contains(fn ($t) => $p->matchesText($t)));
             if (!$product) continue; // still no match — order's own data genuinely has nothing to go on yet
 
+            // Same duplicate-order exclusion doSync() applies to a brand-new
+            // lead — it could never run there for this lead, since it needs
+            // a product. Root-caused 2026-10-29: Lika's "Deleted recently"
+            // pile (#1385511, #1385647, #1385493, #1385573, …) were second
+            // Rooster Medallion 2.0 orders from customers whose first order
+            // was already with Gemma/Julie/Jhun; all matched their product
+            // together on retry hours later and catchUpUnassignedLeads()
+            // handed them all to her, then logistics deleted them in
+            // Pancake. Removed and recorded as a skip instead — same outcome
+            // as if the sync had caught it up front (lead_activities cascade).
+            $original = $lead->phone_number && $lead->pancake_created_at
+                ? $this->findLikelyDuplicateLead($lead->phone_number, $product->id, $lead->pancake_created_at)
+                : null;
+            if ($original && $lead->status === 'unassigned') {
+                LeadSyncSkip::record([
+                    'id'                => $lead->pancake_order_id,
+                    'bill_full_name'    => $lead->customer_name,
+                    'bill_phone_number' => $lead->phone_number,
+                    'items'             => [['product_name' => $order->product]],
+                    'inserted_at'       => $lead->pancake_created_at->copy()->utc()->format('Y-m-d\TH:i:s'),
+                ], 'duplicate', "Duplicate of #{$original->pancake_order_id}" . ($original->tsa ? " ({$original->tsa->display_name})" : ' (not assigned yet)'));
+                $lead->delete();
+                continue;
+            }
+
             $lead->update(['product_id' => $product->id]);
             LeadActivity::log($lead, 'product_matched', "Product matched to {$product->display_name} on retry (was unmatched since creation).");
             $backfilled++;
