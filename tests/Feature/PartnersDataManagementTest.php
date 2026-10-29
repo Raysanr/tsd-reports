@@ -130,6 +130,21 @@ class PartnersDataManagementTest extends TestCase
         $this->get('/data/expected-income?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('TSD Data Management')->assertDontSee('PEAKGLOW');
     }
 
+    public function test_picking_a_partner_shows_only_its_own_products(): void
+    {
+        $this->syncPeak();
+        DataSet::onPartners(fn () => Product::create(['display_name' => 'MJ CREAM', 'match_keyword' => 'MJ CREAM', 'team' => 'M&J', 'sort_order' => 1]));
+        $this->actingAs($this->admin());
+
+        $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=peak-co')->assertOk()
+            ->assertSee('PEAKGLOW')->assertDontSee('MJ CREAM');
+        $this->get('/partners/expected-income/summary?date_from=2026-10-05&date_to=2026-10-05&team=mj')->assertOk()
+            ->assertSee('MJ CREAM')->assertDontSee('PEAKGLOW');
+        $this->get('/partners/actual-income?month=2026-10&team=mj')->assertOk()->assertSee('MJ CREAM')->assertDontSee('PEAKGLOW');
+        $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=all')->assertOk()
+            ->assertSee('PEAKGLOW')->assertSee('MJ CREAM');
+    }
+
     public function test_edits_save_to_the_partners_database(): void
     {
         $this->syncPeak();

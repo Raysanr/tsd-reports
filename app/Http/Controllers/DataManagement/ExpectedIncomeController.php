@@ -141,7 +141,7 @@ class ExpectedIncomeController extends Controller
         // still renders, just with no share of Operating Costs allocated
         // to it, same as a flagged product's card already shows real
         // Operating Costs.
-        $products = self::reportProducts();
+        $products = self::productsForTeam(self::reportProducts(), $selectedTeam, $teamsConfig);
 
         // Computed ONCE here (this controller has DB access) and passed
         // explicitly into every derive()/sum() call below — see
@@ -672,6 +672,18 @@ class ExpectedIncomeController extends Controller
         return Product::where('is_hidden', false)->orderBy('team')->orderBy('sort_order')->get();
     }
 
+    /** Partners Data Management (2026-10-29): with one partner picked, only
+     *  that partner's own products get cards — each partner sells its own
+     *  products, unlike TSD's shifts, which share one roster. */
+    private static function productsForTeam(\Illuminate\Support\Collection $products, string $selectedTeam, array $teamsConfig): \Illuminate\Support\Collection
+    {
+        if (!\App\Support\DataSet::isPartners() || !isset($teamsConfig[$selectedTeam])) {
+            return $products;
+        }
+
+        return $products->where('team', $teamsConfig[$selectedTeam]['order_team'])->values();
+    }
+
     private function resolveSelectedTeam(Request $request, array $teamsConfig): string
     {
         $team = $request->input('team');
@@ -712,7 +724,7 @@ class ExpectedIncomeController extends Controller
         // comment) product list as index() above — this AJAX live-refresh
         // endpoint must never show a different product list than the
         // page's own initial render.
-        $products = self::reportProducts();
+        $products = self::productsForTeam(self::reportProducts(), $selectedTeam, $teamsConfig);
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
         $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
         $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
