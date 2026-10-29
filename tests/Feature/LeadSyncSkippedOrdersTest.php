@@ -31,6 +31,7 @@ class LeadSyncSkippedOrdersTest extends TestCase
     {
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
+        Setting::set('lead_unassigned_wait_minutes', '0');
         Http::fake([
             'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => [
                 $this->order(7001, 'Sinuxyl', '09300475041'),

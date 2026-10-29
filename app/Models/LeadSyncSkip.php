@@ -13,6 +13,7 @@ class LeadSyncSkip extends Model
         'tsa_tag'           => 'Already tagged with a TSA in Pancake',
         'logistics_note'    => 'Note says "Duplicated by logistics"',
         'logistics_creator' => 'Created by logistics staff',
+        'quick_add'         => 'Order source is Quick add',
         'duplicate'         => 'Duplicate order (same phone + product, same day)',
     ];
 

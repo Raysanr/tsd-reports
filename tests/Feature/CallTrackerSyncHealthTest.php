@@ -27,6 +27,7 @@ class CallTrackerSyncHealthTest extends TestCase
         parent::setUp();
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
+        Setting::set('lead_unassigned_wait_minutes', '0');
     }
 
     public function test_a_tsa_cannot_reach_sync_health(): void

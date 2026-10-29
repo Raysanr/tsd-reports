@@ -448,6 +448,29 @@
         <span class="inline-flex min-w-8 items-center justify-center rounded-full px-2.5 py-1 text-sm font-bold tabular-nums {{ $waitingLeadsCount > 0 ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400' }}">{{ $waitingLeadsCount }}</span>
     </div>
 
+    @if($pendingAssigneeOrders->isNotEmpty())
+        {{-- Held by the lead sync until it gets an Assignee in Pancake or
+             its 5 minutes are up (2026-10-29) — not a lead yet, so no link. --}}
+        <div class="shrink-0 border-b border-slate-200 dark:border-slate-700">
+            <p class="px-5 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Waiting for assignee · {{ $pendingAssigneeOrders->count() }}</p>
+            <ul class="max-h-60 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
+                @foreach($pendingAssigneeOrders as $pending)
+                @php $secsLeft = max(0, (int) now()->diffInSeconds($pending->release_at, false)); @endphp
+                <li class="flex items-center gap-3 px-5 py-2.5">
+                    <span class="min-w-0 flex-1">
+                        <span class="block truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{{ $pending->customer_name ?: 'Customer' }}</span>
+                        <span class="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                            <span class="truncate rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">{{ $pending->product?->display_name }}</span>
+                            <span class="shrink-0 font-mono">#{{ $pending->pancake_order_id }}</span>
+                        </span>
+                    </span>
+                    <span class="shrink-0 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-700 ring-1 ring-inset ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30" title="Goes to a free TSA at {{ $pending->release_at->timezone('Asia/Manila')->format('g:i A') }}, or sooner if it gets an Assignee">{{ $secsLeft < 60 ? 'under 1m' : 'in ' . intdiv($secsLeft, 60) . 'm' }}</span>
+                </li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     @if($waitingLeads->isEmpty())
         <div class="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center">
             <span class="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">

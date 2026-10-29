@@ -7,6 +7,7 @@ use App\Models\Lead;
 use App\Models\LeadActivity;
 use App\Models\LeadSyncRun;
 use App\Models\Order;
+use App\Models\PendingAssigneeOrder;
 use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
@@ -107,6 +108,27 @@ class SyncPancakeLeads extends Command
         return !$lastRun || Carbon::parse($lastRun)->diffInMinutes(now()) > 5;
     }
 
+    /** Default minutes an order with no Pancake Assignee waits before it's
+     *  distributed — see assigneeWaitReleaseAt(). Overridable via the
+     *  lead_unassigned_wait_minutes setting. */
+    private const UNASSIGNED_WAIT_MINUTES = 5;
+
+    /** When an order with no Assignee (assigning_seller) in Pancake may be
+     *  distributed, or null if it isn't held at all (has an Assignee, no
+     *  inserted_at to time it by, or the wait has already passed).
+     *  inserted_at is UTC with no offset marker, same parse as the Lead's
+     *  own created_at below. */
+    private function assigneeWaitReleaseAt(array $raw): ?Carbon
+    {
+        if (!empty($raw['assigning_seller']) || !empty($raw['assigning_seller_id']) || empty($raw['inserted_at'])) {
+            return null;
+        }
+
+        $wait      = (int) Setting::get('lead_unassigned_wait_minutes', self::UNASSIGNED_WAIT_MINUTES);
+        $releaseAt = Carbon::parse($raw['inserted_at'], 'UTC')->addMinutes($wait);
+        return $wait > 0 && $releaseAt->isFuture() ? $releaseAt : null;
+    }
+
     private function doSync(): int
     {
         $runStart = now();
@@ -140,6 +162,8 @@ class SyncPancakeLeads extends Command
         $totalFetched = 0;
         $synced       = 0;
         $skipped      = 0;
+        $waiting      = 0;
+        $waitingIds   = [];
         $errorMessage = null;
 
         while ($page <= 100) {
@@ -280,6 +304,14 @@ class SyncPancakeLeads extends Command
                     continue;
                 }
 
+                // Quick-add orders are never distributed — explicit request,
+                // 2026-10-29. See Order::isQuickAdd().
+                if (Order::isQuickAdd($raw)) {
+                    LeadSyncSkip::record($raw, 'quick_add');
+                    $skipped++;
+                    continue;
+                }
+
                 // ID match first, same priority ProductPerformance::matchingOrders()
                 // already gives reports (see that method's own doc comment) — exact
                 // Pancake product_id comparison is authoritative and immune to the
@@ -337,6 +369,27 @@ class SyncPancakeLeads extends Command
                 if ($product && $rawPhone && $rawCreatedAt && ($original = $this->findLikelyDuplicateLead($rawPhone, $product->id, $rawCreatedAt))) {
                     LeadSyncSkip::record($raw, 'duplicate', "Duplicate of #{$original->pancake_order_id}" . ($original->tsa ? " ({$original->tsa->display_name})" : ' (not assigned yet)'));
                     $skipped++;
+                    continue;
+                }
+
+                // No Assignee in Pancake yet — held back until it's 5
+                // minutes old (explicit request, 2026-10-29:
+                // "if theres no assignee it is like they wait 5 mins to
+                // cater that"), then round-robins to whoever's free as
+                // usual. Getting an Assignee releases it right away. Not
+                // recorded as a skip: the 24h lookback re-fetches it next
+                // minute, so it's only waiting, not excluded. Checked after
+                // every exclusion above so only orders that will really
+                // become leads are listed as waiting on Monitor TSA.
+                if ($releaseAt = $this->assigneeWaitReleaseAt($raw)) {
+                    PendingAssigneeOrder::updateOrCreate(['pancake_order_id' => $id], [
+                        'customer_name'      => $raw['bill_full_name'] ?? $raw['customer']['name'] ?? null,
+                        'product_id'         => $product?->id,
+                        'pancake_created_at' => $rawCreatedAt,
+                        'release_at'         => $releaseAt,
+                    ]);
+                    $waitingIds[] = $id;
+                    $waiting++;
                     continue;
                 }
 
@@ -426,13 +479,21 @@ class SyncPancakeLeads extends Command
             $page++;
         }
 
+        // Anything held last tick but not this one has become a lead, been
+        // excluded, or dropped out of Pancake — no longer waiting. Only
+        // after a complete fetch: a failed page would wrongly clear orders
+        // it never got to.
+        if ($errorMessage === null) {
+            PendingAssigneeOrder::whereNotIn('pancake_order_id', $waitingIds)->delete();
+        }
+
         $this->recordRun($runStart, $totalFetched, $synced, $skipped, $errorMessage === null, $errorMessage);
 
         if ($errorMessage !== null) {
             return self::FAILURE;
         }
 
-        $this->info("Synced {$synced} new lead(s), skipped {$skipped} (already claimed or already pulled in).");
+        $this->info("Synced {$synced} new lead(s), skipped {$skipped} (already claimed or already pulled in), {$waiting} waiting for an assignee.");
 
         $backfilled = $this->backfillMissingProductIds();
         if ($backfilled > 0) {

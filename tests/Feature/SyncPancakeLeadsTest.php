@@ -40,6 +40,8 @@ class SyncPancakeLeadsTest extends TestCase
         parent::setUp();
         Setting::set('pancake_api_key', 'test-key');
         Setting::set('shop_id', '30037101');
+        // No 5-minute Assignee wait here — see the dedicated wait tests.
+        Setting::set('lead_unassigned_wait_minutes', '0');
         Setting::set('pancake_access_token', 'fake-user-access-token');
         $this->artisan('calltracker:reconcile-roster');
     }
@@ -315,6 +317,94 @@ class SyncPancakeLeadsTest extends TestCase
         Artisan::call('pancake:sync-leads');
 
         $this->assertDatabaseHas('leads', ['pancake_order_id' => '9101']);
+    }
+
+    /** Explicit request, 2026-10-29: quick-add orders shouldn't be distributed. */
+    public function test_a_quick_add_order_is_not_pulled_in_as_a_lead(): void
+    {
+        $this->fakePancake([
+            [
+                'id'                 => 9102,
+                'bill_full_name'     => 'Quick Add Customer',
+                'tags'               => [],
+                'items'              => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'        => now()->toIso8601String(),
+                'order_sources_name' => 'Quick add',
+            ],
+            [
+                'id'             => 9103,
+                'bill_full_name' => 'Quick Add Customer Two',
+                'tags'           => [],
+                'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'    => now()->toIso8601String(),
+                'order_sources'  => [['id' => -5, 'name' => 'Quick-Add']],
+            ],
+            [
+                'id'                 => 9104,
+                'bill_full_name'     => 'Facebook Customer',
+                'tags'               => [],
+                'items'              => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'        => now()->toIso8601String(),
+                'order_sources_name' => 'Facebook',
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9102']);
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9103']);
+        $this->assertDatabaseHas('lead_sync_skips', ['pancake_order_id' => '9102', 'reason' => 'quick_add']);
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9104']);
+    }
+
+    /** Explicit request, 2026-10-29: an order with no Assignee in Pancake
+     *  waits 5 minutes before it's distributed; one with an Assignee, or
+     *  one already 5+ minutes old, goes out right away. */
+    public function test_an_order_with_no_assignee_waits_five_minutes_before_it_is_distributed(): void
+    {
+        Setting::set('lead_unassigned_wait_minutes', '5');
+        $this->fakePancake([
+            [
+                'id'             => 9110,
+                'bill_full_name' => 'Fresh No Assignee',
+                'tags'           => [],
+                'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'    => now('UTC')->subMinutes(2)->format('Y-m-d\TH:i:s'),
+            ],
+            [
+                'id'               => 9111,
+                'bill_full_name'   => 'Fresh With Assignee',
+                'tags'             => [],
+                'items'            => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'      => now('UTC')->subMinutes(2)->format('Y-m-d\TH:i:s'),
+                'assigning_seller' => ['id' => 'staff-9', 'name' => 'Some Staff'],
+            ],
+            [
+                'id'             => 9112,
+                'bill_full_name' => 'Old No Assignee',
+                'tags'           => [],
+                'items'          => [['variation_info' => ['name' => 'Sinuxyl']]],
+                'inserted_at'    => now('UTC')->subMinutes(6)->format('Y-m-d\TH:i:s'),
+            ],
+        ]);
+
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseMissing('leads', ['pancake_order_id' => '9110']);
+        $this->assertDatabaseMissing('lead_sync_skips', ['pancake_order_id' => '9110']);
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9111']);
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9112']);
+        // Listed for Monitor TSA while it waits; the others never are.
+        $this->assertDatabaseHas('pending_assignee_orders', ['pancake_order_id' => '9110']);
+        $this->assertDatabaseCount('pending_assignee_orders', 1);
+
+        // Once it's past 5 minutes, the next tick picks it up and it stops
+        // being listed as waiting.
+        $this->travel(4)->minutes();
+        Artisan::call('pancake:sync-leads');
+
+        $this->assertDatabaseHas('leads', ['pancake_order_id' => '9110']);
+        $this->assertDatabaseCount('pending_assignee_orders', 0);
     }
 
     public function test_an_order_matching_no_known_product_is_pulled_in_as_unassigned(): void

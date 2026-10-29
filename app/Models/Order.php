@@ -304,6 +304,30 @@ class Order extends Model
         return $creatorName !== '' && in_array($creatorName, self::LOGISTICS_STAFF_NAMES, true);
     }
 
+    /** Orders whose Pancake order source is "Quick add" are never a lead to
+     *  distribute — explicit request, 2026-10-29. Read from the order's own
+     *  source name (order_sources_name, or order_sources as a list of
+     *  {name}, the shape Pancake's order history uses); matched with spaces,
+     *  dashes and case stripped so "Quick add" / "Quick-Add" / "QUICKADD"
+     *  all count — same "don't trust exact spacing" lesson as
+     *  isDuplicatedByLogistics() above. */
+    public static function isQuickAdd(array $raw): bool
+    {
+        $names = [$raw['order_sources_name'] ?? null];
+        if (is_array($raw['order_sources'] ?? null)) {
+            foreach ($raw['order_sources'] as $source) {
+                $names[] = is_array($source) ? ($source['name'] ?? null) : $source;
+            }
+        }
+
+        foreach ($names as $name) {
+            if (is_string($name) && str_contains(preg_replace('/[^A-Z]/', '', strtoupper($name)), 'QUICKADD')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Root-caused 2026-09-11, real production order #1366186: a TSA typed
      * "cancelled upsell" directly into Pancake's Note field for an order

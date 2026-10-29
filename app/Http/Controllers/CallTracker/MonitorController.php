@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CallTracker;
 use App\Http\Controllers\Concerns\PersistsCallTrackerFilters;
 use App\Http\Controllers\Controller;
 use App\Models\Lead;
+use App\Models\PendingAssigneeOrder;
 use App\Models\LeadActivity;
 use App\Models\TsaShift;
 use App\Models\TsaStatusLog;
@@ -225,6 +226,12 @@ class MonitorController extends Controller
             // Management (a lead with no matched product isn't listed).
             'waitingLeads'         => (clone $unassignedLeadsQuery)->whereNotNull('product_id')->with('product')->orderByDesc('pancake_created_at')->limit(50)->get(),
             'waitingLeadsCount'    => (clone $unassignedLeadsQuery)->whereNotNull('product_id')->count(),
+            // Same panel (2026-10-29): Pancake orders the lead sync is still
+            // holding for an Assignee, not leads yet — see
+            // SyncPancakeLeads::assigneeWaitReleaseAt(). Same team scoping.
+            'pendingAssigneeOrders' => PendingAssigneeOrder::whereNotNull('product_id')
+                ->when($selectedTeam !== 'all', fn ($q2) => $q2->whereHas('product', fn ($q3) => $q3->where('team', $teamsConfig[$selectedTeam]['order_team'])))
+                ->with('product')->orderBy('release_at')->get(),
             'unassignedCallbacksDueCount' => $unassignedCallbacksDueCount,
             'statusCounts'         => $statusCounts,
             'q'                    => $q,
