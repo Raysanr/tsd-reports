@@ -249,6 +249,7 @@ class SyncPancakeLeads extends Command
                 if ($existing) {
                     $this->backfillCallbackFromTags($existing, $raw);
                     $this->backfillUnansweredDispositionFromTags($existing, $raw);
+                    $this->pullBackIfMarkedHighRts($existing, $raw);
                     $skipped++;
                     continue;
                 }
@@ -574,6 +575,32 @@ class SyncPancakeLeads extends Command
      * keyword anymore, the callback is cleared, same as it would be if a
      * TSA had logged a real Outcome on it.
      */
+    /** HIGH RTS added in Pancake AFTER the lead was already handed out —
+     *  real order #1385832 (2026-10-29): assigned 21:18, the seller's
+     *  "HIGH RTS" note landed the same minute, just after. Flag it and, if
+     *  the TSA hasn't dialed/called/dispositioned it yet, pull it back to
+     *  Unassigned for a supervisor, same as a lead flagged on arrival. */
+    private function pullBackIfMarkedHighRts(Lead $lead, array $raw): void
+    {
+        if ($lead->high_rts || !\App\Support\HighRts::inRawOrder($raw)) {
+            return;
+        }
+
+        $lead->high_rts = true;
+        $untouched = $lead->status === 'assigned' && !$lead->called_at && !$lead->dialed_at && !$lead->disposition;
+        $fromLabel = $lead->tsa?->display_name;
+        if ($untouched) {
+            $lead->tsa_id      = null;
+            $lead->assigned_at = null;
+            $lead->status      = 'unassigned';
+        }
+        $lead->save();
+
+        LeadActivity::log($lead, 'high_rts_held', $untouched
+            ? "Marked HIGH RTS in Pancake after assignment — taken back from {$fromLabel}, left Unassigned for a supervisor to decide."
+            : 'Marked HIGH RTS in Pancake after the TSA already started on it — left with them.');
+    }
+
     private function backfillCallbackFromTags(Lead $lead, array $raw): void
     {
         if ($lead->status === 'called') {

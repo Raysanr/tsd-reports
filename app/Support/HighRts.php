@@ -15,13 +15,14 @@ class HighRts
 {
     private const MARK = 'HIGH RTS';
 
-    /** From a raw Pancake order payload: its note or its customer's tags. */
+    /** From a raw Pancake order payload: its note, its customer's tags, or
+     *  its own order tags. */
     public static function inRawOrder(array $raw): bool
     {
         if (self::mentions($raw['note'] ?? null)) {
             return true;
         }
-        foreach ((array) ($raw['customer']['tags'] ?? []) as $tag) {
+        foreach (array_merge((array) ($raw['customer']['tags'] ?? []), (array) ($raw['tags'] ?? [])) as $tag) {
             if (self::mentions(is_array($tag) ? ($tag['name'] ?? $tag['text'] ?? null) : $tag)) {
                 return true;
             }

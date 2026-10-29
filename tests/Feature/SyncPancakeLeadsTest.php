@@ -118,6 +118,39 @@ class SyncPancakeLeadsTest extends TestCase
         $this->assertSame('unassigned', Lead::where('pancake_order_id', '9101')->first()->status);
     }
 
+    /** #1385832: HIGH RTS added in Pancake just after the lead was handed
+     *  out — an untouched lead goes back to Unassigned; one the TSA already
+     *  called stays with them. A HIGH RTS order tag counts too. */
+    public function test_a_lead_marked_high_rts_after_assignment_is_taken_back_if_untouched(): void
+    {
+        $base = fn (int $id, array $extra = []) => array_merge([
+            'id' => $id, 'bill_full_name' => 'Juan', 'bill_phone_number' => '0917123' . $id,
+            'tags' => [], 'items' => [['variation_info' => ['name' => 'Sinuxyl']]],
+            'inserted_at' => now()->toIso8601String(), 'customer' => [],
+        ], $extra);
+        $orders = [$base(9201), $base(9202)];
+        Http::fake(['pos.pages.fm/api/v1/shops/*/orders?*' => function () use (&$orders) {
+            return Http::response(['data' => $orders], 200);
+        }]);
+
+        Artisan::call('pancake:sync-leads');
+        $this->assertSame('assigned', Lead::where('pancake_order_id', '9201')->first()->status);
+        Lead::where('pancake_order_id', '9202')->first()->update(['called_at' => now(), 'disposition' => 'callback']);
+
+        $orders = [$base(9201, ['note' => 'HIGH RTS']), $base(9202, ['tags' => [['id' => 1, 'name' => 'HIGH RTS']]])];
+        Artisan::call('pancake:sync-leads');
+
+        $untouched = Lead::where('pancake_order_id', '9201')->first();
+        $this->assertTrue($untouched->high_rts);
+        $this->assertSame('unassigned', $untouched->status);
+        $this->assertNull($untouched->tsa_id);
+
+        $called = Lead::where('pancake_order_id', '9202')->first();
+        $this->assertTrue($called->high_rts);
+        $this->assertSame('assigned', $called->status);
+        $this->assertNotNull($called->tsa_id);
+    }
+
     /**
      * Regression test — root-caused live on production, 2026-09-18: "why is
      * it like no leads distributed in the leads page?" at 07:41 AM Manila
