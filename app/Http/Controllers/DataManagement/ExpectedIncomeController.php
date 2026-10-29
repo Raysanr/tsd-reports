@@ -851,8 +851,10 @@ class ExpectedIncomeController extends Controller
             // doesn't go through TsaShift::where('team', ...) at all.
             $teamTsaIds = TsaShift::where('team', $teamConfig['order_team'])->pluck('id')->all();
 
+            // Partners: each partner's row on the All view shows only its
+            // own products, same as picking that partner (productsForTeam()).
             ['cards' => $cards, 'overallTotal' => $overallTotal] =
-                $this->buildSummaryRow($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds, $teamConfig['order_team']);
+                $this->buildSummaryRow(self::productsForTeam($products, $teamSlug, Teams::config()), $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys, $teamTsaIds, $teamConfig['order_team']);
 
             return [
                 'label'        => $teamConfig['name'],

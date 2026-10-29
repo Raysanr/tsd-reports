@@ -143,6 +143,10 @@ class PartnersDataManagementTest extends TestCase
         $this->get('/partners/actual-income?month=2026-10&team=mj')->assertOk()->assertSee('MJ CREAM')->assertDontSee('PEAKGLOW');
         $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=all')->assertOk()
             ->assertSee('PEAKGLOW')->assertSee('MJ CREAM');
+
+        // On the All view each partner's own row lists only its own products.
+        $all = $this->get('/partners/expected-income/summary?date_from=2026-10-05&date_to=2026-10-05&team=all')->assertOk()->getContent();
+        $this->assertSame(2, substr_count($all, 'MJ CREAM')); // overall summary + M&J's row, not PEAK.CO's or MLC's
     }
 
     public function test_edits_save_to_the_partners_database(): void
