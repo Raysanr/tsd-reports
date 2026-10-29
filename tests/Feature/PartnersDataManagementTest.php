@@ -81,6 +81,17 @@ class PartnersDataManagementTest extends TestCase
         Http::assertSent(fn (HttpRequest $r) => $r->hasHeader('Authorization', 'Bearer shh'));
     }
 
+    public function test_sync_command_clears_tsd_seed_rows_even_without_a_secret(): void
+    {
+        config(['partners.secret' => '']);
+        $this->assertGreaterThan(0, DataSet::onPartners(fn () => Product::count()));
+
+        $this->artisan('partners:sync')->assertSuccessful();
+
+        DataSet::onPartners(fn () => $this->assertSame([0, 0], [Product::count(), TsaShift::count()]));
+        $this->assertGreaterThan(0, Product::count(), 'main database untouched');
+    }
+
     public function test_sync_is_incremental_and_updates_changed_orders(): void
     {
         $this->syncPeak([

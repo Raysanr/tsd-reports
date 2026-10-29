@@ -134,6 +134,17 @@ class PartnerSync
         });
     }
 
+    /** Removes products/TSAs no partner sent — on a fresh partners database
+     *  that's TSD's own, seeded by the shared migrations. */
+    public function removeUnsynced(): void
+    {
+        DataSet::onPartners(function () {
+            foreach (['product' => 'products', 'tsa' => 'tsa_shifts'] as $resource => $table) {
+                DB::table($table)->whereNotIn('id', DB::table('partner_imports')->where('resource', $resource)->pluck('local_id'))->delete();
+            }
+        });
+    }
+
     public static function tsaKey(string $team, string $key): string
     {
         return "{$team}:{$key}";

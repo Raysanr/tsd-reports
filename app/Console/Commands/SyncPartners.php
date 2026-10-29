@@ -15,6 +15,8 @@ class SyncPartners extends Command
 
     public function handle(PartnerFeed $feed, PartnerSync $sync): int
     {
+        $sync->removeUnsynced();
+
         if (!$feed->configured()) {
             $this->warn('PARTNER_FEED_SECRET is not set — nothing synced.');
 
