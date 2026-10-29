@@ -123,7 +123,8 @@ class PartnersDataManagementTest extends TestCase
             ->assertDontSee('class="tsr-group-total-row tsr-tiktok-total-row', false)->assertDontSee('No TSAs in TikTok Upsell yet')
             ->assertSee(url('/partners/tsa-sales/lock'), false);
         $this->get('/partners/projections?month=2026-10')->assertOk()->assertSee('PEAK.CO: Monthly Target')->assertSee('MLC — Individual TSA: Daily Target');
-        $this->get('/partners/cost-breakdown')->assertOk()->assertSee('Telesales Supervisor')->assertSee('Joana')->assertDontSee('Lhiza Alconera');
+        $this->get('/partners/cost-breakdown')->assertOk()->assertSee('Telesales Supervisor')->assertSee('Communication Allowance')->assertSee('Joana')
+            ->assertDontSee('Lhiza Alconera')->assertDontSee('title="TikTok Upsell"', false);
 
         // TSD's own pages still show TSD's data.
         $this->get('/data/expected-income?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('TSD Data Management')->assertDontSee('PEAKGLOW');
@@ -143,7 +144,7 @@ class PartnersDataManagementTest extends TestCase
         $this->assertStringStartsWith('[Partners] ', \App\Models\ActivityLog::latest('id')->value('description'));
     }
 
-    public function test_one_supervisor_is_split_per_partner_then_per_tsa(): void
+    public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {
             foreach (['PEAK.CO' => 2, 'M&J' => 1, 'MLC' => 0] as $team => $count) {
@@ -151,16 +152,21 @@ class PartnersDataManagementTest extends TestCase
                     TsaShift::create(['tsa_key' => "{$team}:T{$i}", 'display_name' => "T{$i}", 'team' => $team, 'active' => true]);
                 }
             }
-            CostBreakdownRole::ensureSeeded('2026-10');
-            $supervisor = CostBreakdownRole::where('month', '2026-10')->sole();
+            \App\Support\CostBreakdownMonths::seed('2026-10');
+
+            $this->assertSame(['ceo', 'sales_director', 'telesales_manager', 'qa_specialist', 'junior_ai_engineer', 'supervisor'],
+                CostBreakdownRole::where('month', '2026-10')->orderBy('sort_order')->pluck('seed_key')->all());
+            $this->assertSame(count(\App\Models\CostBreakdownPool::SEED_POOLS), \App\Models\CostBreakdownPool::where('month', '2026-10')->count());
+
+            $supervisor = CostBreakdownRole::where(['month' => '2026-10', 'seed_key' => 'supervisor'])->sole();
             $supervisor->update(['base_salary' => 30000]);
+            $roles = CostBreakdownRole::where('month', '2026-10')->whereIn('seed_key', ['qa_specialist', 'supervisor'])->get();
+            $qa = $roles->firstWhere('seed_key', 'qa_specialist');
+            $refs = TsaDailyRateService::partnerOverheadRefsByTeam($roles, collect([$qa->id => 999.0, $supervisor->id => 30000 / CostBreakdownRole::divisorCount('partner')]));
 
-            $roles = CostBreakdownRole::where('month', '2026-10')->get();
-            $refs = TsaDailyRateService::partnerOverheadRefsByTeam($roles, collect([$supervisor->id => 30000 / CostBreakdownRole::divisorCount('partner')]));
-
-            $this->assertEqualsWithDelta(5000, $refs['PEAK.CO'][0], 0.001);
-            $this->assertEqualsWithDelta(10000, $refs['M&J'][0], 0.001);
-            $this->assertEqualsWithDelta(0, $refs['MLC'][0], 0.001);
+            $this->assertEqualsWithDelta([999, 5000], $refs['PEAK.CO'], 0.001);
+            $this->assertEqualsWithDelta([999, 10000], $refs['M&J'], 0.001);
+            $this->assertEqualsWithDelta([999, 0], $refs['MLC'], 0.001);
         });
     }
 }

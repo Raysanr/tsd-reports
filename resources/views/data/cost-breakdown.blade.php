@@ -130,11 +130,13 @@
                              2026-10-07: "remove the tiktok just the icon
                              is okay") — narrower column, same icon used
                              on a flagged TSA's own row below. --}}
+                        @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners Data Management --}}
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap" title="TikTok Upsell">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 inline-block">
                                 <path d="M16.5 2c.3 2.2 1.8 3.9 4 4.3v2.8c-1.4 0-2.8-.4-4-1.2v6.9c0 3.4-2.8 6.2-6.2 6.2S4.1 17.2 4.1 13.8c0-3.3 2.6-6 5.9-6.2v3c-1.6.2-2.9 1.6-2.9 3.2 0 1.8 1.4 3.2 3.2 3.2s3.2-1.4 3.2-3.2V2h3z"/>
                             </svg>
                         </th>
+                        @endunless
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Base Salary</th>
                         <th class="text-center px-4 py-2.5 font-bold whitespace-nowrap bg-slate-200 dark:bg-slate-600 border-x border-line dark:border-slate-700">Shared Ref.</th>
                         <th class="text-right px-4 py-2.5 font-bold whitespace-nowrap">Total</th>
@@ -205,7 +207,9 @@
                                     @endif
                                 </div>
                             </td>
+                            @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners Data Management --}}
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
+                            @endunless
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($role->base_salary) }}"
                                        data-field="base_salary" data-money="1"
@@ -267,6 +271,7 @@
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
                             data-tsa-salary-row data-tsa-id="{{ $tsa->id }}" data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
+                            @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners Data Management --}}
                             <td class="px-4 py-2 text-center {{ $groupEndClass }}">
                                 @if($tsa->tiktok_upsell)
                                 <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-300" title="Shown in TikTok Upsell section">
@@ -274,6 +279,7 @@
                                 </span>
                                 @endif
                             </td>
+                            @endunless
                             <td class="px-4 py-1.5 text-right {{ $groupEndClass }}">
                                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($entry->base_salary) }}"
                                        data-field="base_salary" data-money="1"

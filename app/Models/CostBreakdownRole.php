@@ -80,16 +80,22 @@ class CostBreakdownRole extends Model
      *  TsaShift roster — an earlier version divided by the real live
      *  headcount instead, which produced different figures than the sheet
      *  while the real roster is still below 12. */
-    /** Partners Data Management (App\Support\DataSet) starts from ONE
-     *  supervisor shared by all partners: her salary is split equally per
-     *  partner (divisor "partner"), then across that partner's TSAs. */
-    public const PARTNER_SEED_ROLES = [
-        ['seed_key' => 'supervisor', 'label' => 'Telesales Supervisor', 'person_name' => null, 'base_salary' => 0, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'partner', 'sort_order' => 0],
-    ];
+    /** Partners Data Management (App\Support\DataSet) starts from the same
+     *  roles as TSD, except TSD's two shift supervisors become ONE supervisor
+     *  shared by all partners: her salary is split equally per partner
+     *  (divisor "partner"), then across that partner's TSAs. */
+    public const PARTNER_SUPERVISOR = ['seed_key' => 'supervisor', 'label' => 'Telesales Supervisor', 'person_name' => null, 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'partner', 'sort_order' => 5];
 
     public static function seedRoles(): array
     {
-        return \App\Support\DataSet::isPartners() ? self::PARTNER_SEED_ROLES : self::SEED_ROLES;
+        if (!\App\Support\DataSet::isPartners()) {
+            return self::SEED_ROLES;
+        }
+
+        return array_merge(
+            array_values(array_filter(self::SEED_ROLES, fn ($r) => ($r['overhead_divisor'] ?? null) !== 'team')),
+            [self::PARTNER_SUPERVISOR]
+        );
     }
 
     /** How many ways an overhead group is divided; "partner" = one share per partner. */

@@ -73,10 +73,6 @@ class CostBreakdownPool extends Model
     public static function ensureSeeded(?string $month = null): void
     {
         $month ??= \App\Support\CostBreakdownMonths::current();
-        // TSD's own expense pools; Partners Data Management starts with none.
-        if (\App\Support\DataSet::isPartners()) {
-            return;
-        }
         foreach (self::SEED_POOLS as $seed) {
             $pool = static::firstOrCreate(['key' => $seed['key'], 'month' => $month], $seed);
             $pool->fill(collect($seed)->except(['key', 'amount'])->all());

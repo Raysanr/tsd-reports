@@ -575,20 +575,24 @@ class TsaDailyRateService
         return $perShift;
     }
 
-    /** Partners Data Management: every overhead role is shared by all
-     *  partners — $overheadByRoleId already holds ONE partner's share (see
-     *  CostBreakdownRole::divisorCount()), which is split again across that
-     *  partner's own non-TikTok TSAs. Keyed by partner team, like
-     *  overheadRefsByTeam(). */
+    /** Partners Data Management: every overhead group applies to every
+     *  partner's TSAs, the same per-TSA figure as TSD's company-wide groups —
+     *  except a "partner"-divisor group (the shared supervisor), whose
+     *  $overheadByRoleId value is ONE partner's share (see
+     *  CostBreakdownRole::divisorCount()) and is split again across that
+     *  partner's own TSAs. Keyed by partner team, like overheadRefsByTeam(). */
     public static function partnerOverheadRefsByTeam($roles, $overheadByRoleId)
     {
-        $groupShares = $roles->whereNotNull('overhead_group')->unique('overhead_group')
-            ->map(fn (CostBreakdownRole $role) => (float) $overheadByRoleId->get($role->id))->values();
+        $groups = $roles->whereNotNull('overhead_group')->unique('overhead_group')
+            ->map(fn (CostBreakdownRole $role) => ['value' => (float) $overheadByRoleId->get($role->id), 'perPartner' => $role->overhead_divisor === 'partner'])
+            ->values();
 
-        return collect(\App\Support\Teams::config())->mapWithKeys(function (array $team) use ($groupShares) {
+        return collect(\App\Support\Teams::config())->mapWithKeys(function (array $team) use ($groups) {
             $tsaCount = TsaShift::where('team', $team['order_team'])->where('tiktok_upsell', false)->count();
 
-            return [$team['order_team'] => $groupShares->map(fn ($share) => $tsaCount > 0 ? $share / $tsaCount : 0.0)->all()];
+            return [$team['order_team'] => $groups->map(fn ($g) => $g['perPartner']
+                ? ($tsaCount > 0 ? $g['value'] / $tsaCount : 0.0)
+                : $g['value'])->all()];
         });
     }
 
