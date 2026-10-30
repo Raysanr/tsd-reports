@@ -449,7 +449,7 @@
             @csrf
             @foreach([
                 'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Very light colors are deepened slightly on buttons so white text stays readable.'],
-                'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
+                'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically; in dark mode a light sidebar turns dark navy to match the page.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
             ] as $slot => [$slotTitle, $slotHelp, $slotPresets, $slotCurrent, $slotDefault, $slotHint])
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 {{ $loop->first ? 'pb-8 border-b border-slate-100 dark:border-slate-800' : '' }}" data-theme-slot="{{ $slot }}" data-theme-default="{{ $slotDefault }}">
                 <div>
@@ -660,8 +660,11 @@
             st.setProperty('--color-muted', sc[50]); st.setProperty('--color-border', sc[200]);
         },
         sidebar(hex) {
-            st.setProperty('--color-sidebar', hex);
-            document.documentElement.classList.toggle('sidebar-light', lum(hex) > .4);
+            const light = lum(hex) > .4, html = document.documentElement;
+            html.classList.toggle('sidebar-light', light);
+            // Dark mode shows a light sidebar color as dark navy (app.css html.dark.sidebar-light).
+            if (light && html.classList.contains('dark')) st.removeProperty('--color-sidebar');
+            else st.setProperty('--color-sidebar', hex);
         },
     };
     const norm = (v) => { v = v.trim(); return v && v[0] !== '#' ? '#' + v : v; };
