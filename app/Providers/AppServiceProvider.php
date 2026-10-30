@@ -28,6 +28,17 @@ class AppServiceProvider extends ServiceProvider
         // URL prefix — see App\Support\DataSet.
         \App\Support\DataSet::boot();
 
+        // Scheduler container start (2026-10-30): a redeploy kills the old
+        // container mid-run, leaving its withoutOverlapping() locks behind,
+        // so the new one skipped pancake:sync-leads / sync-today for up to
+        // 10 minutes ("Sync appears stale" after the 13:53 deploy). Nothing
+        // can be running in a container that is only now starting, so its
+        // schedule:work process (the parent, once — not each schedule:run
+        // child) drops those locks before the first tick.
+        if ($this->app->runningInConsole() && ($_SERVER['argv'][1] ?? null) === 'schedule:work') {
+            self::clearScheduleMutexes();
+        }
+
         // RequestMemo is never allowed to serve a value older than a write
         // made earlier in the same request — see its own doc comment.
         \Illuminate\Support\Facades\DB::listen(function ($query) {
@@ -94,5 +105,20 @@ class AppServiceProvider extends ServiceProvider
         // cadence instead of ~15s — same latency every other scheduled sync
         // in this app already has, and the tradeoff explicitly accepted
         // over paying for near-real-time.
+    }
+
+    /** Drops every Schedule::withoutOverlapping() lock (database cache store). */
+    public static function clearScheduleMutexes(): int
+    {
+        try {
+            $table = config('cache.stores.database.lock_table') ?: 'cache_locks';
+
+            return \Illuminate\Support\Facades\DB::connection(config('cache.stores.database.lock_connection') ?: config('cache.stores.database.connection'))
+                ->table($table)->where('key', 'like', '%framework' . DIRECTORY_SEPARATOR . 'schedule-%')->delete();
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Could not clear schedule locks at scheduler start: ' . $e->getMessage());
+
+            return 0;
+        }
     }
 }
