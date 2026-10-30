@@ -38,10 +38,10 @@
     @foreach($kpis as $key => $kpi)
     @php
         $kpiIcons = [
-            'total_called'    => ['bg' => 'rgba(202,138,4,0.12)', 'fg' => '#CA8A04', 'path' => 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z'],
+            'total_called'    => ['bg' => 'color-mix(in srgb, var(--color-primary) 12%, transparent)', 'fg' => 'var(--color-primary)', 'path' => 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z'],
             'pick_up_rate'    => ['bg' => 'rgba(37,99,235,0.12)',  'fg' => '#2563EB', 'path' => 'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z'],
             'conversion_rate' => ['bg' => 'rgba(234,88,12,0.12)',  'fg' => '#EA580C', 'path' => 'M13 7h8m0 0v8m0-8l-8 8-4-4-6 6'],
-            'upselling_rate'  => ['bg' => 'rgba(202,138,4,0.12)',  'fg' => '#CA8A04', 'path' => 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2'],
+            'upselling_rate'  => ['bg' => 'color-mix(in srgb, var(--color-primary) 12%, transparent)',  'fg' => 'var(--color-primary)', 'path' => 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2'],
         ];
         $icon = $kpiIcons[$key];
         $deltaUp = $kpi['delta'] !== null && $kpi['delta'] > 0;
@@ -228,7 +228,7 @@
                 <p class="text-xs text-slate-400 font-mono mt-0.5">Total across the range — spot when excess spikes with volume</p>
             </div>
             <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
-                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:#CA8A04"></span> New Leads</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block" style="background:var(--color-primary)"></span> New Leads</span>
                 <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-rose-600"></span> Excess</span>
             </div>
         </div>
@@ -579,7 +579,7 @@ new Chart(document.getElementById('hourlyChart'), {
     data: {
         labels: hourlyLabels,
         datasets: [
-            { label: 'New Leads', data: hourlyLeads,  backgroundColor: '#CA8A04', borderRadius: 4, borderSkipped: false },
+            { label: 'New Leads', data: hourlyLeads,  backgroundColor: themeColor('--color-primary'), borderRadius: 4, borderSkipped: false },
             { label: 'Excess',    data: hourlyExcess, backgroundColor: '#e11d48', borderRadius: 4, borderSkipped: false },
         ],
     },

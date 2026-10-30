@@ -904,4 +904,15 @@ class SettingsControllerTest extends TestCase
         $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => '#2442B8', 'sidebar_color' => '#18181B', 'text_color' => '']);
         $this->actingAs($me->fresh())->get(route('hub'))->assertOk()->assertSee('--primary:#2442B8', false);
     }
+
+    /** Charts (2026-10-30): canvas can't read CSS variables, so pages get
+     *  window.themeColor() and the gold chart series use it. */
+    public function test_charts_use_the_theme_accent(): void
+    {
+        $this->actingAs(User::factory()->create());
+        $this->get(route('charts'))->assertOk()
+            ->assertSee('window.themeColor = function', false)
+            ->assertSee("backgroundColor: themeColor('--color-primary')", false)
+            ->assertDontSee("backgroundColor: '#CA8A04'", false);
+    }
 }

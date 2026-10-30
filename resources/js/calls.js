@@ -1,3 +1,7 @@
+// Accent color for Chart.js (Settings → Appearance, 2026-10-30) — set by
+// partials/theme-color; falls back to the built-in gold.
+const themeColor = (name, alpha) => window.themeColor?.(name, alpha) ?? (alpha == null ? '#CA8A04' : `rgba(202,138,4,${alpha})`);
+
 // Ported from call-tracker's resources/js/app.js (merged into one app
 // 2026-08-12) as a SEPARATE Vite entry point — resources/js/app.js (tsd-
 // reports' own) is untouched. Loaded only on /calls/* pages via
@@ -3721,7 +3725,7 @@ document.addEventListener('keydown', (e) => {
                 type: 'bar',
                 data: {
                     labels: withAht.map((r) => r.label),
-                    datasets: [{ data: withAht.map((r) => r.seconds), backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 28 }],
+                    datasets: [{ data: withAht.map((r) => r.seconds), backgroundColor: themeColor('--color-primary'), borderRadius: 4, maxBarThickness: 28 }],
                 },
                 options: {
                     responsive: true,
@@ -3746,12 +3750,12 @@ document.addEventListener('keydown', (e) => {
                     labels: data.ahtTrendLabels,
                     datasets: [{
                         data: data.ahtTrendSeconds,
-                        borderColor: '#CA8A04',
-                        backgroundColor: 'rgba(202,138,4,0.12)',
+                        borderColor: themeColor('--color-primary'),
+                        backgroundColor: themeColor('--color-primary', 0.12),
                         fill: true,
                         tension: 0.3,
                         pointRadius: 3,
-                        pointBackgroundColor: '#CA8A04',
+                        pointBackgroundColor: themeColor('--color-primary'),
                     }],
                 },
                 options: {
@@ -3792,7 +3796,7 @@ document.addEventListener('keydown', (e) => {
                 labels: data.labels,
                 datasets: [
                     { label: 'Total Leads', data: data.total, backgroundColor: isDark() ? '#475569' : '#D8CCA4', borderRadius: 4, maxBarThickness: 28 },
-                    { label: 'Called', data: data.called, backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 28 },
+                    { label: 'Called', data: data.called, backgroundColor: themeColor('--color-primary'), borderRadius: 4, maxBarThickness: 28 },
                 ],
             },
             options: {
@@ -3827,7 +3831,7 @@ document.addEventListener('keydown', (e) => {
             data: {
                 labels: data.labels,
                 datasets: [
-                    { label: 'Avg Gap (min)', data: data.avgGapMinutes, backgroundColor: '#CA8A04', borderRadius: 4, maxBarThickness: 28 },
+                    { label: 'Avg Gap (min)', data: data.avgGapMinutes, backgroundColor: themeColor('--color-primary'), borderRadius: 4, maxBarThickness: 28 },
                 ],
             },
             options: {
@@ -3899,7 +3903,7 @@ document.addEventListener('keydown', (e) => {
                     labels: data.leadsOverview.labels,
                     datasets: [{
                         data: [data.leadsOverview.total, data.leadsOverview.catered],
-                        backgroundColor: ['#EAB308', '#16A34A'],
+                        backgroundColor: [themeColor('--color-secondary'), '#16A34A'],
                         borderRadius: 6,
                         maxBarThickness: 56,
                     }],
@@ -3931,7 +3935,7 @@ document.addEventListener('keydown', (e) => {
                     labels: ['Catered Leads', 'Missed Leads'],
                     datasets: [{
                         data: [data.leadsOverview.catered, missed],
-                        backgroundColor: ['#16A34A', '#EAB308'],
+                        backgroundColor: ['#16A34A', themeColor('--color-secondary')],
                         borderWidth: 0,
                         hoverOffset: 4,
                     }],
@@ -3972,8 +3976,8 @@ document.addEventListener('keydown', (e) => {
                 labels: data.trend.labels,
                 datasets: [
                     {
-                        label: 'AHT', data: data.trend.ahtSeconds, borderColor: '#CA8A04', backgroundColor: 'rgba(202,138,4,0.12)',
-                        fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: '#CA8A04', pointBorderColor: '#fff', pointBorderWidth: 1.5,
+                        label: 'AHT', data: data.trend.ahtSeconds, borderColor: themeColor('--color-primary'), backgroundColor: themeColor('--color-primary', 0.12),
+                        fill: true, tension: 0.35, pointRadius: 3, pointBackgroundColor: themeColor('--color-primary'), pointBorderColor: '#fff', pointBorderWidth: 1.5,
                         yAxisID: 'yAht', spanGaps: true,
                     },
                     {

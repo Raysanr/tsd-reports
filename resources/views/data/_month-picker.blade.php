@@ -44,7 +44,7 @@
         }
         .dark .month-picker-cell { color: #f1f5f9; }
         .month-picker-cell:hover { background: #FEF9C3; }
-        .dark .month-picker-cell:hover { background: rgba(202,138,4,0.25); }
+        .dark .month-picker-cell:hover { background: color-mix(in srgb, var(--color-primary) 25%, transparent); }
         .month-picker-cell-current { border: 1px solid var(--color-primary); }
         .month-picker-cell-selected { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
     </style>

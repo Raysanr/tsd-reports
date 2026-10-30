@@ -57,13 +57,13 @@
         }
         .dark .date-range-day { color: #f1f5f9; }
         .date-range-day:hover:not(.date-range-day-muted) { background: #FEF9C3; }
-        .dark .date-range-day:hover:not(.date-range-day-muted) { background: rgba(202,138,4,0.25); }
+        .dark .date-range-day:hover:not(.date-range-day-muted) { background: color-mix(in srgb, var(--color-primary) 25%, transparent); }
         .date-range-day-muted { color: #cbd5e1; cursor: default; }
         .dark .date-range-day-muted { color: #475569; }
         .date-range-day-today { border: 1px solid var(--color-primary); }
         .date-range-day-selected { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
         .date-range-day-in-range { background: #FEF9C3; color: var(--color-primary); font-weight: 600; }
-        .dark .date-range-day-in-range { background: rgba(202,138,4,0.25); }
+        .dark .date-range-day-in-range { background: color-mix(in srgb, var(--color-primary) 25%, transparent); }
         .date-range-hint { font-size: 0.6875rem; text-align: center; }
     </style>
 @endonce

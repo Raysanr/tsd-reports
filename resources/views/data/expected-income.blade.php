@@ -185,7 +185,7 @@
                  already has, read-only rollup of HER OWN 2 TikTok cards
                  only (not her real product cards — out of scope here). --}}
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
-                <div class="px-5 py-4" style="background:#fde047;">
+                <div class="px-5 py-4" style="background:var(--color-yellow-300);">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
                 @include('data.expected-income._card-body', ['d' => $tsaRow['overallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
@@ -215,7 +215,7 @@
                  never editable, only the real cards are" rule every other
                  team's own overview card already follows). --}}
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" data-out-scope="1">
-                <div class="px-5 py-4" style="background:#fde047;">
+                <div class="px-5 py-4" style="background:var(--color-yellow-300);">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
                 @include('data.expected-income._card-body', ['d' => $tsaRow['overallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
@@ -268,7 +268,7 @@
                  product cards too (explicit request, 2026-10-08: "the
                  snapshot is only tsa card only will be saved"). --}}
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" id="eiTsaCard-range-{{ $tsa->id }}" data-out-scope="1">
-                <div class="px-5 py-4" style="background:#fde047;">
+                <div class="px-5 py-4" style="background:var(--color-yellow-300);">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
                 @include('data.expected-income._card-body', ['d' => $tsaRow['rangeOverallTotal'], 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
@@ -321,7 +321,7 @@
                  cards too (explicit request, 2026-10-08: "the snapshot is
                  only tsa card only will be saved"). --}}
             <div class="ei-card bg-white dark:bg-slate-900 border border-line dark:border-slate-700 rounded-2xl shadow-panel overflow-hidden w-[26rem] shrink-0" id="eiTsaCard-{{ $tsa->id }}-{{ $dateStr }}" data-out-scope="1">
-                <div class="px-5 py-4" style="background:#fde047;">
+                <div class="px-5 py-4" style="background:var(--color-yellow-300);">
                     <span class="font-mono font-bold text-sm uppercase tracking-wide text-ink truncate block">{{ $tsa->display_name }}</span>
                 </div>
                 @include('data.expected-income._card-body', ['d' => $tsaDayOverallTotal, 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct, 'editable' => false])
