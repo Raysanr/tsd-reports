@@ -894,4 +894,14 @@ class SettingsControllerTest extends TestCase
         $this->actingAs($me->fresh())->post(route('settings.theme'), ['accent_color' => '#6639D3', 'sidebar_color' => '#18181B', 'text_color' => 'nope'])
             ->assertSessionHas('error');
     }
+
+    /** The Hub follows the person's accent (2026-10-30); default gold = no override. */
+    public function test_hub_follows_the_personal_accent(): void
+    {
+        $me = User::factory()->create();
+        $this->actingAs($me)->get(route('hub'))->assertOk()->assertDontSee('id="themeColorVars"', false);
+
+        $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => '#2442B8', 'sidebar_color' => '#18181B', 'text_color' => '']);
+        $this->actingAs($me->fresh())->get(route('hub'))->assertOk()->assertSee('--primary:#2442B8', false);
+    }
 }

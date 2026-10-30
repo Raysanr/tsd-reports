@@ -186,6 +186,21 @@ class ThemeColor
         return $vars ? ':root{' . implode(';', $vars) . '}' : '';
     }
 
+    /** The Hub (its own standalone styles: --primary/--primary-dark/--accent)
+     *  in the person's accent (2026-10-30) — the gold "TSD", labels,
+     *  Partners card and the Leads Reports card. '' for the default gold.
+     *  Text-ish --accent follows their text color, readable on the light Hub. */
+    public static function hubCss(): string
+    {
+        if (!self::textRulesOn()) {
+            return '';
+        }
+        $s = self::scale(self::readableAccent(self::accent()));
+        $text = self::readableTextLight(self::text() ?? self::accent());
+
+        return ":root{--primary:{$s[600]};--primary-dark:{$s[800]};--accent:{$text}}";
+    }
+
     private static function mix(string $hex, int $toward, float $amt): string
     {
         [$r, $g, $b] = sscanf(ltrim($hex, '#'), '%02x%02x%02x');
