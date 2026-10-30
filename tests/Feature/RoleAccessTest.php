@@ -18,6 +18,16 @@ class RoleAccessTest extends TestCase
         $this->get(route('leads-report'))->assertOk();
     }
 
+    /** 2026-10-30: every normal user/TSA gets a Settings link (personal
+     *  Appearance) in both the Leads Reports and Call Tracker sidebars. */
+    public function test_normal_user_sees_settings_link_in_both_sidebars(): void
+    {
+        $this->actingAs(User::factory()->normal()->create());
+
+        $this->get(route('dashboard'))->assertOk()->assertSee('href="' . route('settings') . '"', false);
+        $this->get(route('calls.monitor'))->assertOk()->assertSee('href="' . route('calls.settings') . '"', false);
+    }
+
     public function test_normal_user_is_forbidden_from_config_pages(): void
     {
         $this->actingAs(User::factory()->normal()->create());
