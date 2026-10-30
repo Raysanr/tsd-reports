@@ -186,10 +186,9 @@
                                  re-syncs either field on an existing row
                                  (see its own doc comment), so an edit here
                                  survives every later page load. A custom
-                                 (admin-added, seed_key = null) role also
-                                 gets a × to remove it entirely — none of
-                                 the 7 fixed roles ever show one, server-
-                                 guarded too (CostBreakdownController::
+                                 Every role (fixed ones too, 2026-10-30) gets a
+                                 × that removes it from THIS month only —
+                                 earlier months keep it (CostBreakdownController::
                                  destroyRole()). --}}
                             <td class="px-4 py-2 max-w-0 {{ $groupEndClass }}">
                                 <div class="flex items-start gap-1">
@@ -199,8 +198,8 @@
                                         <input type="text" value="{{ $role->person_name }}" data-field="person_name" data-text="1" placeholder="Name (optional)"
                                                class="cb-field w-full box-border bg-transparent border-none focus:ring-2 focus:ring-primary/40 focus:bg-slate-50 dark:focus:bg-slate-800 rounded-md px-1.5 py-0.5 -mx-1.5 font-mono text-xs text-ink-muted dark:text-slate-400 outline-none">
                                     </div>
-                                    @if($role->seed_key === null)
-                                    <button type="button" data-remove-role="{{ $role->id }}" title="Remove this role"
+                                    @if($hasOwnMonth)
+                                    <button type="button" data-remove-role="{{ $role->id }}" data-role-label="{{ $role->label }}" title="Remove this role from this month"
                                             class="cb-remove-role shrink-0 mt-0.5 w-3.5 h-3.5 inline-flex items-center justify-center rounded-full text-[10px] leading-none text-ink-muted/60 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 dark:hover:text-red-400">
                                         &times;
                                     </button>
@@ -250,12 +249,22 @@
                                  (CEO, Sales Director, ...) stays blank, same
                                  as Total/Daily Rate already are for them. --}}
                             @if($role->overhead_divisor === 'team')
-                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift) }}</td>
-                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift / 24) }}</td>
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift * $item['tax_shifts']) }}</td>
+                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerShift * $item['tax_shifts'] / 24) }}</td>
                             @else
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             @endif
+                        </tr>
+                    @elseif($item['type'] === 'team')
+                        {{-- One supervisor covering both shifts (2026-10-30):
+                             the teams stay — each gets its own label. --}}
+                        <tr>
+                            <td colspan="{{ \App\Support\DataSet::isPartners() ? 8 : 9 }}" class="px-4 pt-3 pb-1 {{ $groupEndClass }}">
+                                <span class="inline-flex items-center gap-1.5 text-[10px] font-bold tracking-[0.14em] uppercase text-primary">
+                                    <span class="w-1.5 h-1.5 rounded-full bg-primary"></span>{{ $item['label'] }}
+                                </span>
+                            </td>
                         </tr>
                     @else
                         @php
@@ -1060,7 +1069,7 @@
     document.addEventListener('click', async (e) => {
         const removeBtn = e.target.closest('[data-remove-role]');
         if (!removeBtn) return;
-        if (!(await window.confirmDataModal('Remove this role?'))) return;
+        if (!(await window.confirmDataModal(`Remove "${removeBtn.dataset.roleLabel}" from this month? Earlier months keep it.`))) return;
 
         const roleId = removeBtn.dataset.removeRole;
         fetch(`{{ \App\Support\DataSet::url('cost-breakdown/roles') }}/${roleId}`, {

@@ -530,22 +530,79 @@ class CostBreakdownSmokeTest extends TestCase
         $response = $this->actingAs($admin)->deleteJson(route('data.cost-breakdown.roles.destroy', $custom));
 
         $response->assertOk();
-        $this->assertDatabaseMissing('cost_breakdown_roles', ['id' => $custom->id]);
+        $this->assertSoftDeleted('cost_breakdown_roles', ['id' => $custom->id]); // removed from its month (2026-10-30)
     }
 
-    /** One of the 7 fixed roles can never be removed — server-guarded,
-     *  not just hidden client-side (the view never shows a × on these,
-     *  but a direct request must still be refused). */
-    public function test_removing_a_fixed_seeded_role_is_rejected(): void
+    /** 2026-10-30: any role — a fixed supervisor too — can be removed from
+     *  ONE month; earlier months keep it, ensureSeeded() doesn't bring it
+     *  back, and a month added afterwards inherits the removal. */
+    public function test_removing_a_supervisor_only_affects_that_month_and_later_copies(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
+        $current = \App\Support\CostBreakdownMonths::current();
+        $previous = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $current . '-01')->subMonth()->format('Y-m');
+        $next = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $current . '-01')->addMonth()->format('Y-m');
+        \App\Support\CostBreakdownMonths::seed($previous);
+        \App\Support\CostBreakdownMonths::create($current);
+
+        $closing = CostBreakdownRole::where('month', $current)->where('seed_key', 'supervisor_closing')->firstOrFail();
+        $this->actingAs($admin)->deleteJson(route('data.cost-breakdown.roles.destroy', $closing))->assertOk();
+
+        $this->assertSoftDeleted('cost_breakdown_roles', ['id' => $closing->id]);
+        CostBreakdownRole::ensureSeeded($current);
+        $this->assertSame(1, CostBreakdownRole::where('month', $current)->whereNotNull('team')->count());
+        $this->assertSame(2, CostBreakdownRole::where('month', $previous)->whereNotNull('team')->count());
+
+        \App\Support\CostBreakdownMonths::create($next);
+        CostBreakdownRole::ensureSeeded($next);
+        $this->assertSame(1, CostBreakdownRole::where('month', $next)->whereNotNull('team')->count());
+    }
+
+    /** 2026-10-30: with one supervisor left she covers every TSA — her
+     *  salary is spread over the whole department, both teams' TSAs carry
+     *  her share — while Opening and Closing still show as separate blocks. */
+    public function test_a_sole_supervisor_covers_every_tsa_with_teams_kept(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        $current = \App\Support\CostBreakdownMonths::current();
+        \App\Support\CostBreakdownMonths::seed($current);
+        CostBreakdownRole::where('month', $current)->where('seed_key', 'supervisor_closing')->firstOrFail()->delete();
+
+        $roles = CostBreakdownRole::where('month', $current)->get();
+        $opening = $roles->firstWhere('seed_key', 'supervisor_opening');
+        $this->assertTrue(CostBreakdownRole::soleSupervisor($roles)->is($opening));
+
+        $overhead = CostBreakdownRole::overheadByRoleId($roles);
+        $this->assertEqualsWithDelta($opening->base_salary / CostBreakdownRole::divisorCount('total'), $overhead->get($opening->id), 0.01);
+
+        $teams = TsaShift::query()->distinct()->pluck('team');
+        $refs = CostBreakdownRole::overheadRefsByTeam($roles, $overhead, $teams);
+        foreach ($teams as $team) {
+            $this->assertContains($overhead->get($opening->id), $refs->get($team), (string) $team);
+        }
+
+        $page = $this->actingAs($admin)->get(route('data.cost-breakdown', ['month' => $current]))->assertOk();
+        foreach ($teams as $team) {
+            $page->assertSee(\App\Support\Teams::nameForOrderTeam($team, now()));
+        }
+        $page->assertDontSee('Telesales Supervisor (Closing Shift)');
+    }
+
+    /** Two supervisors: numbers are exactly as before — each covers only
+     *  her own team, divided by the team headcount. */
+    public function test_two_supervisors_keep_per_team_overhead(): void
+    {
         CostBreakdownRole::ensureSeeded();
-        $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
+        $roles = CostBreakdownRole::where('month', \App\Support\CostBreakdownMonths::current())->get();
+        $this->assertNull(CostBreakdownRole::soleSupervisor($roles));
 
-        $response = $this->actingAs($admin)->deleteJson(route('data.cost-breakdown.roles.destroy', $ceo));
-
-        $response->assertStatus(422);
-        $this->assertDatabaseHas('cost_breakdown_roles', ['id' => $ceo->id]);
+        $opening = $roles->firstWhere('seed_key', 'supervisor_opening');
+        $overhead = CostBreakdownRole::overheadByRoleId($roles);
+        $this->assertEqualsWithDelta($opening->base_salary / CostBreakdownRole::divisorCount('team'), $overhead->get($opening->id), 0.01);
+        $this->assertSame(
+            $roles->whereNotNull('team')->pluck('team')->sort()->values()->all(),
+            CostBreakdownRole::overheadRefsByTeam($roles, $overhead, ['Some Other Team'])->keys()->sort()->values()->all(),
+        );
     }
 
     public function test_a_non_admin_cannot_add_or_remove_a_role(): void

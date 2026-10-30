@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /** One non-TSA payroll role on the Cost Breakdown page (CEO, Sales
  *  Director, Telesales Manager, QA Specialist, Junior AI Engineer, each
@@ -10,6 +11,9 @@ use Illuminate\Database\Eloquent\Model;
  *  doc comment for why every field here is manual entry. */
 class CostBreakdownRole extends Model
 {
+    /** Removed from a month (2026-10-30) — see the deleted_at migration. */
+    use SoftDeletes;
+
     /** A row created without an explicit month belongs to the current
      *  month (monthly Cost Breakdown, 2026-10-15). */
     protected static function booted(): void
@@ -159,11 +163,73 @@ class CostBreakdownRole extends Model
         }
 
         foreach (self::seedRoles() as $seed) {
-            $role = static::firstOrCreate(['seed_key' => $seed['seed_key'], 'month' => $month], $seed);
+            // withTrashed: a fixed role removed from this month stays removed.
+            $role = static::withTrashed()->firstOrCreate(['seed_key' => $seed['seed_key'], 'month' => $month], $seed);
+            if ($role->trashed()) {
+                continue;
+            }
             $role->fill(collect($seed)->except(['seed_key', 'label', 'person_name', 'base_salary', 'sort_order'])->all());
             if ($role->isDirty()) {
                 $role->save();
             }
         }
+    }
+
+    /** The month's only shift supervisor once the other was removed
+     *  (2026-10-30: "it will be only one supervisor in every tsa") — she
+     *  then covers EVERY TSA, both teams. Null with two (or none). TSD only:
+     *  Partners already run one supervisor split per partner. */
+    public static function soleSupervisor($roles): ?self
+    {
+        if (\App\Support\DataSet::isPartners()) {
+            return null;
+        }
+        $supervisors = $roles->whereNotNull('team');
+
+        return $supervisors->count() === 1 ? $supervisors->first() : null;
+    }
+
+    /** Every role's own overhead-per-TSA figure, keyed by role id — null for
+     *  a role with no overhead_group. A sole supervisor's salary is spread
+     *  over the whole department ('total') instead of her own team. Shared
+     *  by CostBreakdownController and TsaDailyRateService. */
+    public static function overheadByRoleId($roles)
+    {
+        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
+        $sole = self::soleSupervisor($roles);
+
+        return $roles->mapWithKeys(function (self $role) use ($rolesByGroup, $sole) {
+            if (!$role->overhead_group) {
+                return [$role->id => null];
+            }
+
+            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
+            $tsaCount = self::divisorCount($sole && $sole->is($role) ? 'total' : $role->overhead_divisor);
+
+            return [$role->id => \App\Support\CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
+        });
+    }
+
+    /** Each TSA team's overhead refs for CostBreakdownCalculator::tsaTotal():
+     *  the company-wide groups' figures plus her team's supervisor — or the
+     *  sole supervisor for every team, or none if both were removed. */
+    public static function overheadRefsByTeam($roles, $overheadByRoleId, iterable $tsaTeams)
+    {
+        $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
+            ->unique('overhead_group')
+            ->map(fn (self $role) => $overheadByRoleId->get($role->id))
+            ->values()->all();
+        $sole = self::soleSupervisor($roles);
+        $byTeam = $roles->whereNotNull('team')->keyBy('team');
+
+        // Two supervisors: exactly the old behavior (only their own teams).
+        // One or none: every TSA team, so nobody's overhead silently drops.
+        $teams = $sole || $byTeam->isEmpty() ? collect($tsaTeams)->merge($byTeam->keys()) : $byTeam->keys();
+
+        return $teams->filter()->unique()->mapWithKeys(function ($team) use ($companyWideRefs, $sole, $byTeam, $overheadByRoleId) {
+            $supervisor = $sole ?? $byTeam->get($team);
+
+            return [$team => $supervisor ? array_merge($companyWideRefs, [$overheadByRoleId->get($supervisor->id)]) : $companyWideRefs];
+        });
     }
 }

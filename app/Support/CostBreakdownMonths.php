@@ -32,7 +32,7 @@ class CostBreakdownMonths
     {
         // Roles too, not just pools: Partners Data Management has no pools.
         return RequestMemo::remember('cost_breakdown.months', fn () => CostBreakdownPool::query()->distinct()->pluck('month')
-            ->merge(CostBreakdownRole::query()->distinct()->pluck('month'))->unique()->sort()->values()->all());
+            ->merge(CostBreakdownRole::withTrashed()->distinct()->pluck('month'))->unique()->sort()->values()->all());
     }
 
     public static function exists(string $month): bool
@@ -81,7 +81,11 @@ class CostBreakdownMonths
 
         DB::transaction(function () use ($source, $month) {
             foreach ([CostBreakdownRole::class, CostBreakdownPool::class, CostBreakdownTsaEntry::class, \App\Models\CostBreakdownProductFlag::class] as $model) {
-                foreach ($model::where('month', $source)->get() as $row) {
+                // Removed roles are copied as removed (2026-10-30), so a
+                // supervisor taken out last month stays out of the new one
+                // instead of ensureSeeded() bringing her back.
+                $query = $model === CostBreakdownRole::class ? CostBreakdownRole::withTrashed() : $model::query();
+                foreach ($query->where('month', $source)->get() as $row) {
                     $copy = $row->replicate();
                     $copy->month = $month;
                     $copy->save();

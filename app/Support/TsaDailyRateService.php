@@ -596,36 +596,19 @@ class TsaDailyRateService
         });
     }
 
-    /** Identical to CostBreakdownController::overheadByRoleId(). */
+    /** Shared with CostBreakdownController — see CostBreakdownRole::overheadByRoleId(). */
     private static function overheadByRoleId($roles)
     {
-        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
-
-        return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
-            if (!$role->overhead_group) {
-                return [$role->id => null];
-            }
-
-            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = CostBreakdownRole::divisorCount($role->overhead_divisor);
-
-            return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
-        });
+        return CostBreakdownRole::overheadByRoleId($roles);
     }
 
-    /** Identical to CostBreakdownController::overheadRefsByTeam(). */
+    /** Shared with CostBreakdownController — see CostBreakdownRole::overheadRefsByTeam(). */
     private static function overheadRefsByTeam($roles, $overheadByRoleId)
     {
         if (\App\Support\DataSet::isPartners()) {
             return self::partnerOverheadRefsByTeam($roles, $overheadByRoleId);
         }
-        $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
-            ->unique('overhead_group')
-            ->map(fn (CostBreakdownRole $role) => $overheadByRoleId->get($role->id))
-            ->values()->all();
 
-        return $roles->whereNotNull('team')->mapWithKeys(
-            fn (CostBreakdownRole $supervisor) => [$supervisor->team => array_merge($companyWideRefs, [$overheadByRoleId->get($supervisor->id)])]
-        );
+        return CostBreakdownRole::overheadRefsByTeam($roles, $overheadByRoleId, self::allTsas()->pluck('team'));
     }
 }

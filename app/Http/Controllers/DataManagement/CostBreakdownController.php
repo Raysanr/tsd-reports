@@ -140,7 +140,31 @@ class CostBreakdownController extends Controller
         $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
         $rowspanRemaining = 0;
         $seenGroups = [];
-        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, $overheadRefsByTeam, &$rowspanRemaining, &$seenGroups) {
+
+        // One supervisor left this month (2026-10-30: the other was
+        // removed) — she covers EVERY TSA, but the teams themselves stay:
+        // Opening and Closing each still get their own labelled block under
+        // her. With none left, the TSAs still show, at the end.
+        $soleSupervisor = CostBreakdownRole::soleSupervisor($roles);
+        $teamLabelDate = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $month . '-01');
+        $tsaRowsFor = function ($rows) use ($overheadRefsByTeam, $soleSupervisor, $teamLabelDate) {
+            $makeRow = fn ($row) => [
+                'type' => 'tsa',
+                'tsa' => $row['tsa'],
+                'entry' => $row['entry'],
+                'total' => CostBreakdownCalculator::tsaTotal($row['entry']->base_salary, $overheadRefsByTeam->get($row['tsa']->team) ?? []),
+            ];
+            if (!$soleSupervisor && $rows->pluck('tsa.team')->unique()->count() <= 1) {
+                return $rows->map($makeRow);
+            }
+
+            return $rows->groupBy(fn ($row) => $row['tsa']->team)->flatMap(fn ($teamRows, $team) => collect([[
+                'type' => 'team',
+                'label' => \App\Support\Teams::nameForOrderTeam((string) $team, $teamLabelDate),
+            ]])->concat($teamRows->map($makeRow)));
+        };
+
+        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, $soleSupervisor, $tsaRowsFor, &$rowspanRemaining, &$seenGroups) {
             $coveredByRowspan = $rowspanRemaining > 0;
             $rowspan = 0;
 
@@ -158,23 +182,24 @@ class CostBreakdownController extends Controller
                 'overhead' => $overheadByRoleId->get($role->id),
                 'rowspan' => $rowspan,
                 'covered_by_rowspan' => $coveredByRowspan,
+                // Monthly/Daily Tax on a supervisor row: her shift's — or both
+                // shifts' when she's the only supervisor left.
+                'tax_shifts' => $soleSupervisor && $soleSupervisor->is($role) ? max(1, $tsaRows->pluck('tsa.team')->unique()->count()) : 1,
             ]]);
 
             if ($role->team) {
-                $overheadRefs = $overheadRefsByTeam->get($role->team) ?? [];
-                $rows = $rows->concat(
-                    $tsaRows->filter(fn ($row) => $row['tsa']->team === $role->team)
-                        ->map(fn ($row) => [
-                            'type' => 'tsa',
-                            'tsa' => $row['tsa'],
-                            'entry' => $row['entry'],
-                            'total' => CostBreakdownCalculator::tsaTotal($row['entry']->base_salary, $overheadRefs),
-                        ])
-                );
+                $rows = $rows->concat($tsaRowsFor(
+                    $soleSupervisor ? $tsaRows : $tsaRows->filter(fn ($row) => $row['tsa']->team === $role->team)
+                ));
             }
 
             return $rows;
         })->values();
+
+        // Both supervisors removed: no role row owns the TSAs any more.
+        if ($roles->whereNotNull('team')->isEmpty() && !\App\Support\DataSet::isPartners()) {
+            $salaryRows = $salaryRows->concat($tsaRowsFor($tsaRows))->values();
+        }
 
         // group_end (view-only, purely visual): true on the LAST row of
         // each cluster — {CEO, Sales Director, Telesales Manager}, {QA
@@ -607,22 +632,22 @@ class CostBreakdownController extends Controller
         ]);
     }
 
-    /** Removes a custom role (explicit request, 2026-10-03, same request as
-     *  storeRole() above) — one of the 7 fixed SEED_ROLES (seed_key set)
-     *  can never be deleted this way, guarded here server-side too, not
-     *  just by the view hiding the × on those rows (never trust the
-     *  frontend alone). */
+    /** Removes a role from ITS month only (explicit request, 2026-10-30:
+     *  "can be remove supervisor or any other Role ... but last month is
+     *  still the same 2 supervisor") — fixed roles included now. Soft-
+     *  deleted, so CostBreakdownRole::ensureSeeded() doesn't put a fixed
+     *  role back and "Add Cost Breakdown" carries the removal forward;
+     *  every earlier month keeps its own row. With one supervisor left she
+     *  covers every TSA (CostBreakdownRole::soleSupervisor()). */
     public function destroyRole(CostBreakdownRole $costBreakdownRole)
     {
-        if ($costBreakdownRole->seed_key !== null) {
-            return response()->json(['success' => false, 'message' => 'A fixed role cannot be removed.'], 422);
-        }
-
         $month = $costBreakdownRole->month;
+        $this->ensureEditableMonth($month);
         $this->enterMonth($month);
         $label = $costBreakdownRole->label;
         $costBreakdownRole->delete();
-        ActivityLogger::log('cost_breakdown.role_deleted', null, "Removed role \"{$label}\" from the Salary Breakdown table.");
+        $monthLabel = \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y');
+        ActivityLogger::log('cost_breakdown.role_deleted', null, "Removed role \"{$label}\" from the {$monthLabel} Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
@@ -650,18 +675,7 @@ class CostBreakdownController extends Controller
      *  computes it two different ways. */
     private function overheadByRoleId($roles)
     {
-        $rolesByGroup = $roles->whereNotNull('overhead_group')->groupBy('overhead_group');
-
-        return $roles->mapWithKeys(function (CostBreakdownRole $role) use ($rolesByGroup) {
-            if (!$role->overhead_group) {
-                return [$role->id => null];
-            }
-
-            $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = CostBreakdownRole::divisorCount($role->overhead_divisor);
-
-            return [$role->id => CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
-        });
+        return CostBreakdownRole::overheadByRoleId($roles);
     }
 
     /** Every team's own applicable overhead refs for CostBreakdownCalculator
@@ -676,14 +690,8 @@ class CostBreakdownController extends Controller
         if (\App\Support\DataSet::isPartners()) {
             return \App\Support\TsaDailyRateService::partnerOverheadRefsByTeam($roles, $overheadByRoleId);
         }
-        $companyWideRefs = $roles->whereNull('team')->whereNotNull('overhead_group')
-            ->unique('overhead_group')
-            ->map(fn (CostBreakdownRole $role) => $overheadByRoleId->get($role->id))
-            ->values()->all();
 
-        return $roles->whereNotNull('team')->mapWithKeys(
-            fn (CostBreakdownRole $supervisor) => [$supervisor->team => array_merge($companyWideRefs, [$overheadByRoleId->get($supervisor->id)])]
-        );
+        return CostBreakdownRole::overheadRefsByTeam($roles, $overheadByRoleId, TsaShift::query()->distinct()->pluck('team'));
     }
 
     /** Auto-save for one shared pool's own monthly amount. Returns every
