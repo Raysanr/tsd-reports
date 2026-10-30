@@ -826,4 +826,20 @@ class SettingsControllerTest extends TestCase
             ->assertRedirect(route('settings'))->assertSessionHas('error');
         $this->assertNull(Setting::get(\App\Support\ThemeColor::ACCENT_KEY));
     }
+
+    /** A very light accent is deepened for white button text; a light sidebar flips the menu to dark text. */
+    public function test_light_theme_colors_stay_readable(): void
+    {
+        $this->assertSame('#CA8A04', \App\Support\ThemeColor::readableAccent('#CA8A04')); // default gold untouched
+        $deep = \App\Support\ThemeColor::readableAccent('#F5B938');
+        $this->assertNotSame('#F5B938', $deep);
+
+        $this->actingAs(User::factory()->create());
+        $this->get(route('settings'))->assertDontSee("classList.add('sidebar-light')", false);
+
+        $this->post(route('settings.theme'), ['accent_color' => '#F5B938', 'sidebar_color' => '#FFFFFF']);
+        $this->get(route('settings'))->assertOk()
+            ->assertSee("--color-yellow-600:{$deep}", false)
+            ->assertSee("classList.add('sidebar-light')", false);
+    }
 }

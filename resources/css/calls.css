@@ -95,3 +95,18 @@ body { font-family: var(--font-sans); background: var(--color-canvas); }
 .dark .side-tab { color: #94A3B8; }
 .dark .side-tab:hover { background: #0F172A; color: #F1F5F9; }
 .dark .side-tab[aria-selected="true"] { background: #0F172A; color: var(--color-yellow-300); box-shadow: 0 0 0 1px #334155; }
+
+/* Light sidebar (Settings → Appearance, 2026-10-30): the menu is built for a
+   dark background (pale-yellow text, white/10 hovers), so a light sidebar
+   color flips it to dark ink with an accent-tinted active item, MLC-style.
+   html.sidebar-light is set by partials/theme-color (and the live preview). */
+html.sidebar-light :is(#sidebar, .sidebar-surface) { box-shadow: inset -1px 0 0 #E2E8F0; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) :is(.text-yellow-200, .text-yellow-300) { color: #334155; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .text-white:not([class*="bg-"]) { color: #0F172A; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) :is(.text-yellow-400\/60, .text-yellow-400\/50, .text-yellow-200\/70) { color: #94A3B8; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .text-yellow-400 { color: var(--color-yellow-700); }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .border-white\/10 { border-color: #E2E8F0; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) :is(.nav-item:hover, .hover\:bg-white\/10:hover) { background: #F1F5F9; color: #0F172A; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .hover\:text-white:hover { color: #0F172A; }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .nav-active { background: color-mix(in srgb, var(--color-yellow-600) 12%, white) !important; color: var(--color-yellow-700) !important; border-left-color: var(--color-yellow-600); }
+html.sidebar-light :is(#sidebar, .sidebar-surface) .nav-active :is(svg, span, .text-yellow-200, .text-white) { color: var(--color-yellow-700); }

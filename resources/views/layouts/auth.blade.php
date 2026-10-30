@@ -25,7 +25,7 @@
 <div class="min-h-screen flex">
 
     {{-- Brand panel — hidden below md so the form gets full width on mobile --}}
-    <div class="hidden md:flex md:w-5/12 lg:w-1/2 bg-sidebar flex-col justify-between px-10 lg:px-16 py-12 shrink-0">
+    <div class="sidebar-surface hidden md:flex md:w-5/12 lg:w-1/2 bg-sidebar flex-col justify-between px-10 lg:px-16 py-12 shrink-0">
         <div class="flex items-center gap-3">
             <div class="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shrink-0">
                 <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

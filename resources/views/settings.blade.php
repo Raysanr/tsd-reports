@@ -448,8 +448,8 @@
         <form method="POST" action="{{ route('settings.theme') }}" id="themeForm" class="space-y-10">
             @csrf
             @foreach([
-                'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Mid-to-dark colors work best, so white text stays readable on buttons.'],
-                'sidebar' => ['Sidebar color', 'The background of the left menu.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Dark colors work best, so the menu text stays readable.'],
+                'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Very light colors are deepened slightly on buttons so white text stays readable.'],
+                'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
             ] as $slot => [$slotTitle, $slotHelp, $slotPresets, $slotCurrent, $slotDefault, $slotHint])
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 {{ $loop->first ? 'pb-8 border-b border-slate-100 dark:border-slate-800' : '' }}" data-theme-slot="{{ $slot }}" data-theme-default="{{ $slotDefault }}">
                 <div>
@@ -491,17 +491,47 @@
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
                 <div></div>
                 <div class="lg:col-span-2 space-y-6">
-                    <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-950/40">
+                    {{-- Live preview: a miniature of the real app (sidebar + page), so
+                         both colors and how they work together show at a glance. --}}
+                    <div>
                         <p class="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-3">Preview</p>
-                        <div class="flex flex-wrap items-center gap-3">
-                            <span class="inline-flex items-center gap-2 h-9 px-3.5 rounded-[10px] bg-primary text-white text-[13px] font-semibold">Sync orders</span>
-                            <span class="inline-flex flex-col gap-1 rounded-xl bg-sidebar p-2 w-44">
-                                <span class="nav-item px-3 py-1.5 rounded-lg text-[13px] font-semibold text-yellow-200">Dashboard</span>
-                                <span class="nav-active px-3 py-1.5 rounded-lg text-[13px] font-semibold">Leads Report</span>
-                            </span>
-                            <span class="text-[13px] font-semibold text-primary dark:text-yellow-400 underline underline-offset-2">A link</span>
-                            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">Upselling 24.6%</span>
+                        <div class="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm flex min-h-[220px]" aria-hidden="true">
+                            <div class="sidebar-surface bg-sidebar w-44 sm:w-52 shrink-0 flex flex-col p-3 gap-1">
+                                <div class="flex items-center gap-2 pb-3 mb-2 border-b border-white/10">
+                                    <span class="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                                        <svg class="w-4 h-4 text-black" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 20V10M12 20V4M18 20v-6"/></svg>
+                                    </span>
+                                    <span class="min-w-0">
+                                        <span class="block text-white text-[11px] font-bold truncate">TSD Leads Reports</span>
+                                        <span class="block text-yellow-400 text-[8px] font-bold tracking-widest">TELESALES</span>
+                                    </span>
+                                </div>
+                                <span class="text-yellow-400/60 text-[9px] font-bold tracking-widest px-2 pt-1">MAIN</span>
+                                <span class="nav-item px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-yellow-200">Dashboard</span>
+                                <span class="nav-active px-2.5 py-1.5 rounded-lg text-[12px] font-medium">Leads Report</span>
+                                <span class="nav-item px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-yellow-200">TSA Performance</span>
+                                <span class="nav-item px-2.5 py-1.5 rounded-lg text-[12px] font-medium text-yellow-200">Analytics</span>
+                            </div>
+                            <div class="flex-1 min-w-0 bg-slate-50 dark:bg-slate-950 p-4 space-y-3">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-[13px] font-bold text-slate-800 dark:text-slate-100 truncate">Leads Report</span>
+                                    <span class="inline-flex items-center h-8 px-3 rounded-[9px] bg-primary text-white text-[12px] font-semibold shrink-0">Sync orders</span>
+                                </div>
+                                <div class="rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 space-y-2.5">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">Upselling 24.6%</span>
+                                        <span class="text-[12px] font-semibold text-primary dark:text-yellow-400 underline underline-offset-2">View details</span>
+                                    </div>
+                                    <div class="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full w-2/3 rounded-full bg-secondary"></div></div>
+                                    <div class="flex items-end gap-1.5 h-12">
+                                        @foreach([40, 65, 50, 85, 60, 95, 75] as $bar)
+                                        <span class="flex-1 rounded-t {{ $loop->index === 5 ? 'bg-primary' : 'bg-yellow-200 dark:bg-yellow-900/60' }}" style="height: {{ $bar }}%"></span>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
                         </div>
+                        <p id="accentAdjusted" class="hidden mt-2 text-xs text-slate-500 dark:text-slate-400"></p>
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2.5">
@@ -605,8 +635,20 @@
     const STEPS = {50:['w',.94],100:['w',.88],200:['w',.75],300:['w',.57],400:['w',.36],500:['w',.17],600:['w',0],700:['b',.16],800:['b',.29],900:['b',.41],950:['b',.62]};
     const valid = (h) => /^#[0-9A-Fa-f]{6}$/.test(h);
     const st = document.documentElement.style;
+    // Same readability rules as ThemeColor::readableAccent() / sidebarIsLight().
+    const rgbOf = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+    const toHex = (rgb) => '#' + rgb.map(c => Math.round(c).toString(16).padStart(2, '0')).join('').toUpperCase();
+    const lum = (hex) => { const [r, g, b] = rgbOf(hex).map(c => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+    function readable(hex) {
+        for (let i = 0; i < 40 && 1.05 / (lum(hex) + .05) < {{ \App\Support\ThemeColor::MIN_ACCENT_CONTRAST }}; i++) hex = toHex(rgbOf(hex).map(c => c * .95));
+        return hex;
+    }
+    const adjustedNote = document.getElementById('accentAdjusted');
     const apply = {
-        accent(hex) {
+        accent(picked) {
+            const hex = readable(picked);
+            adjustedNote.classList.toggle('hidden', hex === picked);
+            adjustedNote.textContent = hex === picked ? '' : `${picked} is too light for white button text, so buttons use the deeper ${hex}. Lighter tints of your color are still used for highlights.`;
             const n = parseInt(hex.slice(1), 16), rgb = [n >> 16 & 255, n >> 8 & 255, n & 255], sc = {};
             Object.entries(STEPS).forEach(([k, [to, a]]) => {
                 const t = to === 'w' ? 255 : 0;
@@ -617,7 +659,10 @@
             st.setProperty('--color-secondary', sc[500]); st.setProperty('--color-accent', sc[700]);
             st.setProperty('--color-muted', sc[50]); st.setProperty('--color-border', sc[200]);
         },
-        sidebar(hex) { st.setProperty('--color-sidebar', hex); },
+        sidebar(hex) {
+            st.setProperty('--color-sidebar', hex);
+            document.documentElement.classList.toggle('sidebar-light', lum(hex) > .4);
+        },
     };
     const norm = (v) => { v = v.trim(); return v && v[0] !== '#' ? '#' + v : v; };
 

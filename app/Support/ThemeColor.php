@@ -44,8 +44,8 @@ class ThemeColor
         '#14251C' => 'Forest',
         '#241A12' => 'Espresso',
         '#1F1530' => 'Plum',
-        '#0B1B3A' => 'Midnight',
-        '#262626' => 'Graphite',
+        '#FFFBEB' => 'Cream',
+        '#FFFFFF' => 'White',
     ];
 
     /** Mix ratios toward white (lighter steps) / black (darker steps), base = 600. */
@@ -83,6 +83,27 @@ class ThemeColor
         return $out;
     }
 
+    /** Minimum contrast of the accent against white button text. Gold
+     *  (the default, ~2.9) just clears it; paler picks get deepened. */
+    public const MIN_ACCENT_CONTRAST = 2.8;
+
+    /** The accent as actually applied: the picked color, deepened step by
+     *  step toward black until white text on it stays readable. */
+    public static function readableAccent(string $hex): string
+    {
+        for ($i = 0; $i < 40 && self::contrastWithWhite($hex) < self::MIN_ACCENT_CONTRAST; $i++) {
+            $hex = self::mix($hex, 0, .05);
+        }
+
+        return $hex;
+    }
+
+    /** A light sidebar needs dark menu text (html.sidebar-light in app.css/calls.css). */
+    public static function sidebarIsLight(): bool
+    {
+        return self::luminance(self::sidebar()) > .4;
+    }
+
     /** CSS overriding the theme variables, or '' when both are the built-in defaults. */
     public static function css(): string
     {
@@ -90,7 +111,7 @@ class ThemeColor
 
         $accent = self::accent();
         if ($accent !== self::ACCENT_DEFAULT) {
-            $s = self::scale($accent);
+            $s = self::scale(self::readableAccent($accent));
             foreach ($s as $shade => $c) {
                 $vars[] = "--color-yellow-{$shade}:{$c}";
                 $vars[] = "--color-amber-{$shade}:{$c}";
@@ -109,6 +130,27 @@ class ThemeColor
         }
 
         return $vars ? ':root{' . implode(';', $vars) . '}' : '';
+    }
+
+    private static function mix(string $hex, int $toward, float $amt): string
+    {
+        [$r, $g, $b] = sscanf(ltrim($hex, '#'), '%02x%02x%02x');
+        $m = fn ($c) => (int) round($c + ($toward - $c) * $amt);
+
+        return sprintf('#%02X%02X%02X', $m($r), $m($g), $m($b));
+    }
+
+    private static function luminance(string $hex): float
+    {
+        $lin = function (int $c) { $c /= 255; return $c <= .03928 ? $c / 12.92 : (($c + .055) / 1.055) ** 2.4; };
+        [$r, $g, $b] = sscanf(ltrim($hex, '#'), '%02x%02x%02x');
+
+        return .2126 * $lin($r) + .7152 * $lin($g) + .0722 * $lin($b);
+    }
+
+    private static function contrastWithWhite(string $hex): float
+    {
+        return 1.05 / (self::luminance($hex) + .05);
     }
 
     private static function read(string $key, string $default): string
