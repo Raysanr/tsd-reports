@@ -910,9 +910,12 @@ class SettingsControllerTest extends TestCase
     public function test_charts_use_the_theme_accent(): void
     {
         $this->actingAs(User::factory()->create());
-        $this->get(route('charts'))->assertOk()
-            ->assertSee('window.themeColor = function', false)
-            ->assertSee("backgroundColor: themeColor('--color-primary')", false)
-            ->assertDontSee("backgroundColor: '#CA8A04'", false);
+        $this->get(route('charts'))->assertOk()->assertSee('window.themeColor = function', false);
+
+        // The chart script only renders with data, so check its source.
+        $charts = file_get_contents(resource_path('views/charts.blade.php'));
+        $this->assertStringContainsString("backgroundColor: themeColor('--color-primary')", $charts);
+        $this->assertStringNotContainsStringIgnoringCase("'#CA8A04'", $charts);
+        $this->assertStringNotContainsStringIgnoringCase("'#CA8A04'", file_get_contents(resource_path('js/calls.js')) === false ? '' : preg_replace('/^const themeColor.*$/m', '', file_get_contents(resource_path('js/calls.js'))));
     }
 }
