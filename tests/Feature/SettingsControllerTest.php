@@ -799,4 +799,31 @@ class SettingsControllerTest extends TestCase
         $response->assertRedirect(route('settings'));
         $this->assertNull(Setting::get(\App\Support\Teams::nameSettingKey('not-a-real-team')));
     }
+
+    /** Settings → Appearance (2026-10-30): accent + sidebar colors apply on every page. */
+    public function test_theme_colors_save_and_apply_across_layouts(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        // defaults: no override CSS at all
+        $this->get(route('settings'))->assertOk()->assertSee('Appearance')->assertDontSee('themeColorVars', false);
+
+        $this->post(route('settings.theme'), ['accent_color' => '#2442b8', 'sidebar_color' => '#0F172A'])
+            ->assertRedirect(route('settings'));
+        $this->assertSame('#2442B8', Setting::get(\App\Support\ThemeColor::ACCENT_KEY));
+        $this->assertSame('#0F172A', Setting::get(\App\Support\ThemeColor::SIDEBAR_KEY));
+
+        $this->get(route('settings'))->assertOk()
+            ->assertSee('--color-yellow-600:#2442B8', false)
+            ->assertSee('--color-sidebar:#0F172A', false);
+    }
+
+    public function test_theme_rejects_an_invalid_color(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->post(route('settings.theme'), ['accent_color' => 'blue', 'sidebar_color' => '#0F172A'])
+            ->assertRedirect(route('settings'))->assertSessionHas('error');
+        $this->assertNull(Setting::get(\App\Support\ThemeColor::ACCENT_KEY));
+    }
 }

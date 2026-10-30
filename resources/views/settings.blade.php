@@ -16,23 +16,27 @@
      action, and field name below is UNCHANGED from before so the existing
      @push('scripts') JS (Detect Shop, Drive sync polling, password-toggle,
      etc.) keeps working with zero changes. --}}
-<div class="max-w-5xl">
+{{-- MLC layout (2026-10-30): section list on the left, the active
+     section's fields in one card on the right — same panels, ids, form
+     actions and field names as before, only the tab placement changed. --}}
+<div class="grid gap-5 lg:grid-cols-[220px_minmax(0,1fr)] max-w-6xl">
 
-    <div class="border-b border-slate-200 dark:border-slate-700 mb-8">
-        <nav class="flex gap-6 overflow-x-auto" role="tablist" aria-label="Settings sections">
-            @foreach([
-                'connection'  => 'Pancake Connection',
-                'team-names'  => 'Team Names',
-                'google-drive'=> 'Google Drive',
-                'access-token'=> 'Access Token',
-            ] as $tabKey => $tabLabel)
-            <button type="button" role="tab" data-settings-tab="{{ $tabKey }}"
-                    class="settings-tab-btn shrink-0 px-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer whitespace-nowrap">
-                {{ $tabLabel }}
-            </button>
-            @endforeach
-        </nav>
-    </div>
+    <nav class="flex lg:flex-col gap-1 overflow-x-auto lg:sticky lg:top-0 self-start -mx-1 px-1 pb-1" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        @foreach([
+            'connection'  => ['Pancake Connection', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.78 7.78 5.5 5.5 0 017.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4'],
+            'team-names'  => ['Team Names', 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75'],
+            'google-drive'=> ['Google Drive', 'M8 3h8l6 10-4 7H6l-4-7 6-10zM2 13h20M8 3l6 10M16 3l-6 10'],
+            'appearance'  => ['Appearance', 'M12 22a10 10 0 110-20c5.5 0 10 4 10 9 0 3-2.5 5-5.5 5H15a2 2 0 00-1.5 3.3A1.5 1.5 0 0112 22zM7.5 11.5h.01M10.5 7.5h.01M15.5 7.5h.01M17.5 11.5h.01'],
+            'access-token'=> ['Access Token', 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 01-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 011-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 011.52 0C14.51 3.81 17 5 19 5a1 1 0 011 1v7z'],
+        ] as $tabKey => [$tabLabel, $tabIcon])
+        <button type="button" role="tab" data-settings-tab="{{ $tabKey }}" aria-selected="false" class="settings-tab-btn side-tab shrink-0">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ $tabIcon }}"/></svg>
+            <span>{{ $tabLabel }}</span>
+        </button>
+        @endforeach
+    </nav>
+
+    <div class="min-w-0 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 md:p-7">
 
     {{-- ================= Pancake Connection ================= --}}
     <div data-settings-panel="connection" class="space-y-10">
@@ -435,6 +439,80 @@
         </div>
     </div>
 
+    {{-- ================= Appearance ================= --}}
+    {{-- Theme colors (ported from MLC, 2026-10-30): TSD is built from two
+         colors, so two pickers — the gold Accent and the near-black Sidebar.
+         Stored in Settings and applied by partials/theme-color on every
+         layout. Picking previews it live; Save makes it stick for everyone. --}}
+    <div data-settings-panel="appearance" class="hidden">
+        <form method="POST" action="{{ route('settings.theme') }}" id="themeForm" class="space-y-10">
+            @csrf
+            @foreach([
+                'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Mid-to-dark colors work best, so white text stays readable on buttons.'],
+                'sidebar' => ['Sidebar color', 'The background of the left menu.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Dark colors work best, so the menu text stays readable.'],
+            ] as $slot => [$slotTitle, $slotHelp, $slotPresets, $slotCurrent, $slotDefault, $slotHint])
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 {{ $loop->first ? 'pb-8 border-b border-slate-100 dark:border-slate-800' : '' }}" data-theme-slot="{{ $slot }}" data-theme-default="{{ $slotDefault }}">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $slotTitle }}</h3>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{{ $slotHelp }}</p>
+                </div>
+                <div class="lg:col-span-2 space-y-6">
+                    <fieldset>
+                        <legend class="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-3">Presets</legend>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            @foreach($slotPresets as $hex => $label)
+                            <label class="theme-swatch relative flex items-center gap-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-colors has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/30">
+                                <input type="radio" name="{{ $slot }}_preset" value="{{ $hex }}" class="sr-only" @checked($slotCurrent === $hex)>
+                                <span class="w-7 h-7 rounded-full shrink-0 ring-1 ring-black/10" style="background:{{ $hex }}"></span>
+                                <span class="min-w-0">
+                                    <span class="block text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $label }}</span>
+                                    <span class="block text-[11px] text-slate-400 font-mono">{{ $hex }}</span>
+                                </span>
+                            </label>
+                            @endforeach
+                        </div>
+                    </fieldset>
+
+                    <div>
+                        <label for="{{ $slot }}Hex" class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Custom color</label>
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <input type="color" id="{{ $slot }}Picker" value="{{ $slotCurrent }}" aria-label="Pick a custom {{ strtolower($slotTitle) }}"
+                                   class="w-11 h-11 p-1 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer">
+                            <input type="text" id="{{ $slot }}Hex" name="{{ $slot }}_color" value="{{ $slotCurrent }}" maxlength="7" spellcheck="false" autocomplete="off"
+                                   class="w-32 h-11 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-mono uppercase text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/30">
+                            <span class="text-xs text-slate-500 dark:text-slate-400">{{ $slotHint }}</span>
+                        </div>
+                        <p id="{{ $slot }}HexError" class="hidden mt-1.5 text-xs text-red-600 dark:text-red-400" role="alert">Enter a 6-digit hex code like {{ $slotDefault }}.</p>
+                    </div>
+                </div>
+            </div>
+            @endforeach
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10">
+                <div></div>
+                <div class="lg:col-span-2 space-y-6">
+                    <div class="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-slate-50 dark:bg-slate-950/40">
+                        <p class="text-xs font-semibold text-slate-600 dark:text-slate-300 mb-3">Preview</p>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <span class="inline-flex items-center gap-2 h-9 px-3.5 rounded-[10px] bg-primary text-white text-[13px] font-semibold">Sync orders</span>
+                            <span class="inline-flex flex-col gap-1 rounded-xl bg-sidebar p-2 w-44">
+                                <span class="nav-item px-3 py-1.5 rounded-lg text-[13px] font-semibold text-yellow-200">Dashboard</span>
+                                <span class="nav-active px-3 py-1.5 rounded-lg text-[13px] font-semibold">Leads Report</span>
+                            </span>
+                            <span class="text-[13px] font-semibold text-primary dark:text-yellow-400 underline underline-offset-2">A link</span>
+                            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">Upselling 24.6%</span>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <button type="submit" class="inline-flex items-center h-10 px-4 rounded-[10px] bg-primary hover:bg-primary-dark text-white text-sm font-semibold cursor-pointer transition-colors">Save theme colors</button>
+                        <button type="button" id="themeReset" class="inline-flex items-center h-10 px-4 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 cursor-pointer transition-colors">Reset to Gold &amp; Charcoal</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
     {{-- ================= Pancake Access Token ================= --}}
     <div data-settings-panel="access-token" class="hidden">
         {{-- Pancake Access Token — ported from call-tracker (merged into one app
@@ -485,6 +563,7 @@
         </div>
     </div>
 
+    </div>
 </div>
 @endsection
 
@@ -503,14 +582,7 @@
 
     function activate(tabKey) {
         panels.forEach(p => p.classList.toggle('hidden', p.dataset.settingsPanel !== tabKey));
-        tabButtons.forEach(b => {
-            const isActive = b.dataset.settingsTab === tabKey;
-            b.classList.toggle('text-primary', isActive);
-            b.classList.toggle('border-primary', isActive);
-            b.classList.toggle('text-slate-400', !isActive);
-            b.classList.toggle('dark:text-slate-500', !isActive);
-            b.classList.toggle('border-transparent', !isActive);
-        });
+        tabButtons.forEach(b => b.setAttribute('aria-selected', String(b.dataset.settingsTab === tabKey)));
         try { sessionStorage.setItem(STORAGE_KEY, tabKey); } catch (e) {}
     }
 
@@ -522,6 +594,59 @@
         if (stored && document.querySelector(`[data-settings-panel="${stored}"]`)) initial = stored;
     } catch (e) {}
     activate(initial);
+})();
+
+{{-- Appearance — live preview before saving. Same shade math as
+     App\\Support\\ThemeColor::scale(), applied as inline CSS variables on
+     <html>, so every element on this page re-colors immediately. --}}
+(function () {
+    const form = document.getElementById('themeForm');
+    if (!form) return;
+    const STEPS = {50:['w',.94],100:['w',.88],200:['w',.75],300:['w',.57],400:['w',.36],500:['w',.17],600:['w',0],700:['b',.16],800:['b',.29],900:['b',.41],950:['b',.62]};
+    const valid = (h) => /^#[0-9A-Fa-f]{6}$/.test(h);
+    const st = document.documentElement.style;
+    const apply = {
+        accent(hex) {
+            const n = parseInt(hex.slice(1), 16), rgb = [n >> 16 & 255, n >> 8 & 255, n & 255], sc = {};
+            Object.entries(STEPS).forEach(([k, [to, a]]) => {
+                const t = to === 'w' ? 255 : 0;
+                sc[k] = '#' + rgb.map(c => Math.round(c + (t - c) * a).toString(16).padStart(2, '0')).join('');
+                st.setProperty('--color-yellow-' + k, sc[k]); st.setProperty('--color-amber-' + k, sc[k]);
+            });
+            st.setProperty('--color-primary', sc[600]); st.setProperty('--color-primary-dark', sc[800]);
+            st.setProperty('--color-secondary', sc[500]); st.setProperty('--color-accent', sc[700]);
+            st.setProperty('--color-muted', sc[50]); st.setProperty('--color-border', sc[200]);
+        },
+        sidebar(hex) { st.setProperty('--color-sidebar', hex); },
+    };
+    const norm = (v) => { v = v.trim(); return v && v[0] !== '#' ? '#' + v : v; };
+
+    const slots = [...form.querySelectorAll('[data-theme-slot]')].map((el) => {
+        const slot = el.dataset.themeSlot;
+        const hexInput = document.getElementById(slot + 'Hex'), picker = document.getElementById(slot + 'Picker'), err = document.getElementById(slot + 'HexError');
+        const radios = el.querySelectorAll(`input[name=${slot}_preset]`);
+        function choose(hex, from) {
+            hex = hex.toUpperCase();
+            if (from !== 'text') hexInput.value = hex;
+            if (from !== 'picker') picker.value = hex;
+            radios.forEach(r => { r.checked = r.value === hex; });
+            err.classList.add('hidden');
+            apply[slot](hex);
+        }
+        radios.forEach(r => r.addEventListener('change', () => choose(r.value, 'preset')));
+        picker.addEventListener('input', () => choose(picker.value, 'picker'));
+        hexInput.addEventListener('input', () => { const v = norm(hexInput.value); if (valid(v)) choose(v, 'text'); });
+        return { reset: () => choose(el.dataset.themeDefault, 'preset'), hexInput, err };
+    });
+
+    document.getElementById('themeReset').addEventListener('click', () => slots.forEach(s => s.reset()));
+    form.addEventListener('submit', (e) => {
+        for (const s of slots) {
+            const v = norm(s.hexInput.value);
+            if (!valid(v)) { e.preventDefault(); s.err.classList.remove('hidden'); s.hexInput.focus(); return; }
+            s.hexInput.value = v.toUpperCase();
+        }
+    });
 })();
 
 const detectBtn    = document.getElementById('detectBtn');

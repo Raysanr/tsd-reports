@@ -22,10 +22,11 @@
         an empty duplicate of the same Tailwind build.
     --}}
     @vite(['resources/css/calls.css', 'resources/js/calls.js'])
+    @include('partials.theme-color')
     <style>
     .nav-item { transition: background-color .15s ease, color .15s ease; }
     .nav-item:hover { background-color: rgba(255,255,255,0.08); color: #fff; }
-    .nav-active { background-color: rgba(234,179,8,0.16); color: #fde68a !important; }
+    .nav-active { background-color: color-mix(in srgb, var(--color-yellow-500) 16%, transparent); color: var(--color-yellow-200) !important; }
     </style>
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950">
@@ -35,7 +36,7 @@
 <aside id="sidebar"
        class="fixed md:relative inset-y-0 left-0 z-50 w-64 shrink-0 bg-sidebar flex flex-col h-full shadow-xl
               -translate-x-full md:translate-x-0 transition-transform duration-200 ease-out">
-    <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, rgba(234,179,8,0.16), transparent 70%);"></div>
+    <div class="pointer-events-none absolute inset-x-0 top-0 h-56" style="background: radial-gradient(120% 100% at 18% 0%, color-mix(in srgb, var(--color-yellow-500) 16%, transparent), transparent 70%);"></div>
 
     <div class="relative px-6 py-5 border-b border-white/10">
         <div class="flex items-center justify-between gap-3">

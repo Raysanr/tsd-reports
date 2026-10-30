@@ -9,6 +9,7 @@ use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\SyncHealth;
 use App\Support\Teams;
+use App\Support\ThemeColor;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -213,6 +214,26 @@ class SettingsController extends Controller
         ActivityLogger::log('settings.pancake_connected', null, $message);
 
         return $this->redirectToCaller($request)->with('success', $message);
+    }
+
+    /** Settings → Appearance (2026-10-30): accent + sidebar colors, see App\Support\ThemeColor. */
+    public function saveTheme(Request $request)
+    {
+        $accent  = strtoupper(trim((string) $request->input('accent_color')));
+        $sidebar = strtoupper(trim((string) $request->input('sidebar_color')));
+        if (!ThemeColor::isValid($accent) || !ThemeColor::isValid($sidebar)) {
+            return $this->redirectToCaller($request)->with('error', 'Pick a color, or enter a 6-digit hex code like #CA8A04.');
+        }
+
+        $before = ThemeColor::accent() . ' / ' . ThemeColor::sidebar();
+        Setting::set(ThemeColor::ACCENT_KEY, $accent);
+        Setting::set(ThemeColor::SIDEBAR_KEY, $sidebar);
+        \App\Support\RequestMemo::flush();
+
+        $label = (ThemeColor::ACCENT_PRESETS[$accent] ?? $accent) . ' / ' . (ThemeColor::SIDEBAR_PRESETS[$sidebar] ?? $sidebar);
+        ActivityLogger::log('settings.theme_color_saved', null, "Theme colors changed from {$before} to {$label}.");
+
+        return $this->redirectToCaller($request)->with('success', "Theme colors set to {$label}.");
     }
 
     /**

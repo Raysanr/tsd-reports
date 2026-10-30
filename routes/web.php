@@ -137,6 +137,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
         Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
         Route::post('/settings/team-names', [SettingsController::class, 'saveTeamNames'])->name('settings.team-names');
+        Route::post('/settings/theme',      [SettingsController::class, 'saveTheme'])->name('settings.theme');
         Route::post('/settings/drive',           [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
         Route::post('/settings/drive/clear',     [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
         Route::post('/settings/drive/sync-now',  [SettingsController::class, 'syncDriveNow'])->name('settings.drive.sync-now');

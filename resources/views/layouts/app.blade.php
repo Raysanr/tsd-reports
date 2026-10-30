@@ -29,6 +29,7 @@
     <title>TSD Leads Reports — @yield('title', 'Dashboard')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @include('partials.theme-color')
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <style>
@@ -112,7 +113,7 @@
     }
     .flatpickr-day:hover {
         background: #fefce8 !important;
-        color: #a16207 !important;
+        color: var(--color-yellow-700) !important;
         transform: scale(1.05);
     }
 
@@ -132,8 +133,8 @@
 
     /* Today: outlined ring, not filled — distinct from a selected day */
     .flatpickr-day.today {
-        border: 2px solid #fde047 !important;
-        color: #a16207 !important;
+        border: 2px solid var(--color-yellow-300) !important;
+        color: var(--color-yellow-700) !important;
         font-weight: 700;
     }
     .flatpickr-day.today:hover { background: #fefce8 !important; }
@@ -143,15 +144,15 @@
         background: #fef9c3 !important;
         box-shadow: -5px 0 0 #fef9c3, 5px 0 0 #fef9c3 !important;
         border-radius: 9999px !important;
-        color: #a16207 !important;
+        color: var(--color-yellow-700) !important;
     }
     .flatpickr-day.startRange,
     .flatpickr-day.endRange,
     .flatpickr-day.selected {
-        background: linear-gradient(135deg, #ca8a04, #a16207) !important;
-        border-color: #a16207 !important;
+        background: linear-gradient(135deg, var(--color-yellow-600), var(--color-yellow-700)) !important;
+        border-color: var(--color-yellow-700) !important;
         color: #fff !important;
-        box-shadow: 0 2px 6px rgba(202, 138, 4, .35);
+        box-shadow: 0 2px 6px color-mix(in srgb, var(--color-yellow-600) 35%, transparent);
     }
     .flatpickr-day.startRange:hover,
     .flatpickr-day.endRange:hover,
@@ -190,8 +191,8 @@
        colors for legibility — the transparent background itself is unchanged. */
     .dark .flatpickr-day { color: #e2e8f0 !important; }
     .dark .flatpickr-day:hover {
-        background: rgba(202,138,4,0.18) !important;
-        color: #fde047 !important;
+        background: color-mix(in srgb, var(--color-yellow-600) 18%, transparent) !important;
+        color: var(--color-yellow-300) !important;
     }
 
     .dark .flatpickr-day.flatpickr-disabled,
@@ -205,28 +206,28 @@
     }
 
     .dark .flatpickr-day.today {
-        border-color: #ca8a04 !important;
-        color: #fde047 !important;
+        border-color: var(--color-yellow-600) !important;
+        color: var(--color-yellow-300) !important;
     }
-    .dark .flatpickr-day.today:hover { background: rgba(202,138,4,0.18) !important; }
+    .dark .flatpickr-day.today:hover { background: color-mix(in srgb, var(--color-yellow-600) 18%, transparent) !important; }
 
     .dark .flatpickr-day.inRange {
-        background: rgba(202,138,4,0.22) !important;
-        box-shadow: -5px 0 0 rgba(202,138,4,0.22), 5px 0 0 rgba(202,138,4,0.22) !important;
-        color: #fde047 !important;
+        background: color-mix(in srgb, var(--color-yellow-600) 22%, transparent) !important;
+        box-shadow: -5px 0 0 color-mix(in srgb, var(--color-yellow-600) 22%, transparent), 5px 0 0 color-mix(in srgb, var(--color-yellow-600) 22%, transparent) !important;
+        color: var(--color-yellow-300) !important;
     }
     .dark .flatpickr-day.startRange,
     .dark .flatpickr-day.endRange,
     .dark .flatpickr-day.selected {
-        background: linear-gradient(135deg, #ca8a04, #a16207) !important;
-        border-color: #eab308 !important;
+        background: linear-gradient(135deg, var(--color-yellow-600), var(--color-yellow-700)) !important;
+        border-color: var(--color-yellow-500) !important;
         color: #fff !important;
     }
 
     .dark .flatpickr-months .flatpickr-month { color: #e2e8f0 !important; }
     .dark .flatpickr-current-month .cur-month { color: #e2e8f0 !important; }
     .dark .flatpickr-months .flatpickr-prev-month:hover,
-    .dark .flatpickr-months .flatpickr-next-month:hover { background: rgba(202,138,4,0.18) !important; }
+    .dark .flatpickr-months .flatpickr-next-month:hover { background: color-mix(in srgb, var(--color-yellow-600) 18%, transparent) !important; }
     .dark .flatpickr-months .flatpickr-prev-month svg,
     .dark .flatpickr-months .flatpickr-next-month svg { fill: #94a3b8 !important; }
 
