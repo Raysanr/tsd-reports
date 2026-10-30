@@ -328,8 +328,8 @@
                             <td class="px-4 py-2 {{ $groupEndClass }}"></td>
                             @else
                             @php $monthlyTaxPerTsa = (float) $entry->base_salary > 0 ? ($monthlyTaxPerTsaByTeam[$tsa->team] ?? 0.0) : 0.0; @endphp
-                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
-                            <td class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
+                            <td data-out="monthly_tax" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa) }}</td>
+                            <td data-out="daily_tax" class="px-4 py-2 text-right text-ink-muted dark:text-slate-400 {{ $groupEndClass }}">{{ $fmtMoney($monthlyTaxPerTsa / 24) }}</td>
                             @endif
                         </tr>
                     @endif
@@ -828,6 +828,17 @@
                 }
 
                 if (data.recomputed) applyRecomputed(data.recomputed);
+                // A salary crossing 0 changes her team's tax divisor, so every
+                // TSA's Monthly/Daily Tax is refreshed, not just hers (2026-10-30).
+                if (data.monthlyTaxByTsaId) {
+                    Object.entries(data.monthlyTaxByTsaId).forEach(([tsaId, monthly]) => {
+                        if (monthly === null) return;
+                        const tsaRow = document.querySelector(`[data-tsa-salary-row][data-tsa-id="${tsaId}"]`);
+                        const m = tsaRow?.querySelector('[data-out="monthly_tax"]'), d = tsaRow?.querySelector('[data-out="daily_tax"]');
+                        if (m) m.textContent = fmtMoney(monthly);
+                        if (d) d.textContent = fmtMoney(monthly / 24);
+                    });
+                }
                 if (row.hasAttribute('data-pool-row')) {
                     refreshPoolGrandTotal();
                     // The "Daily Cost per product"/"Daily Cost" mini-table

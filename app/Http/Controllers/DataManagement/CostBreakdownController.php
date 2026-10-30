@@ -800,9 +800,26 @@ class CostBreakdownController extends Controller
             'dailyRate' => $dailyRate,
             'dailyRatePerProduct' => $dailyRatePerProduct,
             'recomputed' => $this->recomputeAllTsaRows(),
+            'monthlyTaxByTsaId' => $this->monthlyTaxByTsaId($month),
             'dailyCostRow' => $dailyCostRow,
             'dailyCostPerProductRow' => $dailyCostPerProductRow,
         ]);
+    }
+
+    /** Every TSA's Monthly Tax after a salary edit (bug fix, 2026-10-30:
+     *  Jhun's salary went 0 → 15,600 but her tax stayed 0.00 and her team
+     *  stayed split 6 ways until a reload) — a salary crossing 0 changes
+     *  her team's divisor, so the whole team's share changes. Same rule as
+     *  the page's own render (taxFigures()); null = TikTok TSA, no figure. */
+    private function monthlyTaxByTsaId(string $month): array
+    {
+        $tsas = TsaShift::orderBy('team')->orderBy('sort_order')->get();
+        $entriesByTsaId = CostBreakdownTsaEntry::where('month', $month)->whereIn('tsa_id', $tsas->pluck('id'))->get()->keyBy('tsa_id');
+        $tsas = $tsas->filter(fn (TsaShift $t) => TsaDailyRateService::belongsToMonth($t, $month, $entriesByTsaId))->values();
+        $perTsaByTeam = $this->taxFigures($tsas, $entriesByTsaId)['perTsaByTeam'];
+
+        return $tsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => $tsa->tiktok_upsell ? null
+            : ((float) ($entriesByTsaId->get($tsa->id)?->base_salary ?? 0) > 0 ? (float) ($perTsaByTeam[$tsa->team] ?? 0.0) : 0.0)])->all();
     }
 
     /** Auto-save for one product's own "has cost" checkbox (explicit

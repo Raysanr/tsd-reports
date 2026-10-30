@@ -1075,4 +1075,30 @@ class CostBreakdownSmokeTest extends TestCase
         $this->actingAs($admin)->patchJson(route('data.cost-breakdown.toggle-lock', ['table' => 'bogus']), ['locked' => true])
             ->assertNotFound();
     }
+
+    /** Bug fix, 2026-10-30 (Jhun Ematong): typing a salary for a TSA who had
+     *  0 gives her a tax share right away — the autosave returns every
+     *  TSA's refreshed Monthly Tax, her team now split one more way. */
+    public function test_a_salary_edit_returns_refreshed_tax_for_the_whole_team(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        CostBreakdownPool::ensureSeeded();
+        CostBreakdownRole::ensureSeeded();
+        $tsas = TsaShift::where('tiktok_upsell', false)->orderBy('id')->get();
+        foreach ($tsas as $tsa) {
+            CostBreakdownTsaEntry::create(['tsa_id' => $tsa->id, 'days' => 30, 'base_salary' => 15000]);
+        }
+        $newcomer = $tsas->first();
+        CostBreakdownTsaEntry::where('tsa_id', $newcomer->id)->update(['base_salary' => 0]);
+        $teammates = $tsas->where('team', $newcomer->team);
+
+        $tax = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.update-tsa-entry', $newcomer), ['base_salary' => 15600])
+            ->assertOk()->json('monthlyTaxByTsaId');
+
+        $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
+        $this->assertGreaterThan(0, $tax[$newcomer->id]);
+        foreach ($teammates as $tsa) {
+            $this->assertEqualsWithDelta($perShift / $teammates->count(), $tax[$tsa->id], 0.01, $tsa->display_name);
+        }
+    }
 }
