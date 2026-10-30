@@ -33,6 +33,21 @@ class ThemeColor
         '#3F4859' => 'Graphite',
     ];
 
+    /** Text color presets — '' = match the accent (the default). */
+    public const TEXT_PRESETS = [
+        ''        => 'Match accent',
+        '#1D4ED8' => 'Blue',
+        '#0F766E' => 'Teal',
+        '#15803D' => 'Green',
+        '#7C3AED' => 'Violet',
+        '#BE123C' => 'Rose',
+        '#B45309' => 'Amber',
+        '#334155' => 'Slate',
+    ];
+
+    /** Accent-colored text must clear this against its background (WCAG AA). */
+    public const MIN_TEXT_CONTRAST = 4.5;
+
     public const SIDEBAR_PRESETS = [
         '#18181B' => 'Charcoal',
         '#0F172A' => 'Navy',
@@ -53,6 +68,43 @@ class ThemeColor
     public static function accent(): string
     {
         return self::read('theme_accent', self::ACCENT_DEFAULT);
+    }
+
+    /** The picked text color, or null when it just follows the accent. */
+    public static function text(): ?string
+    {
+        $hex = self::read('theme_text', '');
+
+        return $hex === '' ? null : $hex;
+    }
+
+    /** Text color as applied in light mode: deepened until readable on white. */
+    public static function readableTextLight(string $hex): string
+    {
+        for ($i = 0; $i < 60 && self::contrastWithWhite($hex) < self::MIN_TEXT_CONTRAST; $i++) {
+            $hex = self::mix($hex, 0, .05);
+        }
+
+        return $hex;
+    }
+
+    /** Text color as applied in dark mode: lightened until readable on the
+     *  dark page (#0F172A) — a dark violet phone number was unreadable. */
+    public static function readableTextDark(string $hex): string
+    {
+        $bg = self::luminance('#0F172A');
+        for ($i = 0; $i < 60 && (self::luminance($hex) + .05) / ($bg + .05) < self::MIN_TEXT_CONTRAST; $i++) {
+            $hex = self::mix($hex, 255, .06);
+        }
+
+        return $hex;
+    }
+
+    /** html.theme-text (app.css/calls.css) recolors accent text — on once
+     *  the accent or the text color differs from the built-in gold. */
+    public static function textRulesOn(): bool
+    {
+        return self::text() !== null || self::accent() !== self::ACCENT_DEFAULT;
     }
 
     public static function sidebar(): string
@@ -118,6 +170,12 @@ class ThemeColor
             $vars[] = "--color-accent:{$s[700]}";
             $vars[] = "--color-muted:{$s[50]}";
             $vars[] = "--color-border:{$s[200]}";
+        }
+
+        if (self::textRulesOn()) {
+            $text = self::text() ?? self::accent();
+            $vars[] = '--theme-text:' . self::readableTextLight($text);
+            $vars[] = '--theme-text-dark:' . self::readableTextDark($text);
         }
 
         $sidebar = self::sidebar();

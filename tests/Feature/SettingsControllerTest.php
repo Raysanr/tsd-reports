@@ -867,4 +867,31 @@ class SettingsControllerTest extends TestCase
             ->assertSee("--color-yellow-600:{$deep}", false)
             ->assertSee("classList.add('sidebar-light')", false);
     }
+
+    /** Text color (2026-10-30): personal, '' = match accent, and kept
+     *  readable in both modes — a dark violet is lightened for dark mode. */
+    public function test_text_color_adapts_to_light_and_dark_mode(): void
+    {
+        $this->assertSame('#6639D3', \App\Support\ThemeColor::readableTextLight('#6639D3'));
+        $this->assertNotSame('#6639D3', \App\Support\ThemeColor::readableTextDark('#6639D3'));
+
+        $me = User::factory()->create();
+        $this->actingAs($me)->get(route('settings'))->assertDontSee("<script>document.documentElement.classList.add('theme-text');</script>", false);
+
+        // accent only: text follows it
+        $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => '#6639D3', 'sidebar_color' => '#18181B', 'text_color' => '']);
+        $this->assertNull($me->fresh()->theme_text);
+        $dark = \App\Support\ThemeColor::readableTextDark('#6639D3');
+        $this->actingAs($me->fresh())->get(route('settings'))->assertOk()
+            ->assertSee("<script>document.documentElement.classList.add('theme-text');</script>", false)
+            ->assertSee("--theme-text-dark:{$dark}", false);
+
+        // own text color
+        $this->actingAs($me->fresh())->post(route('settings.theme'), ['accent_color' => '#6639D3', 'sidebar_color' => '#18181B', 'text_color' => '#1d4ed8']);
+        $this->assertSame('#1D4ED8', $me->fresh()->theme_text);
+        $this->actingAs($me->fresh())->get(route('settings'))->assertSee('--theme-text:#1D4ED8', false);
+
+        $this->actingAs($me->fresh())->post(route('settings.theme'), ['accent_color' => '#6639D3', 'sidebar_color' => '#18181B', 'text_color' => 'nope'])
+            ->assertSessionHas('error');
+    }
 }

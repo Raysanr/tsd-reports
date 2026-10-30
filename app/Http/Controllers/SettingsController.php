@@ -229,16 +229,19 @@ class SettingsController extends Controller
     {
         $accent  = strtoupper(trim((string) $request->input('accent_color')));
         $sidebar = strtoupper(trim((string) $request->input('sidebar_color')));
-        if (!ThemeColor::isValid($accent) || !ThemeColor::isValid($sidebar)) {
+        $text    = strtoupper(trim((string) $request->input('text_color'))); // '' = match accent
+        if (!ThemeColor::isValid($accent) || !ThemeColor::isValid($sidebar) || ($text !== '' && !ThemeColor::isValid($text))) {
             return $this->redirectToCaller($request)->with('error', 'Pick a color, or enter a 6-digit hex code like #CA8A04.');
         }
 
         $request->user()->forceFill([
             'theme_accent'  => $accent === ThemeColor::ACCENT_DEFAULT ? null : $accent,
             'theme_sidebar' => $sidebar === ThemeColor::SIDEBAR_DEFAULT ? null : $sidebar,
+            'theme_text'    => $text === '' ? null : $text,
         ])->save();
 
-        $label = (ThemeColor::ACCENT_PRESETS[$accent] ?? $accent) . ' / ' . (ThemeColor::SIDEBAR_PRESETS[$sidebar] ?? $sidebar);
+        $label = (ThemeColor::ACCENT_PRESETS[$accent] ?? $accent) . ' / ' . (ThemeColor::SIDEBAR_PRESETS[$sidebar] ?? $sidebar)
+            . ' / text ' . (ThemeColor::TEXT_PRESETS[$text] ?? $text);
         ActivityLogger::log('settings.theme_color_saved', null, "Changed their own theme colors to {$label}.");
 
         return $this->redirectToCaller($request)->with('success', "Your theme colors are set to {$label}.");

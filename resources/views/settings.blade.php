@@ -459,8 +459,9 @@
             @foreach([
                 'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Very light colors are deepened slightly on buttons so white text stays readable.'],
                 'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically; in dark mode a light sidebar turns dark navy to match the page.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
+                'text'    => ['Text color', 'Phone numbers, links, highlighted figures and badge text. Adapts to light and dark mode on its own: deepened on white, lightened on the dark page, so it always stays readable.', \App\Support\ThemeColor::TEXT_PRESETS, \App\Support\ThemeColor::text() ?? '', '', 'Leave it on Match accent to follow your accent color.'],
             ] as $slot => [$slotTitle, $slotHelp, $slotPresets, $slotCurrent, $slotDefault, $slotHint])
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 {{ $loop->first ? 'pb-8 border-b border-slate-100 dark:border-slate-800' : '' }}" data-theme-slot="{{ $slot }}" data-theme-default="{{ $slotDefault }}">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-10 {{ !$loop->last ? 'pb-8 border-b border-slate-100 dark:border-slate-800' : '' }}" data-theme-slot="{{ $slot }}" data-theme-default="{{ $slotDefault }}">
                 <div>
                     <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{{ $slotTitle }}</h3>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{{ $slotHelp }}</p>
@@ -472,10 +473,10 @@
                             @foreach($slotPresets as $hex => $label)
                             <label class="theme-swatch relative flex items-center gap-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2.5 cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-colors has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/30">
                                 <input type="radio" name="{{ $slot }}_preset" value="{{ $hex }}" class="sr-only" @checked($slotCurrent === $hex)>
-                                <span class="w-7 h-7 rounded-full shrink-0 ring-1 ring-black/10" style="background:{{ $hex }}"></span>
+                                <span class="w-7 h-7 rounded-full shrink-0 ring-1 ring-black/10" style="background:{{ $hex !== '' ? $hex : 'var(--color-primary)' }}"></span>
                                 <span class="min-w-0">
                                     <span class="block text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">{{ $label }}</span>
-                                    <span class="block text-[11px] text-slate-400 font-mono">{{ $hex }}</span>
+                                    <span class="block text-[11px] text-slate-400 font-mono">{{ $hex !== '' ? $hex : 'Accent' }}</span>
                                 </span>
                             </label>
                             @endforeach
@@ -485,13 +486,13 @@
                     <div>
                         <label for="{{ $slot }}Hex" class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Custom color</label>
                         <div class="flex flex-wrap items-center gap-2.5">
-                            <input type="color" id="{{ $slot }}Picker" value="{{ $slotCurrent }}" aria-label="Pick a custom {{ strtolower($slotTitle) }}"
+                            <input type="color" id="{{ $slot }}Picker" value="{{ $slotCurrent !== '' ? $slotCurrent : \App\Support\ThemeColor::accent() }}" aria-label="Pick a custom {{ strtolower($slotTitle) }}"
                                    class="w-11 h-11 p-1 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 cursor-pointer">
-                            <input type="text" id="{{ $slot }}Hex" name="{{ $slot }}_color" value="{{ $slotCurrent }}" maxlength="7" spellcheck="false" autocomplete="off"
+                            <input type="text" id="{{ $slot }}Hex" name="{{ $slot }}_color" value="{{ $slotCurrent }}" maxlength="7" spellcheck="false" autocomplete="off" @if($slotDefault === '') placeholder="Match accent" data-optional="1" @endif
                                    class="w-32 h-11 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 text-sm font-mono uppercase text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary/30">
                             <span class="text-xs text-slate-500 dark:text-slate-400">{{ $slotHint }}</span>
                         </div>
-                        <p id="{{ $slot }}HexError" class="hidden mt-1.5 text-xs text-red-600 dark:text-red-400" role="alert">Enter a 6-digit hex code like {{ $slotDefault }}.</p>
+                        <p id="{{ $slot }}HexError" class="hidden mt-1.5 text-xs text-red-600 dark:text-red-400" role="alert">Enter a 6-digit hex code like {{ $slotDefault !== '' ? $slotDefault : '#1D4ED8' }}{{ $slotDefault === '' ? ', or leave it empty to match your accent' : '' }}.</p>
                     </div>
                 </div>
             </div>
@@ -530,6 +531,7 @@
                                     <div class="flex items-center gap-2 flex-wrap">
                                         <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">Upselling 24.6%</span>
                                         <span class="text-[12px] font-semibold text-primary dark:text-yellow-400 underline underline-offset-2">View details</span>
+                                        <span class="text-[12px] font-bold text-primary">09102505465</span>
                                     </div>
                                     <div class="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full w-2/3 rounded-full bg-secondary"></div></div>
                                     <div class="flex items-end gap-1.5 h-12">
@@ -654,9 +656,24 @@
         for (let i = 0; i < 40 && 1.05 / (lum(hex) + .05) < {{ \App\Support\ThemeColor::MIN_ACCENT_CONTRAST }}; i++) hex = toHex(rgbOf(hex).map(c => c * .95));
         return hex;
     }
+    // Same as ThemeColor::readableTextLight()/readableTextDark(): accent text
+    // deepened until readable on white, lightened until readable on #0F172A.
+    const DARK_BG = lum('#0F172A'), MIN_TEXT = {{ \App\Support\ThemeColor::MIN_TEXT_CONTRAST }};
+    function textLight(hex) { for (let i = 0; i < 60 && 1.05 / (lum(hex) + .05) < MIN_TEXT; i++) hex = toHex(rgbOf(hex).map(c => c * .95)); return hex; }
+    function textDark(hex) { for (let i = 0; i < 60 && (lum(hex) + .05) / (DARK_BG + .05) < MIN_TEXT; i++) hex = toHex(rgbOf(hex).map(c => c + (255 - c) * .06)); return hex; }
+    let currentAccent = document.getElementById('accentHex').value.toUpperCase(), currentText = document.getElementById('textHex').value.toUpperCase();
+    function applyText() {
+        const base = currentText || currentAccent;
+        st.setProperty('--theme-text', textLight(base));
+        st.setProperty('--theme-text-dark', textDark(base));
+        document.documentElement.classList.add('theme-text');
+    }
     const adjustedNote = document.getElementById('accentAdjusted');
     const apply = {
+        text(hex) { currentText = hex; applyText(); },
         accent(picked) {
+            currentAccent = picked;
+            applyText();
             const hex = readable(picked);
             adjustedNote.classList.toggle('hidden', hex === picked);
             adjustedNote.textContent = hex === picked ? '' : `${picked} is too light for white button text, so buttons use the deeper ${hex}. Lighter tints of your color are still used for highlights.`;
@@ -684,24 +701,26 @@
         const slot = el.dataset.themeSlot;
         const hexInput = document.getElementById(slot + 'Hex'), picker = document.getElementById(slot + 'Picker'), err = document.getElementById(slot + 'HexError');
         const radios = el.querySelectorAll(`input[name=${slot}_preset]`);
+        const optional = hexInput.dataset.optional === '1'; // Text color: '' = match accent
         function choose(hex, from) {
             hex = hex.toUpperCase();
             if (from !== 'text') hexInput.value = hex;
-            if (from !== 'picker') picker.value = hex;
+            if (from !== 'picker') picker.value = hex || currentAccent;
             radios.forEach(r => { r.checked = r.value === hex; });
             err.classList.add('hidden');
             apply[slot](hex);
         }
         radios.forEach(r => r.addEventListener('change', () => choose(r.value, 'preset')));
         picker.addEventListener('input', () => choose(picker.value, 'picker'));
-        hexInput.addEventListener('input', () => { const v = norm(hexInput.value); if (valid(v)) choose(v, 'text'); });
-        return { reset: () => choose(el.dataset.themeDefault, 'preset'), hexInput, err };
+        hexInput.addEventListener('input', () => { const v = norm(hexInput.value); if (valid(v) || (optional && v === '')) choose(v, 'text'); });
+        return { reset: () => choose(el.dataset.themeDefault, 'preset'), hexInput, err, optional };
     });
 
     document.getElementById('themeReset').addEventListener('click', () => slots.forEach(s => s.reset()));
     form.addEventListener('submit', (e) => {
         for (const s of slots) {
             const v = norm(s.hexInput.value);
+            if (s.optional && v === '') { s.hexInput.value = ''; continue; }
             if (!valid(v)) { e.preventDefault(); s.err.classList.remove('hidden'); s.hexInput.focus(); return; }
             s.hexInput.value = v.toUpperCase();
         }

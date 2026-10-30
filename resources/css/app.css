@@ -221,3 +221,12 @@ html.sidebar-light:not(.dark) :is(#sidebar, .sidebar-surface) .nav-active :is(sv
    pale-yellow text; light mode keeps the chosen light color. */
 html.dark.sidebar-light { --color-sidebar: #0F172A; }
 html.dark.sidebar-light :is(#sidebar, .sidebar-surface) { box-shadow: inset -1px 0 0 #1E293B; }
+
+/* Text color (Settings → Appearance, 2026-10-30): accent-colored TEXT —
+   phone numbers, links, highlighted figures, badge text — uses the
+   person's text color (or their accent), kept readable per mode:
+   deepened on white, lightened on the dark page (a dark violet phone
+   number was unreadable in dark mode). Variables come from
+   partials/theme-color; the sidebar keeps its own menu colors. */
+html.theme-text:not(.dark) :is(.text-primary, .text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800, .text-yellow-900, .text-amber-500, .text-amber-600, .text-amber-700, .text-amber-800, .text-amber-900):not(:is(#sidebar, .sidebar-surface) *) { color: var(--theme-text); }
+html.theme-text.dark :is(.text-primary, .dark\:text-primary, .text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800, .text-yellow-900, .dark\:text-yellow-200, .dark\:text-yellow-300, .dark\:text-yellow-400, .dark\:text-yellow-500, .text-amber-500, .text-amber-600, .text-amber-700, .text-amber-800, .dark\:text-amber-200, .dark\:text-amber-300, .dark\:text-amber-400):not(:is(#sidebar, .sidebar-surface) *) { color: var(--theme-text-dark); }
