@@ -2,8 +2,6 @@
 
 namespace App\Support;
 
-use Illuminate\Support\Facades\DB;
-
 /**
  * App-wide theme, chosen in Settings → Appearance (ported from MLC,
  * 2026-10-30). Two colors, matching the two the app is built from:
@@ -14,14 +12,12 @@ use Illuminate\Support\Facades\DB;
  *    page at runtime with no rebuild.
  *  - Sidebar: the near-black menu background (--color-sidebar).
  *
- * Read from the MAIN database even on /partners pages, so Partners Data
- * Management wears the same theme instead of its own empty settings table.
+ * Personal (2026-10-30): each signed-in user's own pick, saved on their
+ * user row (theme_accent / theme_sidebar); anyone who hasn't picked — and
+ * the login page — gets the built-in Gold + Charcoal.
  */
 class ThemeColor
 {
-    public const ACCENT_KEY  = 'theme_color';
-    public const SIDEBAR_KEY = 'theme_sidebar_color';
-
     public const ACCENT_DEFAULT  = '#CA8A04';
     public const SIDEBAR_DEFAULT = '#18181B';
 
@@ -56,12 +52,12 @@ class ThemeColor
 
     public static function accent(): string
     {
-        return self::read(self::ACCENT_KEY, self::ACCENT_DEFAULT);
+        return self::read('theme_accent', self::ACCENT_DEFAULT);
     }
 
     public static function sidebar(): string
     {
-        return self::read(self::SIDEBAR_KEY, self::SIDEBAR_DEFAULT);
+        return self::read('theme_sidebar', self::SIDEBAR_DEFAULT);
     }
 
     public static function isValid(?string $hex): bool
@@ -153,11 +149,10 @@ class ThemeColor
         return 1.05 / (self::luminance($hex) + .05);
     }
 
-    private static function read(string $key, string $default): string
+    private static function read(string $column, string $default): string
     {
         try {
-            $hex = strtoupper((string) RequestMemo::remember('theme.' . $key, fn () =>
-                DB::connection(DataSet::mainConnection())->table('settings')->where('key', $key)->value('value')));
+            $hex = strtoupper((string) auth()->user()?->{$column});
         } catch (\Throwable) {
             return $default;
         }

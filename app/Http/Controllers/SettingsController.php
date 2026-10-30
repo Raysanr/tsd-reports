@@ -33,6 +33,12 @@ class SettingsController extends Controller
         // doesn't look like leaving to a different app.
         $layout = request()->routeIs('calls.*') ? 'layouts.calls' : 'layouts.app';
 
+        // TSAs (2026-10-30) get Settings too, but only their personal
+        // Appearance — none of the shared connection data/secrets below.
+        if (!request()->user()?->isAtLeastAdmin()) {
+            return view('settings', ['layout' => $layout, 'appearanceOnly' => true]);
+        }
+
         $apiKey       = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $apiKeyMasked = self::mask($apiKey);
         $apiSaved     = !empty($apiKey);
@@ -216,7 +222,9 @@ class SettingsController extends Controller
         return $this->redirectToCaller($request)->with('success', $message);
     }
 
-    /** Settings → Appearance (2026-10-30): accent + sidebar colors, see App\Support\ThemeColor. */
+    /** Settings → Appearance (2026-10-30): the signed-in user's OWN accent +
+     *  sidebar colors (personal, not app-wide) — see App\Support\ThemeColor.
+     *  Open to every role, TSAs included. */
     public function saveTheme(Request $request)
     {
         $accent  = strtoupper(trim((string) $request->input('accent_color')));
@@ -225,15 +233,15 @@ class SettingsController extends Controller
             return $this->redirectToCaller($request)->with('error', 'Pick a color, or enter a 6-digit hex code like #CA8A04.');
         }
 
-        $before = ThemeColor::accent() . ' / ' . ThemeColor::sidebar();
-        Setting::set(ThemeColor::ACCENT_KEY, $accent);
-        Setting::set(ThemeColor::SIDEBAR_KEY, $sidebar);
-        \App\Support\RequestMemo::flush();
+        $request->user()->forceFill([
+            'theme_accent'  => $accent === ThemeColor::ACCENT_DEFAULT ? null : $accent,
+            'theme_sidebar' => $sidebar === ThemeColor::SIDEBAR_DEFAULT ? null : $sidebar,
+        ])->save();
 
         $label = (ThemeColor::ACCENT_PRESETS[$accent] ?? $accent) . ' / ' . (ThemeColor::SIDEBAR_PRESETS[$sidebar] ?? $sidebar);
-        ActivityLogger::log('settings.theme_color_saved', null, "Theme colors changed from {$before} to {$label}.");
+        ActivityLogger::log('settings.theme_color_saved', null, "Changed their own theme colors to {$label}.");
 
-        return $this->redirectToCaller($request)->with('success', "Theme colors set to {$label}.");
+        return $this->redirectToCaller($request)->with('success', "Your theme colors are set to {$label}.");
     }
 
     /**
@@ -498,7 +506,7 @@ class SettingsController extends Controller
     private function redirectToCaller(Request $request): \Illuminate\Http\RedirectResponse
     {
         $target = $request->input('_redirect_route');
-        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : 'settings';
+        $target = in_array($target, self::RETURN_ROUTES, true) ? $target : ($request->user()?->isAtLeastAdmin() ? 'settings' : 'calls.settings');
 
         return redirect()->route($target);
     }

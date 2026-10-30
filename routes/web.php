@@ -82,6 +82,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     Route::delete('/messages/message/{message}', [MessageController::class, 'destroy'])->name('messages.destroy');
 
     // CONFIG — Super Admin and Admin only.
+    // Settings is open to every role (2026-10-30) — TSAs see only their own
+    // personal Appearance (see SettingsController::index()); every other
+    // settings action below stays admin-only.
+    Route::get('/settings',        [SettingsController::class, 'index'])->name('settings');
+    Route::post('/settings/theme', [SettingsController::class, 'saveTheme'])->name('settings.theme');
+
     Route::middleware('role:super_admin,admin')->group(function () {
         // Insights — explicit request, 2026-08-26: "that tab is make it
         // visible only to the admins." Grouped here (not with Analytics/
@@ -131,13 +137,11 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
 
         Route::get('/audit-log',         [ActivityLogController::class, 'index'])->name('audit-log');
 
-        Route::get('/settings',          [SettingsController::class, 'index'])->name('settings');
         Route::post('/settings',         [SettingsController::class, 'save'])->name('settings.save');
         Route::post('/settings/detect',  [SettingsController::class, 'detect'])->name('settings.detect');
         Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
         Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
         Route::post('/settings/team-names', [SettingsController::class, 'saveTeamNames'])->name('settings.team-names');
-        Route::post('/settings/theme',      [SettingsController::class, 'saveTheme'])->name('settings.theme');
         Route::post('/settings/drive',           [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
         Route::post('/settings/drive/clear',     [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
         Route::post('/settings/drive/sync-now',  [SettingsController::class, 'syncDriveNow'])->name('settings.drive.sync-now');
@@ -244,6 +248,12 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/monitor', [\App\Http\Controllers\CallTracker\MonitorController::class, 'index'])->name('monitor');
         Route::get('/monitor/export', [\App\Http\Controllers\CallTracker\MonitorController::class, 'export'])->name('monitor.export');
 
+        // /settings — reuses the one form/data, just rendered inside Call
+        // Tracker's own layout (see SettingsController::index()'s $layout
+        // logic and redirectToCaller()). Open to TSAs (2026-10-30) for their
+        // own Appearance.
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
+
         Route::middleware('role:super_admin,admin')->group(function () {
             Route::get('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'index'])->name('tsa-management');
             Route::post('/tsa-management', [\App\Http\Controllers\CallTracker\TsaManagementController::class, 'store'])->name('tsa-management.store');
@@ -281,12 +291,6 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             // comment on why that local pipeline was replaced.
             Route::get('/call-recordings/{tsa}/{fileId}/stream', [\App\Http\Controllers\CallTracker\CallRecordingController::class, 'stream'])->name('call-recordings.stream');
             Route::get('/tsa-logs', [\App\Http\Controllers\CallTracker\TsaStatusController::class, 'index'])->name('tsa-logs');
-
-            // Same shared SettingsController@index as TSD Reports' own
-            // /settings — reuses the one form/data, just rendered inside
-            // Call Tracker's own layout (see SettingsController::index()'s
-            // $layout logic and redirectToCaller()).
-            Route::get('/settings', [SettingsController::class, 'index'])->name('settings');
         });
     });
 

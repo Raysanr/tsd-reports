@@ -359,7 +359,7 @@ class SettingsControllerTest extends TestCase
 
     /** call-tracker's own role was 'tsa' (a role value the merged User
      *  model still supports — see e.g. LeadControllerTest) — the settings
-     *  routes are gated by role:super_admin,admin, so a tsa-role user must
+     *  actions are gated by role:super_admin,admin, so a tsa-role user must
      *  be forbidden the same way a 'normal' user already is (see
      *  RoleAccessTest::test_normal_user_is_forbidden_from_config_pages). */
     public function test_a_tsa_role_user_cannot_reach_settings_or_its_sub_routes(): void
@@ -367,7 +367,8 @@ class SettingsControllerTest extends TestCase
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $user  = User::factory()->create(['role' => 'tsa', 'tsa_id' => $gemma->id]);
 
-        $this->actingAs($user)->get(route('settings'))->assertForbidden();
+        // Since 2026-10-30 the page itself opens for TSAs, Appearance only.
+        $this->actingAs($user)->get(route('settings'))->assertOk()->assertDontSee('Pancake Connection');
         $this->actingAs($user)->postJson(route('settings.detect'), ['api_key' => 'x'])->assertForbidden();
         $this->actingAs($user)->post(route('settings.clear'))->assertForbidden();
     }
@@ -800,31 +801,55 @@ class SettingsControllerTest extends TestCase
         $this->assertNull(Setting::get(\App\Support\Teams::nameSettingKey('not-a-real-team')));
     }
 
-    /** Settings → Appearance (2026-10-30): accent + sidebar colors apply on every page. */
-    public function test_theme_colors_save_and_apply_across_layouts(): void
+    /** Settings → Appearance (2026-10-30): colors are personal — saved on the
+     *  user, applied only to them, everyone else keeps the default. */
+    public function test_theme_colors_are_personal(): void
     {
-        $this->actingAs(User::factory()->create());
+        $me = User::factory()->create();
+        $other = User::factory()->create();
 
-        // defaults: no override CSS at all
-        $this->get(route('settings'))->assertOk()->assertSee('Appearance')->assertDontSee('themeColorVars', false);
+        $this->actingAs($me)->get(route('settings'))->assertOk()->assertSee('Appearance')->assertDontSee('themeColorVars', false);
 
-        $this->post(route('settings.theme'), ['accent_color' => '#2442b8', 'sidebar_color' => '#0F172A'])
+        $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => '#2442b8', 'sidebar_color' => '#0F172A'])
             ->assertRedirect(route('settings'));
-        $this->assertSame('#2442B8', Setting::get(\App\Support\ThemeColor::ACCENT_KEY));
-        $this->assertSame('#0F172A', Setting::get(\App\Support\ThemeColor::SIDEBAR_KEY));
+        $this->assertSame('#2442B8', $me->fresh()->theme_accent);
+        $this->assertSame('#0F172A', $me->fresh()->theme_sidebar);
 
-        $this->get(route('settings'))->assertOk()
+        $this->actingAs($me->fresh())->get(route('settings'))->assertOk()
             ->assertSee('--color-yellow-600:#2442B8', false)
             ->assertSee('--color-sidebar:#0F172A', false);
+        $this->actingAs($other)->get(route('settings'))->assertOk()->assertDontSee('themeColorVars', false);
+
+        // picking the defaults again clears the personal override
+        $this->actingAs($me->fresh())->post(route('settings.theme'), ['accent_color' => '#CA8A04', 'sidebar_color' => '#18181B']);
+        $this->assertNull($me->fresh()->theme_accent);
+    }
+
+    /** TSAs open Settings but see only their own Appearance — no shared
+     *  connection data — and can't reach the admin-only actions. */
+    public function test_tsas_see_only_appearance(): void
+    {
+        Setting::set('pancake_api_key', 'secret-key-1234567890');
+        $tsa = User::factory()->normal()->create();
+
+        $page = $this->actingAs($tsa)->get(route('calls.settings'))->assertOk();
+        $page->assertSee('Appearance')->assertSee('Save my colors')
+            ->assertDontSee('Pancake Connection')->assertDontSee('Access Token')->assertDontSee('567890');
+        $this->actingAs($tsa)->get(route('settings'))->assertOk()->assertDontSee('Team Names');
+
+        $this->actingAs($tsa)->post(route('settings.theme'), ['accent_color' => '#6639D3', 'sidebar_color' => '#FFFFFF', '_redirect_route' => 'calls.settings'])
+            ->assertRedirect(route('calls.settings'));
+        $this->assertSame('#6639D3', $tsa->fresh()->theme_accent);
+
+        $this->actingAs($tsa)->post(route('settings.team-names'), [])->assertForbidden();
     }
 
     public function test_theme_rejects_an_invalid_color(): void
     {
-        $this->actingAs(User::factory()->create());
-
-        $this->post(route('settings.theme'), ['accent_color' => 'blue', 'sidebar_color' => '#0F172A'])
+        $me = User::factory()->create();
+        $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => 'blue', 'sidebar_color' => '#0F172A'])
             ->assertRedirect(route('settings'))->assertSessionHas('error');
-        $this->assertNull(Setting::get(\App\Support\ThemeColor::ACCENT_KEY));
+        $this->assertNull($me->fresh()->theme_accent);
     }
 
     /** A very light accent is deepened for white button text; a light sidebar flips the menu to dark text. */
@@ -834,11 +859,11 @@ class SettingsControllerTest extends TestCase
         $deep = \App\Support\ThemeColor::readableAccent('#F5B938');
         $this->assertNotSame('#F5B938', $deep);
 
-        $this->actingAs(User::factory()->create());
-        $this->get(route('settings'))->assertDontSee("classList.add('sidebar-light')", false);
+        $me = User::factory()->create();
+        $this->actingAs($me)->get(route('settings'))->assertDontSee("classList.add('sidebar-light')", false);
 
-        $this->post(route('settings.theme'), ['accent_color' => '#F5B938', 'sidebar_color' => '#FFFFFF']);
-        $this->get(route('settings'))->assertOk()
+        $this->actingAs($me)->post(route('settings.theme'), ['accent_color' => '#F5B938', 'sidebar_color' => '#FFFFFF']);
+        $this->actingAs($me->fresh())->get(route('settings'))->assertOk()
             ->assertSee("--color-yellow-600:{$deep}", false)
             ->assertSee("classList.add('sidebar-light')", false);
     }

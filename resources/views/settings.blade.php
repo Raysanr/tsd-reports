@@ -29,6 +29,7 @@
             'appearance'  => ['Appearance', 'M12 22a10 10 0 110-20c5.5 0 10 4 10 9 0 3-2.5 5-5.5 5H15a2 2 0 00-1.5 3.3A1.5 1.5 0 0112 22zM7.5 11.5h.01M10.5 7.5h.01M15.5 7.5h.01M17.5 11.5h.01'],
             'access-token'=> ['Access Token', 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 01-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 011-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 011.52 0C14.51 3.81 17 5 19 5a1 1 0 011 1v7z'],
         ] as $tabKey => [$tabLabel, $tabIcon])
+        @continue(($appearanceOnly ?? false) && $tabKey !== 'appearance')
         <button type="button" role="tab" data-settings-tab="{{ $tabKey }}" aria-selected="false" class="settings-tab-btn side-tab shrink-0">
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ $tabIcon }}"/></svg>
             <span>{{ $tabLabel }}</span>
@@ -38,6 +39,7 @@
 
     <div class="min-w-0 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 md:p-7">
 
+    @unless($appearanceOnly ?? false)
     {{-- ================= Pancake Connection ================= --}}
     <div data-settings-panel="connection" class="space-y-10">
 
@@ -439,14 +441,21 @@
         </div>
     </div>
 
+    @endunless
+
     {{-- ================= Appearance ================= --}}
-    {{-- Theme colors (ported from MLC, 2026-10-30): TSD is built from two
+    {{-- Theme colors (ported from MLC, 2026-10-30; personal per user, same day): TSD is built from two
          colors, so two pickers — the gold Accent and the near-black Sidebar.
          Stored in Settings and applied by partials/theme-color on every
-         layout. Picking previews it live; Save makes it stick for everyone. --}}
+         layout. Picking previews it live; Save stores it on the signed-in user. --}}
     <div data-settings-panel="appearance" class="hidden">
         <form method="POST" action="{{ route('settings.theme') }}" id="themeForm" class="space-y-10">
             @csrf
+            <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
+            <div class="flex items-start gap-3 rounded-xl bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200/70 dark:border-yellow-800/40 px-4 py-3">
+                <svg class="w-4 h-4 mt-0.5 shrink-0 text-yellow-700 dark:text-yellow-300" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                <p class="text-xs text-yellow-800 dark:text-yellow-200 leading-relaxed"><span class="font-semibold">These colors are just for you.</span> Everyone picks their own look; nobody else's screen changes when you save.</p>
+            </div>
             @foreach([
                 'accent'  => ['Accent color', 'Buttons, links, the active menu item, menu text, filters and charts. Status colors such as green for answered and red for unanswered stay the same.', \App\Support\ThemeColor::ACCENT_PRESETS, \App\Support\ThemeColor::accent(), \App\Support\ThemeColor::ACCENT_DEFAULT, 'Very light colors are deepened slightly on buttons so white text stays readable.'],
                 'sidebar' => ['Sidebar color', 'The background of the left menu. Light colors switch the menu to dark text automatically; in dark mode a light sidebar turns dark navy to match the page.', \App\Support\ThemeColor::SIDEBAR_PRESETS, \App\Support\ThemeColor::sidebar(), \App\Support\ThemeColor::SIDEBAR_DEFAULT, 'Any color works: dark for a bold menu, light or white for a clean, airy one.'],
@@ -535,7 +544,7 @@
                     </div>
 
                     <div class="flex flex-wrap items-center gap-2.5">
-                        <button type="submit" class="inline-flex items-center h-10 px-4 rounded-[10px] bg-primary hover:bg-primary-dark text-white text-sm font-semibold cursor-pointer transition-colors">Save theme colors</button>
+                        <button type="submit" class="inline-flex items-center h-10 px-4 rounded-[10px] bg-primary hover:bg-primary-dark text-white text-sm font-semibold cursor-pointer transition-colors">Save my colors</button>
                         <button type="button" id="themeReset" class="inline-flex items-center h-10 px-4 rounded-[10px] border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:border-slate-300 cursor-pointer transition-colors">Reset to Gold &amp; Charcoal</button>
                     </div>
                 </div>
@@ -543,6 +552,7 @@
         </form>
     </div>
 
+    @unless($appearanceOnly ?? false)
     {{-- ================= Pancake Access Token ================= --}}
     <div data-settings-panel="access-token" class="hidden">
         {{-- Pancake Access Token — ported from call-tracker (merged into one app
@@ -593,6 +603,7 @@
         </div>
     </div>
 
+    @endunless
     </div>
 </div>
 @endsection
@@ -618,7 +629,7 @@
 
     tabButtons.forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.settingsTab)));
 
-    let initial = 'connection';
+    let initial = tabButtons[0]?.dataset.settingsTab ?? 'connection';
     try {
         const stored = sessionStorage.getItem(STORAGE_KEY);
         if (stored && document.querySelector(`[data-settings-panel="${stored}"]`)) initial = stored;
@@ -697,6 +708,7 @@
     });
 })();
 
+@unless($appearanceOnly ?? false)
 const detectBtn    = document.getElementById('detectBtn');
 const apiInput     = document.getElementById('apiKeyInput');
 const statusEl     = document.getElementById('detectStatus');
@@ -916,5 +928,6 @@ function showStatus(type, msg) {
         }
     });
 })();
+@endunless
 </script>
 @endpush

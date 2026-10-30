@@ -1053,12 +1053,14 @@ class LeadControllerTest extends TestCase
         $this->actingAs($gemmaUser)->get(route('calls.leads.show', $lead))->assertForbidden();
     }
 
-    public function test_a_tsa_cannot_reach_settings(): void
+    /** Since 2026-10-30 a TSA opens Settings for their own Appearance only. */
+    public function test_a_tsa_reaches_only_their_own_appearance_settings(): void
     {
         $gemma = TsaShift::where('tsa_key', 'Gemma')->first();
         $user = User::create(['name' => 'Gemma User', 'email' => 'gemma5@test.com', 'password' => bcrypt('x'), 'is_active' => true, 'role' => 'tsa', 'tsa_id' => $gemma->id]);
 
-        $this->actingAs($user)->get(route('settings'))->assertForbidden();
+        $this->actingAs($user)->get(route('calls.settings'))->assertOk()->assertSee('Appearance')->assertDontSee('Pancake Connection');
+        $this->actingAs($user)->post(route('settings.save'))->assertForbidden();
     }
 
     public function test_a_table_refresh_request_returns_only_the_table_fragment_not_the_full_layout(): void

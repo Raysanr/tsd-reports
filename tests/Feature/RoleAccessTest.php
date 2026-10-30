@@ -24,7 +24,7 @@ class RoleAccessTest extends TestCase
 
         $this->get(route('tsa-management'))->assertForbidden();
         $this->get(route('product-management'))->assertForbidden();
-        $this->get(route('settings'))->assertForbidden();
+        $this->post(route('settings.save'))->assertForbidden(); // Settings page itself opens for everyone's own Appearance (2026-10-30)
     }
 
     public function test_normal_user_cannot_access_bulk_action_routes(): void
