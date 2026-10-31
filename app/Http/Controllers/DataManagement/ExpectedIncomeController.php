@@ -1339,7 +1339,7 @@ class ExpectedIncomeController extends Controller
         $operatingLines = collect($derived['operating_lines'])->map(fn ($value, $key) => $value + ($addedOperatingCosts[$key] ?? 0.0));
         $totalOperatingCosts = $operatingLines->sum();
         $grossSales = $derived['gross_sales'];
-        $netIncome = $derived['income_before_opex'] - $totalOperatingCosts;
+        $netIncome = ExpectedIncomeCalculator::netIncomeFrom($derived['income_before_opex'], $derived['tax_allocation'], $totalOperatingCosts);
 
         $derived = array_merge($derived, [
             'operating_lines' => $operatingLines,
@@ -3202,6 +3202,18 @@ class ExpectedIncomeController extends Controller
      *  toggle, no Cost Breakdown override). Validates $cardKey against
      *  the fixed CARDS list rather than any dynamic lookup — there are
      *  only ever these 2 cards. */
+    /** Partners only (2026-10-31): the % of Income Before OPEX shown as
+     *  "Expected Shared Income from Partnership" — see
+     *  ExpectedIncomeCalculator::partnershipShareRate(). Typed as 0–100. */
+    public function updateShareRate(Request $request)
+    {
+        abort_unless(\App\Support\DataSet::isPartners(), 404);
+        $data = $request->validate(['rate' => ['required', 'numeric', 'min:0', 'max:100']]);
+        \App\Models\Setting::set(ExpectedIncomeCalculator::PARTNERSHIP_SHARE_RATE_SETTING, (float) $data['rate'] / 100);
+
+        return back();
+    }
+
     public function updateTiktok(Request $request, string $cardKey, TsaShift $tsaShift, string $date)
     {
         \App\Support\ProjectionMonth::set(substr($date, 0, 7));

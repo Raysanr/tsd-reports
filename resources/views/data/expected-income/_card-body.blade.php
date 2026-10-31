@@ -34,6 +34,9 @@
     partial needing a third render mode on top of editable/read-only.
 --}}
 @php($lockedInputClass = ($locked ?? false) ? ' opacity-60 cursor-not-allowed' : '')
+{{-- Partners Data Management's own P&L shape (2026-10-31) — see
+     ExpectedIncomeCalculator::partnershipShareRate(). --}}
+@php($isPartnersPnl = \App\Support\ExpectedIncomeCalculator::partnershipShareRate() !== null)
 <div class="px-5 py-4 font-mono text-[13px] space-y-2 border-b border-line dark:border-slate-700">
     @if($editable ?? false)
         <div class="flex items-center justify-end -mt-1 -mb-1">
@@ -43,8 +46,8 @@
 
     @foreach([
         ['key' => 'roas', 'label' => 'ROAS', 'money' => true],
-        ['key' => 'standard_cost_per_message', 'label' => 'Standard Cost Per Message', 'money' => true],
-        ['key' => 'actual_cost_per_lead', 'label' => 'Actual Cost Per Message', 'money' => true],
+        ['key' => 'standard_cost_per_message', 'label' => $isPartnersPnl ? 'Standard Cost Per Lead' : 'Standard Cost Per Message', 'money' => true],
+        ['key' => 'actual_cost_per_lead', 'label' => $isPartnersPnl ? 'Actual Cost Per Lead' : 'Actual Cost Per Message', 'money' => true],
     ] as $col)
     <div class="grid grid-cols-[1fr_auto] gap-x-3 items-center">
         <span class="text-ink-muted dark:text-slate-400">{{ $col['label'] }}</span>
@@ -199,29 +202,13 @@
     </div>
     @endforeach
 
-    @foreach([
+    @foreach($isPartnersPnl ? [
+        ['key' => 'product_cost', 'label' => 'Product Cost'],
+    ] : [
         ['key' => 'tax_allocation', 'label' => 'Tax Allocation', 'blue' => true],
         ['key' => 'product_cost', 'label' => 'Product Cost'],
     ] as $col)
-    {{-- Tax Allocation on a TSA-scoped card is a computed formula from
-         Cost Breakdown, never editable (explicit request, 2026-10-02: "the
-         tax allocation in tsa cards is should be not editable") — same
-         "computed, never editable" lock Salaries/the 20 shared pools
-         already have, via $tsaScoped (the ALL view's own tsa_id-NULL cards
-         have no TSA to compute anything from, so Tax Allocation stays a
-         plain manual input there, same as Product Cost always is). --}}
-    @php($isTaxAllocationLocked = $col['key'] === 'tax_allocation' && ($tsaScoped ?? false))
-    <div class="grid grid-cols-[1fr_6.5rem_3.5rem] gap-x-2 items-center py-1">
-        <span class="{{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink-muted dark:text-slate-400' }}">{{ $col['label'] }}</span>
-        @if(($editable ?? false) && !$isTaxAllocationLocked)
-            <input type="text" inputmode="decimal" value="{{ number_format($entry?->{$col['key']} ?? 0, 2) }}"
-                   data-field="{{ $col['key'] }}" data-money="1" @if($locked ?? false) disabled @endif
-                   class="ei-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs font-semibold {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none{{ $lockedInputClass }}">
-        @else
-            <span data-out="{{ $col['key'] }}" class="text-right {{ ($col['blue'] ?? false) ? 'text-blue-600 dark:text-blue-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d[$col['key']]) }}</span>
-        @endif
-        <span data-out="{{ $col['key'] }}_pct" class="text-right text-ink-muted dark:text-slate-500 text-xs">{{ $fmtPct($d[$col['key'] . '_pct']) }}</span>
-    </div>
+        @include('data.expected-income._cost-input-row')
     @endforeach
 
     <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">
@@ -275,6 +262,17 @@
         <span data-out="income_before_opex" class="text-right {{ $d['income_before_opex'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-ink dark:text-slate-100' }}">{{ $fmtMoney($d['income_before_opex']) }}</span>
         <span data-out="income_before_opex_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['income_before_opex_pct']) }}</span>
     </div>
+
+    @if($isPartnersPnl)
+    <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">
+        <span class="text-blue-600 dark:text-blue-400">Expected Shared Income from Partnership</span>
+        <span data-out="shared_income" class="text-right {{ $d['shared_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400' }}">{{ $fmtMoney($d['shared_income']) }}</span>
+        <span data-out="shared_income_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['shared_income_pct']) }}</span>
+    </div>
+    <div class="pt-2">
+        @include('data.expected-income._cost-input-row', ['col' => ['key' => 'tax_allocation', 'label' => 'Tax Allocation']])
+    </div>
+    @endif
 
     <div class="pt-3 pb-1 font-bold text-ink dark:text-slate-100">Operating Costs</div>
     <div data-row-dropzone="operating">

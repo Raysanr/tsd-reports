@@ -33,6 +33,7 @@
     $sellingRows = \App\Support\ExpectedIncomeCalculator::sellingCostRows();
     $operatingRows = \App\Support\ExpectedIncomeCalculator::operatingCostRows();
     $customRowKeys = \App\Support\ExpectedIncomeCalculator::customRowKeys();
+    $partnershipShareRate = \App\Support\ExpectedIncomeCalculator::partnershipShareRate();
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -86,6 +87,21 @@
         @endif
     </form>
     <div class="flex items-center gap-3">
+        {{-- Partners only (2026-10-31): Expected Shared Income from
+             Partnership = Income Before OPEX × this %, one rate for every
+             partner card. Saving reloads so every card re-derives. --}}
+        @if($partnershipShareRate !== null && !\App\Support\ExpectedIncomeCalculator::$actual)
+        <form method="POST" action="{{ route('data.expected-income.share-rate') }}" class="inline-flex items-center gap-1.5 text-xs font-mono">
+            @csrf
+            @method('PATCH')
+            <label for="eiShareRate" class="text-blue-600 dark:text-blue-400 font-semibold">Partnership share</label>
+            <input id="eiShareRate" type="number" name="rate" min="0" max="100" step="0.01" required
+                   value="{{ rtrim(rtrim(number_format($partnershipShareRate * 100, 2, '.', ''), '0'), '.') }}"
+                   onchange="this.form.submit()"
+                   class="w-20 text-right px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
+            <span class="text-ink-muted dark:text-slate-400">%</span>
+        </form>
+        @endif
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
             Drag/scroll right to see more products
@@ -352,6 +368,9 @@
     const OPERATING_KEYS = @json(array_keys($operatingRows));
     const COD_FEE_RATE_OF_DELIVERED = 0.0224, FULFILLMENT_FEE_PER_ORDER = 25.0;
     const PROJECTED_RETURNS_RATE = {{ \App\Support\ExpectedIncomeCalculator::PROJECTED_RETURNS_RATE }};
+    // null on TSD; Partners' own P&L shape otherwise (see
+    // ExpectedIncomeCalculator::partnershipShareRate()).
+    const PARTNERSHIP_SHARE_RATE = @json($partnershipShareRate);
 
     function fmtMoney(n) { return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function fmtInt(n) { return Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); }
@@ -423,7 +442,7 @@
         const cancelled = Number(row.cancelled) || 0;
         const returns = grossSales * PROJECTED_RETURNS_RATE;
         const delivered = grossSales - cancelled - returns;
-        const grossProfit = grossSales - cancelled - returns - taxAllocation - productCost;
+        const grossProfit = grossSales - cancelled - returns - (PARTNERSHIP_SHARE_RATE === null ? taxAllocation : 0) - productCost;
 
         // cod_fee/fulfillment_fee are both already inside SELLING_KEYS
         // (SELLING_COST_ROWS includes them server-side too — see
@@ -450,7 +469,10 @@
         OPERATING_KEYS.forEach((key) => { operatingLines[key] = Number(row[key]) || 0; totalOperatingCosts += operatingLines[key]; });
 
         const incomeBeforeOpex = grossProfit - totalSellingCosts;
-        const netIncome = incomeBeforeOpex - totalOperatingCosts;
+        const sharedIncome = incomeBeforeOpex * (PARTNERSHIP_SHARE_RATE ?? 1);
+        const netIncome = PARTNERSHIP_SHARE_RATE === null
+            ? incomeBeforeOpex - totalOperatingCosts
+            : sharedIncome - taxAllocation - totalOperatingCosts;
 
         return {
             roas: Number(row.roas) || 0, standard_cost_per_message: Number(row.standard_cost_per_message) || 0, actual_cost_per_lead: Number(row.actual_cost_per_lead) || 0,
@@ -465,6 +487,7 @@
             selling_lines: sellingLines, total_selling_costs: totalSellingCosts,
             total_selling_costs_pct: grossSales > 0 ? totalSellingCosts / grossSales : 0,
             income_before_opex: incomeBeforeOpex, income_before_opex_pct: grossSales > 0 ? incomeBeforeOpex / grossSales : 0,
+            shared_income: sharedIncome, shared_income_pct: grossSales > 0 ? sharedIncome / grossSales : 0,
             operating_lines: operatingLines, total_operating_costs: totalOperatingCosts,
             total_operating_costs_pct: grossSales > 0 ? totalOperatingCosts / grossSales : 0,
             net_income: netIncome, net_income_pct: grossSales > 0 ? netIncome / grossSales : 0,
@@ -482,7 +505,7 @@
             const isPct = key === 'conversion_rate' || key.endsWith('_pct');
             const isInt = key === 'number_of_leads' || key === 'number_of_orders';
             el.textContent = isPct ? fmtPct(value) : (isInt ? fmtInt(value) : fmtMoney(value));
-            const isLoss = (key === 'gross_profit' || key === 'net_income' || key === 'income_before_opex') && value < 0;
+            const isLoss = (key === 'gross_profit' || key === 'net_income' || key === 'income_before_opex' || key === 'shared_income') && value < 0;
             el.classList.toggle('text-red-600', isLoss);
             el.classList.toggle('dark:text-red-400', isLoss);
             // Net Income (only — Gross Profit stays plain ink when positive,

@@ -431,6 +431,9 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // {cardKey}/{tsaShift}/{date} must also match updateTiktok()'s own
         // parameter order exactly (same positional-binding pitfall as
         // expected-income.update-tsa's own doc comment below).
+        // Partners' Expected Shared Income % (2026-10-31) — before the
+        // generic {product}/{date} route for the same ordering reason.
+        Route::patch('/expected-income/share-rate', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateShareRate'])->name('expected-income.share-rate');
         Route::patch('/expected-income/tiktok/{cardKey}/{tsaShift}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'updateTiktok'])->name('expected-income.update-tiktok');
         Route::patch('/expected-income/{product}/{date}', [\App\Http\Controllers\DataManagement\ExpectedIncomeController::class, 'update'])->name('expected-income.update');
         // Separate endpoint for a custom row's own value (explicit request,

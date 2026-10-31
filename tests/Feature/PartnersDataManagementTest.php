@@ -188,4 +188,37 @@ class PartnersDataManagementTest extends TestCase
             $this->assertEqualsWithDelta([999, 0], $refs['MLC'], 0.001);
         });
     }
+
+    public function test_partners_pnl_shares_income_before_opex_then_takes_tax_and_opex(): void
+    {
+        $this->syncPeak();
+        $this->actingAs($this->admin());
+
+        $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=peak-co')->assertOk()
+            ->assertSee('Expected Shared Income from Partnership')->assertSee('Standard Cost Per Lead')->assertSee('Partnership share');
+        $this->get('/data/expected-income?date_from=2026-10-05&date_to=2026-10-05')->assertOk()
+            ->assertDontSee('Expected Shared Income from Partnership')->assertSee('Standard Cost Per Message');
+
+        $this->patch('/partners/expected-income/share-rate', ['rate' => 40])->assertRedirect();
+        $this->patch('/data/expected-income/share-rate', ['rate' => 40])->assertNotFound();
+        DataSet::reset();
+
+        $row = ['gross_sales' => 1000, 'tax_allocation' => 30, 'product_cost' => 100, 'advertising_cost' => 50, 'salaries' => 20];
+        $tsd = \App\Support\ExpectedIncomeCalculator::derive($row);
+        $this->assertEqualsWithDelta(1000 - 250 - 30 - 100, $tsd['gross_profit'], 0.001, 'TSD unchanged: tax inside Gross Profit');
+
+        DataSet::onPartners(function () use ($row) {
+            $d = \App\Support\ExpectedIncomeCalculator::derive($row);
+            $ibo = 1000 - 250 - 100 - 50 - (750 * 0.0224) - 0;
+            $this->assertEqualsWithDelta(650, $d['gross_profit'], 0.001);
+            $this->assertEqualsWithDelta($ibo, $d['income_before_opex'], 0.001);
+            $this->assertEqualsWithDelta($ibo * 0.4, $d['shared_income'], 0.001);
+            $this->assertEqualsWithDelta($ibo * 0.4 - 30 - 20, $d['net_income'], 0.001);
+
+            $taxed = \App\Support\ExpectedIncomeCalculator::withOverriddenTaxAllocation($d, 50);
+            $this->assertEqualsWithDelta($ibo * 0.4 - 50 - 20, $taxed['net_income'], 0.001);
+            $opex = \App\Support\ExpectedIncomeCalculator::withOverriddenOperatingCosts($d, ['salaries' => 70]);
+            $this->assertEqualsWithDelta($ibo * 0.4 - 30 - 70, $opex['net_income'], 0.001);
+        });
+    }
 }

@@ -137,6 +137,37 @@ class ExpectedIncomeCalculator
      *  (Octane worker mode keeps statics alive between requests). */
     public static bool $actual = false;
 
+    /** Partners Data Management's own P&L shape (explicit request,
+     *  2026-10-31, real "TELESALES EXPECTED PERFORMANCE" sheet): Tax
+     *  Allocation moves out of Gross Profit to below a new "Expected Shared
+     *  Income from Partnership" row = Income Before OPEX × this rate, and
+     *  Net Income = Shared Income − Tax Allocation − Total Operating Costs.
+     *  One rate for the whole partners dataset (Setting, partners DB);
+     *  100% by default, which keeps Net Income equal to the old formula.
+     *  null = main TSD dataset, old formula unchanged. */
+    public const PARTNERSHIP_SHARE_RATE_SETTING = 'partnership_share_rate';
+
+    public static function partnershipShareRate(): ?float
+    {
+        if (!DataSet::isPartners()) {
+            return null;
+        }
+
+        return (float) \App\Models\Setting::get(self::PARTNERSHIP_SHARE_RATE_SETTING, 1.0);
+    }
+
+    /** Net Income from an already-derived row's figures — the one place
+     *  both P&L shapes (see partnershipShareRate()) are spelled out for the
+     *  override helpers below. */
+    public static function netIncomeFrom(float $incomeBeforeOpex, float $taxAllocation, float $totalOperatingCosts): float
+    {
+        $rate = self::partnershipShareRate();
+
+        return $rate === null
+            ? $incomeBeforeOpex - $totalOperatingCosts
+            : $incomeBeforeOpex * $rate - $taxAllocation - $totalOperatingCosts;
+    }
+
     /** Every row added via the + icon on Projections (projection_custom_rows
      *  — a SHARED definition table, not scoped to that page) — explicit
      *  request, 2026-09-28: "when i add in the + icon in the projections it
@@ -280,7 +311,8 @@ class ExpectedIncomeCalculator
         $fulfilled      = self::$actual ? (float) ($row['fulfilled'] ?? 0) : 0.0;
         $returns        = self::$actual ? (float) ($row['actual_returns'] ?? 0) : $grossSales * self::PROJECTED_RETURNS_RATE;
         $delivered      = $grossSales - $cancelled - $unfulfilled - $fulfilled - $returns;
-        $grossProfit    = $delivered - $taxAllocation - $productCost;
+        $shareRate      = self::partnershipShareRate();
+        $grossProfit    = $delivered - ($shareRate === null ? $taxAllocation : 0.0) - $productCost;
 
         // Safe to unconditionally ->put() these 2 keys below regardless of
         // $sellingKeys' actual contents — same reasoning as
@@ -305,7 +337,8 @@ class ExpectedIncomeCalculator
         // Operating Costs are subtracted.
         $incomeBeforeOpex = $grossProfit - $totalSellingCosts;
 
-        $netIncome = $incomeBeforeOpex - $totalOperatingCosts;
+        $sharedIncome = $incomeBeforeOpex * ($shareRate ?? 1.0);
+        $netIncome = self::netIncomeFrom($incomeBeforeOpex, $taxAllocation, $totalOperatingCosts);
 
         return [
             'roas' => $roas,
@@ -341,6 +374,8 @@ class ExpectedIncomeCalculator
             'total_selling_costs_pct' => $grossSales > 0 ? $totalSellingCosts / $grossSales : 0.0,
             'income_before_opex' => $incomeBeforeOpex,
             'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
+            'shared_income' => $sharedIncome,
+            'shared_income_pct' => $grossSales > 0 ? $sharedIncome / $grossSales : 0.0,
             'operating_lines' => $operatingLines,
             'total_operating_costs' => $totalOperatingCosts,
             'total_operating_costs_pct' => $grossSales > 0 ? $totalOperatingCosts / $grossSales : 0.0,
@@ -410,7 +445,7 @@ class ExpectedIncomeCalculator
         $totalOperatingCosts = $operatingLines->sum();
 
         $grossSales = $derived['gross_sales'];
-        $netIncome = $derived['income_before_opex'] - $totalOperatingCosts;
+        $netIncome = self::netIncomeFrom($derived['income_before_opex'], $derived['tax_allocation'], $totalOperatingCosts);
 
         return array_merge($derived, [
             'operating_lines' => $operatingLines,
@@ -438,9 +473,11 @@ class ExpectedIncomeCalculator
     public static function withOverriddenTaxAllocation(array $derived, float $taxAllocation): array
     {
         $grossSales = $derived['gross_sales'];
-        $grossProfit = $derived['delivered'] - $taxAllocation - $derived['product_cost'];
+        $shareRate = self::partnershipShareRate();
+        $grossProfit = $derived['delivered'] - ($shareRate === null ? $taxAllocation : 0.0) - $derived['product_cost'];
         $incomeBeforeOpex = $grossProfit - $derived['total_selling_costs'];
-        $netIncome = $incomeBeforeOpex - $derived['total_operating_costs'];
+        $sharedIncome = $incomeBeforeOpex * ($shareRate ?? 1.0);
+        $netIncome = self::netIncomeFrom($incomeBeforeOpex, $taxAllocation, $derived['total_operating_costs']);
 
         return array_merge($derived, [
             'tax_allocation' => $taxAllocation,
@@ -449,6 +486,8 @@ class ExpectedIncomeCalculator
             'gross_profit_pct' => $grossSales > 0 ? $grossProfit / $grossSales : 0.0,
             'income_before_opex' => $incomeBeforeOpex,
             'income_before_opex_pct' => $grossSales > 0 ? $incomeBeforeOpex / $grossSales : 0.0,
+            'shared_income' => $sharedIncome,
+            'shared_income_pct' => $grossSales > 0 ? $sharedIncome / $grossSales : 0.0,
             'net_income' => $netIncome,
             'net_income_pct' => $grossSales > 0 ? $netIncome / $grossSales : 0.0,
         ]);
