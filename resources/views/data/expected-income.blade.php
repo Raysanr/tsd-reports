@@ -12,6 +12,13 @@
 <style>
     .ei-scroller { cursor: grab; }
     .ei-scroller.cursor-grabbing { cursor: grabbing; }
+    /* Phones: one whole card per screen width (the fixed 26rem card cut off
+       its own % column on a 375px screen), snapping card to card. */
+    .ei-card { max-width: calc(100vw - 2rem); }
+    @media (max-width: 639px) {
+        .ei-scroller { scroll-snap-type: x proximity; }
+        .ei-card { scroll-snap-align: start; }
+    }
 </style>
 
 @php

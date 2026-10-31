@@ -18,7 +18,7 @@ class ToastContainerRenderingTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('id="toastContainer"', false);
-        $response->assertSee('class="fixed top-4 right-4', false);
+        $response->assertSee('class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4', false);
     }
 
     public function test_a_flashed_success_message_is_rendered_as_a_toast_call(): void

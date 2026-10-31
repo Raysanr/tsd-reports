@@ -555,7 +555,7 @@
      works identically here. Two separate role="alert"/"status" toasts, not one
      shared live region — see that page's own comment on why. --}}
 <div id="toastContainer"
-     class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-full max-w-sm pointer-events-none"></div>
+     class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-full z-[70] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
 
 {{-- Mobile sidebar drawer toggle (explicit follow-up request, 2026-09-05) —
      same open/close/backdrop/resize logic as TSD Reports' own

@@ -350,7 +350,7 @@
      an assertive-role toast inside a polite live-region container is a known
      source of inconsistent screen-reader behavior across NVDA/JAWS/VoiceOver. --}}
 <div id="toastContainer"
-     class="fixed top-4 right-4 z-[70] flex flex-col gap-2 w-full max-w-sm pointer-events-none"></div>
+     class="fixed top-4 inset-x-4 sm:inset-x-auto sm:right-4 sm:w-full z-[70] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
 
 {{-- Shared confirm modal — window.showConfirm(message, opts) in app.js. Every
      page's destructive-action confirmation (delete, bulk delete, move team,
@@ -651,7 +651,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
             </button>
-            <div class="min-w-0 shrink-0">
+            <div class="min-w-0 flex-1 lg:flex-none lg:shrink-0">
                 <h1 class="text-lg font-bold text-slate-800 dark:text-slate-100 font-mono truncate">@yield('title', 'Dashboard')</h1>
                 <p class="text-xs text-slate-400 mt-0.5 truncate">@yield('subtitle', 'TSD Leads Reports · Pancake POS Integration')</p>
             </div>

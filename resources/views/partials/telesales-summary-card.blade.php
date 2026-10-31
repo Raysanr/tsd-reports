@@ -40,7 +40,7 @@
          inside of. --}}
     <div class="p-3 flex flex-col gap-3">
         {{-- 2 small prior-day columns, side by side --}}
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @foreach($telesalesPriorDates as $i => $date)
             @include('partials.telesales-summary-small', ['date' => $date, 'summary' => $telesalesPriorSummaries[$i]])
             @endforeach

@@ -25,7 +25,7 @@
     </div>
 
     {{-- Gross Sales / Daily Net Income --}}
-    <div class="grid grid-cols-2 divide-x divide-black border-b border-black shrink-0">
+    <div class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-black border-b border-black shrink-0">
         <div class="px-3 py-2 text-center">
             <p class="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wide mb-1">Gross Sales</p>
             <div class="flex items-center justify-center gap-1">
@@ -47,7 +47,7 @@
     </div>
 
     {{-- Top Seller / Top Team --}}
-    <div class="grid grid-cols-2 divide-x divide-black border-b border-black shrink-0">
+    <div class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-black border-b border-black shrink-0">
         <div class="px-3 py-2">
             <p class="text-[10px] font-mono font-semibold text-amber-500 uppercase tracking-wide mb-1 text-center">🏆 Top Seller of the Day!</p>
             <input type="text" data-field="top_seller_name" placeholder="TSA name"

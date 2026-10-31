@@ -41,7 +41,7 @@
         @endforeach
     </div>
 
-    <div class="flex flex-wrap items-center gap-4 shrink-0">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-3 min-w-0">
         {{-- Global POS name tag auto-tagging switch — explicit request,
              2026-08-28. One toggle for every TSA (not per-row): OFF just
              stops each TSA's own tag being pushed to their Pancake POS

@@ -124,3 +124,21 @@ html.dark.sidebar-light :is(#sidebar, .sidebar-surface) { box-shadow: inset -1px
    partials/theme-color; the sidebar keeps its own menu colors. */
 html.theme-text:not(.dark) :is(.text-primary, .text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800, .text-yellow-900, .text-amber-500, .text-amber-600, .text-amber-700, .text-amber-800, .text-amber-900):not(:is(#sidebar, .sidebar-surface) *) { color: var(--theme-text); }
 html.theme-text.dark :is(.text-primary, .dark\:text-primary, .text-yellow-500, .text-yellow-600, .text-yellow-700, .text-yellow-800, .text-yellow-900, .dark\:text-yellow-200, .dark\:text-yellow-300, .dark\:text-yellow-400, .dark\:text-yellow-500, .text-amber-500, .text-amber-600, .text-amber-700, .text-amber-800, .dark\:text-amber-200, .dark\:text-amber-300, .dark\:text-amber-400):not(:is(#sidebar, .sidebar-surface) *) { color: var(--theme-text-dark); }
+
+/* Phones: a table marked .ct-stack turns into one card per row — header
+   hidden, every cell a "LABEL  value" line from its data-label, the first
+   (row-controls) cell pinned to the card's top-right corner. sm: and up
+   keeps the normal table untouched. */
+@media (max-width: 639px) {
+    table.ct-stack thead { display: none; }
+    table.ct-stack, table.ct-stack > tbody, table.ct-stack > tbody > tr, table.ct-stack > tbody > tr > td { display: block; width: 100%; }
+    table.ct-stack > tbody > tr { position: relative; padding: 0.75rem 1rem; }
+    table.ct-stack > tbody > tr > td { display: flex; align-items: center; gap: 0.75rem; padding: 0.3rem 0 !important; min-width: 0; }
+    table.ct-stack > tbody > tr > td[data-label]::before {
+        content: attr(data-label); flex: 0 0 5.75rem;
+        font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+        color: var(--color-slate-400);
+    }
+    table.ct-stack > tbody > tr > td:first-child { position: absolute; top: 0.5rem; right: 0.5rem; width: auto; padding: 0 !important; }
+    table.ct-stack > tbody > tr > td:not([data-label]):not(:first-child) { justify-content: flex-end; }
+}

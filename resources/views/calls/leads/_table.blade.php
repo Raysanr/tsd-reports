@@ -15,8 +15,11 @@
          Management's own scrollable list (resources/views/user-management.
          blade.php), and the header row is sticky so column labels stay
          visible while scrolling instead of scrolling away with row 1. --}}
-    <div class="overflow-x-auto max-h-[calc(100vh-260px)] overflow-y-auto">
-    <table class="w-full text-sm font-mono">
+    {{-- ct-stack: one card per lead on phones (calls.css), the normal
+         table from sm: up; the inner scroll box only applies from sm: too,
+         so a phone scrolls the page instead of a box inside it. --}}
+    <div class="overflow-x-auto sm:max-h-[calc(100vh-260px)] sm:overflow-y-auto">
+    <table class="ct-stack w-full text-sm font-mono">
         <thead class="sticky top-0 z-10 bg-slate-100 dark:bg-slate-700 border-b border-slate-200 dark:border-slate-700">
             <tr>
                 {{-- Bulk select — admin-only (explicit request, 2026-08-26): the two
@@ -113,8 +116,8 @@
                         </form>
                     </div>
                 </td>
-                <td class="px-4 py-3 text-slate-500 dark:text-slate-400 tabular-nums">#{{ $lead->pancake_order_id }}</td>
-                <td class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">
+                <td data-label="Order ID" class="px-4 py-3 text-slate-500 dark:text-slate-400 tabular-nums">#{{ $lead->pancake_order_id }}</td>
+                <td data-label="Customer" class="px-4 py-3 font-semibold text-slate-700 dark:text-slate-200">
                     {{-- Modal by default (explicit request, 2026-08-25: "same
                          UI as in the POS ... pop up like a modal"), real href
                          underneath so right-click/open-in-new-tab/direct-link
@@ -140,7 +143,7 @@
                     </span>
                     @endif
                 </td>
-                <td class="px-4 py-3">
+                <td data-label="Phone" class="px-4 py-3">
                     <div class="flex items-center gap-2">
                         @if($lead->dialable_number)
                         {{-- data-dial-host is the VIEWER's own configured phone
@@ -217,7 +220,7 @@
                         @endif
                     </div>
                 </td>
-                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                <td data-label="Product" class="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {{-- Variation badge, POS-style (explicit request,
                          2026-09-03: "5 Pterygium Drops" like the POS shows) —
                          orderBaseProducts is the locally-synced order's own
@@ -235,7 +238,7 @@
                     @endif
                 </td>
                 @if(auth()->user()->isAtLeastAdmin())
-                <td class="px-4 py-3 text-slate-600 dark:text-slate-300">
+                <td data-label="TSA" class="px-4 py-3 text-slate-600 dark:text-slate-300">
                     {{-- Transfer to another TSA (explicit request, 2026-08-19) —
                          admin-only, same guard as this column itself. Submits on
                          change via fetch (see calls.js's .transfer-form listener,
@@ -255,7 +258,7 @@
                     </form>
                 </td>
                 @endif
-                <td class="px-4 py-3">
+                <td data-label="Status" class="px-4 py-3">
                     {{-- Order status pill (explicit request, 2026-08-22) — mirrors
                          Pancake POS's own Status control (screenshot: colored pill
                          trigger + icon dropdown of real order statuses) instead of
@@ -295,9 +298,9 @@
                     @endif
                 </td>
                 @if($view === 'callbacks')
-                <td class="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">{{ $lead->callback_at?->format('M j, g:i A') }}</td>
+                <td data-label="Callback due" class="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">{{ $lead->callback_at?->format('M j, g:i A') }}</td>
                 @endif
-                <td class="px-4 py-3">
+                <td data-label="Outcome" class="px-4 py-3">
                     {{-- Real order tags (explicit request, 2026-08-22) — mirrors
                          Pancake POS's own tag chips (color dot + name + × remove),
                          reading the order's ACTUAL current tag list
