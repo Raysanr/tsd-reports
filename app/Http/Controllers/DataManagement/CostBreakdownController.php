@@ -146,6 +146,10 @@ class CostBreakdownController extends Controller
         // Opening and Closing each still get their own labelled block under
         // her. With none left, the TSAs still show, at the end.
         $soleSupervisor = CostBreakdownRole::soleSupervisor($roles);
+        // Partners (2026-10-31): the ONE supervisor shared by every partner
+        // has no team of her own, so no TSA ever matched her — every partner
+        // TSA goes under her, one labelled block per partner.
+        $partnerSupervisor = \App\Support\DataSet::isPartners() ? $roles->firstWhere('overhead_divisor', 'partner') : null;
         $teamLabelDate = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $month . '-01');
         $tsaRowsFor = function ($rows) use ($overheadRefsByTeam, $soleSupervisor, $teamLabelDate) {
             $makeRow = fn ($row) => [
@@ -154,7 +158,7 @@ class CostBreakdownController extends Controller
                 'entry' => $row['entry'],
                 'total' => CostBreakdownCalculator::tsaTotal($row['entry']->base_salary, $overheadRefsByTeam->get($row['tsa']->team) ?? []),
             ];
-            if (!$soleSupervisor && $rows->pluck('tsa.team')->unique()->count() <= 1) {
+            if (!$soleSupervisor && !\App\Support\DataSet::isPartners() && $rows->pluck('tsa.team')->unique()->count() <= 1) {
                 return $rows->map($makeRow);
             }
 
@@ -164,7 +168,7 @@ class CostBreakdownController extends Controller
             ]])->concat($teamRows->map($makeRow)));
         };
 
-        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, $soleSupervisor, $tsaRowsFor, &$rowspanRemaining, &$seenGroups) {
+        $salaryRows = $roles->flatMap(function (CostBreakdownRole $role) use ($tsaRows, $overheadByRoleId, $rolesByGroup, $soleSupervisor, $partnerSupervisor, $tsaRowsFor, &$rowspanRemaining, &$seenGroups) {
             $coveredByRowspan = $rowspanRemaining > 0;
             $rowspan = 0;
 
@@ -187,7 +191,9 @@ class CostBreakdownController extends Controller
                 'tax_shifts' => $soleSupervisor && $soleSupervisor->is($role) ? max(1, $tsaRows->pluck('tsa.team')->unique()->count()) : 1,
             ]]);
 
-            if ($role->team) {
+            if ($partnerSupervisor && $partnerSupervisor->is($role)) {
+                $rows = $rows->concat($tsaRowsFor($tsaRows));
+            } elseif ($role->team) {
                 $rows = $rows->concat($tsaRowsFor(
                     $soleSupervisor ? $tsaRows : $tsaRows->filter(fn ($row) => $row['tsa']->team === $role->team)
                 ));
@@ -196,8 +202,8 @@ class CostBreakdownController extends Controller
             return $rows;
         })->values();
 
-        // Both supervisors removed: no role row owns the TSAs any more.
-        if ($roles->whereNotNull('team')->isEmpty() && !\App\Support\DataSet::isPartners()) {
+        // Every supervisor removed: no role row owns the TSAs any more.
+        if ($roles->whereNotNull('team')->isEmpty() && !$partnerSupervisor) {
             $salaryRows = $salaryRows->concat($tsaRowsFor($tsaRows))->values();
         }
 

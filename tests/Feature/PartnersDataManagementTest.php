@@ -221,4 +221,16 @@ class PartnersDataManagementTest extends TestCase
             $this->assertEqualsWithDelta($ibo * 0.4 - 30 - 70, $opex['net_income'], 0.001);
         });
     }
+
+    public function test_partner_tsas_list_under_the_shared_supervisor_in_salary_breakdown(): void
+    {
+        $this->syncPeak();
+        $tsa = DataSet::onPartners(fn () => TsaShift::sole());
+
+        $html = $this->actingAs($this->admin())->get('/partners/cost-breakdown?month=2026-10')->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-tsa-salary-row data-tsa-id="' . $tsa->id . '"', $html);
+        $supervisorAt = strpos($html, 'Telesales Supervisor');
+        $this->assertGreaterThan($supervisorAt, strpos($html, 'data-tsa-salary-row'), 'TSA rows follow the supervisor');
+    }
 }
