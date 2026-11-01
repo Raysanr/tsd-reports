@@ -63,6 +63,22 @@ class RemovedTsaKeepsHistoryTest extends TestCase
         $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-01', '2026-10-31'), 'a range covering her old days still shows her');
     }
 
+    /** Explicit request, 2026-11-01: "starting today when i removed" —
+     *  Data Management drops her on the removal day itself. */
+    public function test_data_management_drops_her_on_the_removal_day_itself(): void
+    {
+        $gemma = $this->removeGemmaOn('2026-10-10');
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        $salaryRow = 'data-tsa-salary-row data-tsa-id="' . $gemma->id . '"';
+
+        Carbon::setTestNow('2026-10-09 18:00:00');
+        $this->get('/data/cost-breakdown?month=2026-10')->assertOk()->assertSee($salaryRow, false);
+
+        Carbon::setTestNow('2026-10-10 18:00:00');
+        $this->get('/data/cost-breakdown?month=2026-10')->assertOk()->assertDontSee($salaryRow, false);
+        $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-10', '2026-10-10'), 'other reports still show the removal day');
+    }
+
     public function test_live_pages_and_tsa_management_still_treat_her_as_removed(): void
     {
         $gemma = $this->removeGemmaOn('2026-10-10');

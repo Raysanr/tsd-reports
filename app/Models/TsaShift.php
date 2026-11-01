@@ -58,6 +58,26 @@ class TsaShift extends Model
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
     }
 
+    /** Data Management (explicit request, 2026-11-01: "starting today when i
+     *  removed") drops a removed TSA ON her removal day too, not just from
+     *  the next day — set per request by DataManagementDataset. Every other
+     *  report page keeps showing her on that day. */
+    public static function excludeRemovalDay(): void
+    {
+        if (app()->bound('request')) {
+            app('request')->attributes->set('tsa_roster_exclude_removal_day', true);
+        }
+    }
+
+    /** The deleted_at a removed TSA needs (>=) to still be on the roster for
+     *  $date: that day's start, or the next day's under excludeRemovalDay(). */
+    public static function rosterCutoff(string $date): string
+    {
+        $excludeRemovalDay = app()->bound('request') && app('request')->attributes->get('tsa_roster_exclude_removal_day');
+
+        return \Illuminate\Support\Carbon::parse($date)->addDays($excludeRemovalDay ? 1 : 0)->toDateString() . ' 00:00:00';
+    }
+
     /** Route-bound edits on a dated cell (Expected Income / Summary Sales
      *  {date} routes) can still reach a TSA removed on/after that date. */
     public function resolveRouteBinding($value, $field = null)
