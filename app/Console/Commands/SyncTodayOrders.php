@@ -31,15 +31,20 @@ class SyncTodayOrders extends Command
     // matching non-TSA accounts with common names.
     private array $sellerMap = [];
 
-    /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above).
-     *  Removed TSAs are included too (2026-11-02: removing six TSAs on Nov 1
-     *  made the next night's 3-day reconcile overwrite their Oct 31 orders'
-     *  tsa_name with NULL, dumping them into Unassigned) — report pages
-     *  already decide by date whether a removed TSA shows. Removed rows load
-     *  first so an active TSA always wins a keyword they share. */
-    private function loadTsaMaps(): void
+    /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above),
+     *  using the roster as it stood on $date: a TSA removed on/after that day
+     *  still counts (2026-11-02: removing six TSAs on Nov 1 made the next
+     *  night's 3-day reconcile overwrite their Oct 31 orders' tsa_name with
+     *  NULL, dumping them into Unassigned). Same cutoff the report pages use
+     *  (TsaRosterScope), and a keyword shared with a later TSA (e.g. JOANNA:
+     *  Grace Olivo, removed, vs. Joana Caluag) still resolves the way it did
+     *  that day instead of jumping to whoever holds it now. */
+    private function loadTsaMaps(Carbon $date): void
     {
-        $shifts = TsaShift::onlyTrashed()->orderBy('deleted_at')->get()->concat(TsaShift::all());
+        $cutoff = $date->copy()->startOfDay()->toDateTimeString();
+        $shifts = TsaShift::withTrashed()
+            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>=', $cutoff))
+            ->orderBy('id')->get();
 
         foreach ($shifts as $shift) {
             $info = ['name' => $shift->tsa_key, 'team' => $shift->team];
@@ -98,8 +103,6 @@ class SyncTodayOrders extends Command
 
     private function doSync(Carbon $runStart): int
     {
-        $this->loadTsaMaps();
-
         $apiKey = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $shopId = Setting::get('shop_id', '');
 
@@ -113,6 +116,8 @@ class SyncTodayOrders extends Command
         $date = $this->option('date')
             ? Carbon::parse($this->option('date'), 'Asia/Manila')
             : Carbon::now('Asia/Manila');
+
+        $this->loadTsaMaps($date);
 
         $startOfDayTs = $date->copy()->startOfDay()->timestamp;
         $endOfDayTs   = $date->copy()->endOfDay()->timestamp;
