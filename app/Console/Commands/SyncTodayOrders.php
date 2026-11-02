@@ -31,10 +31,17 @@ class SyncTodayOrders extends Command
     // matching non-TSA accounts with common names.
     private array $sellerMap = [];
 
-    /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above). */
+    /** Populate $tsaMap / $sellerMap from tsa_shifts (see class doc above).
+     *  Removed TSAs are included too (2026-11-02: removing six TSAs on Nov 1
+     *  made the next night's 3-day reconcile overwrite their Oct 31 orders'
+     *  tsa_name with NULL, dumping them into Unassigned) — report pages
+     *  already decide by date whether a removed TSA shows. Removed rows load
+     *  first so an active TSA always wins a keyword they share. */
     private function loadTsaMaps(): void
     {
-        foreach (TsaShift::all() as $shift) {
+        $shifts = TsaShift::onlyTrashed()->orderBy('deleted_at')->get()->concat(TsaShift::all());
+
+        foreach ($shifts as $shift) {
             $info = ['name' => $shift->tsa_key, 'team' => $shift->team];
 
             foreach ($shift->tag_keywords_array as $kw) {
