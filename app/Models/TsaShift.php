@@ -65,10 +65,10 @@ class TsaShift extends Model
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
     }
 
-    /** Data Management (explicit request, 2026-11-01: "starting today when i
-     *  removed") drops a removed TSA ON her removal day too, not just from
-     *  the next day — set per request by DataManagementDataset. Every other
-     *  report page keeps showing her on that day. */
+    /** Data Management drops a removed TSA from her whole removal month
+     *  (2026-11-01, widened 2026-11-03 — see rosterCutoff()) — set per
+     *  request by DataManagementDataset. Every other report page keeps
+     *  showing her up to her removal day. */
     public static function excludeRemovalDay(): void
     {
         if (app()->bound('request')) {
@@ -77,12 +77,16 @@ class TsaShift extends Model
     }
 
     /** The deleted_at a removed TSA needs (>=) to still be on the roster for
-     *  $date: that day's start, or the next day's under excludeRemovalDay(). */
+     *  $date: that day's start; under excludeRemovalDay() (Data Management),
+     *  the start of the NEXT month — a TSA removed any time in November is
+     *  gone from all of November and stays through October 31 (explicit
+     *  request, 2026-11-03: "in nov 1 i want to make it reset all"). */
     public static function rosterCutoff(string $date): string
     {
-        $excludeRemovalDay = app()->bound('request') && app('request')->attributes->get('tsa_roster_exclude_removal_day');
+        $dataManagement = app()->bound('request') && app('request')->attributes->get('tsa_roster_exclude_removal_day');
+        $cutoff = \Illuminate\Support\Carbon::parse($date);
 
-        return \Illuminate\Support\Carbon::parse($date)->addDays($excludeRemovalDay ? 1 : 0)->toDateString() . ' 00:00:00';
+        return ($dataManagement ? $cutoff->startOfMonth()->addMonthNoOverflow() : $cutoff)->toDateString() . ' 00:00:00';
     }
 
     /** Route-bound edits on a dated cell (Expected Income / Summary Sales

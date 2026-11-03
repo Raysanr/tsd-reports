@@ -63,20 +63,21 @@ class RemovedTsaKeepsHistoryTest extends TestCase
         $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-01', '2026-10-31'), 'a range covering her old days still shows her');
     }
 
-    /** Explicit request, 2026-11-01: "starting today when i removed" —
-     *  Data Management drops her on the removal day itself. */
-    public function test_data_management_drops_her_on_the_removal_day_itself(): void
+    /** Explicit request, 2026-11-03: Data Management drops her from her
+     *  whole removal month; the month before still has her. */
+    public function test_data_management_drops_her_from_her_whole_removal_month(): void
     {
-        $gemma = $this->removeGemmaOn('2026-10-10');
+        $gemma = $this->removeGemmaOn('2026-10-20');
+        \Illuminate\Support\Facades\DB::table('tsa_shifts')->where('id', $gemma->id)->update(['created_at' => '2026-01-01 00:00:00']);
         $this->actingAs(User::factory()->create(['role' => 'admin']));
         $salaryRow = 'data-tsa-salary-row data-tsa-id="' . $gemma->id . '"';
 
-        Carbon::setTestNow('2026-10-09 18:00:00');
-        $this->get('/data/cost-breakdown?month=2026-10')->assertOk()->assertSee($salaryRow, false);
-
-        Carbon::setTestNow('2026-10-10 18:00:00');
+        Carbon::setTestNow('2026-10-25 18:00:00');
+        $this->get('/data/cost-breakdown?month=2026-09')->assertOk()->assertSee($salaryRow, false);
         $this->get('/data/cost-breakdown?month=2026-10')->assertOk()->assertDontSee($salaryRow, false);
-        $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-10', '2026-10-10'), 'other reports still show the removal day');
+        $this->get('/data/expected-income?date_from=2026-10-01&date_to=2026-10-01&team=sh-naturals')->assertOk()->assertDontSee('data-tsa-name="' . strtolower($gemma->display_name) . '"', false);
+        $this->get('/data/expected-income?date_from=2026-09-30&date_to=2026-09-30&team=sh-naturals')->assertOk()->assertSee('data-tsa-name="' . strtolower($gemma->display_name) . '"', false);
+        $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-20', '2026-10-20'), 'other reports still show the removal day');
     }
 
     public function test_live_pages_and_tsa_management_still_treat_her_as_removed(): void
