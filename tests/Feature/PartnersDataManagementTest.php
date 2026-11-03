@@ -103,10 +103,10 @@ class PartnersDataManagementTest extends TestCase
         DataSet::onPartners(fn () => $this->assertSame(6, (int) DB::table('orders')->where('pancake_order_id', 'peak-co:901')->value('status_code')));
     }
 
-    public function test_tsas_cannot_open_partners_but_keep_tsd_data_management(): void
+    public function test_normal_users_can_open_partners_and_tsd_data_management(): void
     {
         $tsa = User::factory()->create(['role' => 'normal']);
-        $this->actingAs($tsa)->get('/partners/projections')->assertForbidden();
+        $this->actingAs($tsa)->get('/partners/projections')->assertOk()->assertSee('Partners Data Management');
         $this->actingAs($tsa)->get('/data/projections')->assertOk()->assertSee('TSD Data Management');
     }
 

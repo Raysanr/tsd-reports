@@ -452,8 +452,8 @@
         </div>
 
         {{-- Partners — each runs its own Railway deployment (separate repo,
-             database and login); this only links out. Admin-only. --}}
-        @if(auth()->user()->isAtLeastAdmin())
+             database and login); this only links out. Every role sees it
+             (2026-11-03, explicit request). --}}
         @php
             $partners = [
                 ['name' => 'PEAK.CO', 'badge' => 'PK', 'color' => '#0f766e', 'url' => 'https://peak-co-production.up.railway.app'],
@@ -487,7 +487,6 @@
                 </div>
             </div>
         </div>
-        @endif
     </div>
 
     <p class="section-label">Select a system</p>
@@ -557,8 +556,8 @@
         </a>
 
         {{-- Partners Data Management (2026-10-29) — Data Management on the
-             partners' synced data (App\Support\DataSet). Admin-only. --}}
-        @if(auth()->user()->isAtLeastAdmin())
+             partners' synced data (App\Support\DataSet). Every role sees it
+             (2026-11-03, explicit request). --}}
         <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.projections', ['dm' => 'partners']) }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -570,8 +569,22 @@
             <p>Data Management for PEAK.CO, M&amp;J and MLC — their leads and orders, your costs and projections, per partner or all together.</p>
             <span class="card-open">Open →</span>
         </a>
-        @endif
 
+        {{-- TSD Archiving System (explicit request, 2026-10-19). Admin-only
+             like its route group — it holds HR records (contracts, IDs). --}}
+        @if(auth()->user()->isAtLeastAdmin())
+        <a class="card" style="--card-accent:#0284c7; --card-accent-soft:rgba(2,132,199,0.12)" href="{{ route('archive.overview') }}">
+            <div class="card-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+                </svg>
+            </div>
+            <span class="card-tag">Organization</span>
+            <h3>TSD Archiving System</h3>
+            <p>Department structure chart, people directory, file archive, and the TSD Scoreboard of delivered sales.</p>
+            <span class="card-open">Open →</span>
+        </a>
+        @endif
 
     </div>
 </main>
