@@ -103,9 +103,33 @@ class CostBreakdownRole extends Model
     }
 
     /** How many ways an overhead group is divided; "partner" = one share per partner. */
-    public static function divisorCount(?string $divisor): int
+    public static function divisorCount(?string $divisor, ?self $role = null): int
     {
-        return $divisor === 'partner' ? count(\App\Support\Teams::config()) : (self::OVERHEAD_DIVISOR_COUNTS[$divisor] ?? 0);
+        if ($divisor === 'partner') {
+            return count(\App\Support\Teams::config());
+        }
+        if ($role && $role->month >= self::REAL_TSA_DIVISOR_FROM && isset(self::OVERHEAD_DIVISOR_COUNTS[$divisor])) {
+            return self::activeTsaCount($divisor === 'team' ? $role->team : null);
+        }
+
+        return self::OVERHEAD_DIVISOR_COUNTS[$divisor] ?? 0;
+    }
+
+    /** From this Cost Breakdown month on (explicit request, 2026-11-03),
+     *  'total'/'team' divide by the real number of currently active TSAs
+     *  (TikTok Upsell TSAs excluded) instead of the sheet's fixed 12/6.
+     *  Earlier months keep 12/6 so their figures never move. */
+    public const REAL_TSA_DIVISOR_FROM = '2026-11';
+
+    /** Currently active (not removed) non-TikTok TSAs, optionally one team's. */
+    public static function activeTsaCount(?string $team = null): int
+    {
+        $key = 'cost_breakdown.active_tsas.' . (\App\Support\DataSet::isPartners() ? 'partners' : 'tsd') . '.' . ($team ?? '*');
+
+        return \App\Support\RequestMemo::remember($key, fn () => TsaShift::withTrashed()->whereNull('deleted_at')
+            ->where('tiktok_upsell', false)
+            ->when($team !== null, fn ($q) => $q->where('team', $team))
+            ->count());
     }
 
     public const OVERHEAD_DIVISOR_COUNTS = [
@@ -204,7 +228,7 @@ class CostBreakdownRole extends Model
             }
 
             $groupBaseSalaries = $rolesByGroup->get($role->overhead_group)->pluck('base_salary')->all();
-            $tsaCount = self::divisorCount($sole && $sole->is($role) ? 'total' : $role->overhead_divisor);
+            $tsaCount = self::divisorCount($sole && $sole->is($role) ? 'total' : $role->overhead_divisor, $role);
 
             return [$role->id => \App\Support\CostBreakdownCalculator::overheadPerTsa($groupBaseSalaries, $tsaCount)];
         });

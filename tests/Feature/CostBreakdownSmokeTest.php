@@ -25,6 +25,19 @@ class CostBreakdownSmokeTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** Before CostBreakdownRole::REAL_TSA_DIVISOR_FROM, Shared Ref. uses the
+     *  sheet's fixed 12/6 — the tests asserting those figures run here. */
+    private function inOctober(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-10-15 10:00:00');
+    }
+
+    protected function tearDown(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     public function test_admin_can_view_the_report_page(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
@@ -103,6 +116,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  them instead). */
     public function test_the_executive_groups_overhead_figure_is_not_duplicated_onto_the_rows_it_spans(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
 
@@ -434,6 +448,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  share one. */
     public function test_adding_a_role_to_an_existing_group_changes_that_groups_overhead(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
         $ceo = CostBreakdownRole::where('seed_key', 'ceo')->firstOrFail();
@@ -563,6 +578,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  her share — while Opening and Closing still show as separate blocks. */
     public function test_a_sole_supervisor_covers_every_tsa_with_teams_kept(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         $admin = User::factory()->create(['role' => 'admin']);
         $current = \App\Support\CostBreakdownMonths::current();
         \App\Support\CostBreakdownMonths::seed($current);
@@ -592,6 +608,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  her own team, divided by the team headcount. */
     public function test_two_supervisors_keep_per_team_overhead(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         CostBreakdownRole::ensureSeeded();
         $roles = CostBreakdownRole::where('month', \App\Support\CostBreakdownMonths::current())->get();
         $this->assertNull(CostBreakdownRole::soleSupervisor($roles));
@@ -624,6 +641,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  freshly-updated overhead figure, not just her own row. */
     public function test_updating_a_roles_base_salary_recomputes_its_whole_overhead_groups_figure(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
         $ceo = CostBreakdownRole::where('label', 'CEO')->firstOrFail();
@@ -731,6 +749,7 @@ class CostBreakdownSmokeTest extends TestCase
 
     public function test_updating_a_tsas_salary_fields_persists_and_returns_totals(): void
     {
+        $this->inOctober(); // checks the sheet's fixed 12/6 divisor
         $admin = User::factory()->create(['role' => 'admin']);
         CostBreakdownRole::ensureSeeded();
         CostBreakdownPool::ensureSeeded();
@@ -1100,5 +1119,31 @@ class CostBreakdownSmokeTest extends TestCase
         foreach ($teammates as $tsa) {
             $this->assertEqualsWithDelta($perShift / $teammates->count(), $tax[$tsa->id], 0.01, $tsa->display_name);
         }
+    }
+
+    public function test_from_november_shared_ref_divides_by_the_active_tsas(): void
+    {
+        \App\Support\CostBreakdownMonths::seed('2026-11');
+        $roles = CostBreakdownRole::where('month', '2026-11')->get();
+        $overhead = CostBreakdownRole::overheadByRoleId($roles);
+
+        $active = TsaShift::where('tiktok_upsell', false)->count();
+        $this->assertGreaterThan(0, $active);
+        $ceo = $roles->firstWhere('seed_key', 'ceo');
+        $executive = $roles->where('overhead_group', 'executive')->sum('base_salary');
+        $this->assertEqualsWithDelta($executive / $active, $overhead->get($ceo->id), 0.01);
+
+        $opening = $roles->firstWhere('seed_key', 'supervisor_opening');
+        $teamActive = TsaShift::where('tiktok_upsell', false)->where('team', $opening->team)->count();
+        $this->assertEqualsWithDelta($teamActive > 0 ? $opening->base_salary / $teamActive : 0.0, $overhead->get($opening->id), 0.01);
+
+        // A removed TSA drops out of November's divisor; October keeps 12.
+        TsaShift::where('tiktok_upsell', false)->first()->delete();
+        \App\Support\RequestMemo::flush();
+        $this->assertEqualsWithDelta($executive / ($active - 1), CostBreakdownRole::overheadByRoleId($roles)->get($ceo->id), 0.01);
+
+        \App\Support\CostBreakdownMonths::seed('2026-10');
+        $october = CostBreakdownRole::where('month', '2026-10')->get();
+        $this->assertEqualsWithDelta($executive / 12, CostBreakdownRole::overheadByRoleId($october)->get($october->firstWhere('seed_key', 'ceo')->id), 0.01);
     }
 }
