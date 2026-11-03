@@ -121,7 +121,9 @@ class TsaSalesReportController extends Controller
         $tsaKeyToId = $tsas->pluck('id', 'tsa_key');
 
         $performance = $byTsaAndDate->mapWithKeys(function (Collection $dayOrders, string $groupKey) use ($tsaKeyToId, $netIncomeByKey) {
-            [$tsaKey, $date] = explode(':', $groupKey, 2);
+            // Split at the LAST colon: partner TSA keys contain one themselves ("M&J:Trocio").
+            $tsaKey = substr($groupKey, 0, strrpos($groupKey, ':'));
+            $date = substr($groupKey, strrpos($groupKey, ':') + 1);
             $tsaId = $tsaKeyToId->get($tsaKey);
             if ($tsaId === null) return [];
 

@@ -195,6 +195,15 @@ class PartnersDataManagementTest extends TestCase
         $this->post('/data/sync-now')->assertNotFound();
     }
 
+    public function test_summary_sales_report_credits_partner_tsas_whose_keys_contain_a_colon(): void
+    {
+        $this->syncPeak();
+        $this->actingAs($this->admin());
+
+        $this->get('/partners/tsa-sales?date_from=2026-10-05&date_to=2026-10-05')->assertOk()
+            ->assertViewHas('overallTotal', fn ($t) => $t['gross_sales'] > 0 && $t['total_orders'] > 0);
+    }
+
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {
