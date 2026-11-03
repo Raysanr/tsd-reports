@@ -86,9 +86,9 @@ class CostBreakdownRole extends Model
      *  while the real roster is still below 12. */
     /** Partners Data Management (App\Support\DataSet) starts from the same
      *  roles as TSD, except TSD's two shift supervisors become ONE supervisor
-     *  shared by all partners: her salary is split equally per partner
-     *  (divisor "partner"), then across that partner's TSAs. */
-    public const PARTNER_SUPERVISOR = ['seed_key' => 'supervisor', 'label' => 'Telesales Supervisor', 'person_name' => null, 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'partner', 'sort_order' => 5];
+     *  shared by all partners: her salary is split across every active
+     *  partner TSA (2026-11-03 — was ÷ partners, then ÷ each partner's TSAs). */
+    public const PARTNER_SUPERVISOR = ['seed_key' => 'supervisor', 'label' => 'Telesales Supervisor', 'person_name' => null, 'base_salary' => 34285.71, 'overhead_group' => 'supervisor', 'overhead_divisor' => 'total', 'sort_order' => 5];
 
     public static function seedRoles(): array
     {
@@ -108,7 +108,7 @@ class CostBreakdownRole extends Model
         if ($divisor === 'partner') {
             return count(\App\Support\Teams::config());
         }
-        if ($role && $role->month >= self::REAL_TSA_DIVISOR_FROM && isset(self::OVERHEAD_DIVISOR_COUNTS[$divisor])) {
+        if ($role && self::usesActiveTsaCount($role) && isset(self::OVERHEAD_DIVISOR_COUNTS[$divisor])) {
             return self::activeTsaCount($divisor === 'team' ? $role->team : null);
         }
 
@@ -121,6 +121,12 @@ class CostBreakdownRole extends Model
      *  Earlier months keep 12/6 so their figures never move. */
     public const REAL_TSA_DIVISOR_FROM = '2026-11';
 
+    /** Partners never had the sheet's 12/6 — always the real active count. */
+    public static function usesActiveTsaCount(self $role): bool
+    {
+        return \App\Support\DataSet::isPartners() || $role->month >= self::REAL_TSA_DIVISOR_FROM;
+    }
+
     /** Currently active (not removed) non-TikTok TSAs, optionally one team's. */
     public static function activeTsaCount(?string $team = null): int
     {
@@ -129,6 +135,8 @@ class CostBreakdownRole extends Model
         return \App\Support\RequestMemo::remember($key, fn () => TsaShift::withTrashed()->whereNull('deleted_at')
             ->where('tiktok_upsell', false)
             ->when($team !== null, fn ($q) => $q->where('team', $team))
+            // Partners: only TSAs on a configured partner team.
+            ->when($team === null && \App\Support\DataSet::isPartners(), fn ($q) => $q->whereIn('team', array_column(\App\Support\Teams::config(), 'order_team')))
             ->count());
     }
 

@@ -149,7 +149,7 @@ class CostBreakdownController extends Controller
         // Partners (2026-10-31): the ONE supervisor shared by every partner
         // has no team of her own, so no TSA ever matched her — every partner
         // TSA goes under her, one labelled block per partner.
-        $partnerSupervisor = \App\Support\DataSet::isPartners() ? $roles->firstWhere('overhead_divisor', 'partner') : null;
+        $partnerSupervisor = \App\Support\DataSet::isPartners() ? $roles->firstWhere('seed_key', 'supervisor') : null;
         $teamLabelDate = \Illuminate\Support\Carbon::createFromFormat('Y-m-d', $month . '-01');
         $tsaRowsFor = function ($rows) use ($overheadRefsByTeam, $soleSupervisor, $teamLabelDate) {
             $makeRow = fn ($row) => [

@@ -181,11 +181,12 @@ class PartnersDataManagementTest extends TestCase
             $supervisor->update(['base_salary' => 30000]);
             $roles = CostBreakdownRole::where('month', '2026-10')->whereIn('seed_key', ['qa_specialist', 'supervisor'])->get();
             $qa = $roles->firstWhere('seed_key', 'qa_specialist');
-            $refs = TsaDailyRateService::partnerOverheadRefsByTeam($roles, collect([$qa->id => 999.0, $supervisor->id => 30000 / CostBreakdownRole::divisorCount('partner')]));
+            // Supervisor ÷ every active partner TSA (3 here), same share for each.
+            $this->assertSame(3, CostBreakdownRole::divisorCount($supervisor->overhead_divisor, $supervisor));
+            $refs = TsaDailyRateService::partnerOverheadRefsByTeam($roles, CostBreakdownRole::overheadByRoleId($roles));
 
-            $this->assertEqualsWithDelta([999, 5000], $refs['PEAK.CO'], 0.001);
-            $this->assertEqualsWithDelta([999, 10000], $refs['M&J'], 0.001);
-            $this->assertEqualsWithDelta([999, 0], $refs['MLC'], 0.001);
+            $this->assertEqualsWithDelta([28000 / 3, 10000], $refs['PEAK.CO'], 0.001);
+            $this->assertEqualsWithDelta([28000 / 3, 10000], $refs['M&J'], 0.001);
         });
     }
 
