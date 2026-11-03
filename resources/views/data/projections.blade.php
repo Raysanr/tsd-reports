@@ -514,6 +514,9 @@
             const leadsNeeded = leadsNeededEl ? Number(leadsNeededEl.textContent.replace(/,/g, '')) : 0;
             if (!leadsNeeded) return;
             fraction = typed / leadsNeeded;
+        } else if (input.dataset.amount === '1') {
+            // Partners' Tax Allocation: saved as the typed amount itself.
+            fraction = typed;
         } else if (isDollar) {
             // Every rate is shared, but only the 2 BASE shifts (Opening
             // and, since 2026-09-23, Closing — "okay now in the downpart

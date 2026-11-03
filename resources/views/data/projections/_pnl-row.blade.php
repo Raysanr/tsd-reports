@@ -113,6 +113,7 @@
                value="{{ number_format($value, 2) }}"
                data-rate="{{ $rateKey }}"
                data-mode="dollar"
+               @if(($pnlKey ?? null) === 'tax_allocation' && \App\Support\DataSet::isPartners()) data-amount="1" @endif
                @if($pnlKey ?? null) data-pnl-input="{{ $pnlKey }}" @else data-line-input="{{ $lineKey }}" @endif
                class="pj-rate-field w-full text-right bg-slate-50 dark:bg-slate-800 border border-line dark:border-slate-700 rounded-md px-1.5 py-0.5 text-xs {{ $rowColorClass ?? 'text-ink dark:text-slate-100' }} focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none">
     @else

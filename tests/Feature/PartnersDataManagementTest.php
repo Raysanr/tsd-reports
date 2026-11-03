@@ -163,6 +163,19 @@ class PartnersDataManagementTest extends TestCase
         $this->assertStringStartsWith('[Partners] ', \App\Models\ActivityLog::latest('id')->value('description'));
     }
 
+    public function test_partner_tax_allocation_is_a_typed_amount_not_a_rate(): void
+    {
+        $this->actingAs($this->admin());
+        $this->get('/partners/projections?month=2026-11')->assertOk()->assertSee('data-amount="1"', false);
+
+        $computed = collect($this->patchJson('/partners/projections/rates', ['key' => 'tax_allocation', 'value' => 25000, 'shift' => 'peak_co_shift'])
+            ->assertOk()->json('computed'))->keyBy('column.key');
+
+        $this->assertEquals(25000, $computed['peak_co_shift']['pnl']['tax_allocation'], 'holds even with ₱0 Gross Sales');
+        $this->assertEquals(0, $computed['mj_shift']['pnl']['tax_allocation']);
+        $this->get('/data/projections?month=2026-11')->assertOk()->assertDontSee('data-amount="1"', false);
+    }
+
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {

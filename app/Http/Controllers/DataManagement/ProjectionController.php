@@ -8,6 +8,7 @@ use App\Models\ProjectionCustomRow;
 use App\Models\RowSortOrder;
 use App\Models\Setting;
 use App\Support\ActivityLogger;
+use App\Support\DataSet;
 use App\Support\ProjectionCalculator;
 use App\Support\ProjectionMonth;
 use App\Support\RowOrder;
@@ -239,7 +240,10 @@ class ProjectionController extends Controller
             'shift' => ['nullable', 'string', 'in:' . implode(',', ProjectionColumn::shiftKeys())],
         ]);
         $settingKey = $data['key'] === 'tax_allocation' && !empty($data['shift'])
-            ? ProjectionCalculator::shiftTaxRateKey($data['shift'])
+            ? (DataSet::isPartners()
+                // Partners: value is the typed ₱ amount (see ProjectionCalculator::shiftTaxAmount()).
+                ? ProjectionCalculator::shiftTaxAmountKey($data['shift'])
+                : ProjectionCalculator::shiftTaxRateKey($data['shift']))
             : $data['key'];
 
         $oldValue = Setting::get(ProjectionMonth::rateKey($settingKey));

@@ -433,8 +433,25 @@ class ProjectionCalculator
             : ($shift->orders_override ?? $ordersNeeded);
         $grossSales = $orders * $aov;
         $rates['tax_allocation'] = self::shiftTaxRate($shift->key, $rates);
+        if (DataSet::isPartners()) {
+            $rates['tax_allocation_amount'] = self::shiftTaxAmount($shift->key);
+        }
 
         return self::pnlFromOrders($orders, $grossSales, $rates);
+    }
+
+    /** Partners Data Management only (explicit request, 2026-11-03: "the
+     *  tax allocation editable not auto") — each partner's Tax Allocation
+     *  is a typed ₱ amount for that month, not Gross Sales × a rate, so it
+     *  holds even while the partner's Gross Sales is still 0. */
+    public static function shiftTaxAmountKey(string $shiftKey): string
+    {
+        return 'tax_allocation_amount.' . $shiftKey;
+    }
+
+    public static function shiftTaxAmount(string $shiftKey): float
+    {
+        return (float) (Setting::get(ProjectionMonth::rateKey(self::shiftTaxAmountKey($shiftKey))) ?? 0);
     }
 
     /** Tax Allocation is per shift (explicit request, 2026-11-03: Opening
@@ -503,7 +520,7 @@ class ProjectionCalculator
         $cancelled   = $grossSales * $rates['cancelled'];
         $returns     = $grossSales * $rates['returns'];
         $delivered   = $grossSales * $rates['delivered']; // informational only — never subtracted
-        $tax         = $grossSales * $rates['tax_allocation'];
+        $tax         = $rates['tax_allocation_amount'] ?? $grossSales * $rates['tax_allocation'];
         $productCost = $grossSales * $rates['product_cost'];
         $grossProfit = $grossSales - $cancelled - $returns - $tax - $productCost;
 
