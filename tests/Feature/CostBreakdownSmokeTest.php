@@ -155,7 +155,7 @@ class CostBreakdownSmokeTest extends TestCase
      *  DIFFERENT TSA counts — 3 vs 2 — so a company-wide-divisor regression
      *  can never again slip through unnoticed). Daily Tax is that same
      *  figure ÷ 24, same shape as the existing Daily Rate (÷24) column. */
-    public function test_monthly_and_daily_tax_columns_divide_by_each_teams_own_tsa_count(): void
+    public function test_monthly_and_daily_tax_columns_divide_department_tax_by_every_tsa(): void
     {
         $admin = User::factory()->create(['role' => 'admin']);
         \App\Models\ProjectionColumn::ensureSeededForMonth(now()->format('Y-m'));
@@ -172,8 +172,8 @@ class CostBreakdownSmokeTest extends TestCase
         $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
         $perShift = $departmentTaxAllocation / 2;
-        $perTsaShNaturals = $perShift / TsaShift::where('team', 'SH Naturals')->count();
-        $perTsaEyecare = $perShift / TsaShift::where('team', 'Eyecare Team')->count();
+        // 2026-11-03: department tax ÷ every TSA, same figure for both teams.
+        $perTsa = $departmentTaxAllocation / TsaShift::count();
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
 
@@ -186,13 +186,9 @@ class CostBreakdownSmokeTest extends TestCase
         $this->assertSame(2, substr_count($content, number_format($perShift, 2)), 'expected the per-shift Monthly Tax figure on both Supervisor rows');
         $this->assertSame(2, substr_count($content, number_format($perShift / 24, 2)), 'expected the per-shift Daily Tax figure on both Supervisor rows');
 
-        // Each team's own real TSAs show THEIR OWN team's divisor, not the
-        // other team's or a company-wide blend of both.
-        $this->assertStringContainsString(number_format($perTsaShNaturals, 2), $content);
-        $this->assertStringContainsString(number_format($perTsaShNaturals / 24, 2), $content);
-        $this->assertStringContainsString(number_format($perTsaEyecare, 2), $content);
-        $this->assertStringContainsString(number_format($perTsaEyecare / 24, 2), $content);
-        $this->assertNotEquals($perTsaShNaturals, $perTsaEyecare, 'test fixture sanity check — the 2 teams must have different TSA counts for this test to be meaningful');
+        $this->assertStringContainsString(number_format($perTsa, 2), $content);
+        $this->assertStringContainsString(number_format($perTsa / 24, 2), $content);
+        $this->assertNotEquals($perShift / TsaShift::where('team', 'Eyecare Team')->count(), $perTsa, 'not the old per-team split');
     }
 
     /** A TikTok-flagged TSA (TsaShift.tiktok_upsell) doesn't count toward
@@ -207,14 +203,14 @@ class CostBreakdownSmokeTest extends TestCase
 
         $flagged = TsaShift::where('team', 'SH Naturals')->first();
         $flagged->update(['tiktok_upsell' => true]);
-        $realCount = TsaShift::where('team', 'SH Naturals')->where('tiktok_upsell', false)->count();
+        $realCount = TsaShift::where('tiktok_upsell', false)->count();
 
         $columns = \App\Models\ProjectionColumn::where('month', now()->format('Y-m'))->orderBy('sort_order')->get();
         $rates = \App\Support\ProjectionCalculator::allRates();
         $all = \App\Support\ProjectionCalculator::forAllColumns($columns, $rates);
         $departmentTaxAllocation = $all['telesales_department']['pnl']['tax_allocation'];
         $perShift = $departmentTaxAllocation / 2;
-        $perRealTsa = $perShift / $realCount;
+        $perRealTsa = $departmentTaxAllocation / $realCount;
 
         $response = $this->actingAs($admin)->get(route('data.cost-breakdown'));
         $response->assertOk();
@@ -270,15 +266,11 @@ class CostBreakdownSmokeTest extends TestCase
             $this->assertArrayHasKey($tsa->id, $map, "tsa_id {$tsa->id} should be a key in the result");
         }
 
-        // SH Naturals' own figure must differ from Eyecare's own (they
-        // have different headcounts) — a reindexed result could
-        // coincidentally still pass the key-existence check above while
-        // handing each TSA the WRONG team's own value.
-        $shValue = $map[$shNaturalsTsas->first()->id];
-        $eyecareValue = $map[$eyecareTsas->first()->id];
-        $this->assertNotEquals($shValue, $eyecareValue);
-        $this->assertGreaterThan(0, $shValue);
-        $this->assertGreaterThan(0, $eyecareValue);
+        // Every TSA gets the same department-wide share (2026-11-03).
+        $expected = \App\Support\TsaDailyRateService::monthlyTaxPerTsa() / 24;
+        $this->assertGreaterThan(0, $expected);
+        $this->assertEqualsWithDelta($expected, $map[$shNaturalsTsas->first()->id], 0.0001);
+        $this->assertEqualsWithDelta($expected, $map[$eyecareTsas->first()->id], 0.0001);
     }
 
     /** CEO/Sales Director/Telesales Manager/QA Specialist/Junior AI

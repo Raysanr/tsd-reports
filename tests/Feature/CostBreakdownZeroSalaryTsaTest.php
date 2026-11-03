@@ -39,10 +39,9 @@ class CostBreakdownZeroSalaryTsaTest extends TestCase
         $this->assertSame(0.0, TsaDailyRateService::taxAllocationForTsa($new));
         $this->assertSame(0.0, TsaDailyRateService::dailyRateByTsaId()[$new->id]);
 
-        // the paid teammates split the whole shift tax between themselves
-        $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
-        $teamDaily = collect($team)->sum(fn ($t) => $tax[$t->id]);
-        $this->assertEqualsWithDelta($perShift / 24, $teamDaily, 0.01);
+        // every paid TSA splits the whole department tax (2026-11-03)
+        $paid = TsaShift::where('id', '!=', $new->id)->where('tiktok_upsell', false)->get();
+        $this->assertEqualsWithDelta(TsaDailyRateService::departmentTaxAllocation() / 24, $paid->sum(fn ($t) => $tax[$t->id]), 0.01);
 
         // Cost Breakdown page shows 0.00 Monthly Tax for him
         $this->actingAs(User::factory()->create(['role' => 'super_admin']))
