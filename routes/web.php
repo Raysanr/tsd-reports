@@ -323,6 +323,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // admin. Registered early/outside any per-page concern since it
         // reads across all 5 pages at once, not scoped to one.
         Route::get('/activity-log', [\App\Http\Controllers\DataManagement\ActivityLogController::class, 'index'])->name('activity-log');
+        Route::post('/sync-now', [\App\Http\Controllers\DataManagement\PartnerSyncController::class, 'store'])->name('partners-sync');
 
         // Tally Checker (explicit request, 2026-10-12: "add TALLY CHECKER
         // BUTTON ... show is all tally in the expected income, summary

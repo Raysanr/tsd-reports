@@ -176,6 +176,25 @@ class PartnersDataManagementTest extends TestCase
         $this->get('/data/projections?month=2026-11')->assertOk()->assertDontSee('data-amount="1"', false);
     }
 
+    public function test_sync_now_pulls_partner_data_immediately(): void
+    {
+        Http::fake([
+            'peak-co*/api/tsd-feed/tsas' => Http::response(['rows' => [
+                ['id' => 4, 'tsa_key' => 'NEWBIE', 'display_name' => 'Newbie', 'team' => 'Opening', 'tiktok_upsell' => 0, 'active' => 1, 'sort_order' => 1, 'created_at' => '2026-11-03 00:00:00', 'updated_at' => '2026-11-03 00:00:00', 'deleted_at' => null],
+            ]]),
+            '*' => Http::response(['rows' => []]),
+        ]);
+        $this->actingAs($this->admin());
+        $this->get('/partners/projections')->assertOk()->assertSee('Sync now');
+        $this->get('/data/projections')->assertOk()->assertDontSee('Sync now');
+
+        $this->from('/partners/cost-breakdown')->post('/partners/sync-now')->assertRedirect('/partners/cost-breakdown')->assertSessionHas('success');
+        DataSet::reset();
+
+        DataSet::onPartners(fn () => $this->assertTrue(TsaShift::where('display_name', 'Newbie')->exists()));
+        $this->post('/data/sync-now')->assertNotFound();
+    }
+
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {

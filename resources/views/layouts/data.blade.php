@@ -160,6 +160,20 @@
             </svg>
             Activity Log
         </a>
+
+        @if(\App\Support\DataSet::isPartners())
+        {{-- Sync now (2026-11-03): pull partner products, TSAs and orders immediately instead of waiting for the 10-minute sync. --}}
+        <form method="POST" action="{{ route('data.partners-sync') }}" onsubmit="this.querySelector('button').disabled = true; this.querySelector('span').textContent = 'Syncing…';">
+            @csrf
+            <button type="submit" title="Pull the latest products, TSAs and orders from PEAK.CO, M&J and MLC"
+                    class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer disabled:opacity-60 disabled:cursor-wait">
+                <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>Sync now</span>
+            </button>
+        </form>
+        @endif
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">
