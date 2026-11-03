@@ -571,8 +571,9 @@
         </a>
 
         {{-- TSD Archiving System (explicit request, 2026-10-19). Admin-only
-             like its route group — it holds HR records (contracts, IDs). --}}
-        @if(auth()->user()->isAtLeastAdmin())
+             like its route group — it holds HR records (contracts, IDs).
+             Route::has(): hidden until the archive routes are deployed. --}}
+        @if(auth()->user()->isAtLeastAdmin() && Route::has('archive.overview'))
         <a class="card" style="--card-accent:#0284c7; --card-accent-soft:rgba(2,132,199,0.12)" href="{{ route('archive.overview') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
