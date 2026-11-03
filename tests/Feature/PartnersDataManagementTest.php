@@ -185,8 +185,8 @@ class PartnersDataManagementTest extends TestCase
             '*' => Http::response(['rows' => []]),
         ]);
         $this->actingAs($this->admin());
-        $this->get('/partners/projections')->assertOk()->assertSee('Sync now');
-        $this->get('/data/projections')->assertOk()->assertDontSee('Sync now');
+        $this->get('/partners/projections')->assertOk()->assertSee('aria-label="Sync now"', false);
+        $this->get('/data/projections')->assertOk()->assertDontSee('aria-label="Sync now"', false);
 
         $this->from('/partners/cost-breakdown')->post('/partners/sync-now')->assertRedirect('/partners/cost-breakdown')->assertSessionHas('success');
         DataSet::reset();
