@@ -83,7 +83,6 @@
 
         {{-- DSPPR - TSM Report, right next to Projections (explicit
              request, 2026-09-24: "it is next to the projections page"). --}}
-@unless(\App\Support\DataSet::isPartners())
         <a href="{{ route('data.dsppr') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.dsppr') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -91,7 +90,6 @@
             </svg>
             DSPPR - TSM Report
         </a>
-        @endunless
 
         {{-- Summary Sales Report, right next to DSPPR (explicit request,
              2026-09-24: "add page summary sales report in data

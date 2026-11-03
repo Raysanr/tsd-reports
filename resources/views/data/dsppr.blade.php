@@ -247,6 +247,7 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($d['upselling_rate']) }}</td>
                 </tr>
                 @endforeach
+                @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners --}}
                 {{-- TIKTOK ORDERS — manual-only row (explicit request,
                      2026-10-05), NOT a real Product, see
                      DsPprReportController's own doc comment on
@@ -266,6 +267,7 @@
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="conversion_rate">{{ $fmtPct($td['conversion_rate']) }}</td>
                     <td class="px-3 py-2 text-right text-ink dark:text-slate-100" data-out="upselling_rate">{{ $fmtPct($td['upselling_rate']) }}</td>
                 </tr>
+                @endunless
             </tbody>
             <tfoot>
                 <tr class="bg-black text-white font-bold dsppr-overall-total-row">
@@ -498,6 +500,7 @@
                     @endforeach
                 </tr>
                 @endforeach
+                @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners --}}
                 {{-- TIKTOK ORDERS — manual-only row, every column editable
                      (unlike real products' 2 of 11). No drag/drop/combine
                      support — doesn't make sense for a non-product row. --}}
@@ -584,6 +587,7 @@
                         @endforeach
                     @endforeach
                 </tr>
+                @endunless
             </tbody>
             <tfoot>
                 <tr class="bg-black text-white font-bold dsppr-day-total-row">

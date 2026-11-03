@@ -117,7 +117,7 @@ class PartnersDataManagementTest extends TestCase
 
         $this->get('/partners/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=peak-co')->assertOk()
             ->assertSee('Partners Data Management')->assertSee('PEAK.CO')->assertSee('M&amp;J', false)->assertSee('Joana')->assertSee('PEAKGLOW')
-            ->assertDontSee('TIKTOK')->assertSee(url('/partners/expected-income'), false)->assertDontSee('href="' . url('/partners/dsppr') . '"', false);
+            ->assertDontSee('TIKTOK')->assertSee(url('/partners/expected-income'), false)->assertSee('href="' . url('/partners/dsppr') . '"', false);
         $this->get('/partners/actual-income?month=2026-10')->assertOk()->assertSee('PEAKGLOW');
         $this->get('/partners/tsa-sales?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('JOANA')
             ->assertDontSee('class="tsr-group-total-row tsr-tiktok-total-row', false)->assertDontSee('No TSAs in TikTok Upsell yet')
@@ -202,6 +202,16 @@ class PartnersDataManagementTest extends TestCase
 
         $this->get('/partners/tsa-sales?date_from=2026-10-05&date_to=2026-10-05')->assertOk()
             ->assertViewHas('overallTotal', fn ($t) => $t['gross_sales'] > 0 && $t['total_orders'] > 0);
+    }
+
+    public function test_dsppr_runs_on_partner_data_without_tiktok(): void
+    {
+        $this->syncPeak();
+        $this->actingAs($this->admin());
+
+        $this->get('/partners/dsppr?date_from=2026-10-05&date_to=2026-10-05')->assertOk()
+            ->assertSee('PEAKGLOW')->assertDontSee('data-row-key="tiktok"', false);
+        $this->get('/data/dsppr?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('data-row-key="tiktok"', false);
     }
 
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
