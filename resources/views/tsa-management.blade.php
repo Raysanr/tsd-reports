@@ -35,8 +35,43 @@
         </button>
     </div>
 
+    {{-- Shift per month (explicit request, 2026-11-03) — team, shift hours,
+         rest day and TikTok flag are saved per month once a month is added,
+         so editing this month never changes earlier months' reports. Shares
+         ?month= with the rest-day calendar. --}}
+    @php
+        $shiftMonthCarbon = \Illuminate\Support\Carbon::createFromFormat('Y-m', $shiftMonth)->startOfMonth();
+        $shiftMonthOwn = in_array($shiftMonth, $shiftMonths, true);
+    @endphp
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+        <div class="flex items-center gap-2">
+            <a href="{{ route(request()->route()->getName(), ['month' => $shiftMonthCarbon->copy()->subMonthNoOverflow()->format('Y-m')]) }}" class="px-2 py-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Previous month">&larr;</a>
+            <div>
+                <div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Shifts for {{ $shiftMonthLabel }}</div>
+                <div class="text-[11px] font-mono text-slate-400">
+                    @if($shiftMonthOwn)
+                        Saved for this month — changes here don't affect earlier months.
+                    @elseif($shiftMonths === [])
+                        Not saved per month yet — changes apply to every month.
+                    @else
+                        Using {{ \Illuminate\Support\Carbon::createFromFormat('Y-m', \App\Support\TsaMonths::effective($shiftMonth))->format('F Y') }}'s shifts — a change here saves {{ $shiftMonthLabel }} as its own month.
+                    @endif
+                </div>
+            </div>
+            <a href="{{ route(request()->route()->getName(), ['month' => $shiftMonthCarbon->copy()->addMonthNoOverflow()->format('Y-m')]) }}" class="px-2 py-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Next month">&rarr;</a>
+        </div>
+        @unless($shiftMonthOwn)
+        <form method="POST" action="{{ route('tsa-management.months.store') }}">
+            @csrf
+            <input type="hidden" name="month" value="{{ $shiftMonth }}">
+            <button type="submit" class="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-950/40 transition-colors cursor-pointer whitespace-nowrap">Add Shift Per Month</button>
+        </form>
+        @endunless
+    </div>
+
     <form method="POST" action="{{ route('settings.shifts') }}" class="space-y-6">
         @csrf
+        <input type="hidden" name="shift_month" value="{{ $shiftMonth }}">
 
         {{-- Two colors, fixed order (never cycled per-TSA) — same cyan/emerald
              convention as the Dashboard's Team Comparison ($teamColors there).
@@ -195,6 +230,7 @@
     <form id="bulkTsaForm" method="POST" action="{{ route('tsa-management.bulk') }}" style="display:none">
         @csrf
         <input type="hidden" name="action" id="bulkTsaAction" value="">
+        <input type="hidden" name="shift_month" value="{{ $shiftMonth }}">
     </form>
 
     {{-- Kept outside the bulk-save <form> above — browsers don't support nested
@@ -297,6 +333,7 @@
         <form id="tsaForm" method="POST" action="{{ route('tsa-management.store') }}" class="px-6 py-5 space-y-4">
             @csrf
             <input type="hidden" name="_method" id="tsaFormMethod" value="">
+            <input type="hidden" name="shift_month" value="{{ $shiftMonth }}">
             <input type="hidden" name="pos_user_id" id="tsaPosUserId" value="">
 
             <div class="relative">

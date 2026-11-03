@@ -40,6 +40,13 @@ class TsaShift extends Model
     public static function bootSoftDeletes(): void
     {
         static::addGlobalScope(new \App\Models\Scopes\TsaRosterScope);
+        // Shift per month — see TsaMonthScope / App\Support\TsaMonths.
+        static::addGlobalScope(new \App\Models\Scopes\TsaMonthScope);
+    }
+
+    public function newEloquentBuilder($query)
+    {
+        return new TsaShiftBuilder($query);
     }
 
     /** Report pages call this with their range's first day so a TSA removed

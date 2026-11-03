@@ -303,12 +303,18 @@ class SettingsController extends Controller
 
     public function saveShifts(Request $request)
     {
+        // Shift hours are per month once a month was added on TSA
+        // Management (App\Support\TsaMonths) — saved to the month the page
+        // was showing, so earlier months keep their own hours.
+        $shiftMonth = \App\Support\TsaMonths::isValid($request->input('shift_month')) ? $request->input('shift_month') : \App\Support\TsaMonths::current();
         foreach ($request->input('shifts', []) as $key => $data) {
-            TsaShift::where('tsa_key', $key)->update([
-                'display_name' => $data['display_name'] ?? null,
-                'shift_start'  => $data['shift_start']  ?: null,
-                'shift_end'    => $data['shift_end']    ?: null,
-            ]);
+            foreach (TsaShift::where('tsa_key', $key)->get() as $shift) {
+                \App\Support\TsaMonths::write($shift, [
+                    'display_name' => $data['display_name'] ?? null,
+                    'shift_start'  => $data['shift_start']  ?: null,
+                    'shift_end'    => $data['shift_end']    ?: null,
+                ], $shiftMonth);
+            }
         }
 
         ActivityLogger::log('settings.shifts_saved', null, 'Shift schedules saved.');
@@ -319,7 +325,7 @@ class SettingsController extends Controller
         $target = $request->input('_redirect_route');
         $target = in_array($target, ['tsa-management', 'hub.tsa-management'], true) ? $target : 'tsa-management';
 
-        return redirect()->route($target)->with('success', 'Shift schedules saved.');
+        return redirect()->route($target, \App\Support\TsaMonths::isValid($request->input('shift_month')) ? ['month' => $shiftMonth] : [])->with('success', 'Shift schedules saved.');
     }
 
     public function clear(Request $request)

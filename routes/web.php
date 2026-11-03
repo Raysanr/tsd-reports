@@ -102,6 +102,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::get('/tsa-management/pos-users',   [TsaManagementController::class, 'searchPosUsers'])->name('tsa-management.pos-users');
         Route::get('/tsa-management/tags',        [TsaManagementController::class, 'searchTags'])->name('tsa-management.tags');
         Route::post('/tsa-management/bulk',       [TsaManagementController::class, 'bulk'])->name('tsa-management.bulk');
+        Route::post('/tsa-management/months',     [TsaManagementController::class, 'storeMonth'])->name('tsa-management.months.store');
         Route::post('/tsa-management',            [TsaManagementController::class, 'store'])->name('tsa-management.store');
         Route::put('/tsa-management/{tsaShift}',  [TsaManagementController::class, 'update'])->name('tsa-management.update');
         // Eye toggle — hide/show this TSA's row on every report page

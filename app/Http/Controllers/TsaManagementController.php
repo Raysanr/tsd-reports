@@ -8,6 +8,7 @@ use App\Models\TsaRestDay;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\Teams;
+use App\Support\TsaMonths;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Carbon;
@@ -34,6 +35,14 @@ class TsaManagementController extends Controller
 
     private function buildViewData(): array
     {
+        // Shift per month (2026-11-03): the page shows — and its forms
+        // edit — the selected month's team / shift hours / rest day /
+        // TikTok flag (same ?month= the rest-day calendar already uses).
+        $shiftMonth = $this->shiftMonth(request('month'));
+        TsaMonths::view($shiftMonth);
+        $shiftMonths = TsaMonths::existing();
+        $shiftMonthLabel = Carbon::createFromFormat('Y-m', $shiftMonth)->format('F Y');
+
         $teamsConfig = Teams::config();
         $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get();
 
@@ -62,7 +71,37 @@ class TsaManagementController extends Controller
         // date, so today's name is the correct, consistent choice here.
         $teamNames = collect($teamsConfig)->mapWithKeys(fn ($t) => [$t['order_team'] => $t['name']])->all();
 
-        return compact('teamGroups', 'teamsConfig', 'teamNames', 'unassigned', 'calendar', 'shifts', 'trashedShifts');
+        return compact('teamGroups', 'teamsConfig', 'teamNames', 'unassigned', 'calendar', 'shifts', 'trashedShifts', 'shiftMonth', 'shiftMonths', 'shiftMonthLabel');
+    }
+
+    /** Keeps the page on the month the form was showing. */
+    private function monthParam(Request $request): array
+    {
+        return TsaMonths::isValid($request->input('shift_month')) ? ['month' => $request->input('shift_month')] : [];
+    }
+
+    private function shiftMonth(?string $month): string
+    {
+        return TsaMonths::isValid($month) ? $month : TsaMonths::current();
+    }
+
+    /** "Add Shift Per Month" — the month gets its own copy of every TSA's
+     *  team / shift hours / rest day / TikTok flag, so editing it never
+     *  changes earlier months (see App\Support\TsaMonths). */
+    public function storeMonth(Request $request)
+    {
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m']]);
+
+        $existed = TsaMonths::exists($data['month']);
+        TsaMonths::create($data['month']);
+
+        $label = Carbon::createFromFormat('Y-m', $data['month'])->format('F Y');
+        $message = $existed ? "{$label} already has its own shifts." : "Added shifts for {$label}. Changes for {$label} no longer affect earlier months.";
+        if (!$existed) {
+            ActivityLogger::log('tsa.month_added', null, $message);
+        }
+
+        return $this->redirectToCaller($request, ['month' => $data['month']])->with('success', $message);
     }
 
     /** Which named route store()/update()/etc. above send the browser back
@@ -175,7 +214,8 @@ class TsaManagementController extends Controller
             $sellerKeywords = strtolower($data['display_name']);
         }
 
-        $tsaShift->update([
+        $shiftMonth = $this->shiftMonth($request->input('shift_month'));
+        TsaMonths::write($tsaShift, [
             'pos_user_id'      => $data['pos_user_id'] ?? $tsaShift->pos_user_id,
             'display_name'     => $data['display_name'],
             'team'             => $data['team'],
@@ -183,12 +223,12 @@ class TsaManagementController extends Controller
             'seller_keywords'  => $sellerKeywords,
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
-        ]);
+        ], $shiftMonth);
 
-        $message = "Updated \"{$data['display_name']}\".";
+        $message = "Updated \"{$data['display_name']}\"" . (TsaMonths::existing() !== [] ? ' for ' . Carbon::createFromFormat('Y-m', $shiftMonth)->format('F Y') : '') . '.';
         ActivityLogger::log('tsa.updated', $tsaShift, $message);
 
-        return $this->redirectToCaller($request)->with('success', $message);
+        return $this->redirectToCaller($request, $this->monthParam($request))->with('success', $message);
     }
 
     public function destroy(Request $request, TsaShift $tsaShift)
@@ -258,7 +298,10 @@ class TsaManagementController extends Controller
 
         switch ($data['action']) {
             case 'move':
-                TsaShift::whereIn('id', $data['ids'])->update(['team' => $data['team']]);
+                $shiftMonth = $this->shiftMonth($request->input('shift_month'));
+                foreach (TsaShift::whereIn('id', $data['ids'])->get() as $shift) {
+                    TsaMonths::write($shift, ['team' => $data['team']], $shiftMonth);
+                }
                 $teamName = collect($teamsConfig)->firstWhere('order_team', $data['team'])['name'] ?? $data['team'];
                 $message = "Moved {$count} {$noun} to {$teamName}.";
                 break;
@@ -272,7 +315,7 @@ class TsaManagementController extends Controller
         // No single subject (it affected multiple rows), so subject is null.
         ActivityLogger::log("tsa.bulk_{$data['action']}", null, $message);
 
-        return $this->redirectToCaller($request)->with('success', $message);
+        return $this->redirectToCaller($request, $this->monthParam($request))->with('success', $message);
     }
 
     /**
