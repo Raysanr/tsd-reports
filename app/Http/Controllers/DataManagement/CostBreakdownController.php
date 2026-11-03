@@ -186,6 +186,8 @@ class CostBreakdownController extends Controller
                 'overhead' => $overheadByRoleId->get($role->id),
                 'rowspan' => $rowspan,
                 'covered_by_rowspan' => $coveredByRowspan,
+                // Same divisor overheadByRoleId() used — a sole supervisor spans every team.
+                'overhead_divisor' => $soleSupervisor && $soleSupervisor->is($role) ? 'total' : $role->overhead_divisor,
                 // Monthly/Daily Tax on a supervisor row: her shift's — or both
                 // shifts' when she's the only supervisor left.
                 'tax_shifts' => $soleSupervisor && $soleSupervisor->is($role) ? max(1, $tsaRows->pluck('tsa.team')->unique()->count()) : 1,
