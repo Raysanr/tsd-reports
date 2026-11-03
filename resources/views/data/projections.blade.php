@@ -538,6 +538,7 @@
         } else {
             fraction = typed / 100;
         }
+        const shift = key === 'tax_allocation' ? input.closest('.pj-card')?.dataset.key : null;
 
         fetch('{{ route('data.projections.update-rates') }}', {
             method: 'PATCH',
@@ -546,7 +547,8 @@
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'X-CSRF-TOKEN': csrfToken,
             },
-            body: `key=${encodeURIComponent(key)}&value=${encodeURIComponent(fraction)}`,
+            // Tax Allocation is saved per shift, never shared across cards.
+            body: `key=${encodeURIComponent(key)}&value=${encodeURIComponent(fraction)}` + (shift ? `&shift=${encodeURIComponent(shift)}` : ''),
         })
             .then((res) => (res.ok ? res.json() : Promise.reject(res)))
             .then((data) => {
@@ -555,7 +557,7 @@
                 if (Array.isArray(data?.computed)) {
                     data.computed.forEach((computed) => { computedByKey[computed.column.key] = computed; });
                 }
-                if (data?.rates && key in data.rates) syncRateInputs(key, data.rates[key], computedByKey);
+                if (!shift && data?.rates && key in data.rates) syncRateInputs(key, data.rates[key], computedByKey);
                 if (Array.isArray(data?.computed)) {
                     data.computed.forEach((computed) => {
                         const card = columnsEl.querySelector(`.pj-card[data-key="${computed.column.key}"]`);

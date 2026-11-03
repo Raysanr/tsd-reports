@@ -432,8 +432,24 @@ class ProjectionCalculator
             ? $shift->leads_override * $shift->conversion_rate_override
             : ($shift->orders_override ?? $ordersNeeded);
         $grossSales = $orders * $aov;
+        $rates['tax_allocation'] = self::shiftTaxRate($shift->key, $rates);
 
         return self::pnlFromOrders($orders, $grossSales, $rates);
+    }
+
+    /** Tax Allocation is per shift (explicit request, 2026-11-03: Opening
+     *  ₱15,000 / Closing ₱10,000 kept collapsing into one shared rate) —
+     *  falls back to the shared rate until that shift's own is saved. */
+    public static function shiftTaxRateKey(string $shiftKey): string
+    {
+        return 'tax_allocation.' . $shiftKey;
+    }
+
+    public static function shiftTaxRate(string $shiftKey, array $rates): float
+    {
+        $stored = Setting::get(ProjectionMonth::rateKey(self::shiftTaxRateKey($shiftKey)));
+
+        return $stored !== null ? (float) $stored : $rates['tax_allocation'];
     }
 
     /** Telesales Department = Opening Shift's own P&L + Closing Shift's

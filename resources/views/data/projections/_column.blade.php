@@ -171,7 +171,7 @@
         @include('data.projections._pnl-row', ['label' => 'Cancelled & Waiting', 'pnlKey' => 'cancelled', 'rateKey' => 'cancelled', 'value' => $p['cancelled'], 'ratePct' => $rates['cancelled'] * 100, 'editable' => false, 'rowColor' => 'red'])
         @include('data.projections._pnl-row', ['label' => 'Returns', 'pnlKey' => 'returns', 'rateKey' => 'returns', 'value' => $p['returns'], 'ratePct' => $rates['returns'] * 100, 'editable' => false, 'rowColor' => 'red'])
         @include('data.projections._pnl-row', ['label' => 'Delivered', 'pnlKey' => 'delivered', 'rateKey' => 'delivered', 'value' => $p['delivered'], 'ratePct' => $rates['delivered'] * 100, 'editable' => false, 'rowColor' => 'red'])
-        @include('data.projections._pnl-row', ['label' => 'Tax Allocation', 'pnlKey' => 'tax_allocation', 'rateKey' => 'tax_allocation', 'value' => $p['tax_allocation'], 'ratePct' => $rates['tax_allocation'] * 100, 'editable' => $editable, 'rowColor' => 'blue'])
+        @include('data.projections._pnl-row', ['label' => 'Tax Allocation', 'pnlKey' => 'tax_allocation', 'rateKey' => 'tax_allocation', 'value' => $p['tax_allocation'], 'ratePct' => $p['gross_sales'] > 0 ? $p['tax_allocation'] / $p['gross_sales'] * 100 : 0, 'editable' => $editable, 'rowColor' => 'blue'])
         @include('data.projections._pnl-row', ['label' => 'Product Cost', 'pnlKey' => 'product_cost', 'rateKey' => 'product_cost', 'value' => $p['product_cost'], 'ratePct' => $rates['product_cost'] * 100, 'editable' => $editable])
 
         <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">

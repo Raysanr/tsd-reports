@@ -235,11 +235,16 @@ class ProjectionController extends Controller
         $data = $request->validate([
             'key'   => ['required', 'string', 'in:' . implode(',', array_keys(ProjectionCalculator::allRates()))],
             'value' => ['required', 'numeric'],
+            // Tax Allocation only — saved for that one shift (see ProjectionCalculator::shiftTaxRate()).
+            'shift' => ['nullable', 'string', 'in:' . implode(',', ProjectionColumn::shiftKeys())],
         ]);
+        $settingKey = $data['key'] === 'tax_allocation' && !empty($data['shift'])
+            ? ProjectionCalculator::shiftTaxRateKey($data['shift'])
+            : $data['key'];
 
-        $oldValue = Setting::get(ProjectionMonth::rateKey($data['key']));
-        Setting::set(ProjectionMonth::rateKey($data['key']), (float) $data['value']);
-        ActivityLogger::logFieldUpdate('projection.rate_updated', null, $data['key'], $oldValue, $data['value'], Carbon::createFromFormat('Y-m', ProjectionMonth::current())->format('F Y') . ' rates', fn ($v) => number_format((float) $v, 4));
+        $oldValue = Setting::get(ProjectionMonth::rateKey($settingKey));
+        Setting::set(ProjectionMonth::rateKey($settingKey), (float) $data['value']);
+        ActivityLogger::logFieldUpdate('projection.rate_updated', null, $settingKey, $oldValue, $data['value'], Carbon::createFromFormat('Y-m', ProjectionMonth::current())->format('F Y') . ' rates', fn ($v) => number_format((float) $v, 4));
 
         $rates   = ProjectionCalculator::allRates();
         // Scoped to the session-remembered month (explicit decision,

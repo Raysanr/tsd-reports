@@ -868,6 +868,21 @@ class ProjectionsTest extends TestCase
         $this->assertEqualsWithDelta(384000, $telesales['pnl']['cancelled'], 0.01);
     }
 
+    /** Tax Allocation is per shift (2026-11-03) — Closing's save must not
+     *  overwrite Opening's, and Telesales Department sums both. */
+    public function test_tax_allocation_is_saved_per_shift(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->patchJson(route('data.projections.update-rates'), ['key' => 'tax_allocation', 'value' => 15000 / 1920000, 'shift' => 'opening_shift'])->assertOk();
+        $response = $this->actingAs($admin)->patchJson(route('data.projections.update-rates'), ['key' => 'tax_allocation', 'value' => 10000 / 1920000, 'shift' => 'closing_shift']);
+
+        $computed = collect($response->json('computed'));
+        $this->assertEqualsWithDelta(15000, $computed->firstWhere('column.key', 'opening_shift')['pnl']['tax_allocation'], 0.01);
+        $this->assertEqualsWithDelta(10000, $computed->firstWhere('column.key', 'closing_shift')['pnl']['tax_allocation'], 0.01);
+        $this->assertEqualsWithDelta(25000, $computed->firstWhere('column.key', 'telesales_department')['pnl']['tax_allocation'], 0.01);
+    }
+
     /** Explicit request, 2026-09-26: "add like + icon on Selling And
      *  Marketing and Operating Costs ... has modal ... if it is editable
      *  or fixed" — a custom row is a SHARED definition (like a built-in
