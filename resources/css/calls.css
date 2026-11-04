@@ -13,6 +13,10 @@
    for classes it actually finds. */
 @source '../**/*.blade.php';
 @source '../**/*.js';
+/* TSD Archiving System keeps some Tailwind class strings in PHP (status
+   badges, department colors, shared input/button classes). */
+@source '../../app/Models/*.php';
+@source '../../app/Support/ArchiveUi.php';
 
 /*
  * Ported from call-tracker (merged into one app 2026-08-12), unmodified —

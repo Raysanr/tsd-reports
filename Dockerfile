@@ -116,6 +116,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 # headroom at this app's actual traffic/payload sizes without masking a
 # genuine unbounded-growth bug the way going much higher would.
 RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/memory-limit.ini
+# TSD Archiving System uploads: 20 MB per file (ArchiveDocument::MAX_KB),
+# up to 10 files per request. PHP's stock limits (2M / 8M) would reject
+# almost every real contract scan before Laravel's own validation runs.
+RUN printf "upload_max_filesize = 20M\npost_max_size = 210M\nmax_file_uploads = 20\n" > /usr/local/etc/php/conf.d/uploads.ini
 
 WORKDIR /app
 

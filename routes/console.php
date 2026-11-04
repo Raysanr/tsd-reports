@@ -12,6 +12,7 @@ use App\Console\Commands\LinkSeparateParcelOrders;
 use App\Console\Commands\BackfillLostUpsellTags;
 use App\Console\Commands\LogoutAllTsasAtMidnight;
 use App\Console\Commands\ExpireWrapUpStatuses;
+use App\Console\Commands\SnapshotTsaPerformance;
 use App\Models\Setting;
 use Illuminate\Support\Carbon;
 
@@ -245,6 +246,11 @@ Schedule::command(ExpireWrapUpStatuses::class)->everyMinute()->withoutOverlappin
 // file (a stuck run means literally waiting until tomorrow for the next
 // tick), so the stale-mutex protection matters here as much as anywhere.
 Schedule::command(LogoutAllTsasAtMidnight::class)->dailyAt('00:00')->timezone('Asia/Manila')->withoutOverlapping(10);
+
+// TSD Archiving System (2026-10-19): freeze last month's per-TSA numbers
+// into performance_snapshots on the 1st, after the 01:xx backfill re-syncs
+// above have settled. Same withoutOverlapping() convention as every job here.
+Schedule::command(SnapshotTsaPerformance::class)->monthlyOn(1, '03:00')->timezone('Asia/Manila')->withoutOverlapping(30);
 
 // Partners Data Management (2026-10-29): pull PEAK.CO / M&J / MLC products,
 // TSAs and orders into the partners database (App\Services\PartnerSync).

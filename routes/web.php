@@ -526,4 +526,81 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
             Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
         });
     });
+
+    // TSD Archiving System (explicit request, 2026-10-19: "create another
+    // module TSD ARCHIVING SYSTEM" — department structure chart, file
+    // uploads, live view of TSAs running sales). Same "own Hub card, own
+    // prefix/layout" pattern as Data Management above. Admin-only for now:
+    // it holds HR records (contracts, IDs, phone numbers).
+    Route::prefix('archive')->name('archive.')->middleware('role:super_admin,admin')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Archive\OverviewController::class, 'index'])->name('overview');
+        Route::get('/org-chart', [\App\Http\Controllers\Archive\OrgChartController::class, 'index'])->name('org-chart');
+        Route::patch('/org-chart/connect', [\App\Http\Controllers\Archive\OrgChartController::class, 'connect'])->name('org-chart.connect');
+        Route::patch('/org-chart/disconnect', [\App\Http\Controllers\Archive\OrgChartController::class, 'disconnect'])->name('org-chart.disconnect');
+        Route::patch('/org-chart/position', [\App\Http\Controllers\Archive\OrgChartController::class, 'position'])->name('org-chart.position');
+        Route::post('/org-chart/reset-layout', [\App\Http\Controllers\Archive\OrgChartController::class, 'resetLayout'])->name('org-chart.reset');
+        Route::get('/scoreboard', [\App\Http\Controllers\Archive\LiveTsaController::class, 'index'])->name('live-tsa');
+        Route::get('/activity-log', [\App\Http\Controllers\Archive\ActivityLogController::class, 'index'])->name('activity-log');
+
+        Route::get('/teams', [\App\Http\Controllers\Archive\DepartmentController::class, 'index'])->name('departments');
+        Route::post('/teams', [\App\Http\Controllers\Archive\DepartmentController::class, 'store'])->name('departments.store');
+        Route::put('/teams/{department}', [\App\Http\Controllers\Archive\DepartmentController::class, 'update'])->name('departments.update');
+        Route::patch('/teams/{department}/archive', [\App\Http\Controllers\Archive\DepartmentController::class, 'archive'])->name('departments.archive');
+        Route::patch('/teams/{department}/restore', [\App\Http\Controllers\Archive\DepartmentController::class, 'restore'])->name('departments.restore');
+
+        Route::get('/people', [\App\Http\Controllers\Archive\EmployeeController::class, 'index'])->name('people');
+        Route::post('/people', [\App\Http\Controllers\Archive\EmployeeController::class, 'store'])->name('people.store');
+        Route::get('/people/{employee}', [\App\Http\Controllers\Archive\EmployeeController::class, 'show'])->name('people.show');
+        Route::get('/people/{employee}/photo', [\App\Http\Controllers\Archive\EmployeeController::class, 'photo'])->name('people.photo');
+        Route::post('/people/{employee}/photo', [\App\Http\Controllers\Archive\EmployeeController::class, 'updatePhoto'])->name('people.photo.update');
+        Route::delete('/people/{employee}/photo', [\App\Http\Controllers\Archive\EmployeeController::class, 'destroyPhoto'])->name('people.photo.destroy');
+        Route::put('/people/{employee}', [\App\Http\Controllers\Archive\EmployeeController::class, 'update'])->name('people.update');
+        Route::patch('/people/{employee}/manpower', [\App\Http\Controllers\Archive\EmployeeController::class, 'updateManpower'])->name('people.manpower');
+        Route::delete('/people/{employee}', [\App\Http\Controllers\Archive\EmployeeController::class, 'destroy'])->name('people.destroy');
+        Route::patch('/people/{employee}/reinstate', [\App\Http\Controllers\Archive\RecordsController::class, 'reinstate'])->name('people.reinstate');
+
+        Route::get('/documents', [\App\Http\Controllers\Archive\DocumentController::class, 'index'])->name('documents');
+        Route::post('/documents', [\App\Http\Controllers\Archive\DocumentController::class, 'store'])->name('documents.store');
+        Route::put('/documents/{document}', [\App\Http\Controllers\Archive\DocumentController::class, 'update'])->name('documents.update');
+        Route::get('/documents/{document}/download', [\App\Http\Controllers\Archive\DocumentController::class, 'download'])->name('documents.download');
+        Route::get('/documents/{document}/preview', [\App\Http\Controllers\Archive\DocumentController::class, 'preview'])->name('documents.preview');
+        Route::delete('/documents/{document}', [\App\Http\Controllers\Archive\DocumentController::class, 'destroy'])->name('documents.destroy');
+        Route::patch('/documents/{id}/restore', [\App\Http\Controllers\Archive\DocumentController::class, 'restore'])->whereNumber('id')->name('documents.restore');
+        Route::delete('/documents/{id}/force', [\App\Http\Controllers\Archive\DocumentController::class, 'forceDestroy'])->whereNumber('id')->name('documents.force-destroy');
+
+        Route::get('/records', [\App\Http\Controllers\Archive\RecordsController::class, 'index'])->name('records');
+
+        Route::post('/people/sync', [\App\Http\Controllers\Archive\EmployeeController::class, 'sync'])->name('people.sync');
+
+        Route::post('/coaching', [\App\Http\Controllers\Archive\CoachingController::class, 'store'])->name('coaching.store');
+        Route::put('/coaching/{record}', [\App\Http\Controllers\Archive\CoachingController::class, 'update'])->name('coaching.update');
+        Route::patch('/coaching/{record}/acknowledge', [\App\Http\Controllers\Archive\CoachingController::class, 'acknowledge'])->name('coaching.acknowledge');
+        Route::delete('/coaching/{record}', [\App\Http\Controllers\Archive\CoachingController::class, 'destroy'])->name('coaching.destroy');
+
+        Route::get('/performance', [\App\Http\Controllers\Archive\PerformanceController::class, 'index'])->name('performance');
+
+        Route::post('/people/{employee}/events', [\App\Http\Controllers\Archive\EmployeeController::class, 'storeEvent'])->name('people.events.store');
+        Route::delete('/people/{employee}/events/{event}', [\App\Http\Controllers\Archive\EmployeeController::class, 'destroyEvent'])->name('people.events.destroy');
+
+
+        Route::get('/incidents', [\App\Http\Controllers\Archive\IncidentController::class, 'index'])->name('incidents');
+        Route::post('/incidents', [\App\Http\Controllers\Archive\IncidentController::class, 'store'])->name('incidents.store');
+        Route::put('/incidents/{incident}', [\App\Http\Controllers\Archive\IncidentController::class, 'update'])->name('incidents.update');
+        Route::delete('/incidents/{incident}', [\App\Http\Controllers\Archive\IncidentController::class, 'destroy'])->name('incidents.destroy');
+
+        Route::get('/documented-process', [\App\Http\Controllers\Archive\LibraryController::class, 'index'])->name('library');
+        Route::get('/documented-process/{folder}', [\App\Http\Controllers\Archive\LibraryController::class, 'folder'])->name('library.folder');
+        Route::get('/documented-process/{folder}/f/{subfolder}', [\App\Http\Controllers\Archive\LibraryController::class, 'folder'])->name('library.subfolder');
+        Route::post('/documented-process/{folder}/subfolders', [\App\Http\Controllers\Archive\LibraryController::class, 'storeSubfolder'])->name('library.subfolders.store');
+        Route::patch('/documented-process/subfolders/{subfolder}', [\App\Http\Controllers\Archive\LibraryController::class, 'renameSubfolder'])->name('library.subfolders.rename');
+        Route::delete('/documented-process/subfolders/{subfolder}', [\App\Http\Controllers\Archive\LibraryController::class, 'destroySubfolder'])->name('library.subfolders.destroy');
+        Route::post('/documented-process', [\App\Http\Controllers\Archive\LibraryController::class, 'store'])->name('library.store');
+        Route::get('/documented-process/page/{item}', [\App\Http\Controllers\Archive\LibraryController::class, 'show'])->name('library.show');
+        Route::put('/documented-process/page/{item}', [\App\Http\Controllers\Archive\LibraryController::class, 'update'])->name('library.update');
+        Route::patch('/documented-process/page/{item}/restore/{version}', [\App\Http\Controllers\Archive\LibraryController::class, 'restore'])->whereNumber('version')->name('library.restore');
+        Route::patch('/documented-process/page/{item}/archive', [\App\Http\Controllers\Archive\LibraryController::class, 'archive'])->name('library.archive');
+        Route::patch('/documented-process/page/{item}/unarchive', [\App\Http\Controllers\Archive\LibraryController::class, 'unarchive'])->name('library.unarchive');
+        Route::delete('/documented-process/page/{item}', [\App\Http\Controllers\Archive\LibraryController::class, 'destroy'])->name('library.destroy');
+        Route::post('/performance/generate', [\App\Http\Controllers\Archive\PerformanceController::class, 'generate'])->name('performance.generate');
+    });
 });

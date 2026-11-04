@@ -56,6 +56,18 @@ return [
         // disk existed. See CallRecordingController's own doc comment for why this
         // mattered: uploads were previously silently wiped on every Railway
         // redeploy/restart.
+        // TSD Archiving System uploads (ArchiveDocument) — own disk for the
+        // same reason as call_recordings below: production must point
+        // ARCHIVE_DISK_ROOT at a persistent Railway Volume, or uploads are
+        // wiped on every redeploy. Unset (local dev, tests) = storage/app/private/archive.
+        'archive' => [
+            'driver' => 'local',
+            'root' => env('ARCHIVE_DISK_ROOT', storage_path('app/private/archive')),
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
         'call_recordings' => [
             'driver' => 'local',
             'root' => env('CALL_RECORDINGS_DISK_ROOT', storage_path('app/private')),

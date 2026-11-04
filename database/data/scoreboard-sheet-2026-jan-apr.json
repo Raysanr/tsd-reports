@@ -1,0 +1,372 @@
+{
+  "source": "Google Sheet 'TSD 2026 : IS REPORT' (original, owner shtelesalesmanager@gmail.com, id 14Jb0qyBnVPm5kpZjbQggyg42y-FYIEQzzTeAXHFUftg) \u2014 <MONTH> 2026 - ACTUAL INCOME tabs. Verified identical to the earlier copy on 2026-10-20.",
+  "notes": "sales = Gross Sales; net = NET INCOME (January has no NET INCOME row \u2014 its 'Income (loss) before shared costs' row is used). A TSA appearing in more than one product-pack block in a month is summed. team: sh-naturals = Team Opening (sheet: TEAM OPENING SHIFT / TEAM SH NATURALS), eyecare = Team Closing (TEAM CLOSING SHIFT / TEAM EYECARE). Values keep the sheet's full precision (up to 6 decimals) so monthly totals match the sheet to the centavo; the app displays 2 decimals.",
+  "months": {
+    "2026-01": {
+      "sheet": "JAN. 2026 - ACTUAL INCOME",
+      "net_row": "Income (loss) before shared costs",
+      "people": [
+        {
+          "name": "JOSEPH",
+          "team": "sh-naturals",
+          "sales": 326202.0,
+          "net": 126584.8553
+        },
+        {
+          "name": "MJ CALIWAN",
+          "team": "sh-naturals",
+          "sales": 327818.0,
+          "net": 120974.2241
+        },
+        {
+          "name": "GEMMA",
+          "team": "sh-naturals",
+          "sales": 319400.0,
+          "net": 111213.3789
+        },
+        {
+          "name": "ALEXIS",
+          "team": "sh-naturals",
+          "sales": 286265.0,
+          "net": 123811.9701
+        },
+        {
+          "name": "JULIE",
+          "team": "sh-naturals",
+          "sales": 370806.0,
+          "net": 182857.5481
+        },
+        {
+          "name": "LARRY",
+          "team": "sh-naturals",
+          "sales": 184383.0,
+          "net": 68182.80706
+        },
+        {
+          "name": "LOVELY",
+          "team": "sh-naturals",
+          "sales": 300100.0,
+          "net": 178163.9289
+        },
+        {
+          "name": "WENCY",
+          "team": "sh-naturals",
+          "sales": 256499.0,
+          "net": 156423.4357
+        },
+        {
+          "name": "MARY JANE CRUZAT",
+          "team": "eyecare",
+          "sales": 341636.0,
+          "net": 133006.5301
+        },
+        {
+          "name": "KATHLEEN",
+          "team": "eyecare",
+          "sales": 286994.0,
+          "net": 84586.41614
+        },
+        {
+          "name": "MARIEL",
+          "team": "eyecare",
+          "sales": 338021.0,
+          "net": 130925.3261
+        },
+        {
+          "name": "CATHY",
+          "team": "eyecare",
+          "sales": 283076.0,
+          "net": 101776.9981
+        },
+        {
+          "name": "ABBY",
+          "team": "eyecare",
+          "sales": 140265.0,
+          "net": 35472.79992
+        },
+        {
+          "name": "NAMIE",
+          "team": "eyecare",
+          "sales": 103027.0,
+          "net": 34417.29129
+        },
+        {
+          "name": "MARISOL",
+          "team": "eyecare",
+          "sales": 277796.0,
+          "net": 133019.2073
+        }
+      ]
+    },
+    "2026-02": {
+      "sheet": "FEB. 2026 - ACTUAL INCOME",
+      "net_row": "NET INCOME",
+      "people": [
+        {
+          "name": "MJ CALIWAN",
+          "team": "sh-naturals",
+          "sales": 162900.0,
+          "net": 23529.50622
+        },
+        {
+          "name": "JOSEPH",
+          "team": "sh-naturals",
+          "sales": 211702.0,
+          "net": 41566.86142
+        },
+        {
+          "name": "GEMMA",
+          "team": "sh-naturals",
+          "sales": 192400.0,
+          "net": 35417.46622
+        },
+        {
+          "name": "ALEXIS",
+          "team": "sh-naturals",
+          "sales": 184899.0,
+          "net": 30167.37862
+        },
+        {
+          "name": "JULIE",
+          "team": "sh-naturals",
+          "sales": 264200.0,
+          "net": 105015.3062
+        },
+        {
+          "name": "SCHAINE",
+          "team": "sh-naturals",
+          "sales": 81958.0,
+          "net": 10255.61254
+        },
+        {
+          "name": "ELAINE",
+          "team": "sh-naturals",
+          "sales": 30293.0,
+          "net": 4084.975511
+        },
+        {
+          "name": "LOVELY",
+          "team": "sh-naturals",
+          "sales": 228600.0,
+          "net": 89399.75622
+        },
+        {
+          "name": "WENCY",
+          "team": "sh-naturals",
+          "sales": 182700.0,
+          "net": 70750.66622
+        },
+        {
+          "name": "MARY JANE CRUZAT",
+          "team": "eyecare",
+          "sales": 169868.0,
+          "net": 10905.68631
+        },
+        {
+          "name": "KATHLEEN",
+          "team": "eyecare",
+          "sales": 204283.0,
+          "net": 13486.35431
+        },
+        {
+          "name": "MARIEL",
+          "team": "eyecare",
+          "sales": 239975.0,
+          "net": 42183.76791
+        },
+        {
+          "name": "CATHY",
+          "team": "eyecare",
+          "sales": 176842.0,
+          "net": 21236.78271
+        },
+        {
+          "name": "ABBY",
+          "team": "eyecare",
+          "sales": 192603.0,
+          "net": 14675.47957
+        },
+        {
+          "name": "NAMIE",
+          "team": "eyecare",
+          "sales": 204453.0,
+          "net": 49184.12271
+        },
+        {
+          "name": "MARISOL",
+          "team": "eyecare",
+          "sales": 221198.0,
+          "net": 54559.15991
+        }
+      ]
+    },
+    "2026-03": {
+      "sheet": "MARCH. 2026 - ACTUAL INCOME",
+      "net_row": "NET INCOME",
+      "people": [
+        {
+          "name": "JOSEPH",
+          "team": "sh-naturals",
+          "sales": 181400.0,
+          "net": 37465.50684
+        },
+        {
+          "name": "GEMMA",
+          "team": "sh-naturals",
+          "sales": 151181.0,
+          "net": 18820.85884
+        },
+        {
+          "name": "JULIE",
+          "team": "sh-naturals",
+          "sales": 192106.0,
+          "net": 41172.51484
+        },
+        {
+          "name": "SCHAINE",
+          "team": "sh-naturals",
+          "sales": 80900.0,
+          "net": 5182.356083
+        },
+        {
+          "name": "ELAINE",
+          "team": "sh-naturals",
+          "sales": 145910.0,
+          "net": 25436.76004
+        },
+        {
+          "name": "LOVELY",
+          "team": "sh-naturals",
+          "sales": 188200.0,
+          "net": 41794.54684
+        },
+        {
+          "name": "MJ CALIWAN",
+          "team": "sh-naturals",
+          "sales": 128400.0,
+          "net": 26440.42684
+        },
+        {
+          "name": "WENCY",
+          "team": "sh-naturals",
+          "sales": 179707.0,
+          "net": 62232.95004
+        },
+        {
+          "name": "MARY JANE CRUZAT",
+          "team": "eyecare",
+          "sales": 59433.0,
+          "net": -31097.05419
+        },
+        {
+          "name": "MARIEL",
+          "team": "eyecare",
+          "sales": 203767.0,
+          "net": 33432.60061
+        },
+        {
+          "name": "ABBY",
+          "team": "eyecare",
+          "sales": 82600.0,
+          "net": -10734.86899
+        },
+        {
+          "name": "MARISOL",
+          "team": "eyecare",
+          "sales": 249099.0,
+          "net": 71751.99341
+        },
+        {
+          "name": "CATHY",
+          "team": "eyecare",
+          "sales": 128919.0,
+          "net": 7390.805006
+        },
+        {
+          "name": "KATHLEEN",
+          "team": "eyecare",
+          "sales": 175130.0,
+          "net": 16423.36261
+        }
+      ]
+    },
+    "2026-04": {
+      "sheet": "APRIL  2026 - ACTUAL INCOME",
+      "net_row": "NET INCOME",
+      "people": [
+        {
+          "name": "JOSEPH",
+          "team": "eyecare",
+          "sales": 178200.0,
+          "net": 39620.35564
+        },
+        {
+          "name": "ELAINE",
+          "team": "eyecare",
+          "sales": 172002.0,
+          "net": 32262.79324
+        },
+        {
+          "name": "JULIE",
+          "team": "eyecare",
+          "sales": 199105.0,
+          "net": 34510.66324
+        },
+        {
+          "name": "LOVELY",
+          "team": "eyecare",
+          "sales": 203700.0,
+          "net": 42149.59564
+        },
+        {
+          "name": "MARISOL",
+          "team": "eyecare",
+          "sales": 231901.0,
+          "net": 47347.98084
+        },
+        {
+          "name": "CATHY",
+          "team": "eyecare",
+          "sales": 25500.0,
+          "net": -42234.91436
+        },
+        {
+          "name": "JOANNA",
+          "team": "eyecare",
+          "sales": 84000.0,
+          "net": 1347.445644
+        },
+        {
+          "name": "MJ CALIWAN",
+          "team": "sh-naturals",
+          "sales": 109000.0,
+          "net": 8365.000202
+        },
+        {
+          "name": "GEMMA",
+          "team": "sh-naturals",
+          "sales": 231902.0,
+          "net": 66908.42027
+        },
+        {
+          "name": "WENCY",
+          "team": "sh-naturals",
+          "sales": 179903.0,
+          "net": 35325.99787
+        },
+        {
+          "name": "KATHLEEN",
+          "team": "sh-naturals",
+          "sales": 213032.0,
+          "net": 17518.89227
+        },
+        {
+          "name": "MARIEL",
+          "team": "sh-naturals",
+          "sales": 223921.0,
+          "net": 41978.83627
+        }
+      ]
+    }
+  }
+}
