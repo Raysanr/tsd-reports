@@ -37,6 +37,7 @@ class ActivityLogController extends Controller
         'tsa_sales'        => 'Summary Sales Report',
         'expected_income'  => 'Expected Income',
         'cost_breakdown'   => 'Cost Breakdown',
+        'product_costs'    => 'Product Costs',
     ];
 
     public function index(Request $request)
@@ -58,7 +59,7 @@ class ActivityLogController extends Controller
         $dateTo   = $range['to'];
 
         $isAdmin = auth()->user()->isAtLeastAdmin();
-        $visibleModules = $isAdmin ? self::MODULES : collect(self::MODULES)->except('cost_breakdown')->all();
+        $visibleModules = $isAdmin ? self::MODULES : collect(self::MODULES)->except(['cost_breakdown', 'product_costs'])->all();
 
         $logs = ActivityLog::with('user')
             ->where(function ($q) use ($visibleModules) {

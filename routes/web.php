@@ -529,6 +529,15 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
             // is the short key (salary/pools/tsa), validated against
             // CostBreakdownController::LOCK_TABLES, not a model binding.
             Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
+
+            // Product Costs (explicit request, 2026-11-04): the sheet's
+            // Variation id -> Product Costs list. Admin-only because it is
+            // margin data, same reasoning as Cost Breakdown above.
+            Route::get('/product-costs', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'index'])->name('product-costs');
+            Route::post('/product-costs', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'store'])->name('product-costs.store');
+            Route::patch('/product-costs/lock', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'toggleLock'])->name('product-costs.toggle-lock');
+            Route::patch('/product-costs/{productCost}', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'update'])->name('product-costs.update');
+            Route::delete('/product-costs/{productCost}', [\App\Http\Controllers\DataManagement\ProductCostController::class, 'destroy'])->name('product-costs.destroy');
         });
     });
 
