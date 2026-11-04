@@ -214,6 +214,24 @@ class PartnersDataManagementTest extends TestCase
         $this->get('/data/dsppr?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('data-row-key="tiktok"', false);
     }
 
+    /** 2026-11-04: an M&J order must never be credited to another partner's
+     *  product — M&J Pterygium showed 0 vs M&J's own 6 orders. */
+    public function test_product_matching_stays_inside_each_partner(): void
+    {
+        DataSet::onPartners(function () {
+            $pterygium = Product::create(['display_name' => 'PTERYGIUM EYE DROPS', 'match_keyword' => 'PTERYGIUM', 'team' => 'M&J']);
+            $mjClear = Product::create(['display_name' => 'CLEAR EYE SIGHT', 'match_keyword' => 'CLEAR EYE SIGHT', 'team' => 'M&J']);
+            $peakClear = Product::create(['display_name' => 'CLEARSIGHT', 'match_keyword' => 'CLEAR SIGHT', 'team' => 'PEAK.CO']);
+            $order = new \App\Models\Order(['team' => 'M&J', 'tsa_name' => 'M&J:Trocio', 'product' => 'Pterygium Eye Drops',
+                'base_product' => 'Clear Sight 3.0', 'raw_tags' => ['UPSELL TSD - PTERYGIUM'], 'is_upsell' => true, 'amount' => 750, 'status_code' => 1]);
+            $order->id = 1;
+            $products = collect([$pterygium, $mjClear, $peakClear]);
+
+            $this->assertCount(1, \App\Support\ProductPerformance::matchingOrders($pterygium, collect([$order]), $products));
+            $this->assertCount(0, \App\Support\ProductPerformance::matchingOrders($peakClear, collect([$order]), $products), 'another partner\'s product never takes an M&J order');
+        });
+    }
+
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {

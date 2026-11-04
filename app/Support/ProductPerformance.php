@@ -174,6 +174,17 @@ class ProductPerformance
      *  never drift from what buildRow() actually counted. */
     public static function matchingOrders(Product $product, Collection $orders, ?Collection $teamProducts = null): Collection
     {
+        // Partners Data Management (2026-11-04, M&J Pterygium 0 vs M&J's own 6
+        // orders, Nov 1-4): every partner's products sit in one list here, so
+        // an M&J order whose base item shares a name with a PEAK.CO/MLC product
+        // was credited to that partner's product and vanished from M&J's. Each
+        // partner app only ever sees its own products and orders — match the
+        // same way: only this partner's orders, against this partner's products.
+        if (DataSet::isPartners() && $product->team !== null) {
+            $orders = $orders->where('team', $product->team);
+            $teamProducts = $teamProducts?->where('team', $product->team)->values();
+        }
+
         // Root-caused 2026-08-17 (production: 111 here vs 103 in Pancake POS's
         // own exact-product-ID filter, same day/team/products): bare keyword
         // matching below conflates genuinely separate Pancake products that
