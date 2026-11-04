@@ -17,7 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
  *  removed ON or AFTER the range's first day is still on the roster, so her
  *  row and her share of every total come back for dates up to the day she
  *  was removed; a range starting after that day doesn't include her.
- *  Data Management drops her on the removal day itself (rosterCutoff()).
+ *  Data Management's own rule: TsaShift::applyRosterWindow().
  *  withTrashed()/onlyTrashed() keep working (same scope class identity). */
 class TsaRosterScope extends SoftDeletingScope
 {
@@ -29,7 +29,6 @@ class TsaRosterScope extends SoftDeletingScope
             return;
         }
 
-        $column = $model->getQualifiedDeletedAtColumn();
-        $builder->where(fn ($q) => $q->whereNull($column)->orWhere($column, '>=', TsaShift::rosterCutoff($from)));
+        TsaShift::applyRosterWindow($builder, $from, $model->getQualifiedDeletedAtColumn());
     }
 }

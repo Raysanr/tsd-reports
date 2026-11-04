@@ -61,7 +61,7 @@ class TsaDailyRateService
         // after a removal, every split goes to the remaining TSAs only.
         // On Data Management pages, from the removal day itself (2026-11-01).
         return RequestMemo::remember("tsa_daily_rate.tsas:{$date}", fn () => TsaShift::withTrashed()
-            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>=', TsaShift::rosterCutoff($date)))
+            ->tap(fn ($q) => TsaShift::applyRosterWindow($q, $date))
             ->get()
             ->filter(fn (TsaShift $tsa) => self::belongsToMonth($tsa, substr($date, 0, 7), self::costBreakdownTsaEntriesByTsaId()))
             ->values());

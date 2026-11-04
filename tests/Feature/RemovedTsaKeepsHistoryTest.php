@@ -64,7 +64,7 @@ class RemovedTsaKeepsHistoryTest extends TestCase
     }
 
     /** Explicit request, 2026-11-03: Data Management drops her from her
-     *  whole removal month; the month before still has her. */
+     *  whole removal month when she had no orders in it. */
     public function test_data_management_drops_her_from_her_whole_removal_month(): void
     {
         $gemma = $this->removeGemmaOn('2026-10-20');
@@ -78,6 +78,22 @@ class RemovedTsaKeepsHistoryTest extends TestCase
         $this->get('/data/expected-income?date_from=2026-10-01&date_to=2026-10-01&team=sh-naturals')->assertOk()->assertDontSee('data-tsa-name="' . strtolower($gemma->display_name) . '"', false);
         $this->get('/data/expected-income?date_from=2026-09-30&date_to=2026-09-30&team=sh-naturals')->assertOk()->assertSee('data-tsa-name="' . strtolower($gemma->display_name) . '"', false);
         $this->assertContains('Gemma', $this->tsaPerformanceKeys('2026-10-20', '2026-10-20'), 'other reports still show the removal day');
+    }
+
+    /** Explicit request, 2026-11-04 (Jhun): a TSA removed mid-month who sold
+     *  that month keeps her days before the removal. */
+    public function test_data_management_keeps_a_removed_tsa_who_sold_that_month(): void
+    {
+        $this->gemmaOrderOn('2026-10-05');
+        $gemma = $this->removeGemmaOn('2026-10-20');
+        \Illuminate\Support\Facades\DB::table('tsa_shifts')->where('id', $gemma->id)->update(['created_at' => '2026-01-01 00:00:00']);
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        Carbon::setTestNow('2026-10-25 18:00:00');
+        $card = 'data-tsa-name="' . strtolower($gemma->display_name) . '"';
+
+        $this->get('/data/expected-income?date_from=2026-10-01&date_to=2026-10-01&team=sh-naturals')->assertOk()->assertSee($card, false);
+        $this->get('/data/expected-income?date_from=2026-10-19&date_to=2026-10-19&team=sh-naturals')->assertOk()->assertSee($card, false);
+        $this->get('/data/expected-income?date_from=2026-10-20&date_to=2026-10-20&team=sh-naturals')->assertOk()->assertDontSee($card, false);
     }
 
     public function test_live_pages_and_tsa_management_still_treat_her_as_removed(): void

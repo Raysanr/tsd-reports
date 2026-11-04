@@ -65,10 +65,9 @@ class TsaShift extends Model
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
     }
 
-    /** Data Management drops a removed TSA from her whole removal month
-     *  (2026-11-01, widened 2026-11-03 — see rosterCutoff()) — set per
+    /** Data Management's roster rule (see applyRosterWindow()) — set per
      *  request by DataManagementDataset. Every other report page keeps
-     *  showing her up to her removal day. */
+     *  showing a removed TSA up to her removal day. */
     public static function excludeRemovalDay(): void
     {
         if (app()->bound('request')) {
@@ -77,16 +76,42 @@ class TsaShift extends Model
     }
 
     /** The deleted_at a removed TSA needs (>=) to still be on the roster for
-     *  $date: that day's start; under excludeRemovalDay() (Data Management),
-     *  the start of the NEXT month — a TSA removed any time in November is
-     *  gone from all of November and stays through October 31 (explicit
-     *  request, 2026-11-03: "in nov 1 i want to make it reset all"). */
+     *  $date: that day's start, or the next day's on Data Management. */
     public static function rosterCutoff(string $date): string
     {
-        $dataManagement = app()->bound('request') && app('request')->attributes->get('tsa_roster_exclude_removal_day');
-        $cutoff = \Illuminate\Support\Carbon::parse($date);
+        return \Illuminate\Support\Carbon::parse($date)->addDays(self::isDataManagementRoster() ? 1 : 0)->toDateString() . ' 00:00:00';
+    }
 
-        return ($dataManagement ? $cutoff->startOfMonth()->addMonthNoOverflow() : $cutoff)->toDateString() . ' 00:00:00';
+    private static function isDataManagementRoster(): bool
+    {
+        return app()->bound('request') && (bool) app('request')->attributes->get('tsa_roster_exclude_removal_day');
+    }
+
+    /** Limits $query to the TSAs on the roster for $date. A removed TSA stays
+     *  up to her removal day (Data Management: the day before). Data
+     *  Management also drops a TSA removed in $date's month from that whole
+     *  month unless she has orders in it before her removal (explicit
+     *  request, 2026-11-04: Jhun, removed Nov 4, keeps his Nov 1-3 sales;
+     *  Marsha/Grace, no November orders, are gone from Nov 1). */
+    public static function applyRosterWindow($query, string $date, string $deletedAt = 'deleted_at'): void
+    {
+        $cutoff = self::rosterCutoff($date);
+        if (!self::isDataManagementRoster()) {
+            $query->where(fn ($q) => $q->whereNull($deletedAt)->orWhere($deletedAt, '>=', $cutoff));
+
+            return;
+        }
+
+        $monthStart = \Illuminate\Support\Carbon::parse($date)->startOfMonth();
+        $nextMonth = $monthStart->copy()->addMonthNoOverflow()->toDateString() . ' 00:00:00';
+        $table = $query->getModel()->getTable();
+        $query->where(fn ($q) => $q->whereNull($deletedAt)
+            ->orWhere($deletedAt, '>=', $nextMonth)
+            ->orWhere(fn ($q) => $q->where($deletedAt, '>=', $cutoff)->whereExists(fn ($orders) => $orders
+                ->selectRaw('1')->from('orders')
+                ->whereColumn('orders.tsa_name', "{$table}.tsa_key")
+                ->where('orders.pancake_created_at', '>=', $monthStart->toDateString() . ' 00:00:00')
+                ->whereColumn('orders.pancake_created_at', '<', $deletedAt))));
     }
 
     /** Route-bound edits on a dated cell (Expected Income / Summary Sales
