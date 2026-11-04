@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\DataManagement\OverallPerformanceController;
 use App\Models\ProjectionColumn;
 use App\Models\User;
 use App\Support\DataSet;
+use App\Support\ExpectedIncomeCalculator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -102,6 +104,23 @@ class OverallPerformanceTest extends TestCase
         $this->assertSame(18, substr_count($content, 'data-tally-row="ok"'));
         $this->assertStringNotContainsString('data-tally-row="mismatch"', $content);
         $this->assertStringNotContainsString('data-tally-note', $content);
+    }
+
+    /** Partners have no Fulfillment Fee, so TSD OVERALL's selling costs must
+     *  be the two sides added, never all orders x the per-order fee. */
+    public function test_tsd_overall_charges_no_fulfillment_fee_on_partner_orders(): void
+    {
+        $this->migratePartners();
+        $tsd = ExpectedIncomeCalculator::derive(['number_of_orders' => 109, 'gross_sales' => 68909]);
+        $partners = DataSet::onPartners(fn () => ExpectedIncomeCalculator::derive(['number_of_orders' => 139, 'gross_sales' => 108903]));
+
+        $combine = new \ReflectionMethod(OverallPerformanceController::class, 'combineIncome');
+        $overall = $combine->invoke(new OverallPerformanceController, $tsd, $partners);
+
+        $this->assertEqualsWithDelta(2725.0, collect($overall['selling_lines'])['fulfillment_fee'], 0.001);
+        $this->assertEqualsWithDelta($tsd['total_selling_costs'] + $partners['total_selling_costs'], $overall['total_selling_costs'], 0.001);
+        $this->assertEqualsWithDelta($overall['gross_profit'] - $overall['total_selling_costs'], $overall['income_before_opex'], 0.001);
+        $this->assertEqualsWithDelta($tsd['net_income'] + $partners['net_income'], $overall['net_income'], 0.001);
     }
 
     public function test_projections_total_sums_sh_ecom_and_each_partner(): void

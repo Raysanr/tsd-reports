@@ -216,6 +216,16 @@ class OverallPerformanceController extends Controller
     private function combineIncome(array $tsd, array $partners): array
     {
         $sum = ExpectedIncomeCalculator::addDerivedTotals($tsd, $partners);
+
+        // Re-deriving charges Fulfillment Fee on every order, but partners
+        // have none: selling costs are the two sides' real lines added.
+        $partnerLines = collect($partners['selling_lines']);
+        $sum['selling_lines'] = collect($tsd['selling_lines'])->map(fn ($amount, $key) => $amount + ($partnerLines[$key] ?? 0.0));
+        $sum['total_selling_costs'] = (float) $tsd['total_selling_costs'] + (float) $partners['total_selling_costs'];
+        $sum['total_selling_costs_pct'] = $sum['gross_sales'] > 0 ? $sum['total_selling_costs'] / $sum['gross_sales'] : 0.0;
+        $sum['income_before_opex'] = $sum['gross_profit'] - $sum['total_selling_costs'];
+        $sum['income_before_opex_pct'] = $sum['gross_sales'] > 0 ? $sum['income_before_opex'] / $sum['gross_sales'] : 0.0;
+
         $sum['net_income'] = (float) $tsd['net_income'] + (float) $partners['net_income'];
         $sum['net_income_pct'] = $sum['gross_sales'] > 0 ? $sum['net_income'] / $sum['gross_sales'] : 0.0;
 
