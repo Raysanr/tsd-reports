@@ -468,7 +468,7 @@
         const sellingLines = {};
         SELLING_KEYS.forEach((key) => { sellingLines[key] = Number(row[key]) || 0; });
         sellingLines.cod_fee = delivered * COD_FEE_RATE_OF_DELIVERED;
-        sellingLines.fulfillment_fee = orders * FULFILLMENT_FEE_PER_ORDER;
+        if (SELLING_KEYS.includes('fulfillment_fee')) sellingLines.fulfillment_fee = orders * FULFILLMENT_FEE_PER_ORDER;
         const totalSellingCosts = Object.values(sellingLines).reduce((sum, v) => sum + v, 0);
 
         const operatingLines = {};

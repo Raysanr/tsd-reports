@@ -298,7 +298,11 @@ class ProjectionCalculator
      *  available here too. */
     public static function sellingCostRows(): array
     {
-        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
+        $rows = RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
+
+        // Partners Data Management has no Fulfillment Fee (explicit request,
+        // 2026-11-04) — same as the partners' own Income Statements.
+        return DataSet::isPartners() ? array_diff_key($rows, ['fulfillment_fee' => true]) : $rows;
     }
 
     public static function operatingCostRows(): array
@@ -543,7 +547,8 @@ class ProjectionCalculator
             // Diverges from the old gross-sales-percentage shortcut
             // whenever AOV isn't exactly ₱800 (the one value where
             // orders×25 and gross×3.125% happen to agree).
-            ->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER);
+            // (Not on Partners — see sellingCostRows().)
+            ->when(!DataSet::isPartners(), fn ($lines) => $lines->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER));
         $totalSellingCosts = $sellingLines->sum();
 
         $operatingLines = collect(array_keys(self::operatingCostRows()))
@@ -662,6 +667,8 @@ class ProjectionCalculator
                 // flat multiplier, since they don't follow it.
                 if ($isDaily) {
                     $pnl['orders'] = $basePnl['orders'] / $tsaCount / self::DAILY_ORDERS_DIVISOR;
+                }
+                if ($isDaily && !DataSet::isPartners()) {
 
                     $fulfillmentFee = $pnl['gross_sales'] * self::DAILY_FULFILLMENT_FEE_RATE;
                     $delta = $fulfillmentFee - ($pnl['selling_lines']['fulfillment_fee'] ?? 0.0);

@@ -232,6 +232,25 @@ class PartnersDataManagementTest extends TestCase
         });
     }
 
+    /** Explicit request, 2026-11-04: no Fulfillment Fee anywhere in Partners. */
+    public function test_partners_have_no_fulfillment_fee(): void
+    {
+        $this->syncPeak();
+        $this->actingAs($this->admin());
+
+        foreach (['/expected-income?date_from=2026-10-05&date_to=2026-10-05&team=peak-co', '/actual-income?month=2026-10', '/projections?month=2026-10'] as $page) {
+            $this->get('/partners' . $page)->assertOk()->assertDontSee('data-line="fulfillment_fee"', false)->assertDontSee('data-rate-pct="fulfillment_fee"', false)->assertDontSee('>Fulfillment Fee<', false);
+        }
+        $this->get('/data/expected-income?date_from=2026-10-05&date_to=2026-10-05')->assertOk()->assertSee('Fulfillment Fee');
+        $this->get('/data/projections?month=2026-10')->assertOk()->assertSee('data-line="fulfillment_fee"', false);
+
+        DataSet::onPartners(function () {
+            $this->assertArrayNotHasKey('fulfillment_fee', \App\Support\ExpectedIncomeCalculator::sellingCostRows());
+            $derived = \App\Support\ExpectedIncomeCalculator::derive(['gross_sales' => 1000, 'number_of_orders' => 4]);
+            $this->assertArrayNotHasKey('fulfillment_fee', $derived['selling_lines']->all(), 'no ₱25/order cost either');
+        });
+    }
+
     public function test_costs_start_like_tsd_with_one_supervisor_shared_by_the_partners(): void
     {
         DataSet::onPartners(function () {

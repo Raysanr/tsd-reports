@@ -217,9 +217,21 @@ class ExpectedIncomeCalculator
      *  2026-10-06 passes OPERATING_COST_ROWS as $otherBuiltinRows — same
      *  reasoning as ProjectionCalculator's own identical change, see that
      *  method's own doc comment. */
+    /** SELLING_COST_ROWS' keys — minus Fulfillment Fee on Partners (see sellingCostRows()). */
+    private static function defaultSellingKeys(): array
+    {
+        $keys = array_keys(self::SELLING_COST_ROWS);
+
+        return DataSet::isPartners() ? array_values(array_diff($keys, ['fulfillment_fee'])) : $keys;
+    }
+
     public static function sellingCostRows(): array
     {
-        return RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
+        $rows = RowOrder::rows(self::SELLING_COST_ROWS, 'selling', self::OPERATING_COST_ROWS);
+
+        // Partners Data Management has no Fulfillment Fee (explicit request,
+        // 2026-11-04) — same as the partners' own Income Statements.
+        return DataSet::isPartners() ? array_diff_key($rows, ['fulfillment_fee' => true]) : $rows;
     }
 
     public static function operatingCostRows(): array
@@ -262,7 +274,7 @@ class ExpectedIncomeCalculator
      *  class already follows for row VALUES. */
     public static function derive(array $row, ?array $sellingKeys = null, ?array $operatingKeys = null): array
     {
-        $sellingKeys ??= array_keys(self::SELLING_COST_ROWS);
+        $sellingKeys ??= self::defaultSellingKeys();
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $roas               = (float) ($row['roas'] ?? 0);
@@ -324,7 +336,7 @@ class ExpectedIncomeCalculator
         $sellingLines = collect($sellingKeys)
             ->mapWithKeys(fn ($key) => [$key => (float) ($row[$key] ?? 0)])
             ->put('cod_fee', $delivered * self::COD_FEE_RATE_OF_DELIVERED)
-            ->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER);
+            ->when(!DataSet::isPartners() && in_array('fulfillment_fee', $sellingKeys, true), fn ($lines) => $lines->put('fulfillment_fee', $orders * self::FULFILLMENT_FEE_PER_ORDER));
         $totalSellingCosts = $sellingLines->sum();
 
         $operatingLines = collect($operatingKeys)
@@ -402,7 +414,7 @@ class ExpectedIncomeCalculator
      *  top-level first. */
     public static function addDerivedTotals(array $a, array $b, ?array $sellingKeys = null, ?array $operatingKeys = null): array
     {
-        $sellingKeys ??= array_keys(self::SELLING_COST_ROWS);
+        $sellingKeys ??= self::defaultSellingKeys();
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         // selling_lines/operating_lines are Collections on a derive()d row
@@ -513,7 +525,7 @@ class ExpectedIncomeCalculator
      *  never queries ProjectionCustomRow itself. */
     public static function sum(array $rows, ?array $sellingKeys = null, ?array $operatingKeys = null): array
     {
-        $sellingKeys ??= array_keys(self::SELLING_COST_ROWS);
+        $sellingKeys ??= self::defaultSellingKeys();
         $operatingKeys ??= array_keys(self::OPERATING_COST_ROWS);
 
         $sumKeys = array_merge(
