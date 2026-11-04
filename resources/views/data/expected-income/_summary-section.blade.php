@@ -11,11 +11,11 @@
 <div id="eiSummarySection">
     <div class="flex items-center justify-between mb-3">
         <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">{{ \App\Support\ExpectedIncomeCalculator::$actual ? 'Telesales Actual Performance' : 'Telesales Expected Performance' }}</div>
-        @include('partials.table-actions', ['target' => 'eiSummaryScroller', 'name' => \App\Support\ExpectedIncomeCalculator::$actual ? 'telesales-actual-performance' : 'telesales-expected-performance', 'title' => \App\Support\ExpectedIncomeCalculator::$actual ? 'Telesales Actual Performance' : 'Telesales Expected Performance', 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
+        @include('partials.table-actions', ['target' => 'eiSummaryOverallCard', 'name' => \App\Support\ExpectedIncomeCalculator::$actual ? 'telesales-actual-performance' : 'telesales-expected-performance', 'title' => \App\Support\ExpectedIncomeCalculator::$actual ? 'Telesales Actual Performance' : 'Telesales Expected Performance', 'subtitle' => $snapshotDateLabel ?? null, 'pngOnly' => true])
     </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
         <div class="flex items-start gap-5 w-max">
-            @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'label' => 'TELESALES', 'headerBg' => 'var(--color-yellow-300)', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+            @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'cardId' => 'eiSummaryOverallCard', 'label' => 'TELESALES', 'headerBg' => 'var(--color-yellow-300)', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @foreach($summaryCards as $card)
             @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach

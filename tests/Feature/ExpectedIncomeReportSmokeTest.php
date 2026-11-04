@@ -81,8 +81,8 @@ class ExpectedIncomeReportSmokeTest extends TestCase
 
         $response->assertOk();
         $content = $response->getContent();
-        $this->assertStringContainsString('data-export-png="eiSummaryScroller"', $content);
-        $this->assertStringNotContainsString('data-export-csv="eiSummaryScroller"', $content);
+        $this->assertStringContainsString('data-export-png="eiSummaryOverallCard"', $content);
+        $this->assertStringNotContainsString('data-export-csv="eiSummaryOverallCard"', $content);
     }
 
     /** Reversed 2026-10-06 (explicit request: "it should be all products
