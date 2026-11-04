@@ -23,6 +23,18 @@ class User extends Authenticatable
     /** Every valid role, most to least privileged. */
     public const ROLES = ['super_admin', 'admin', 'normal', 'guest'];
 
+    /** Modules a Guest can be given view access to (2026-11-04). The
+     *  Archiving System is left out: it holds HR records and is admin-only. */
+    public const MODULES = [
+        'leads'    => 'TSD Leads Reports',
+        'calls'    => 'TSD Call Tracker',
+        'data'     => 'TSD Data Management',
+        'partners' => 'Partners Data Management',
+    ];
+
+    /** What a guest could open before modules became selectable. */
+    public const LEGACY_GUEST_MODULES = ['leads', 'calls'];
+
     public const ROLE_LABELS = [
         'super_admin' => 'Super Admin',
         'admin'       => 'Admin',
@@ -42,6 +54,7 @@ class User extends Authenticatable
         'google_id',
         'avatar',
         'role',
+        'allowed_modules',
         'is_active',
         // Ported from call-tracker (merged into one app 2026-08-12) — which
         // TSA row this user is, for Call Tracker's per-TSA pages. Null for
@@ -67,6 +80,7 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'allowed_modules' => 'array',
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
@@ -88,6 +102,17 @@ class User extends Authenticatable
     public function tsa(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(TsaShift::class, 'tsa_id');
+    }
+
+    /** Non-guests aren't limited here; their role gates decide. */
+    public function canAccessModule(string $module): bool
+    {
+        return $this->role !== 'guest' || in_array($module, $this->guestModules(), true);
+    }
+
+    public function guestModules(): array
+    {
+        return $this->allowed_modules ?? self::LEGACY_GUEST_MODULES;
     }
 
     public function isSuperAdmin(): bool

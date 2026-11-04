@@ -247,7 +247,7 @@
             @if(auth()->user()->canManage($user))
             <div class="actions">
                 <button type="button" class="icon-btn editUserBtn" title="Edit"
-                    data-id="{{ $user->id }}" data-name="{{ $user->name }}" data-email="{{ $user->email }}" data-role="{{ $user->role }}">
+                    data-id="{{ $user->id }}" data-name="{{ $user->name }}" data-email="{{ $user->email }}" data-role="{{ $user->role }}" data-modules='@json($user->role === 'guest' ? $user->guestModules() : [])'>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 </button>
                 <button type="button" class="icon-btn {{ $user->is_active ? 'danger' : '' }} toggleActiveBtn" title="{{ $user->is_active ? 'Deactivate' : 'Reactivate' }}" data-id="{{ $user->id }}">
@@ -301,6 +301,7 @@
                         @endforeach
                     </select>
                 </div>
+                @include('partials.guest-modules-field')
                 <div class="modal-actions">
                     <button type="button" id="cancelUserModal" class="btn-ghost">Cancel</button>
                     <button type="submit" id="userSubmitBtn" class="btn-primary">Add User</button>
@@ -364,6 +365,7 @@
         nameInput.value = '';
         emailInput.value = '';
         roleSelect.selectedIndex = 0;
+        window.syncGuestModules();
         modalTitle.textContent = 'Add a new user';
         modalSubtitle.textContent = 'They sign in with "Sign in with Google" using this email';
         submitBtn.textContent = 'Add User';
@@ -387,6 +389,7 @@
             nameInput.value = btn.dataset.name || '';
             emailInput.value = btn.dataset.email || '';
             roleSelect.value = btn.dataset.role || '';
+            window.syncGuestModules(JSON.parse(btn.dataset.modules || '[]'));
             modalTitle.textContent = 'Edit user';
             modalSubtitle.textContent = 'Changes apply immediately';
             submitBtn.textContent = 'Save Changes';

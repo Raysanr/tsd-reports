@@ -492,6 +492,7 @@
     <p class="section-label">Select a system</p>
     <div class="grid">
 
+        @if(auth()->user()->canAccessModule('leads'))
         <a class="card" style="--card-accent:var(--primary); --card-accent-soft:color-mix(in srgb, var(--primary) 12%, transparent)" href="{{ route('dashboard') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -503,6 +504,7 @@
             <p>Pancake POS sales reporting — leads, TSA performance, upsell tracking, and analytics.</p>
             <span class="card-open">Open →</span>
         </a>
+        @endif
 
         {{-- Call Tracker is a section of this same app (merged 2026-08-12),
              not a separate system to hand off to — the routes themselves
@@ -510,6 +512,7 @@
              advertises it as ready yet (explicit request 2026-08-13: show
              "Coming soon" in production until the call-recording storage
              question is resolved). --}}
+        @if(auth()->user()->canAccessModule('calls'))
         @if(config('services.call_tracker.enabled'))
         <a class="card" style="--card-accent:#0d9488; --card-accent-soft:rgba(13,148,136,0.12)" href="{{ route('calls.dashboard') }}">
             <div class="card-icon">
@@ -535,6 +538,7 @@
             <span class="coming-soon-badge">Coming soon</span>
         </div>
         @endif
+        @endif
 
         {{-- Opened up to TSAs too (explicit request, 2026-10-07: "make it
              the data management module is visible for the TSA's (NORMAL
@@ -542,6 +546,7 @@
              decision). Cost Breakdown itself (real payroll/salary data)
              stays admin-only inside the module — see data.blade.php's
              own sidebar link for that gate. --}}
+        @if(auth()->user()->canAccessModule('data'))
         <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.projections') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -554,10 +559,12 @@
             <p>Editable P&amp;L targets and planning projections — department, shift, and per-TSA goals.</p>
             <span class="card-open">Open →</span>
         </a>
+        @endif
 
         {{-- Partners Data Management (2026-10-29) — Data Management on the
              partners' synced data (App\Support\DataSet). Every role sees it
              (2026-11-03, explicit request). --}}
+        @if(auth()->user()->canAccessModule('partners'))
         <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.projections', ['dm' => 'partners']) }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -569,6 +576,7 @@
             <p>Data Management for PEAK.CO, M&amp;J and MLC — their leads and orders, your costs and projections, per partner or all together.</p>
             <span class="card-open">Open →</span>
         </a>
+        @endif
 
         {{-- TSD Archiving System (explicit request, 2026-10-19). Admin-only
              like its route group — it holds HR records (contracts, IDs).

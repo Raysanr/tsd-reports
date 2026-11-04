@@ -44,7 +44,7 @@ Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 // anyone deactivated mid-session (see EnsureUserIsActive). 'last-seen' stamps
 // last_seen_at here too, so User Management's online indicator (User::isOnline())
 // covers Call Tracker's pages as well, not just TSD Reports' own.
-Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
+Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(function () {
     Route::get('/hub', fn () => view('hub'))->name('hub');
 
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
@@ -313,7 +313,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
     // separate database of PEAK.CO / M&J / MLC data, admin-only. See
     // App\Support\DataSet and App\Http\Middleware\DataManagementDataset;
     // URL::defaults() fills {dm} in, so route('data.*') needs no change.
-    Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
+    Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal,guest', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
         Route::get('/', fn () => redirect()->route('data.projections'));
 
         // Activity Log (explicit request, 2026-10-07: "can you add another

@@ -83,6 +83,7 @@ class UserManagementControllerTest extends TestCase
             'name'  => 'Renamed Person',
             'email' => $target->email,
             'role'  => 'guest',
+            'modules' => ['leads'],
         ]);
 
         $response->assertRedirect(route('user-management'));

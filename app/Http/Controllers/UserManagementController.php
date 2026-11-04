@@ -66,6 +66,7 @@ class UserManagementController extends Controller
             'name'     => $data['name'],
             'email'    => $data['email'],
             'role'     => $data['role'],
+            'allowed_modules' => $data['modules'] ?? null,
             'is_active' => true,
             // Random unusable password: this person signs in by doing "Sign in
             // with Google" with this same email; there's no password-based path
@@ -90,6 +91,7 @@ class UserManagementController extends Controller
             'name'  => $data['name'],
             'email' => $data['email'],
             'role'  => $data['role'],
+            'allowed_modules' => $data['modules'] ?? null,
         ]);
 
         $message = "Updated \"{$data['name']}\".";
@@ -193,6 +195,8 @@ class UserManagementController extends Controller
             'name'  => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users,email' . ($target ? ",{$target->id}" : ''),
             'role'  => 'required|string|in:' . implode(',', $assignable),
+            'modules'   => 'exclude_unless:role,guest|required|array|min:1',
+            'modules.*' => 'exclude_unless:role,guest|string|in:' . implode(',', array_keys(User::MODULES)),
         ]);
     }
 }

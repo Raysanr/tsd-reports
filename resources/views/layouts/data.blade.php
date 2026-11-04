@@ -431,5 +431,8 @@
 </script>
 
 @stack('scripts')
+@if(auth()->user()->role === 'guest')
+@include('data._guest-read-only')
+@endif
 </body>
 </html>

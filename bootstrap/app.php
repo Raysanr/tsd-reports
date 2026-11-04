@@ -32,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'active'    => \App\Http\Middleware\EnsureUserIsActive::class,
             'role'      => \App\Http\Middleware\EnsureUserHasRole::class,
             'last-seen' => \App\Http\Middleware\TrackLastSeen::class,
+            'guest-modules' => \App\Http\Middleware\EnsureGuestModuleAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

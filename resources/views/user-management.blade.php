@@ -70,7 +70,8 @@
                         data-id="{{ $user->id }}"
                         data-name="{{ $user->name }}"
                         data-email="{{ $user->email }}"
-                        data-role="{{ $user->role }}">
+                        data-role="{{ $user->role }}"
+                        data-modules='@json($user->role === 'guest' ? $user->guestModules() : [])'>
                         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                         </svg>
@@ -148,6 +149,8 @@
                 </select>
             </div>
 
+            @include('partials.guest-modules-field')
+
             <div class="flex items-center justify-end gap-2 pt-2">
                 <button type="button" id="cancelUserModal" class="px-3 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer">Cancel</button>
                 <button type="submit" id="userSubmitBtn" class="px-4 py-2 text-xs font-semibold text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg transition-colors cursor-pointer">Add User</button>
@@ -193,6 +196,7 @@
         nameInput.value = '';
         emailInput.value = '';
         roleSelect.selectedIndex = 0;
+        window.syncGuestModules();
         modalTitle.textContent = 'Add a new user';
         modalSubtitle.textContent = 'They sign in with "Sign in with Google" using this email';
         submitBtn.textContent = 'Add User';
@@ -222,6 +226,7 @@
             nameInput.value = btn.dataset.name || '';
             emailInput.value = btn.dataset.email || '';
             roleSelect.value = btn.dataset.role || '';
+            window.syncGuestModules(JSON.parse(btn.dataset.modules || '[]'));
             modalTitle.textContent = 'Edit user';
             modalSubtitle.textContent = 'Changes apply immediately';
             submitBtn.textContent = 'Save Changes';
