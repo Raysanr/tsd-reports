@@ -74,6 +74,36 @@ class OverallPerformanceTest extends TestCase
         $this->assertGreaterThan(2, substr_count($content, 'data-row-key="shipping_fee"'));
     }
 
+    /** Tally Checker (2026-11-04): both sums are listed and tally. */
+    public function test_expected_income_tally_checker_lists_both_sums(): void
+    {
+        $this->migratePartners();
+
+        $content = $this->actingAs($this->admin())
+            ->get(route('data.overall.expected-income', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
+            ->assertOk()
+            ->assertSee('id="overallTallyBtn"', false)
+            ->assertSee('TSD OVERALL = SH E-COM + TELESALES PARTNERSHIP')
+            ->assertSee('TELESALES PARTNERSHIP = PEAK.CO')
+            ->getContent();
+
+        // The partners test DB keeps TSD's migration-seeded TSAs (no partner
+        // team): their costs sit on TELESALES PARTNERSHIP only, so the
+        // checker flags it and names them.
+        $this->assertStringContainsString('data-tally-row="mismatch"', $content);
+        $this->assertStringContainsString('data-tally-note', $content);
+        $this->assertStringContainsString('(SH Naturals)', $content);
+
+        DataSet::onPartners(fn () => \App\Models\TsaShift::query()->forceDelete());
+
+        $content = $this->actingAs($this->admin())
+            ->get(route('data.overall.expected-income', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
+            ->assertOk()->getContent();
+        $this->assertSame(18, substr_count($content, 'data-tally-row="ok"'));
+        $this->assertStringNotContainsString('data-tally-row="mismatch"', $content);
+        $this->assertStringNotContainsString('data-tally-note', $content);
+    }
+
     public function test_projections_total_sums_sh_ecom_and_each_partner(): void
     {
         $this->migratePartners();

@@ -88,7 +88,12 @@ class OverallPerformanceController extends Controller
         // partners), then each partner. Each card is rendered on its own
         // dataset so _card-body picks that dataset's P&L shape.
         $tsdTotals = app(ExpectedIncomeController::class)->overallTotals($dateFrom, $dateTo);
-        $partnerTotals = $this->onPartnersOrNull(fn () => app(ExpectedIncomeController::class)->overallTotals($dateFrom, $dateTo));
+        $partnerTotals = $this->onPartnersOrNull(fn () => app(ExpectedIncomeController::class)->overallTotals($dateFrom, $dateTo) + [
+            // TSAs on the partners roster that belong to no partner: their
+            // costs land on TELESALES PARTNERSHIP but on no partner card.
+            'orphanTsas' => \App\Models\TsaShift::whereNotIn('team', array_column(\App\Support\Teams::config(), 'order_team'))
+                ->orderBy('sort_order')->get()->map(fn ($t) => $t->display_name . ' (' . $t->team . ')')->all(),
+        ]);
 
         $combined = $partnerTotals === null ? $tsdTotals['overall'] : $this->combineIncome($tsdTotals['overall'], $partnerTotals['overall']);
         $cards = [
@@ -105,7 +110,21 @@ class OverallPerformanceController extends Controller
             return $html;
         });
 
+        $tally = [[
+            'title' => 'TSD OVERALL = SH E-COM + TELESALES PARTNERSHIP',
+            'rows'  => $this->tallyRows($combined, $partnerTotals === null ? [$tsdTotals['overall']] : [$tsdTotals['overall'], $partnerTotals['overall']]),
+        ]];
+        if ($partnerTotals !== null) {
+            $tally[] = [
+                'title' => 'TELESALES PARTNERSHIP = ' . implode(' + ', array_map(fn ($t) => strtoupper($t['label']), $partnerTotals['teams'])),
+                'rows'  => $this->tallyRows($partnerTotals['overall'], array_column($partnerTotals['teams'], 'derived')),
+                'note'  => $partnerTotals['orphanTsas'] === [] ? null
+                    : 'TSAs in Partners Data Management that belong to no partner (their costs count in TELESALES PARTNERSHIP only): ' . implode(', ', $partnerTotals['orphanTsas']),
+            ];
+        }
+
         return view('data.overall.expected-income', [
+            'tally'            => $tally,
             // Snapshot covers only the 3 overall cards (2026-11-04), not each partner.
             'topCardsHtml'     => array_merge($cards, array_slice($partnerCards ?? [], 0, 1)),
             'partnerCardsHtml' => array_slice($partnerCards ?? [], 1),
@@ -159,6 +178,36 @@ class OverallPerformanceController extends Controller
 
             return null;
         }
+    }
+
+    /** Tally Checker (2026-11-04): a total card's key figures vs the sum of
+     *  the cards it's made of. */
+    private const TALLY_FIELDS = [
+        'number_of_leads'       => ['Number of Leads', true],
+        'number_of_orders'      => ['Number of Orders', true],
+        'gross_sales'           => ['Gross Sales', false],
+        'cancelled'             => ['Cancelled', false],
+        'product_cost'          => ['Product Cost', false],
+        'total_selling_costs'   => ['Total Selling Costs', false],
+        'tax_allocation'        => ['Tax Allocation', false],
+        'total_operating_costs' => ['Total Operating Costs', false],
+        'net_income'            => ['Net Income', false],
+    ];
+
+    private function tallyRows(array $total, array $parts): array
+    {
+        return collect(self::TALLY_FIELDS)->map(function (array $field, string $key) use ($total, $parts) {
+            [$label, $isCount] = $field;
+            $card = round((float) ($total[$key] ?? 0), 2);
+            $sum = round(array_sum(array_map(fn ($p) => (float) ($p[$key] ?? 0), $parts)), 2);
+
+            return [
+                'label'   => $label,
+                'card'    => $isCount ? number_format($card) : number_format($card, 2),
+                'sum'     => $isCount ? number_format($sum) : number_format($sum, 2),
+                'tallies' => abs($card - $sum) < 0.01,
+            ];
+        })->values()->all();
     }
 
     /** SH E-COM + Partners on the TSD card shape. Line items are summed;
