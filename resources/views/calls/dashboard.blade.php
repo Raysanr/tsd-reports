@@ -260,13 +260,13 @@ $statusBadge = fn($status) => match(true) {
     <table class="w-full text-sm font-mono border-separate border-spacing-0">
         <thead class="sticky top-0 z-10">
             <tr>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA</th>
-                <th class="px-4 py-3 text-left text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA Log In</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Leads</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Catered Leads</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">AHT (mm:ss)</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Unproductive Time (mm:ss)</th>
-                <th class="px-4 py-3 text-right text-[11px] font-bold text-slate-900 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 border-b-2 border-yellow-600 dark:border-yellow-700">Catered Leads Rate</th>
+                <th class="px-4 py-3 text-left text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA</th>
+                <th class="px-4 py-3 text-left text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">TSA Log In</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Leads</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">Total Catered Leads</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">AHT (mm:ss)</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">Unproductive Time (mm:ss)</th>
+                <th class="px-4 py-3 text-right text-[11px] font-bold accent-text-500 uppercase tracking-wide bg-yellow-500 dark:bg-yellow-600 on-accent-600 border-b-2 border-yellow-600 dark:border-yellow-700">Catered Leads Rate</th>
             </tr>
         </thead>
         <tbody>

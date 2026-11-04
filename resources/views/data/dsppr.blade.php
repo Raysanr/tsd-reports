@@ -86,11 +86,11 @@
     // own per-product-per-day figures (see $realByRowKeyAndDate in the
     // controller) rather than the no-longer-written DsPprEntry columns.
     $dayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -115,11 +115,11 @@
     // overridden" pattern as Cost Breakdown/Expected Income's own
     // overrides elsewhere in this app.
     $tiktokDayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => true, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => true, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'total_leads', 'label' => 'Total Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'excess_leads', 'label' => 'Excess Leads', 'editable' => true, 'override' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -166,20 +166,20 @@
             @include('partials.table-actions', ['target' => 'dsPprSummaryTable', 'name' => 'telesales-running-performance', 'title' => 'Telesales Running Performance', 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
-    <div class="bg-yellow-300 dark:bg-yellow-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
+    <div class="bg-yellow-300 dark:bg-yellow-500 on-accent-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
         {{ \Illuminate\Support\Carbon::parse($dateFrom)->format('M j') }} – {{ \Illuminate\Support\Carbon::parse($dateTo)->format('M j, Y') }}
     </div>
 
     <div class="overflow-x-auto">
         <table class="w-full text-[13px] font-mono border-collapse dsppr-table" id="dsPprSummaryTable">
             <thead>
-                <tr class="text-ink dark:text-slate-950">
-                    <th class="dsppr-sticky bg-yellow-200 dark:bg-yellow-700 text-left px-3 py-2 font-bold whitespace-nowrap">Product</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
+                <tr class="text-ink dark:text-slate-100">
+                    <th class="dsppr-sticky bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-left px-3 py-2 font-bold whitespace-nowrap">Product</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
                     <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">NI %</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Total Orders</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">AOV</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Total Orders</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">AOV</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Total Leads</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Catered Leads</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Excess Leads</th>
@@ -310,11 +310,11 @@
                data-update-tiktok-url-template="{{ route('data.dsppr.update-tiktok', ['date' => '__DATE__']) }}">
             <thead>
                 <tr>
-                    <th rowspan="2" class="dsppr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">Product</th>
+                    <th rowspan="2" class="dsppr-sticky bg-yellow-300 dark:bg-yellow-600 on-accent-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">Product</th>
                     @foreach($dates as $date)
                     @php $dateLocked = in_array($date->toDateString(), $lockedDates, true); @endphp
                     <th colspan="{{ count($dayColumns) }}" data-dsppr-date-header data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
-                        class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap dsppr-day-end relative">
+                        class="bg-yellow-300 dark:bg-yellow-600 on-accent-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap dsppr-day-end relative">
                         <span class="inline-flex items-center justify-center gap-2 w-full">
                             <span class="flex-1 text-center">{{ $date->format('D, M j') }}</span>
                             {{-- Per-date lock (explicit follow-up,
@@ -329,7 +329,7 @@
                             <button type="button" data-dsppr-lock-toggle data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
                                     title="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
                                     aria-label="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
-                                    class="shrink-0 p-1 rounded-md text-ink/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                                    class="shrink-0 p-1 rounded-md text-ink on-accent-600/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
                                 <span data-dsppr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
                                     @if($dateLocked)
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -349,7 +349,7 @@
                 <tr>
                     @foreach($dates as $date)
                         @foreach($dayColumns as $i => $col)
-                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-950 {{ $col['headerBg'] }} {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }}">
+                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $col['headerBg'] }} {{ $i === count($dayColumns) - 1 ? 'dsppr-day-end' : '' }}">
                             {{ $col['label'] }}
                         </th>
                         @endforeach

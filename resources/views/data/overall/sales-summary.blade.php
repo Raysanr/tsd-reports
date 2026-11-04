@@ -26,8 +26,8 @@
     $from = \Illuminate\Support\Carbon::parse($dateFrom);
     $to = \Illuminate\Support\Carbon::parse($dateTo);
     $rangeLabel = strtoupper($from->format('F j') . ($dateFrom === $dateTo ? '' : ' – ' . $to->format('F j')));
-    $th = 'px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wide text-ink dark:text-slate-100 border border-line dark:border-slate-700 whitespace-nowrap';
-    $td = 'px-3 py-2.5 text-right font-mono text-[13px] border border-line dark:border-slate-700 whitespace-nowrap';
+    $th = 'px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wide border border-line dark:border-slate-700 whitespace-nowrap';
+    $td = 'px-3 py-2.5 text-right font-mono text-[13px] text-ink dark:text-slate-100 border border-line dark:border-slate-700 whitespace-nowrap';
     $labelCell = 'px-4 py-2.5 font-mono font-bold text-sm uppercase whitespace-nowrap border border-line dark:border-slate-700 bg-yellow-300 text-ink sticky left-0 z-10';
 @endphp
 
@@ -49,10 +49,10 @@
         <thead>
             <tr>
                 <th class="{{ $th }} bg-black text-white sticky left-0 z-10" rowspan="2">Department</th>
-                <th class="{{ $th }} bg-yellow-300 text-center" colspan="{{ count($columns) }}">{{ $rangeLabel }}</th>
+                <th class="{{ $th }} bg-yellow-300 text-ink text-center" colspan="{{ count($columns) }}">{{ $rangeLabel }}</th>
             </tr>
             <tr>
-                @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800">{{ $col['label'] }}</th>@endforeach
+                @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-100">{{ $col['label'] }}</th>@endforeach
             </tr>
         </thead>
         <tbody>
@@ -78,12 +78,12 @@
             <tr>
                 <th class="{{ $th }} bg-black text-white sticky left-0 z-10" rowspan="2">Department</th>
                 @foreach($chunk as $date)
-                <th class="{{ $th }} bg-yellow-300 text-center" colspan="{{ count($columns) }}">{{ $date->format('D, M j') }}</th>
+                <th class="{{ $th }} bg-yellow-300 text-ink text-center" colspan="{{ count($columns) }}">{{ $date->format('D, M j') }}</th>
                 @endforeach
             </tr>
             <tr>
                 @foreach($chunk as $date)
-                    @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800">{{ $col['label'] }}</th>@endforeach
+                    @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-100">{{ $col['label'] }}</th>@endforeach
                 @endforeach
             </tr>
         </thead>

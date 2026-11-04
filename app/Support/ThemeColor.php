@@ -60,6 +60,10 @@ class ThemeColor
     ];
 
     /** Mix ratios toward white (lighter steps) / black (darker steps), base = 600. */
+    private const ON_ACCENT_DARK = '#201C12';
+    private const ON_ACCENT_LIGHT = '#F1F5F9';
+    private const ON_ACCENT_SHADES = [500, 600, 700, 800];
+
     private const STEPS = [
         50 => ['w', .94], 100 => ['w', .88], 200 => ['w', .75], 300 => ['w', .57], 400 => ['w', .36], 500 => ['w', .17],
         600 => ['w', 0], 700 => ['b', .16], 800 => ['b', .29], 900 => ['b', .41], 950 => ['b', .62],
@@ -76,6 +80,17 @@ class ThemeColor
         $hex = self::read('theme_text', '');
 
         return $hex === '' ? null : $hex;
+    }
+
+    /** Dark or light text, whichever reads better on this background. No
+     *  single color works: light text fails on gold, dark text on violet
+     *  (2026-11-04). Used for text on solid accent-colored headers. */
+    public static function onAccent(string $background): string
+    {
+        $bg = self::luminance($background);
+        $contrast = fn (string $text) => (max($bg, self::luminance($text)) + .05) / (min($bg, self::luminance($text)) + .05);
+
+        return $contrast(self::ON_ACCENT_DARK) >= $contrast(self::ON_ACCENT_LIGHT) ? self::ON_ACCENT_DARK : self::ON_ACCENT_LIGHT;
     }
 
     /** Text color as applied in light mode: deepened until readable on white. */
@@ -163,6 +178,9 @@ class ThemeColor
             foreach ($s as $shade => $c) {
                 $vars[] = "--color-yellow-{$shade}:{$c}";
                 $vars[] = "--color-amber-{$shade}:{$c}";
+            }
+            foreach (self::ON_ACCENT_SHADES as $shade) {
+                $vars[] = "--on-accent-{$shade}:" . self::onAccent($s[$shade]);
             }
             $vars[] = "--color-primary:{$s[600]}";
             $vars[] = "--color-primary-dark:{$s[800]}";

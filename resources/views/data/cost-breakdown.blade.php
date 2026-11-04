@@ -116,7 +116,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-[13px] cb-table border-separate border-spacing-0" id="cbSalaryTable" data-locked="{{ $tableLocks['salary'] ? '1' : '0' }}">
                 <thead>
-                    <tr class="bg-yellow-100 dark:bg-yellow-800 text-ink dark:text-slate-950">
+                    <tr class="bg-yellow-100 dark:bg-yellow-800 on-accent-800 text-ink dark:text-slate-100">
                         <th class="text-left px-4 py-2.5 font-bold whitespace-nowrap">Role / TSA</th>
                         {{-- TikTok Upsell marker column (explicit request,
                              2026-10-07: "make another column like for tiktok
@@ -501,7 +501,7 @@
                         <td class="px-3 py-1.5"></td>
                         @endforeach
                     </tr>
-                    <tr class="bg-yellow-200 dark:bg-yellow-700 text-ink dark:text-slate-950">
+                    <tr class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-ink dark:text-slate-100">
                         <th class="cb-sticky text-left px-4 py-2.5 font-bold whitespace-nowrap">COST</th>
                         <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap">Days</th>
                         <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap bg-slate-300 dark:bg-slate-600">%</th>

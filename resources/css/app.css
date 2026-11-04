@@ -105,7 +105,22 @@ body { font-family: var(--font-sans); background: #F8FAFC; }
    rgb(248,250,252) even with .dark present). #020617 is slate-950's real
    hex, same value the chart-color .dark block below already uses this
    exact pattern for. */
-.dark body { background: #020617; }
+/* Default text for dark mode (2026-11-04): anything with no color of its own,
+   like modal labels, otherwise inherits near-black on a dark panel. */
+.dark body { background: #020617; color: #E2E8F0; }
+
+/* Readable text on solid accent backgrounds (2026-11-04). The --on-accent-*
+   values are the built-in gold's; ThemeColor::css() overrides them for any
+   other accent, since no one text color reads on every accent. */
+:root { --on-accent-500: #201C12; --on-accent-600: #201C12; --on-accent-700: #201C12; --on-accent-800: #F1F5F9; }
+.accent-text-500 { color: var(--on-accent-500); }
+.dark .on-accent-500 { color: var(--on-accent-500); }
+.dark .on-accent-600 { color: var(--on-accent-600); }
+.dark .on-accent-700 { color: var(--on-accent-700); }
+.dark .on-accent-800 { color: var(--on-accent-800); }
+/* --color-ink is near-black and --color-ink-muted too dim on the dark page. */
+.dark .hover\:text-ink:not([class*="dark:hover:text-"]):hover { color: #F1F5F9; }
+.dark .text-ink-muted:not([class*="dark:text-"]) { color: #94A3B8; }
 
 /* Chart colors consumed as inline SVG fill/stroke="var(--chart-*)" (Dashboard's
    hourly-activity radial chart, resources/views/dashboard.blade.php) — Tailwind's

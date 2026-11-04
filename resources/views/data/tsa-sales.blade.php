@@ -78,14 +78,14 @@
     // that TSA/day. Both read-only [data-out] cells now, same pattern as
     // Total Orders/Pick-up Rate below.
     $dayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
         // Total Orders, Catered Leads, Pick-up Rate, Upselling Rate: all 4
         // auto-computed from TSA Performance's own data now, not manual
         // entry — see TsaSalesReportController's own doc comment, 2026-10-03.
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => false, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -109,11 +109,11 @@
     // derived the same way TsaSalesCalculator::derive() always computes
     // them from whatever raw numbers are now automated/typed in.
     $tiktokDayColumns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'gross_sales', 'label' => 'Gross Sales', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'net_income', 'label' => 'Net Income', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'ni_pct', 'label' => 'NI %', 'editable' => false, 'pct' => true, 'headerBg' => 'bg-slate-200 dark:bg-slate-600'],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
-        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800'],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'editable' => false, 'int' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
+        ['key' => 'aov', 'label' => 'AOV', 'editable' => false, 'money' => true, 'headerBg' => 'bg-yellow-100 dark:bg-yellow-800 on-accent-800'],
         ['key' => 'catered_leads', 'label' => 'Catered Leads', 'editable' => true, 'int' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'editable' => true, 'pct' => true, 'headerBg' => 'bg-rose-200 dark:bg-rose-800'],
@@ -147,20 +147,20 @@
             @include('partials.table-actions', ['target' => 'tsrSummaryTable', 'name' => 'tsa-running-sales-performance', 'title' => "TSA's Running Sales Performance", 'subtitle' => $snapshotDateLabel])
         </div>
     </div>
-    <div class="bg-yellow-300 dark:bg-yellow-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
+    <div class="bg-yellow-300 dark:bg-yellow-500 on-accent-500 text-center font-mono font-bold text-xs tracking-wide py-2 text-ink">
         {{ \Illuminate\Support\Carbon::parse($dateFrom)->format('M j') }} – {{ \Illuminate\Support\Carbon::parse($dateTo)->format('M j, Y') }}
     </div>
 
     <div class="overflow-x-auto">
         <table class="w-full text-[13px] font-mono border-collapse tsr-table" id="tsrSummaryTable">
             <thead>
-                <tr class="text-ink dark:text-slate-950">
-                    <th class="tsr-sticky bg-yellow-200 dark:bg-yellow-700 text-left px-3 py-2 font-bold whitespace-nowrap">TSA</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
+                <tr class="text-ink dark:text-slate-100">
+                    <th class="tsr-sticky bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-left px-3 py-2 font-bold whitespace-nowrap">TSA</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Gross Sales</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Net Income</th>
                     <th class="bg-slate-200 dark:bg-slate-600 text-right px-3 py-2 font-bold whitespace-nowrap">NI %</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">Total Orders</th>
-                    <th class="bg-yellow-200 dark:bg-yellow-700 text-right px-3 py-2 font-bold whitespace-nowrap">AOV</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">Total Orders</th>
+                    <th class="bg-yellow-200 dark:bg-yellow-700 on-accent-700 text-right px-3 py-2 font-bold whitespace-nowrap">AOV</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Catered Leads</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Pick-up Rate</th>
                     <th class="bg-rose-200 dark:bg-rose-800 text-right px-3 py-2 font-bold whitespace-nowrap">Upselling Rate</th>
@@ -316,11 +316,11 @@
         <table class="text-[13px] font-mono border-collapse tsr-table tsr-days-table">
             <thead>
                 <tr>
-                    <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
+                    <th rowspan="2" class="tsr-sticky bg-yellow-300 dark:bg-yellow-600 on-accent-600 text-left px-3 py-2 font-bold text-ink whitespace-nowrap align-bottom">TSA</th>
                     @foreach($dates as $date)
                     @php $dateLocked = in_array($date->toDateString(), $lockedDates, true); @endphp
                     <th colspan="{{ count($dayColumns) }}" data-tsr-date-header data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
-                        class="bg-yellow-300 dark:bg-yellow-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap tsr-day-end relative">
+                        class="bg-yellow-300 dark:bg-yellow-600 on-accent-600 text-center font-bold text-ink px-3 py-2 whitespace-nowrap tsr-day-end relative">
                         {{-- Per-date lock (explicit request, 2026-10-07:
                              "add lock icon like in the dsppr") — same
                              mechanism/markup/animation as DSPPR's own
@@ -332,7 +332,7 @@
                             <button type="button" data-tsr-lock-toggle data-date="{{ $date->toDateString() }}" data-locked="{{ $dateLocked ? '1' : '0' }}"
                                     title="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
                                     aria-label="{{ $dateLocked ? 'Unlock this date' : 'Lock this date' }}"
-                                    class="shrink-0 p-1 rounded-md text-ink/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
+                                    class="shrink-0 p-1 rounded-md text-ink on-accent-600/70 hover:text-ink hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
                                 <span data-tsr-lock-icon style="display:inline-flex; transition:opacity 180ms ease;">
                                     @if($dateLocked)
                                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -352,7 +352,7 @@
                 <tr>
                     @foreach($dates as $date)
                         @foreach($dayColumns as $i => $col)
-                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-950 {{ $col['headerBg'] }} {{ $i === $lastColIndex ? 'tsr-day-end' : '' }}">
+                        <th class="text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $col['headerBg'] }} {{ $i === $lastColIndex ? 'tsr-day-end' : '' }}">
                             {{ $col['label'] }}
                         </th>
                         @endforeach
