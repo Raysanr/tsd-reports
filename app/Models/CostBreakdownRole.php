@@ -109,7 +109,7 @@ class CostBreakdownRole extends Model
             return count(\App\Support\Teams::config());
         }
         if ($role && self::usesActiveTsaCount($role) && isset(self::OVERHEAD_DIVISOR_COUNTS[$divisor])) {
-            return self::activeTsaCount($divisor === 'team' ? $role->team : null);
+            return self::activeTsaCount($divisor === 'team' ? $role->team : null, $role->month);
         }
 
         return self::OVERHEAD_DIVISOR_COUNTS[$divisor] ?? 0;
@@ -127,13 +127,17 @@ class CostBreakdownRole extends Model
         return \App\Support\DataSet::isPartners() || $role->month >= self::REAL_TSA_DIVISOR_FROM;
     }
 
-    /** Currently active (not removed) non-TikTok TSAs, optionally one team's. */
-    public static function activeTsaCount(?string $team = null): int
+    /** Currently active (not removed) non-TikTok TSAs, optionally one team's.
+     *  With $month, only TSAs whose base salary for that month is above 0
+     *  (explicit request, 2026-11-04: a 0.00-salary TSA like a just-re-added
+     *  Jhun doesn't take a Shared Ref. share — same rule as Monthly Tax). */
+    public static function activeTsaCount(?string $team = null, ?string $month = null): int
     {
-        $key = 'cost_breakdown.active_tsas.' . (\App\Support\DataSet::isPartners() ? 'partners' : 'tsd') . '.' . ($team ?? '*');
+        $key = 'cost_breakdown.active_tsas.' . (\App\Support\DataSet::isPartners() ? 'partners' : 'tsd') . '.' . ($team ?? '*') . '.' . ($month ?? '*');
 
         return \App\Support\RequestMemo::remember($key, fn () => TsaShift::withTrashed()->whereNull('deleted_at')
             ->where('tiktok_upsell', false)
+            ->when($month !== null, fn ($q) => $q->whereIn('id', CostBreakdownTsaEntry::where('month', $month)->where('base_salary', '>', 0)->select('tsa_id')))
             ->when($team !== null, fn ($q) => $q->where('team', $team))
             // Partners: only TSAs on a configured partner team.
             ->when($team === null && \App\Support\DataSet::isPartners(), fn ($q) => $q->whereIn('team', array_column(\App\Support\Teams::config(), 'order_team')))

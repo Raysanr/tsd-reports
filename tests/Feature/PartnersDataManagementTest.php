@@ -228,6 +228,7 @@ class PartnersDataManagementTest extends TestCase
                 CostBreakdownRole::where('month', '2026-10')->orderBy('sort_order')->pluck('seed_key')->all());
             $this->assertSame(count(\App\Models\CostBreakdownPool::SEED_POOLS), \App\Models\CostBreakdownPool::where('month', '2026-10')->count());
 
+            TsaShift::all()->each(fn ($t) => \App\Models\CostBreakdownTsaEntry::updateOrCreate(['month' => '2026-10', 'tsa_id' => $t->id], ['base_salary' => 15000]));
             $supervisor = CostBreakdownRole::where(['month' => '2026-10', 'seed_key' => 'supervisor'])->sole();
             $supervisor->update(['base_salary' => 30000]);
             $roles = CostBreakdownRole::where('month', '2026-10')->whereIn('seed_key', ['qa_specialist', 'supervisor'])->get();
@@ -238,6 +239,11 @@ class PartnersDataManagementTest extends TestCase
 
             $this->assertEqualsWithDelta([28000 / 3, 10000], $refs['PEAK.CO'], 0.001);
             $this->assertEqualsWithDelta([28000 / 3, 10000], $refs['M&J'], 0.001);
+
+            // A TSA with 0.00 base salary takes no share (2026-11-04).
+            TsaShift::create(['tsa_key' => 'M&J:NEW', 'display_name' => 'New', 'team' => 'M&J', 'active' => true]);
+            \App\Support\RequestMemo::flush();
+            $this->assertSame(3, CostBreakdownRole::divisorCount($supervisor->overhead_divisor, $supervisor));
         });
     }
 

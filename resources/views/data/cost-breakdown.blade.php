@@ -827,6 +827,7 @@
                     }
                 }
 
+                if (data.reload) { window.location.reload(); return; }
                 if (data.recomputed) applyRecomputed(data.recomputed);
                 // A salary crossing 0 changes her team's tax divisor, so every
                 // TSA's Monthly/Daily Tax is refreshed, not just hers (2026-10-30).

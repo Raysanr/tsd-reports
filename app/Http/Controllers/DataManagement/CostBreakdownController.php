@@ -811,6 +811,9 @@ class CostBreakdownController extends Controller
             'monthlyTaxByTsaId' => $this->monthlyTaxByTsaId($month),
             'dailyCostRow' => $dailyCostRow,
             'dailyCostPerProductRow' => $dailyCostPerProductRow,
+            // A salary crossing 0 changes how many TSAs Shared Ref. divides by
+            // (2026-11-04), which moves every TSA's Total — the page reloads.
+            'reload' => array_key_exists('base_salary', $data) && ((float) ($old['base_salary'] ?? 0) > 0) !== ((float) $data['base_salary'] > 0),
         ]);
     }
 

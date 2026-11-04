@@ -1103,8 +1103,11 @@ class CostBreakdownSmokeTest extends TestCase
         CostBreakdownTsaEntry::where('tsa_id', $newcomer->id)->update(['base_salary' => 0]);
         $teammates = $tsas->where('team', $newcomer->team);
 
-        $tax = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.update-tsa-entry', $newcomer), ['base_salary' => 15600])
-            ->assertOk()->json('monthlyTaxByTsaId');
+        $response = $this->actingAs($admin)->patchJson(route('data.cost-breakdown.update-tsa-entry', $newcomer), ['base_salary' => 15600])
+            ->assertOk()->assertJsonPath('reload', true); // 0 → salary changes the Shared Ref. divisor
+        $tax = $response->json('monthlyTaxByTsaId');
+        $this->patchJson(route('data.cost-breakdown.update-tsa-entry', $newcomer), ['base_salary' => 15700])->assertJsonPath('reload', false);
+        $this->patchJson(route('data.cost-breakdown.update-tsa-entry', $newcomer), ['base_salary' => 15600])->assertOk();
 
         $perShift = TsaDailyRateService::departmentTaxAllocationPerShift();
         $this->assertGreaterThan(0, $tax[$newcomer->id]);
@@ -1116,6 +1119,7 @@ class CostBreakdownSmokeTest extends TestCase
     public function test_from_november_shared_ref_divides_by_the_active_tsas(): void
     {
         \App\Support\CostBreakdownMonths::seed('2026-11');
+        TsaShift::all()->each(fn ($t) => \App\Models\CostBreakdownTsaEntry::updateOrCreate(['month' => '2026-11', 'tsa_id' => $t->id], ['base_salary' => 15000]));
         $roles = CostBreakdownRole::where('month', '2026-11')->get();
         $overhead = CostBreakdownRole::overheadByRoleId($roles);
 
@@ -1128,6 +1132,13 @@ class CostBreakdownSmokeTest extends TestCase
         $opening = $roles->firstWhere('seed_key', 'supervisor_opening');
         $teamActive = TsaShift::where('tiktok_upsell', false)->where('team', $opening->team)->count();
         $this->assertEqualsWithDelta($teamActive > 0 ? $opening->base_salary / $teamActive : 0.0, $overhead->get($opening->id), 0.01);
+
+        // A TSA with 0.00 base salary for November takes no share (2026-11-04).
+        \App\Models\CostBreakdownTsaEntry::where(['month' => '2026-11', 'tsa_id' => TsaShift::where('tiktok_upsell', false)->orderByDesc('id')->value('id')])->update(['base_salary' => 0]);
+        \App\Support\RequestMemo::flush();
+        $this->assertEqualsWithDelta($executive / ($active - 1), CostBreakdownRole::overheadByRoleId($roles)->get($ceo->id), 0.01);
+        \App\Models\CostBreakdownTsaEntry::where('month', '2026-11')->update(['base_salary' => 15000]);
+        \App\Support\RequestMemo::flush();
 
         // A removed TSA drops out of November's divisor; October keeps 12.
         TsaShift::where('tiktok_upsell', false)->first()->delete();
