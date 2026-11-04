@@ -284,8 +284,21 @@ class ProductPerformance
             // add-on's own name tag is excluded structurally instead, by
             // returning false unconditionally below and never reaching the
             // tag loop or the ID-matching branch at all.
+            // Ported from M&J, 2026-10-28 (3 multi-product Pterygium orders
+            // counted under NO product at all, while Pancake's own product
+            // filter listed them under Pterygium) — Partners Data Management
+            // runs this code on M&J's orders, 2026-11-04: both "redirect to
+            // the base product" rules below only make sense when that base IS
+            // one of our products. When it isn't (a freebie/unmapped item
+            // named as base), redirecting blackholed the whole order from
+            // every card. Such an order now falls through to normal ID/tag
+            // matching instead.
+            $baseIsKnownProduct = !empty($o->base_product)
+                && ($teamProducts === null
+                    || self::orderFact($o, 'baseKnown', fn () => $teamProducts->contains(fn (Product $p) => $p->matchesText($o->base_product))));
+
             $isUpsoldAddon = self::orderFact($o, 'broad', fn () => Order::isBroadRealUpsell($o))
-                && !empty($o->base_product)
+                && $baseIsKnownProduct
                 && !$product->matchesText($o->base_product)
                 && ($product->matchesText($o->product) || $product->matchesText($o->bundle_description));
             if ($isUpsoldAddon) {
@@ -319,7 +332,7 @@ class ProductPerformance
             // or to itself, not to the base product (see the Separate
             // Parcel comment directly below for the full reasoning).
             $isSeparateParcel = self::orderFact($o, 'sep', fn () => Order::isSeparateParcel($o));
-            $hasDifferentRealBase = !empty($o->base_product) && !$product->matchesText($o->base_product);
+            $hasDifferentRealBase = $baseIsKnownProduct && !$product->matchesText($o->base_product);
             if (!$isSeparateParcel && $hasDifferentRealBase && self::orderFact($o, 'broad', fn () => Order::isBroadRealUpsell($o))) {
                 return false;
             }

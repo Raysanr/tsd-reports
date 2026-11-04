@@ -6,7 +6,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Support\ProductPerformance;
 use Illuminate\Support\Collection;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 /**
  * Explicit reversal, 2026-10-10 (order #1378313, Kathreena Borja — Scar
@@ -44,7 +44,11 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
     private function product(array $attributes): Product
     {
         $product = new Product();
+        // A distinct id per product: matchingOrders()' per-request memo is
+        // keyed by product id, so unsaved id-less products would share answers.
+        static $nextId = 1000;
         $product->forceFill(array_merge([
+            'id'                  => $nextId++,
             'pancake_product_ids' => null,
         ], $attributes));
         return $product;
@@ -100,7 +104,16 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
             'amount'       => 800,
         ]);
 
-        $matching = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$roseSoap]));
+        // Scar Cream (the base) must be a configured product for the
+        // redirect to apply — an unconfigured base no longer blackholes the
+        // order (see the unknown-base test below).
+        $scarCream = $this->product([
+            'display_name'  => 'Scar Cream',
+            'match_keyword' => 'SCAR CREAM',
+            'team'          => 'SH Naturals',
+        ]);
+
+        $matching = ProductPerformance::matchingOrders($roseSoap, collect([$order]), new Collection([$scarCream, $roseSoap]));
         $this->assertCount(0, $matching);
     }
 
@@ -396,5 +409,36 @@ class ProductPerformanceUpsellAddonAttributionTest extends TestCase
 
         $matchingScarCream = ProductPerformance::matchingOrders($scarCream, collect([$comboOrder]), new Collection([$ginsengSerum, $scarCream]));
         $this->assertCount(1, $matchingScarCream, 'a genuine non-upsell combo with mapped IDs must still count toward both bundled products via ID matching');
+    }
+
+    public function test_an_upsell_whose_base_is_not_a_configured_product_still_counts_for_its_own_product(): void
+    {
+        // M&J, 2026-10-28: multi-product Pterygium orders (#189545 etc.) were
+        // redirected to an unconfigured "base" item and so counted nowhere.
+        $pterygium = $this->product([
+            'id'            => 901,
+            'display_name'  => 'Pterygium Eye Drops',
+            'match_keyword' => 'PTERYGIUM',
+            'team'          => 'SH Naturals',
+        ]);
+        $scarCream = $this->product([
+            'id'            => 902,
+            'display_name'  => 'Scar Cream',
+            'match_keyword' => 'SCAR CREAM',
+            'team'          => 'SH Naturals',
+        ]);
+
+        $order = $this->order([
+            'team'         => 'SH Naturals',
+            'product'      => 'Pterygium Eye Repair Drop',
+            'base_product' => 'Free Eye Mask',
+            'raw_tags'     => ['UPSELL TSD - PTERYGIUM'],
+            'is_upsell'    => true,
+            'amount'       => 900,
+        ]);
+
+        $products = new Collection([$pterygium, $scarCream]);
+        $this->assertCount(1, ProductPerformance::matchingOrders($pterygium, collect([$order]), $products), 'an unknown base must not blackhole the order from every card');
+        $this->assertCount(0, ProductPerformance::matchingOrders($scarCream, collect([$order]), $products));
     }
 }
