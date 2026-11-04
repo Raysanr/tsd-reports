@@ -8,14 +8,19 @@
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         @include('data._date-range-filter', ['fromName' => 'date_from', 'toName' => 'date_to', 'fromValue' => $dateFrom, 'toValue' => $dateTo])
     </form>
-    @include('partials.table-actions', ['target' => 'overallIncomeScroller', 'name' => 'sh-ecom-and-partners-expected-income', 'title' => 'SH E-COM and Partners Expected Performance', 'subtitle' => $rangeLabel, 'pngOnly' => true])
+    @include('partials.table-actions', ['target' => 'overallIncomeTopCards', 'name' => 'sh-ecom-and-partners-expected-income', 'title' => 'SH E-COM and Partners Expected Performance', 'subtitle' => $rangeLabel, 'pngOnly' => true])
 </div>
 
 @include('data.overall._partners-warning')
 
 <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2" id="overallIncomeScroller">
     <div class="flex items-start gap-5 w-max">
-        @foreach($cardsHtml as $html)
+        <div class="flex items-start gap-5" id="overallIncomeTopCards">
+            @foreach($topCardsHtml as $html)
+            {!! $html !!}
+            @endforeach
+        </div>
+        @foreach($partnerCardsHtml as $html)
         {!! $html !!}
         @endforeach
     </div>

@@ -65,6 +65,11 @@ class OverallPerformanceTest extends TestCase
         $this->assertTrue($overall < $sh && $sh < $partners);
 
         // Only the two TSD-shape cards (TSD OVERALL + SH E-COM) show Advertising Cost.
+        // Snapshot targets only the 3 overall cards; partner cards sit outside it.
+        $this->assertStringContainsString('data-export-png="overallIncomeTopCards"', $content);
+        $top = substr($content, strpos($content, 'id="overallIncomeTopCards"'));
+        $this->assertTrue(strpos($top, 'TELESALES PARTNERSHIP') < strpos($top, 'PEAK.CO'));
+
         $this->assertSame(2, substr_count($content, 'data-row-key="advertising_cost"'));
         $this->assertGreaterThan(2, substr_count($content, 'data-row-key="shipping_fee"'));
     }

@@ -106,7 +106,9 @@ class OverallPerformanceController extends Controller
         });
 
         return view('data.overall.expected-income', [
-            'cardsHtml'     => array_merge($cards, $partnerCards ?? []),
+            // Snapshot covers only the 3 overall cards (2026-11-04), not each partner.
+            'topCardsHtml'     => array_merge($cards, array_slice($partnerCards ?? [], 0, 1)),
+            'partnerCardsHtml' => array_slice($partnerCards ?? [], 1),
             'dateFrom'      => $dateFrom,
             'dateTo'        => $dateTo,
             'partnersError' => $partnerCards === null,
