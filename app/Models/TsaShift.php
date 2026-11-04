@@ -27,6 +27,8 @@ class TsaShift extends Model
         // Independent of `team` — see add_tiktok_upsell_to_tsa_shifts_table
         // migration's own doc comment for why this isn't a 3rd team value.
         'tiktok_upsell',
+        // A removed TSA's last working day — see applyRosterWindow().
+        'last_day',
         // Display-only "eye" toggle — see add_is_hidden_to_tsa_shifts_table.
         'is_hidden',
         // Auto-text from this TSA's own phone — see LeadAutoText.
@@ -65,53 +67,27 @@ class TsaShift extends Model
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
     }
 
-    /** Data Management's roster rule (see applyRosterWindow()) — set per
-     *  request by DataManagementDataset. Every other report page keeps
-     *  showing a removed TSA up to her removal day. */
-    public static function excludeRemovalDay(): void
+    /** The day a removed TSA last appears on reports: her last_day, or her
+     *  removal date when none was set. */
+    public function lastWorkingDay(): ?\Illuminate\Support\Carbon
     {
-        if (app()->bound('request')) {
-            app('request')->attributes->set('tsa_roster_exclude_removal_day', true);
+        if ($this->deleted_at === null) {
+            return null;
         }
+
+        return $this->last_day ?? $this->deleted_at->copy()->startOfDay();
     }
 
-    /** The deleted_at a removed TSA needs (>=) to still be on the roster for
-     *  $date: that day's start, or the next day's on Data Management. */
-    public static function rosterCutoff(string $date): string
-    {
-        return \Illuminate\Support\Carbon::parse($date)->addDays(self::isDataManagementRoster() ? 1 : 0)->toDateString() . ' 00:00:00';
-    }
-
-    private static function isDataManagementRoster(): bool
-    {
-        return app()->bound('request') && (bool) app('request')->attributes->get('tsa_roster_exclude_removal_day');
-    }
-
-    /** Limits $query to the TSAs on the roster for $date. A removed TSA stays
-     *  up to her removal day (Data Management: the day before). Data
-     *  Management also drops a TSA removed in $date's month from that whole
-     *  month unless she has orders in it before her removal (explicit
-     *  request, 2026-11-04: Jhun, removed Nov 4, keeps his Nov 1-3 sales;
-     *  Marsha/Grace, no November orders, are gone from Nov 1). */
+    /** Limits $query to the TSAs on the roster for $date (explicit request,
+     *  2026-11-04): a removed TSA shows up to and including her last working
+     *  day (last_day, else her removal date), on every page alike. */
     public static function applyRosterWindow($query, string $date, string $deletedAt = 'deleted_at'): void
     {
-        $cutoff = self::rosterCutoff($date);
-        if (!self::isDataManagementRoster()) {
-            $query->where(fn ($q) => $q->whereNull($deletedAt)->orWhere($deletedAt, '>=', $cutoff));
-
-            return;
-        }
-
-        $monthStart = \Illuminate\Support\Carbon::parse($date)->startOfMonth();
-        $nextMonth = $monthStart->copy()->addMonthNoOverflow()->toDateString() . ' 00:00:00';
-        $table = $query->getModel()->getTable();
+        $lastDay = substr($deletedAt, 0, -strlen('deleted_at')) . 'last_day';
+        $day = \Illuminate\Support\Carbon::parse($date)->toDateString();
         $query->where(fn ($q) => $q->whereNull($deletedAt)
-            ->orWhere($deletedAt, '>=', $nextMonth)
-            ->orWhere(fn ($q) => $q->where($deletedAt, '>=', $cutoff)->whereExists(fn ($orders) => $orders
-                ->selectRaw('1')->from('orders')
-                ->whereColumn('orders.tsa_name', "{$table}.tsa_key")
-                ->where('orders.pancake_created_at', '>=', $monthStart->toDateString() . ' 00:00:00')
-                ->whereColumn('orders.pancake_created_at', '<', $deletedAt))));
+            ->orWhere(fn ($q) => $q->whereNotNull($lastDay)->where($lastDay, '>=', $day))
+            ->orWhere(fn ($q) => $q->whereNull($lastDay)->where($deletedAt, '>=', $day . ' 00:00:00')));
     }
 
     /** Route-bound edits on a dated cell (Expected Income / Summary Sales
@@ -127,6 +103,7 @@ class TsaShift extends Model
     }
 
     protected $casts = [
+        'last_day' => 'date',
         'active' => 'boolean',
         'is_hidden' => 'boolean',
         'status_changed_at' => 'datetime',

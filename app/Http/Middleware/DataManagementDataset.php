@@ -27,9 +27,6 @@ class DataManagementDataset
             DataSet::reset();
         }
 
-        // A TSA removed today is already gone from today's figures here.
-        \App\Models\TsaShift::excludeRemovalDay();
-
         return $next($request);
     }
 }

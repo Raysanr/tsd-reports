@@ -110,6 +110,7 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         Route::post('/tsa-management/{tsaShift}/toggle-hidden', [TsaManagementController::class, 'toggleHidden'])->name('tsa-management.toggle-hidden');
         Route::delete('/tsa-management/{tsaShift}', [TsaManagementController::class, 'destroy'])->name('tsa-management.destroy');
         Route::post('/tsa-management/{id}/restore', [TsaManagementController::class, 'restore'])->name('tsa-management.restore');
+        Route::patch('/tsa-management/{id}/last-day', [TsaManagementController::class, 'updateLastDay'])->name('tsa-management.last-day');
         Route::delete('/tsa-management/{id}/force', [TsaManagementController::class, 'forceDelete'])->name('tsa-management.force-delete');
         Route::post('/tsa-management/rest-days/{date}', [TsaManagementController::class, 'saveRestDays'])->name('tsa-management.rest-days');
 

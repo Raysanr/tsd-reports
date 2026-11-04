@@ -233,10 +233,13 @@ class TsaManagementController extends Controller
 
     public function destroy(Request $request, TsaShift $tsaShift)
     {
+        $data = $request->validate(['last_day' => ['nullable', 'date', 'before_or_equal:today']]);
         $name = $tsaShift->display_name;
+        $lastDay = \Illuminate\Support\Carbon::parse($data['last_day'] ?? today())->toDateString();
+        $tsaShift->forceFill(['last_day' => $lastDay])->save();
         $tsaShift->delete();
 
-        $message = "Removed \"{$name}\" from the roster.";
+        $message = "Removed \"{$name}\" from the roster (last working day " . \Illuminate\Support\Carbon::parse($lastDay)->format('M j, Y') . ').';
         ActivityLogger::log('tsa.deleted', $tsaShift, $message);
 
         return $this->redirectToCaller($request)->with('success', $message);
@@ -249,11 +252,27 @@ class TsaManagementController extends Controller
     {
         $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
         $tsaShift->restore();
+        $tsaShift->forceFill(['last_day' => null])->save();
 
         $message = "Restored \"{$tsaShift->display_name}\".";
         ActivityLogger::log('tsa.restored', $tsaShift, $message);
 
         return $this->redirectToCaller($request)->with('success', $message);
+    }
+
+    /** Changes a removed TSA's last working day from the Removed list
+     *  (explicit request, 2026-11-04). */
+    public function updateLastDay(Request $request, int $id)
+    {
+        $data = $request->validate(['last_day' => ['required', 'date', 'before_or_equal:today']]);
+        $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
+        $old = $tsaShift->lastWorkingDay()?->format('M j, Y');
+        $tsaShift->forceFill(['last_day' => $data['last_day']])->save();
+
+        $new = \Illuminate\Support\Carbon::parse($data['last_day'])->format('M j, Y');
+        ActivityLogger::log('tsa.last_day_updated', $tsaShift, "Changed \"{$tsaShift->display_name}\"'s last working day from {$old} to {$new}.");
+
+        return $this->redirectToCaller($request)->with('success', "\"{$tsaShift->display_name}\"'s last working day is now {$new}.");
     }
 
     /**
@@ -306,6 +325,7 @@ class TsaManagementController extends Controller
                 $message = "Moved {$count} {$noun} to {$teamName}.";
                 break;
             case 'delete':
+                TsaShift::whereIn('id', $data['ids'])->update(['last_day' => today()->toDateString()]);
                 TsaShift::whereIn('id', $data['ids'])->delete();
                 $message = "Removed {$count} {$noun}.";
                 break;

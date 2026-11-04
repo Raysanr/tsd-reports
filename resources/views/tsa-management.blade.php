@@ -254,6 +254,14 @@
                 </div>
                 <div class="flex-1">
                     <p class="text-xs text-slate-400 font-mono">{{ $teamNames[$shift->team] ?? $shift->team }} — removed {{ $shift->deleted_at->diffForHumans() }}</p>
+                    {{-- Last working day (2026-11-04): reports show her up to and including it. Saves on change. --}}
+                    <form method="POST" action="{{ route('tsa-management.last-day', $shift->id) }}" class="mt-1 flex items-center gap-2">
+                        @csrf
+                        @method('PATCH')
+                        <label class="text-[11px] text-slate-500 dark:text-slate-400 font-mono" for="lastDay{{ $shift->id }}">Last working day</label>
+                        <input type="date" id="lastDay{{ $shift->id }}" name="last_day" value="{{ $shift->lastWorkingDay()?->toDateString() }}" max="{{ today()->toDateString() }}" onchange="this.form.submit()"
+                               class="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                    </form>
                 </div>
                 <div class="flex items-center gap-2">
                     <form method="POST" action="{{ route('tsa-management.restore', $shift->id) }}">
@@ -408,6 +416,7 @@
 <form id="deleteTsaForm" method="POST" style="display:none">
     @csrf
     @method('DELETE')
+    <input type="hidden" name="last_day" value="">
 </form>
 
 <form id="forceDeleteTsaForm" method="POST" style="display:none">
@@ -618,7 +627,10 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
     document.querySelectorAll('.deleteTsaBtn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const name = btn.dataset.name || 'this TSA';
-            if (!await window.showConfirm(`Remove "${name}" from the roster? You can restore it from the Removed list below.`, { confirmText: 'Remove' })) return;
+            const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+            const lastDay = await window.showConfirm(`Remove "${name}" from the roster? Reports show them up to and including their last working day. You can restore them from the Removed list below.`, { confirmText: 'Remove', withDate: { label: 'Last working day', value: today, max: today } });
+            if (!lastDay) return;
+            deleteForm.querySelector('[name="last_day"]').value = lastDay;
             deleteForm.action = storeUrl + '/' + btn.dataset.id;
             deleteForm.submit();
         });

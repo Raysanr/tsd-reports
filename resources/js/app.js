@@ -1321,7 +1321,11 @@ window.showToast = function (message, variant = 'success') {
 // of the app's styling. Returns a Promise<boolean> (true = confirmed) so
 // call sites just `if (!await window.showConfirm(...)) return;`, the same
 // shape the old `if (!confirm(...)) return;` calls already had.
-window.showConfirm = function (message, { title = 'Are you sure?', confirmText = 'Confirm', cancelText = 'Cancel', danger = true } = {}) {
+//
+// opts.withDate = { label, value, max } (2026-11-04, removing a TSA asks for
+// her last working day) adds a date field under the message; the Promise
+// then resolves to the picked 'YYYY-MM-DD' (or false when cancelled).
+window.showConfirm = function (message, { title = 'Are you sure?', confirmText = 'Confirm', cancelText = 'Cancel', danger = true, withDate = null } = {}) {
     const modal      = document.getElementById('confirmModal');
     const titleEl     = document.getElementById('confirmModalTitle');
     const messageEl   = document.getElementById('confirmModalMessage');
@@ -1335,6 +1339,22 @@ window.showConfirm = function (message, { title = 'Are you sure?', confirmText =
     confirmBtn.textContent = confirmText;
     confirmBtn.className = 'px-4 py-2 text-xs font-semibold text-white rounded-lg transition-colors cursor-pointer '
         + (danger ? 'bg-red-600 hover:bg-red-700' : 'bg-yellow-700 hover:bg-yellow-800');
+
+    messageEl.parentElement.querySelector('[data-confirm-date]')?.remove();
+    let dateInput = null;
+    if (withDate) {
+        const wrap = document.createElement('label');
+        wrap.dataset.confirmDate = '';
+        wrap.className = 'mt-3 flex flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300';
+        wrap.textContent = withDate.label || 'Date';
+        dateInput = document.createElement('input');
+        dateInput.type = 'date';
+        dateInput.value = withDate.value || '';
+        if (withDate.max) dateInput.max = withDate.max;
+        dateInput.className = 'rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-normal text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-yellow-500';
+        wrap.appendChild(dateInput);
+        messageEl.insertAdjacentElement('afterend', wrap);
+    }
 
     modal.classList.remove('hidden');
 
@@ -1351,7 +1371,10 @@ window.showConfirm = function (message, { title = 'Are you sure?', confirmText =
             resolve(result);
         }
         function onCancel()  { cleanup(false); }
-        function onConfirm() { cleanup(true); }
+        function onConfirm() {
+            if (dateInput && !dateInput.value) { dateInput.focus(); return; }
+            cleanup(dateInput ? dateInput.value : true);
+        }
         function onBackdrop(e) { if (e.target === modal) cleanup(false); }
         function onKeydown(e)  { if (e.key === 'Escape') cleanup(false); }
 
