@@ -288,9 +288,51 @@ class TsaSalesReportController extends Controller
         // only" on a brand-new session (changed 2026-09-30 from "this
         // week" — explicit decision to make every report page consistent).
         $range = DateRangeFilter::resolve($request, 'tsa-sales');
-        $dateFrom = $range['from'];
+
+        return view('data.tsa-sales', $this->buildReportData($range['from'], $range['to']));
+    }
+
+    /** One dataset's (TSD or partners) whole-department total per day plus
+     *  the range total — the same figures this page's own OVERALL TOTAL rows
+     *  show. Used by TSD Overall Performance's sales summary (2026-11-04). */
+    public function overallByDate(string $dateFrom, string $dateTo): array
+    {
+        $data = $this->buildReportData($dateFrom, $dateTo);
+        $groups = $data['groupSummaries'];
+        $tiktokTsas = $data['tiktokSummary']['tsas'];
+        $emptyRaw = array_merge(['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0], self::EMPTY_AUTO_FIELDS);
+
+        $days = [];
+        foreach ($data['dateChunks']->flatten() as $date) {
+            $dateStr = $date->toDateString();
+            $teamRows = $groups->flatMap(fn ($g) => $g['tsas']->map(fn ($tsa) => $data['dailyByKey']->get($tsa->id . ':' . $dateStr, $emptyRaw)))->all();
+            $tiktokRows = $tiktokTsas->map(fn ($tsa) => $data['tiktokDailyByKey']->get($tsa->id . ':' . $dateStr, []))->all();
+
+            $total = TsaSalesCalculator::sum(array_merge($teamRows, $tiktokRows));
+            $upsellSales = array_sum(array_column($teamRows, 'upsell_sales'));
+            $upsellConfirmation = array_sum(array_column($teamRows, 'upsell_confirmation'));
+            $total['aov'] = $upsellConfirmation > 0 ? $upsellSales / $upsellConfirmation : 0.0;
+            $rates = \App\Support\ProductPerformance::rates([
+                'answered'            => array_sum(array_column($teamRows, 'answered')),
+                'unanswered'          => array_sum(array_column($teamRows, 'unanswered')),
+                'confirmed_via_call'  => array_sum(array_column($teamRows, 'confirmed_via_call')),
+                'upsell_confirmation' => $upsellConfirmation,
+            ]);
+            $total['pickup_rate'] = $rates['pick_up_rate'] !== null ? $rates['pick_up_rate'] / 100 : 0.0;
+            $total['upselling_rate'] = $rates['upselling_rate'] !== null ? $rates['upselling_rate'] / 100 : 0.0;
+            $total['net_income'] = (float) $groups->sum(fn ($g) => (float) ($data['teamNetIncomeByDate']->get($g['orderTeam'] . ':' . $dateStr) ?? 0.0))
+                + (float) array_sum(array_column($tiktokRows, 'net_income'));
+            $total['ni_pct'] = $total['gross_sales'] > 0 ? $total['net_income'] / $total['gross_sales'] : 0.0;
+            $days[$dateStr] = $total;
+        }
+
+        return ['range' => $data['overallTotal'], 'days' => $days];
+    }
+
+    /** Everything index() renders, for one date range on the current dataset. */
+    private function buildReportData(string $dateFrom, string $dateTo): array
+    {
         \App\Models\TsaShift::showDeletedFrom($dateFrom); // removed TSAs still show for days up to their removal
-        $dateTo   = $range['to'];
 
         // Explicit request, 2026-09-28: "make the opening is in first and
         // the closing is in last" — config('teams') itself lists
@@ -544,7 +586,7 @@ class TsaSalesReportController extends Controller
             ->map(fn ($d) => $d->toDateString())
             ->all();
 
-        return view('data.tsa-sales', [
+        return [
             'groupSummaries' => $groupSummaries,
             'tiktokSummary'  => $tiktokSummary,
             'overallTotal'   => $overallTotal,
@@ -562,7 +604,7 @@ class TsaSalesReportController extends Controller
             // this page has hit before — see ExpectedIncomeController::
             // teamNetIncomeByDate()'s own doc comment for the full story.
             'teamNetIncomeByDate' => $teamNetIncomeByDate,
-        ]);
+        ];
     }
 
     /** Auto-save, one (TSA, date, field) at a time — same

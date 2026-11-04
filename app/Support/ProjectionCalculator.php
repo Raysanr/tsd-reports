@@ -480,7 +480,7 @@ class ProjectionCalculator
      *  from the SUMMED dollar lines, not averaged — a weighted result,
      *  same as how NET INCOME % is derived everywhere else in this class
      *  (net_income ÷ gross_sales, never a naive average of two %s). */
-    private static function sumPnl(array $a, array $b): array
+    public static function sumPnl(array $a, array $b): array
     {
         $grossSales = $a['gross_sales'] + $b['gross_sales'];
         $totalSellingCosts = $a['total_selling_costs'] + $b['total_selling_costs'];

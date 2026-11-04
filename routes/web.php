@@ -494,6 +494,10 @@ Route::middleware(['auth', 'active', 'last-seen'])->group(function () {
         // a row to bind to here, so plain route-model binding works
         // rather than an upsert-by-(product,date) pattern.
         Route::middleware('role:super_admin,admin')->group(function () {
+            // TSD Overall Performance (2026-11-04): SH E-COM x Partners, TSD only.
+            Route::get('/overall/projections', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'projections'])->name('overall.projections');
+            Route::get('/overall/sales-summary', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'salesSummary'])->name('overall.sales-summary');
+            Route::get('/overall/expected-income', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'expectedIncome'])->name('overall.expected-income');
             Route::get('/cost-breakdown', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'index'])->name('cost-breakdown');
             // Add Cost Breakdown for a month (copies last month) — 2026-10-15.
             Route::post('/cost-breakdown/months', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'storeMonth'])->name('cost-breakdown.months.store');

@@ -71,7 +71,17 @@
         </a>
 
         <div class="my-3 border-t border-white/10"></div>
-        <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">Planning</p>
+        {{-- Sidebar dropdown groups (explicit request, 2026-11-04): SH E-COM
+             (this dataset's own pages) and TSD OVERALL PERFORMANCE (SH E-COM
+             x Partners, TSD + admins only). Native <details>, no JS; the
+             group holding the current page starts open. --}}
+        @php($ecomOpen = !request()->routeIs('data.overall.*'))
+        <details class="group" data-nav-group @if($ecomOpen) open @endif>
+        <summary class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer list-none text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+            {{ \App\Support\DataSet::isPartners() ? 'Partners' : 'SH E-COM' }}
+            <svg class="w-3.5 h-3.5 shrink-0 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </summary>
+        <div class="mt-1 space-y-1">
 
         <a href="{{ route('data.projections') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.projections') ? 'nav-active' : '' }}">
@@ -141,6 +151,71 @@
             Cost Breakdown
         </a>
         @endif
+        </div>
+        </details>
+
+        @if(!\App\Support\DataSet::isPartners() && auth()->user()->isAtLeastAdmin())
+        <details class="group mt-2" data-nav-group @if(!$ecomOpen) open @endif>
+        <summary class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer list-none text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+            TSD Overall Performance
+            <svg class="w-3.5 h-3.5 shrink-0 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </summary>
+        <div class="mt-1 space-y-1">
+            @foreach([
+                ['data.overall.projections', 'Projections', 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'],
+                ['data.overall.sales-summary', 'Sales Summary (SH E-COM and Partners)', 'M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5'],
+                ['data.overall.expected-income', 'Expected Income (SH E-COM and Partners)', 'M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941'],
+            ] as [$routeName, $navLabel, $iconPath])
+            <a href="{{ route($routeName) }}"
+               class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs($routeName) ? 'nav-active' : '' }}">
+                <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="{{ $iconPath }}"/>
+                </svg>
+                {{ $navLabel }}
+            </a>
+            @endforeach
+        </div>
+        </details>
+        @endif
+        <script>
+        // Smooth open/close for the sidebar dropdown groups (2026-11-04).
+        // Inline (not calls.js/app.js) so it works on every page using this layout.
+        document.querySelectorAll('details[data-nav-group]').forEach((details) => {
+            const summary = details.querySelector('summary');
+            const body = summary.nextElementSibling;
+            let anim = null;
+            summary.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                    details.open = !details.open;
+                    return;
+                }
+                const closing = details.open && !details.classList.contains('nav-group-closing');
+                const from = body.getBoundingClientRect().height;
+                anim?.cancel();
+                body.style.overflow = 'hidden';
+                if (closing) {
+                    details.classList.add('nav-group-closing');
+                    details.classList.remove('group');
+                    anim = body.animate([{ height: from + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 250, easing: 'ease-in-out' });
+                } else {
+                    details.classList.remove('nav-group-closing');
+                    details.classList.add('group');
+                    details.open = true;
+                    anim = body.animate([{ height: from + 'px', opacity: from ? 1 : 0 }, { height: body.scrollHeight + 'px', opacity: 1 }], { duration: 250, easing: 'ease-in-out' });
+                }
+                anim.onfinish = () => {
+                    if (closing) {
+                        details.open = false;
+                        details.classList.remove('nav-group-closing');
+                        details.classList.add('group');
+                    }
+                    body.style.overflow = '';
+                    anim = null;
+                };
+            });
+        });
+        </script>
 
         <div class="my-3 border-t border-white/10"></div>
         <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">History</p>

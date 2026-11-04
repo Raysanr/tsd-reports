@@ -775,6 +775,29 @@ class ExpectedIncomeController extends Controller
         ]));
     }
 
+    /** The ALL view's overall TELESALES card plus each team's own overall
+     *  card for a range, on the CURRENT dataset (TSD or partners) — same
+     *  figures summary() shows. Used by TSD Overall Performance's
+     *  SH E-COM and PARTNERS page (2026-11-04). */
+    public function overallTotals(string $dateFrom, string $dateTo): array
+    {
+        \App\Support\ProjectionMonth::set(substr($dateFrom, 0, 7));
+        \App\Models\TsaShift::showDeletedFrom($dateFrom);
+
+        $products = self::reportProducts();
+        $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
+        $operatingKeys = array_keys(ExpectedIncomeCalculator::operatingCostRows());
+        $dates = collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))));
+
+        $summaryData = $this->buildSummary($products, $dates, $dateFrom, $dateTo, $sellingKeys, $operatingKeys);
+        $tiktokData = $this->buildTiktokRows($dates, $dateFrom, $dateTo);
+
+        return [
+            'overall' => $this->foldTiktokIntoTelesales($summaryData['summaryOverallTotal'], $tiktokData['tiktokOverallTotal'], 'all', $sellingKeys, $operatingKeys),
+            'teams'   => $summaryData['teamSummaryRows']->map(fn ($row) => ['label' => $row['label'], 'derived' => $row['overallTotal']])->all(),
+        ];
+    }
+
     /** The top range-summary row's own data — one overall rollup card
      *  ("TELESALES EXPECTED PERFORMANCE") plus every product's own card,
      *  summed across the WHOLE selected range. Pools EVERY tsa_id for each

@@ -50,6 +50,7 @@ class DataSet
     public static function enterPartners(): void
     {
         self::$partners = true;
+        self::flushRequestCaches();
         DB::setDefaultConnection(self::PARTNERS);
         config(['teams' => self::partnerTeams()]);
         URL::defaults(['dm' => 'partners']);
@@ -67,12 +68,24 @@ class DataSet
     public static function leavePartners(): void
     {
         self::$partners = false;
+        self::flushRequestCaches();
         DB::setDefaultConnection(self::mainConnection());
         config(['teams' => require config_path('teams.php')]);
         URL::defaults(['dm' => 'data']);
     }
 
     /** Runs $callback on the partners database, then switches back. */
+    /** Per-request caches are keyed without the dataset, so a request that
+     *  reads BOTH datasets (TSD Overall Performance, 2026-11-04) must drop
+     *  them on every switch or TSD values leak into partners (or back). */
+    private static function flushRequestCaches(): void
+    {
+        RequestMemo::flush();
+        if (app()->bound('tsa_daily_rate.department_tax_allocation_per_shift')) {
+            app()->offsetUnset('tsa_daily_rate.department_tax_allocation_per_shift');
+        }
+    }
+
     public static function onPartners(\Closure $callback): mixed
     {
         $was = self::$partners;
