@@ -15,7 +15,7 @@
     </div>
     <div class="overflow-x-auto ei-scroller -mx-4 md:-mx-8 px-4 md:px-8 pb-2 mb-8" id="eiSummaryScroller">
         <div class="flex items-start gap-5 w-max">
-            @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'cardId' => 'eiSummaryOverallCard', 'label' => 'TELESALES', 'headerBg' => 'var(--color-yellow-300)', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
+            @include('data.expected-income._card', ['d' => $summaryOverallTotal, 'cardId' => 'eiSummaryOverallCard', 'label' => \App\Http\Controllers\DataManagement\ExpectedIncomeController::overallCardLabel(), 'labelEditUrl' => route('data.expected-income.overall-label'), 'headerBg' => 'var(--color-yellow-300)', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @foreach($summaryCards as $card)
             @include('data.expected-income._card', ['d' => $card['derived'], 'label' => $card['label'], 'headerBg' => '#d9ead3', 'sellingRows' => $sellingRows, 'operatingRows' => $operatingRows, 'customRowKeys' => $customRowKeys, 'fmtMoney' => $fmtMoney, 'fmtPct' => $fmtPct])
             @endforeach

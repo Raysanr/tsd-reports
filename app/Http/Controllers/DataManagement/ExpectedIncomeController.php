@@ -3205,6 +3205,32 @@ class ExpectedIncomeController extends Controller
     /** Partners only (2026-10-31): the % of Income Before OPEX shown as
      *  "Expected Shared Income from Partnership" — see
      *  ExpectedIncomeCalculator::partnershipShareRate(). Typed as 0–100. */
+    /** Setting key for the overall summary card's editable name (explicit
+     *  request, 2026-11-04: "make it the TELESALES card name is editable").
+     *  Setting lives on the active dataset's DB, so TSD and Partners each
+     *  keep their own name. Shared by Expected and Actual Income. */
+    public const OVERALL_CARD_LABEL_SETTING = 'expected_income_overall_card_label';
+
+    public static function overallCardLabel(): string
+    {
+        $label = trim((string) \App\Models\Setting::get(self::OVERALL_CARD_LABEL_SETTING, ''));
+
+        return $label !== '' ? $label : 'TELESALES';
+    }
+
+    public function updateOverallLabel(Request $request)
+    {
+        $data = $request->validate(['label' => ['required', 'string', 'max:60']]);
+        $old = self::overallCardLabel();
+        $new = trim($data['label']);
+        if ($new !== $old) {
+            \App\Models\Setting::set(self::OVERALL_CARD_LABEL_SETTING, $new);
+            ActivityLogger::log('expected_income.overall_label_updated', null, "Renamed the overall summary card from \"{$old}\" to \"{$new}\".");
+        }
+
+        return response()->json(['label' => self::overallCardLabel()]);
+    }
+
     public function updateShareRate(Request $request)
     {
         abort_unless(\App\Support\DataSet::isPartners(), 404);

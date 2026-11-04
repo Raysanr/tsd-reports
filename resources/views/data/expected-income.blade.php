@@ -1189,6 +1189,66 @@
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !tallyModal.classList.contains('hidden')) closeTallyModal(); });
     }
 })();
+
+// Rename the overall summary card (2026-11-04). Delegated so it survives
+// the summary section's AJAX re-render; guarded against double-binding.
+(() => {
+    if (window.__eiLabelEditBound) return;
+    window.__eiLabelEditBound = true;
+
+    document.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-ei-label-edit]');
+        if (!btn) return;
+        const span = btn.parentElement.querySelector('[data-ei-label]');
+        if (!span || btn.parentElement.querySelector('input[data-ei-label-input]')) return;
+
+        const original = span.textContent.trim();
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.maxLength = 60;
+        input.value = original;
+        input.setAttribute('data-ei-label-input', '');
+        input.className = 'flex-1 min-w-0 font-mono font-bold text-sm uppercase tracking-wide px-2 py-0.5 rounded border border-slate-300 bg-white text-ink outline-none focus:ring-2 focus:ring-primary/40';
+        span.classList.add('hidden');
+        btn.classList.add('hidden');
+        span.after(input);
+        input.focus();
+        input.select();
+
+        let done = false;
+        const finish = (label) => {
+            if (done) return;
+            done = true;
+            span.textContent = label;
+            input.remove();
+            span.classList.remove('hidden');
+            btn.classList.remove('hidden');
+        };
+        const save = () => {
+            const value = input.value.trim();
+            if (!value || value === original) return finish(original);
+            input.disabled = true;
+            fetch(btn.dataset.eiLabelEdit, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ label: value }),
+            })
+                .then((r) => (r.ok ? r.json() : Promise.reject()))
+                .then((data) => finish(data.label))
+                .catch(() => { finish(original); alert('Could not rename the card — try again.'); });
+        };
+
+        input.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') { ev.preventDefault(); save(); }
+            if (ev.key === 'Escape') finish(original);
+        });
+        input.addEventListener('blur', save);
+    });
+})();
 </script>
 @endpush
 

@@ -85,6 +85,25 @@ class ExpectedIncomeReportSmokeTest extends TestCase
         $this->assertStringNotContainsString('data-export-csv="eiSummaryOverallCard"', $content);
     }
 
+    /** Overall card name is editable (explicit request, 2026-11-04). */
+    public function test_the_overall_card_name_can_be_renamed(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $this->actingAs($admin)->get(route('data.expected-income'))->assertOk()->assertSee('TELESALES');
+
+        $this->actingAs($admin)
+            ->patchJson(route('data.expected-income.overall-label'), ['label' => '  TSD Overall  '])
+            ->assertOk()
+            ->assertJson(['label' => 'TSD Overall']);
+
+        $this->actingAs($admin)->get(route('data.expected-income'))->assertOk()->assertSee('TSD Overall');
+
+        $this->actingAs($admin)
+            ->patchJson(route('data.expected-income.overall-label'), ['label' => ''])
+            ->assertStatus(422);
+    }
+
     /** Reversed 2026-10-06 (explicit request: "it should be all products
      *  has product card in the expected income but it has no cost like
      *  in the Operating Costs row" — supersedes the narrower 2026-10-03
