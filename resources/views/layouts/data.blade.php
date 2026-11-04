@@ -73,15 +73,14 @@
         <div class="my-3 border-t border-white/10"></div>
         {{-- Sidebar dropdown groups (explicit request, 2026-11-04): SH E-COM
              (this dataset's own pages) and TSD OVERALL PERFORMANCE (SH E-COM
-             x Partners, TSD + admins only). Native <details>, no JS; the
-             group holding the current page starts open. --}}
-        @php($ecomOpen = !request()->routeIs('data.overall.*'))
-        <details class="group" data-nav-group @if($ecomOpen) open @endif>
-        <summary class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer list-none text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+             and Partners, TSD + admins only). Both open by default; each
+             remembers if the user collapsed it (script + styles below). --}}
+        <div class="nav-group" data-nav-group="ecom" data-open="1">
+        <button type="button" class="nav-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-left text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10" aria-expanded="true">
             {{ \App\Support\DataSet::isPartners() ? 'Partners' : 'SH E-COM' }}
-            <svg class="w-3.5 h-3.5 shrink-0 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-        </summary>
-        <div class="mt-1 space-y-1">
+            <svg class="nav-group-chev w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div class="nav-group-body"><div class="nav-group-inner"><div class="mt-1 space-y-1">
 
         <a href="{{ route('data.projections') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.projections') ? 'nav-active' : '' }}">
@@ -151,16 +150,16 @@
             Cost Breakdown
         </a>
         @endif
+        </div></div></div>
         </div>
-        </details>
 
         @if(!\App\Support\DataSet::isPartners() && auth()->user()->isAtLeastAdmin())
-        <details class="group mt-2" data-nav-group @if(!$ecomOpen) open @endif>
-        <summary class="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer list-none text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10 [&::-webkit-details-marker]:hidden">
+        <div class="nav-group mt-2" data-nav-group="overall" data-open="1">
+        <button type="button" class="nav-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-left text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10" aria-expanded="true">
             TSD Overall Performance
-            <svg class="w-3.5 h-3.5 shrink-0 transition-transform duration-300 group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-        </summary>
-        <div class="mt-1 space-y-1">
+            <svg class="nav-group-chev w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div class="nav-group-body"><div class="nav-group-inner"><div class="mt-1 space-y-1">
             @foreach([
                 ['data.overall.projections', 'Projections', 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z'],
                 ['data.overall.sales-summary', 'Sales Summary (SH E-COM and Partners)', 'M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5'],
@@ -174,47 +173,50 @@
                 {{ $navLabel }}
             </a>
             @endforeach
+        </div></div></div>
         </div>
-        </details>
         @endif
+        <style>
+            /* Sidebar dropdown groups (2026-11-04): grid-rows 0fr<->1fr animates
+               both ways (a closed <details> can't be measured, so opening
+               never animated). Transitions only after first paint. */
+            .nav-group-body { display: grid; grid-template-rows: 1fr; opacity: 1; }
+            .nav-group[data-open="0"] .nav-group-body { grid-template-rows: 0fr; opacity: 0; }
+            .nav-group-inner { overflow: hidden; min-height: 0; }
+            .nav-group-chev { transform: rotate(180deg); }
+            .nav-group[data-open="0"] .nav-group-chev { transform: rotate(0deg); }
+            .nav-groups-ready .nav-group-body { transition: grid-template-rows .3s ease, opacity .3s ease; }
+            .nav-groups-ready .nav-group-chev { transition: transform .3s ease; }
+            @media (prefers-reduced-motion: reduce) {
+                .nav-groups-ready .nav-group-body, .nav-groups-ready .nav-group-chev { transition: none; }
+            }
+        </style>
         <script>
-        // Smooth open/close for the sidebar dropdown groups (2026-11-04).
-        // Inline (not calls.js/app.js) so it works on every page using this layout.
-        document.querySelectorAll('details[data-nav-group]').forEach((details) => {
-            const summary = details.querySelector('summary');
-            const body = summary.nextElementSibling;
-            let anim = null;
-            summary.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-                    details.open = !details.open;
-                    return;
-                }
-                const closing = details.open && !details.classList.contains('nav-group-closing');
-                const from = body.getBoundingClientRect().height;
-                anim?.cancel();
-                body.style.overflow = 'hidden';
-                if (closing) {
-                    details.classList.add('nav-group-closing');
-                    details.classList.remove('group');
-                    anim = body.animate([{ height: from + 'px', opacity: 1 }, { height: '0px', opacity: 0 }], { duration: 250, easing: 'ease-in-out' });
-                } else {
-                    details.classList.remove('nav-group-closing');
-                    details.classList.add('group');
-                    details.open = true;
-                    anim = body.animate([{ height: from + 'px', opacity: from ? 1 : 0 }, { height: body.scrollHeight + 'px', opacity: 1 }], { duration: 250, easing: 'ease-in-out' });
-                }
-                anim.onfinish = () => {
-                    if (closing) {
-                        details.open = false;
-                        details.classList.remove('nav-group-closing');
-                        details.classList.add('group');
-                    }
-                    body.style.overflow = '';
-                    anim = null;
-                };
+        // Each group stays as the user left it across pages (localStorage);
+        // the group holding the current page is always open.
+        (() => {
+            const KEY = 'dm-nav-collapsed';
+            let collapsed = [];
+            try { collapsed = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+            const groups = document.querySelectorAll('[data-nav-group]');
+            const setOpen = (group, open) => {
+                group.dataset.open = open ? '1' : '0';
+                group.querySelector('.nav-group-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+                group.querySelectorAll('.nav-group-inner a').forEach((a) => { a.tabIndex = open ? 0 : -1; });
+            };
+            groups.forEach((group) => {
+                const name = group.dataset.navGroup;
+                if (collapsed.includes(name) && !group.querySelector('.nav-active')) setOpen(group, false);
+                group.querySelector('.nav-group-toggle').addEventListener('click', () => {
+                    const open = group.dataset.open !== '1';
+                    setOpen(group, open);
+                    collapsed = collapsed.filter((n) => n !== name);
+                    if (!open) collapsed.push(name);
+                    try { localStorage.setItem(KEY, JSON.stringify(collapsed)); } catch (e) {}
+                });
             });
-        });
+            requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById('sidebar')?.classList.add('nav-groups-ready')));
+        })();
         </script>
 
         <div class="my-3 border-t border-white/10"></div>
