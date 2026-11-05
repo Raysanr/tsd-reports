@@ -73,9 +73,9 @@
         <div class="my-3 border-t border-white/10"></div>
         {{-- Sidebar dropdown groups (explicit request, 2026-11-04): SH E-COM
              (this dataset's own pages) and TSD OVERALL PERFORMANCE (SH E-COM
-             and Partners, TSD + admins only). With a mouse they stay closed
-             and open on hover; on touch screens they open on tap and remember
-             it (script + styles below). --}}
+             and Partners, TSD + admins only). With a mouse the group holding
+             the current page stays open and the other opens on hover; on touch
+             screens they open on tap and remember it (script + styles below). --}}
         <div class="nav-group" data-nav-group="ecom" data-open="1">
         <button type="button" class="nav-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-left text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10" aria-expanded="true">
             {{ \App\Support\DataSet::isPartners() ? 'Partners' : 'SH E-COM' }}
@@ -204,8 +204,9 @@
             }
         </style>
         <script>
-        // Mouse: closed at rest, open while the pointer or keyboard focus is
-        // inside (a short delay stops flicker when the pointer slips out).
+        // Mouse: the group holding the current page stays open. Any other is
+        // closed at rest and open while the pointer or keyboard focus is inside
+        // (a short delay stops flicker when the pointer slips out).
         // Touch has no hover, so groups open on tap, stay as left across pages
         // (localStorage), and the group holding the current page starts open.
         (() => {
@@ -221,6 +222,7 @@
             };
             groups.forEach((group) => {
                 if (hasHover) {
+                    if (group.querySelector('.nav-active')) { setOpen(group, true); return; }
                     let closing;
                     const open = () => { clearTimeout(closing); setOpen(group, true); };
                     const close = () => {
