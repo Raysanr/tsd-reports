@@ -459,7 +459,6 @@ class ExpectedIncomeController extends Controller
                 $result[$tsa->id . ':' . $dateStr] = [
                     'gross_sales'    => (float) $derived['gross_sales'],
                     'net_income'     => (float) $derived['net_income'],
-                    'income_before_opex' => (float) $derived['income_before_opex'],
                     'total_orders'   => (int) $derived['number_of_orders'],
                     'catered_leads'  => 0,
                     'pickup_rate'    => 0,

@@ -328,8 +328,6 @@ class TsaSalesReportController extends Controller
                 + (float) array_sum(array_column($tiktokRows, 'net_income'));
             $total['ni_pct'] = $total['gross_sales'] > 0 ? $total['net_income'] / $total['gross_sales'] : 0.0;
             $total['call_counts'] = self::callCounts($teamRows);
-            $total['income_before_opex'] = (float) $groups->sum(fn ($g) => (float) ($data['teamTotalsByDate']->get($g['orderTeam'] . ':' . $dateStr)['income_before_opex'] ?? 0.0))
-                + (float) array_sum(array_column($tiktokRows, 'income_before_opex'));
             $days[$dateStr] = $total;
 
             foreach ($groups as $group) {
@@ -560,7 +558,6 @@ class TsaSalesReportController extends Controller
                 $tiktokDailyByKey->put($key, array_merge($manual, [
                     'gross_sales'  => $auto['gross_sales'],
                     'net_income'   => $auto['net_income'],
-                    'income_before_opex' => $auto['income_before_opex'] ?? 0.0,
                     'total_orders' => $auto['total_orders'],
                 ]));
             }
