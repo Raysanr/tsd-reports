@@ -57,6 +57,18 @@ class OverallSalesSummaryTest extends TestCase
         $this->assertSame(74.0, $day['total_orders']);
     }
 
+    public function test_sh_ecom_shows_its_own_income_but_the_total_stays_partners_only(): void
+    {
+        $summary = OverallSalesSummary::build(
+            ['days' => ['2026-11-02' => ['gross_sales' => 100.0, 'net_income' => 10.0, 'income_before_opex' => 60.0, 'total_orders' => 1, 'call_counts' => $this->counts()]], 'teams' => []],
+            ['MLC' => $this->partner(50.0, 35.0, -5.0, 1, 80.0)],
+        );
+
+        $this->assertSame(60.0, $summary['rows'][0]['days']['2026-11-02']['own_income']);
+        $this->assertSame(35.0, $summary['total']['days']['2026-11-02']['shared_income']);
+        $this->assertEqualsWithDelta(5 / 135, $summary['total']['days']['2026-11-02']['ni_pct'], 0.0001);
+    }
+
     public function test_excess_leads_add_both_sh_teams_and_every_partner(): void
     {
         $summary = $this->summary();

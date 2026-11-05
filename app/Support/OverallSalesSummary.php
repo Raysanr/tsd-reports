@@ -11,7 +11,10 @@ namespace App\Support;
  * of it. So NI % divides by Sales for SH E-COM, by Shared Income for a partner,
  * and by both on the TOTAL row, the same as the sheet. 'sales' is SH E-COM's
  * only: a partner's gross_sales shows on its own row and counts toward AOV, but
- * never toward the TOTAL row's Sales or NI %.
+ * never toward the TOTAL row's Sales or NI %. 'own_income' is the same idea for
+ * Expected Shared Income: SH E-COM keeps all of its Income Before OPEX, so it
+ * shows on SH's row, but the TOTAL's Shared Income stays partners only (SH's
+ * income is already inside Sales, so NI % would count it twice).
  *
  * Three things deliberately differ from the sheet's formulas, which are wrong
  * for a range: AOV is sales ÷ orders (the sheet adds each day's AOV), Pick-up
@@ -68,6 +71,7 @@ class OverallSalesSummary
                 'gross_sales'        => (float) $day['gross_sales'],
                 'income_before_opex' => 0.0,
                 'shared_income'      => 0.0,
+                'own_income'         => (float) ($day['income_before_opex'] ?? 0),
                 'net_income'         => (float) $day['net_income'],
                 'total_orders'       => (float) ($day['total_orders'] ?? 0),
                 'total_leads'        => array_sum(array_map(fn ($team) => $team[$date]['total_leads'] ?? 0, $tsd['teams'] ?? [])),
@@ -97,7 +101,7 @@ class OverallSalesSummary
     private static function blank(): array
     {
         return [
-            'sales' => 0.0, 'gross_sales' => 0.0, 'income_before_opex' => 0.0, 'shared_income' => 0.0, 'net_income' => 0.0,
+            'sales' => 0.0, 'gross_sales' => 0.0, 'income_before_opex' => 0.0, 'own_income' => 0.0, 'shared_income' => 0.0, 'net_income' => 0.0,
             'total_orders' => 0.0, 'total_leads' => 0.0, 'excess_leads' => 0.0,
             'call_counts' => ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0],
         ];
@@ -107,7 +111,7 @@ class OverallSalesSummary
     {
         $sum = self::blank();
         foreach ($days as $day) {
-            foreach (['sales', 'gross_sales', 'income_before_opex', 'shared_income', 'net_income', 'total_orders', 'total_leads', 'excess_leads'] as $key) {
+            foreach (['sales', 'gross_sales', 'income_before_opex', 'own_income', 'shared_income', 'net_income', 'total_orders', 'total_leads', 'excess_leads'] as $key) {
                 $sum[$key] += (float) ($day[$key] ?? 0);
             }
             foreach ($sum['call_counts'] as $key => $count) {
