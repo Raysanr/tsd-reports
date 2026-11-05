@@ -73,8 +73,9 @@
         <div class="my-3 border-t border-white/10"></div>
         {{-- Sidebar dropdown groups (explicit request, 2026-11-04): SH E-COM
              (this dataset's own pages) and TSD OVERALL PERFORMANCE (SH E-COM
-             and Partners, TSD + admins only). Both open by default; each
-             remembers if the user collapsed it (script + styles below). --}}
+             and Partners, TSD + admins only). With a mouse they stay closed
+             and open on hover; on touch screens they open on tap and remember
+             it (script + styles below). --}}
         <div class="nav-group" data-nav-group="ecom" data-open="1">
         <button type="button" class="nav-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-left text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10" aria-expanded="true">
             {{ \App\Support\DataSet::isPartners() ? 'Partners' : 'SH E-COM' }}
@@ -203,10 +204,13 @@
             }
         </style>
         <script>
-        // Each group stays as the user left it across pages (localStorage);
-        // the group holding the current page is always open.
+        // Mouse: closed at rest, open while the pointer or keyboard focus is
+        // inside (a short delay stops flicker when the pointer slips out).
+        // Touch has no hover, so groups open on tap, stay as left across pages
+        // (localStorage), and the group holding the current page starts open.
         (() => {
             const KEY = 'dm-nav-collapsed';
+            const hasHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
             let collapsed = [];
             try { collapsed = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
             const groups = document.querySelectorAll('[data-nav-group]');
@@ -216,6 +220,20 @@
                 group.querySelectorAll('.nav-group-inner a').forEach((a) => { a.tabIndex = open ? 0 : -1; });
             };
             groups.forEach((group) => {
+                if (hasHover) {
+                    let closing;
+                    const open = () => { clearTimeout(closing); setOpen(group, true); };
+                    const close = () => {
+                        clearTimeout(closing);
+                        closing = setTimeout(() => { if (!group.contains(document.activeElement) || !document.activeElement.matches(':focus-visible')) setOpen(group, false); }, 180);
+                    };
+                    setOpen(group, false);
+                    group.addEventListener('mouseenter', open);
+                    group.addEventListener('mouseleave', close);
+                    group.addEventListener('focusin', (e) => { if (e.target.matches(':focus-visible')) open(); });
+                    group.addEventListener('focusout', (e) => { if (!group.contains(e.relatedTarget) && !group.matches(':hover')) close(); });
+                    return;
+                }
                 const name = group.dataset.navGroup;
                 if (collapsed.includes(name) && !group.querySelector('.nav-active')) setOpen(group, false);
                 group.querySelector('.nav-group-toggle').addEventListener('click', () => {

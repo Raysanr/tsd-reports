@@ -314,7 +314,9 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
     // App\Support\DataSet and App\Http\Middleware\DataManagementDataset;
     // URL::defaults() fills {dm} in, so route('data.*') needs no change.
     Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal,guest', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
-        Route::get('/', fn () => redirect()->route('data.projections'));
+        Route::get('/', fn (\Illuminate\Http\Request $request) => redirect(
+            $request->session()->get(\App\Http\Middleware\DataManagementDataset::lastPageKey()) ?? route('data.projections')
+        ))->name('home');
 
         // Activity Log (explicit request, 2026-10-07: "can you add another
         // page that is ACTIVITY LOG? ... all activites in every page

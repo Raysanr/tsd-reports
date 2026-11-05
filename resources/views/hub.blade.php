@@ -547,7 +547,7 @@
              stays admin-only inside the module — see data.blade.php's
              own sidebar link for that gate. --}}
         @if(auth()->user()->canAccessModule('data'))
-        <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.projections') }}">
+        <a class="card" style="--card-accent:#7c3aed; --card-accent-soft:rgba(124,58,237,0.12)" href="{{ route('data.home') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.125C3 6.504 3.504 6 4.125 6h4.243c.3 0 .587.12.8.331l1.383 1.383c.211.211.498.331.8.331h8.524c.621 0 1.125.504 1.125 1.125v9.705c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 013 18.875V7.125z"/>
@@ -565,7 +565,7 @@
              partners' synced data (App\Support\DataSet). Every role sees it
              (2026-11-03, explicit request). --}}
         @if(auth()->user()->canAccessModule('partners'))
-        <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.projections', ['dm' => 'partners']) }}">
+        <a class="card" style="--card-accent:#db2777; --card-accent-soft:rgba(219,39,119,0.12)" href="{{ route('data.home', ['dm' => 'partners']) }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"/>
