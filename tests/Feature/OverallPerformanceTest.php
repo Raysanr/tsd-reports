@@ -230,4 +230,21 @@ class OverallPerformanceTest extends TestCase
             ->patchJson(route('data.overall.sales-summary.tsa-count'), ['date' => '2026-11-01', 'department' => 'SH E-COM', 'value' => '2/4'])
             ->assertForbidden();
     }
+
+    /** M&J's own Leads Report rule: uncalled VIP orders aren't Excess Leads. */
+    public function test_only_uncalled_non_restocking_vip_orders_are_excluded_leads(): void
+    {
+        $order = fn (string $id, array $extra) => \App\Models\Order::create($extra + [
+            'pancake_order_id' => $id, 'team' => 'SH Naturals', 'tsa_name' => 'x', 'product' => 'Sinuxyl', 'raw_tags' => [],
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => '2026-11-03 10:00:00', 'synced_at' => now(),
+        ]);
+        $orders = collect([
+            $order('vip-uncalled', ['raw_tags' => ['VIP - CRD']]),
+            $order('vip-called', ['raw_tags' => ['VIP - CRD', 'CONFIRMED VIA CALL'], 'disposition' => 'CONFIRMED VIA CALL']),
+            $order('vip-restocking', ['raw_tags' => ['VIP - CRD', 'RESTOCKING ORDERS']]),
+            $order('plain-uncalled', []),
+        ]);
+
+        $this->assertSame(['vip-uncalled'], \App\Support\ProductPerformance::excludedVipLeads($orders)->pluck('pancake_order_id')->all());
+    }
 }

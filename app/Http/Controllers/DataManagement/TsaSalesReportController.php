@@ -77,6 +77,8 @@ class TsaSalesReportController extends Controller
 {
     /** Default shape for a TSA/date with no real orders at all — used
      *  anywhere $performanceByKey might miss a key. */
+    private const VIP_EXCLUDED_TEAM = 'M&J';
+
     private const EMPTY_AUTO_FIELDS = [
         'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0,
         'upsell_sales' => 0, 'upsell_confirmation' => 0,
@@ -359,10 +361,15 @@ class TsaSalesReportController extends Controller
             ->where('team', $orderTeam)
             ->get();
 
-        $rows = $dayOrders->isEmpty() ? collect() : $products->where('is_hidden', false)
+        $visible = $products->where('is_hidden', false);
+        $rows = $dayOrders->isEmpty() ? collect() : $visible
             ->map(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products));
+        // Only M&J's own Leads Report has an Excluded Leads column.
+        $excluded = $orderTeam !== self::VIP_EXCLUDED_TEAM || $dayOrders->isEmpty() ? 0 : $visible->sum(
+            fn ($product) => ProductPerformance::excludedVipLeads(ProductPerformance::matchingOrders($product, $dayOrders, $products))->count()
+        );
 
-        return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess')];
+        return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess') - $excluded];
     }
 
     /** The raw counts Pick-up/Upselling Rate come from, so a caller can pool

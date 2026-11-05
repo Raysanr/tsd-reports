@@ -606,6 +606,26 @@ class ProductPerformance
     /** The order carries Pancake's "RESTOCKING ORDERS" tag (exact, any case). */
     public const RESTOCKING_TAG = 'RESTOCKING ORDERS';
 
+    /** M&J's Excluded Leads, from that app's own Leads Report: VIP-tagged orders
+     *  ("VIP - CRD" and the like) nobody called and that aren't restocking. They
+     *  are real orders but not telesales leads, so they aren't Excess either. */
+    public static function excludedVipLeads(Collection $orders): Collection
+    {
+        $vip = $orders->filter(function ($order) {
+            foreach ((array) ($order->raw_tags ?? []) as $tag) {
+                if (preg_match('/\bVIP\b/i', (string) $tag)) {
+                    return true;
+                }
+            }
+
+            return false;
+        })->values();
+        $taken = self::ordersForColumn($vip, 'total_called')->pluck('id')
+            ->merge(self::ordersForColumn($vip, 'restocking')->pluck('id'));
+
+        return $vip->whereNotIn('id', $taken)->values();
+    }
+
     public static function hasRestockingTag($order): bool
     {
         foreach ((array) ($order->raw_tags ?? []) as $tag) {
