@@ -38,6 +38,7 @@ class ActivityLogController extends Controller
         'expected_income'  => 'Expected Income',
         'cost_breakdown'   => 'Cost Breakdown',
         'product_costs'    => 'Product Costs',
+        'overall'          => 'TSD Overall Performance',
     ];
 
     public function index(Request $request)

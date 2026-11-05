@@ -11,21 +11,23 @@
     $slate = 'bg-slate-200 dark:bg-slate-600';
     $rose = 'bg-rose-200 dark:bg-rose-800';
     $columns = fn (bool $daily) => [
-        ['key' => 'gross_sales', 'totalKey' => 'sales', 'label' => 'Sales', 'bg' => $daily ? $dayMoney : $money],
+        ['key' => 'sales', 'label' => 'Sales', 'bg' => $daily ? $dayMoney : $money, 'shOnly' => true],
         ['key' => 'income_before_opex', 'label' => $daily ? 'Partners IB OPEX' : 'Partners IBSC', 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
         ['key' => 'shared_income', 'label' => ($daily ? 'Expected Shared Income' : 'Shared Income') . " ({$sharePct}%)", 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
         ['key' => 'net_income', 'label' => 'Net Income', 'bg' => $daily ? $dayMoney : $money, 'neg' => true],
         ['key' => 'ni_pct', 'label' => 'NI %', 'bg' => $slate, 'pct' => true, 'neg' => true],
         ['key' => 'total_orders', 'label' => 'Total Orders', 'bg' => $daily ? $dayMoney : $money, 'int' => true],
         ['key' => 'aov', 'label' => 'AOV', 'bg' => $daily ? $dayMoney : $money],
+        ...($daily ? [['key' => 'tsa', 'label' => '# of TSA', 'bg' => $slate, 'tsa' => true]] : []),
         ['key' => 'total_leads', 'label' => 'Total Leads', 'bg' => $rose, 'int' => true],
+        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'bg' => $rose, 'int' => true],
         ['key' => 'excess_leads', 'label' => 'Excess Leads', 'bg' => $rose, 'int' => true],
         ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'bg' => $rose, 'pct' => true],
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'bg' => $rose, 'pct' => true],
     ];
     $fmt = function (array $values, array $col, ?array $row = null) {
-        if ($row && ($col['partnerOnly'] ?? false) && !$row['partner']) return '-';
-        $v = (float) ($values[$row ? $col['key'] : ($col['totalKey'] ?? $col['key'])] ?? 0);
+        if ($row && (($col['shOnly'] ?? false) && $row['partner'] || ($col['partnerOnly'] ?? false) && !$row['partner'])) return '-';
+        $v = (float) ($values[$col['key']] ?? 0);
         if ($col['pct'] ?? false) return number_format($v * 100, 2) . '%';
         if ($col['int'] ?? false) return number_format($v);
         return number_format($v, 2);
@@ -40,6 +42,11 @@
     $rangeColumns = $columns(false);
     $dailyColumns = $columns(true);
     $lastColumn = count($dailyColumns) - 1;
+    $tsaFor = fn (string $date, string $key) => $tsaCounts->get($date)?->get($key);
+    $tsaTotal = function (string $date) use ($tsaCounts) {
+        $counts = $tsaCounts->get($date);
+        return $counts ? $counts->sum('working') . '/' . $counts->sum('total') : '-';
+    };
 @endphp
 
 <style>
@@ -99,7 +106,6 @@
             </tbody>
         </table>
     </div>
-    <p class="px-3 py-2 text-xs font-mono text-ink-muted dark:text-slate-400">OVERALL TOTAL Sales counts SH E-COM only. Partner sales are shown for reference, and TSD's part of them is Shared Income.</p>
 </div>
 
 {{-- Per day, 7 days per table --}}
@@ -132,7 +138,19 @@
                     <td class="oss-sticky oss-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ $row['label'] }}</td>
                     @foreach($chunk as $date)
                         @php($day = $row['days'][$date->toDateString()] ?? [])
-                        @foreach($dailyColumns as $i => $col)<td class="px-3 py-2 text-right whitespace-nowrap {{ $cell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col, $row) }}</td>@endforeach
+                        @foreach($dailyColumns as $i => $col)
+                            @if($col['tsa'] ?? false)
+                                @php($saved = $tsaFor($date->toDateString(), $row['key'])?->label() ?? '')
+                                <td class="px-3 py-1 text-center">
+                                    <span class="hidden" data-oss-tsa-text>{{ $saved }}</span>
+                                    <input type="text" inputmode="numeric" value="{{ $saved }}" placeholder="0/0" aria-label="# of TSA, {{ $row['label'] }}, {{ $date->format('M j') }}"
+                                           data-oss-tsa data-date="{{ $date->toDateString() }}" data-department="{{ $row['key'] }}"
+                                           class="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary">
+                                </td>
+                            @else
+                                <td class="px-3 py-2 text-right whitespace-nowrap {{ $cell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col, $row) }}</td>
+                            @endif
+                        @endforeach
                     @endforeach
                 </tr>
                 @endforeach
@@ -140,7 +158,13 @@
                     <td class="oss-sticky oss-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
                     @foreach($chunk as $date)
                         @php($day = $total['days'][$date->toDateString()] ?? [])
-                        @foreach($dailyColumns as $i => $col)<td class="px-3 py-2.5 text-right whitespace-nowrap {{ $totalCell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col) }}</td>@endforeach
+                        @foreach($dailyColumns as $i => $col)
+                            @if($col['tsa'] ?? false)
+                                <td class="px-3 py-2.5 text-center whitespace-nowrap" data-oss-tsa-total="{{ $date->toDateString() }}">{{ $tsaTotal($date->toDateString()) }}</td>
+                            @else
+                                <td class="px-3 py-2.5 text-right whitespace-nowrap {{ $totalCell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col) }}</td>
+                            @endif
+                        @endforeach
                     @endforeach
                 </tr>
             </tbody>
@@ -148,4 +172,49 @@
     </div>
 </div>
 @endforeach
+
+<script>
+(() => {
+    if (window.ossTsaReady) return;
+    window.ossTsaReady = true;
+    const url = @json(route('data.overall.sales-summary.tsa-count'));
+
+    const refreshTotal = (date) => {
+        const cell = document.querySelector(`[data-oss-tsa-total="${date}"]`);
+        const filled = [...document.querySelectorAll(`[data-oss-tsa][data-date="${date}"]`)].filter((input) => input.value);
+        if (!cell) return;
+        const sum = (i) => filled.reduce((total, input) => total + Number(input.value.split('/')[i]), 0);
+        cell.textContent = filled.length ? `${sum(0)}/${sum(1)}` : '-';
+    };
+
+    document.addEventListener('change', async (e) => {
+        const input = e.target.closest('[data-oss-tsa]');
+        if (!input) return;
+        const text = input.previousElementSibling;
+        input.disabled = true;
+        try {
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ date: input.dataset.date, department: input.dataset.department, value: input.value }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || 'Could not save # of TSA.');
+            input.value = data.value;
+            text.textContent = data.value;
+            refreshTotal(input.dataset.date);
+            window.showToast('Saved.', 'success');
+        } catch (error) {
+            input.value = text.textContent;
+            window.showToast(error.message, 'error');
+        } finally {
+            input.disabled = false;
+        }
+    });
+})();
+</script>
 @endsection

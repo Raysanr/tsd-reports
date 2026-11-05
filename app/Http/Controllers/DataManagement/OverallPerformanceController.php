@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
+use App\Models\OverallTsaCount;
 use App\Models\ProjectionColumn;
+use App\Support\ActivityLogger;
 use App\Support\DataSet;
 use App\Support\DateRangeFilter;
 use App\Support\ExpectedIncomeCalculator;
@@ -12,6 +14,8 @@ use App\Support\ProjectionCalculator;
 use App\Support\ProjectionMonth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * TSD Overall Performance (explicit request, 2026-11-04): SH E-COM (TSD's own
@@ -73,11 +77,48 @@ class OverallPerformanceController extends Controller
 
         return view('data.overall.sales-summary', OverallSalesSummary::build($tsd, $partners['teams'] ?? []) + [
             'sharePct'      => round((float) ($partners['shareRate'] ?? 0.7) * 100),
+            'tsaCounts'     => OverallTsaCount::whereDate('entry_date', '>=', $dateFrom)->whereDate('entry_date', '<=', $dateTo)->get()
+                ->groupBy(fn (OverallTsaCount $count) => $count->entry_date->toDateString())
+                ->map(fn ($counts) => $counts->keyBy('department')),
             'dateFrom'      => $dateFrom,
             'dateTo'        => $dateTo,
             'dateChunks'    => collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))))->chunk(7)->values(),
             'partnersError' => $partners === null,
         ]);
+    }
+
+    /** # of TSA on the Daily Sales Report, typed as "working/total". Blank clears it. */
+    public function updateTsaCount(Request $request)
+    {
+        $this->guard();
+        $data = $request->validate([
+            'date'       => ['required', 'date_format:Y-m-d'],
+            'department' => ['required', 'string', Rule::in([OverallSalesSummary::SH_ECOM_KEY, ...array_column(DataSet::partnerTeams(), 'name')])],
+            'value'      => ['nullable', 'string', 'regex:/^\s*\d{1,3}\s*\/\s*\d{1,3}\s*$/'],
+        ], ['value.regex' => 'Type # of TSA as working/total, like 2/4.']);
+
+        $keys = ['entry_date' => $data['date'], 'department' => $data['department']];
+        $existing = OverallTsaCount::whereDate('entry_date', $data['date'])->where('department', $data['department'])->first();
+        $old = $existing?->label() ?? 'blank';
+
+        if (blank($data['value'] ?? null)) {
+            $existing?->delete();
+            $new = 'blank';
+        } else {
+            [$working, $total] = array_map('intval', explode('/', $data['value']));
+            if ($working > $total) {
+                throw ValidationException::withMessages(['value' => 'Working TSAs can\'t be more than the total.']);
+            }
+            $row = $existing ?? new OverallTsaCount($keys);
+            $row->fill(['working' => $working, 'total' => $total])->save();
+            $new = $row->label();
+        }
+
+        if ($old !== $new) {
+            ActivityLogger::log('overall.tsa_count_updated', null, "Changed # of TSA for {$data['department']} on {$data['date']} from {$old} to {$new}.");
+        }
+
+        return response()->json(['success' => true, 'value' => $new === 'blank' ? '' : $new]);
     }
 
     public function expectedIncome(Request $request)

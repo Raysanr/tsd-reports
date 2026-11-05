@@ -340,7 +340,7 @@ class TsaSalesReportController extends Controller
                     'net_income'         => (float) ($card['net_income'] ?? 0),
                     'total_orders'       => (float) ($card['number_of_orders'] ?? 0),
                     'total_leads'        => (float) ($card['number_of_leads'] ?? 0),
-                    'excess_leads'       => self::excessLeads($group['orderTeam'], $date, $products),
+                ] + self::leadBreakdown($group['orderTeam'], $date, $products) + [
                     'call_counts'        => self::callCounts($rows),
                 ];
             }
@@ -349,17 +349,20 @@ class TsaSalesReportController extends Controller
         return ['range' => $data['overallTotal'], 'days' => $days, 'teams' => $teams];
     }
 
-    /** A team's Excess Leads for one day, counted exactly like Leads Report's
-     *  ALL view: each visible product's row against that team's own orders,
-     *  added up. SH E-COM's two teams together equal that page's Grand Total. */
-    private static function excessLeads(string $orderTeam, Carbon $date, Collection $products): int
+    /** A team's Catered and Excess Leads for one day, counted exactly like Leads
+     *  Report's ALL view: each visible product's row against that team's own
+     *  orders, added up. SH E-COM's two teams together equal that page's Grand
+     *  Total. */
+    private static function leadBreakdown(string $orderTeam, Carbon $date, Collection $products): array
     {
         $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
             ->where('team', $orderTeam)
             ->get();
 
-        return $dayOrders->isEmpty() ? 0 : (int) $products->where('is_hidden', false)
-            ->sum(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products)['excess']);
+        $rows = $dayOrders->isEmpty() ? collect() : $products->where('is_hidden', false)
+            ->map(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products));
+
+        return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess')];
     }
 
     /** The raw counts Pick-up/Upselling Rate come from, so a caller can pool

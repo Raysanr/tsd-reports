@@ -191,4 +191,43 @@ class OverallPerformanceTest extends TestCase
         $this->assertSame(1.0, (float) $summary['rows'][0]['days']['2026-11-02']['excess_leads']);
         $this->assertSame(1.0, (float) $summary['total']['range']['excess_leads']);
     }
+
+    public function test_an_admin_can_save_and_clear_the_number_of_tsas(): void
+    {
+        $this->migratePartners();
+        $save = fn (string $department, ?string $value) => $this->actingAs($this->admin())->patchJson(
+            route('data.overall.sales-summary.tsa-count'),
+            ['date' => '2026-11-01', 'department' => $department, 'value' => $value]
+        );
+
+        $save('SH E-COM', '2/4')->assertOk()->assertJson(['value' => '2/4']);
+        $save('M&J', ' 1 / 3 ')->assertOk()->assertJson(['value' => '1/3']);
+
+        $this->get(route('data.overall.sales-summary', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
+            ->assertOk()->assertSee('value="2/4"', false)->assertSee('value="1/3"', false)->assertSee('3/7');
+
+        $save('SH E-COM', '2/4')->assertOk();
+        $this->assertSame(2, \App\Models\OverallTsaCount::count());
+
+        $save('M&J', null)->assertOk()->assertJson(['value' => '']);
+        $this->assertSame(1, \App\Models\OverallTsaCount::count());
+    }
+
+    public function test_the_number_of_tsas_rejects_bad_values(): void
+    {
+        $user = $this->admin();
+        $save = fn (array $data) => $this->actingAs($user)->patchJson(route('data.overall.sales-summary.tsa-count'), $data + ['date' => '2026-11-01', 'department' => 'SH E-COM']);
+
+        $save(['value' => 'four'])->assertStatus(422);
+        $save(['value' => '5/4'])->assertStatus(422);
+        $save(['value' => '2/4', 'department' => 'Nobody'])->assertStatus(422);
+        $this->assertSame(0, \App\Models\OverallTsaCount::count());
+    }
+
+    public function test_a_normal_user_cannot_change_the_number_of_tsas(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'normal']))
+            ->patchJson(route('data.overall.sales-summary.tsa-count'), ['date' => '2026-11-01', 'department' => 'SH E-COM', 'value' => '2/4'])
+            ->assertForbidden();
+    }
 }

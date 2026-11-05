@@ -10,8 +10,7 @@ namespace App\Support;
  * SH E-COM earns Sales; partners earn Partners IB OPEX and TSD's Shared Income
  * of it. So NI % divides by Sales for SH E-COM, by Shared Income for a partner,
  * and by both on the TOTAL row, the same as the sheet. 'sales' is SH E-COM's
- * only: a partner's gross_sales shows on its own row and counts toward AOV, but
- * never toward the TOTAL row's Sales or NI %.
+ * only; a partner's own gross_sales counts toward AOV but never toward Sales.
  *
  * Three things deliberately differ from the sheet's formulas, which are wrong
  * for a range: AOV is sales ÷ orders (the sheet adds each day's AOV), Pick-up
@@ -22,6 +21,9 @@ namespace App\Support;
 class OverallSalesSummary
 {
     public const SH_ECOM_LABEL = 'SH ECOMMERCE';
+
+    /** Saved # of TSA rows are keyed by this for SH E-COM, by name for partners. */
+    public const SH_ECOM_KEY = 'SH E-COM';
 
     /** Sheet order, keyed by each partner's name in config('partners'). */
     private const PARTNER_LABELS = ['M&J' => 'M&J ENTERPRISE', 'PEAK.CO' => 'PEAK ENTERPRISE', 'MLC' => 'MLC'];
@@ -35,11 +37,12 @@ class OverallSalesSummary
         $dates = array_keys($tsd['days']);
 
         $departments = [self::shEcomDays($tsd)];
-        foreach (self::orderedPartners($partnerTeams) as $label => $days) {
-            $departments[] = ['label' => $label, 'partner' => true, 'days' => $days];
+        foreach (self::orderedPartners($partnerTeams) as $key => $partner) {
+            $departments[] = ['key' => $key, 'label' => $partner['label'], 'partner' => true, 'days' => $partner['days']];
         }
 
         $rows = array_map(fn (array $department) => [
+            'key'     => $department['key'],
             'label'   => $department['label'],
             'partner' => $department['partner'],
             'range'   => self::finish(self::sum($department['days']), $department['partner']),
@@ -71,12 +74,13 @@ class OverallSalesSummary
                 'net_income'         => (float) $day['net_income'],
                 'total_orders'       => (float) ($day['total_orders'] ?? 0),
                 'total_leads'        => array_sum(array_map(fn ($team) => $team[$date]['total_leads'] ?? 0, $tsd['teams'] ?? [])),
+                'catered_leads'      => array_sum(array_map(fn ($team) => $team[$date]['catered_leads'] ?? 0, $tsd['teams'] ?? [])),
                 'excess_leads'       => array_sum(array_map(fn ($team) => $team[$date]['excess_leads'] ?? 0, $tsd['teams'] ?? [])),
                 'call_counts'        => $day['call_counts'],
             ];
         }
 
-        return ['label' => self::SH_ECOM_LABEL, 'partner' => false, 'days' => $days];
+        return ['key' => self::SH_ECOM_KEY, 'label' => self::SH_ECOM_LABEL, 'partner' => false, 'days' => $days];
     }
 
     private static function orderedPartners(array $partnerTeams): array
@@ -84,11 +88,11 @@ class OverallSalesSummary
         $ordered = [];
         foreach (self::PARTNER_LABELS as $name => $label) {
             if (isset($partnerTeams[$name])) {
-                $ordered[$label] = $partnerTeams[$name];
+                $ordered[$name] = ['label' => $label, 'days' => $partnerTeams[$name]];
             }
         }
         foreach (array_diff_key($partnerTeams, self::PARTNER_LABELS) as $name => $days) {
-            $ordered[strtoupper($name)] = $days;
+            $ordered[$name] = ['label' => strtoupper($name), 'days' => $days];
         }
 
         return $ordered;
@@ -98,7 +102,7 @@ class OverallSalesSummary
     {
         return [
             'sales' => 0.0, 'gross_sales' => 0.0, 'income_before_opex' => 0.0, 'shared_income' => 0.0, 'net_income' => 0.0,
-            'total_orders' => 0.0, 'total_leads' => 0.0, 'excess_leads' => 0.0,
+            'total_orders' => 0.0, 'total_leads' => 0.0, 'catered_leads' => 0.0, 'excess_leads' => 0.0,
             'call_counts' => ['answered' => 0, 'unanswered' => 0, 'confirmed_via_call' => 0, 'upsell_confirmation' => 0],
         ];
     }
@@ -107,7 +111,7 @@ class OverallSalesSummary
     {
         $sum = self::blank();
         foreach ($days as $day) {
-            foreach (['sales', 'gross_sales', 'income_before_opex', 'shared_income', 'net_income', 'total_orders', 'total_leads', 'excess_leads'] as $key) {
+            foreach (['sales', 'gross_sales', 'income_before_opex', 'shared_income', 'net_income', 'total_orders', 'total_leads', 'catered_leads', 'excess_leads'] as $key) {
                 $sum[$key] += (float) ($day[$key] ?? 0);
             }
             foreach ($sum['call_counts'] as $key => $count) {
