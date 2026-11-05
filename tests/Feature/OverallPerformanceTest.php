@@ -41,7 +41,7 @@ class OverallPerformanceTest extends TestCase
             ->assertSee('PEAK.CO')->assertDontSee("Partners data couldn't be loaded");
 
         $this->actingAs($admin)->get(route('data.overall.sales-summary', ['date_from' => '2026-11-01', 'date_to' => '2026-11-03']))
-            ->assertOk()->assertSee('SH ECOMMERCE')->assertSee('PEAK ENTERPRISE')->assertSee('Partners IBSC')->assertSee('Tue, Nov 3');
+            ->assertOk()->assertSee('SH ECOMMERCE')->assertSee('PEAK ENTERPRISE')->assertSee('Partners IB.OPEX')->assertSee('Tue, Nov 3');
 
         $this->actingAs($admin)->get(route('data.overall.expected-income', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
             ->assertOk()->assertSee('TSD SH ECOMMERCE : EXPECTED PERFORMANCE')

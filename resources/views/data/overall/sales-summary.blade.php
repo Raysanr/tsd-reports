@@ -12,8 +12,8 @@
     $rose = 'bg-rose-200 dark:bg-rose-800';
     $columns = fn (bool $daily) => [
         ['key' => 'sales', 'label' => 'Sales', 'bg' => $daily ? $dayMoney : $money, 'shOnly' => true],
-        ['key' => 'income_before_opex', 'label' => $daily ? 'Partners IB OPEX' : 'Partners IBSC', 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
-        ['key' => 'shared_income', 'label' => ($daily ? 'Expected Shared Income' : 'Shared Income') . " ({$sharePct}%)", 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
+        ['key' => 'income_before_opex', 'label' => 'Partners IB.OPEX', 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
+        ['key' => 'shared_income', 'label' => "Expected Shared Income ({$sharePct}%)", 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
         ['key' => 'net_income', 'label' => 'Net Income', 'bg' => $daily ? $dayMoney : $money, 'neg' => true],
         ['key' => 'ni_pct', 'label' => 'NI %', 'bg' => $slate, 'pct' => true, 'neg' => true],
         ['key' => 'total_orders', 'label' => 'Total Orders', 'bg' => $daily ? $dayMoney : $money, 'int' => true],
@@ -89,19 +89,19 @@
             <thead>
                 <tr class="text-ink dark:text-slate-100">
                     <th class="oss-sticky {{ $money }} text-left px-3 py-2 font-bold whitespace-nowrap">Department</th>
-                    @foreach($rangeColumns as $col)<th class="{{ $col['bg'] }} text-right px-3 py-2 font-bold whitespace-nowrap">{{ $col['label'] }}</th>@endforeach
+                    @foreach($rangeColumns as $col)<th class="{{ $col['bg'] }} text-center px-3 py-2 font-bold whitespace-nowrap">{{ $col['label'] }}</th>@endforeach
                 </tr>
             </thead>
             <tbody>
                 @foreach($rows as $row)
                 <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60">
                     <td class="oss-sticky oss-sticky-body px-3 py-2 font-semibold text-ink dark:text-slate-100 whitespace-nowrap">{{ $row['label'] }}</td>
-                    @foreach($rangeColumns as $col)<td class="px-3 py-2 text-right whitespace-nowrap {{ $cell($row['range'], $col) }}">{{ $fmt($row['range'], $col, $row) }}</td>@endforeach
+                    @foreach($rangeColumns as $col)<td class="px-3 py-2 text-center whitespace-nowrap {{ $cell($row['range'], $col) }}">{{ $fmt($row['range'], $col, $row) }}</td>@endforeach
                 </tr>
                 @endforeach
                 <tr class="bg-black text-white font-bold">
                     <td class="oss-sticky oss-sticky-footer px-3 py-2.5">OVERALL TOTAL</td>
-                    @foreach($rangeColumns as $col)<td class="px-3 py-2.5 text-right whitespace-nowrap {{ $totalCell($total['range'], $col) }}">{{ $fmt($total['range'], $col) }}</td>@endforeach
+                    @foreach($rangeColumns as $col)<td class="px-3 py-2.5 text-center whitespace-nowrap {{ $totalCell($total['range'], $col) }}">{{ $fmt($total['range'], $col) }}</td>@endforeach
                 </tr>
             </tbody>
         </table>
@@ -128,7 +128,7 @@
                 </tr>
                 <tr>
                     @foreach($chunk as $date)
-                        @foreach($dailyColumns as $i => $col)<th class="{{ $col['bg'] }} text-right px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $col['label'] }}</th>@endforeach
+                        @foreach($dailyColumns as $i => $col)<th class="{{ $col['bg'] }} text-center px-3 py-2 font-bold whitespace-nowrap text-ink dark:text-slate-100 {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $col['label'] }}</th>@endforeach
                     @endforeach
                 </tr>
             </thead>
@@ -148,7 +148,7 @@
                                            class="w-16 text-center bg-slate-50 dark:bg-slate-800 border border-slate-400 dark:border-slate-500 rounded-md px-1.5 py-1 font-semibold text-ink dark:text-slate-100 focus:ring-2 focus:ring-primary focus:border-primary">
                                 </td>
                             @else
-                                <td class="px-3 py-2 text-right whitespace-nowrap {{ $cell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col, $row) }}</td>
+                                <td class="px-3 py-2 text-center whitespace-nowrap {{ $cell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col, $row) }}</td>
                             @endif
                         @endforeach
                     @endforeach
@@ -162,7 +162,7 @@
                             @if($col['tsa'] ?? false)
                                 <td class="px-3 py-2.5 text-center whitespace-nowrap" data-oss-tsa-total="{{ $date->toDateString() }}">{{ $tsaTotal($date->toDateString()) }}</td>
                             @else
-                                <td class="px-3 py-2.5 text-right whitespace-nowrap {{ $totalCell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col) }}</td>
+                                <td class="px-3 py-2.5 text-center whitespace-nowrap {{ $totalCell($day, $col) }} {{ $i === $lastColumn ? 'oss-day-end' : '' }}">{{ $fmt($day, $col) }}</td>
                             @endif
                         @endforeach
                     @endforeach
