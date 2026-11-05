@@ -133,13 +133,14 @@ class OverallPerformanceController extends Controller
         // dataset so _card-body picks that dataset's P&L shape.
         $tsdTotals = app(ExpectedIncomeController::class)->overallTotals($dateFrom, $dateTo);
         $partnerTotals = $this->onPartnersOrNull(fn () => app(ExpectedIncomeController::class)->overallTotals($dateFrom, $dateTo) + [
+            'shareRate'  => ExpectedIncomeCalculator::partnershipShareRate(),
             // TSAs on the partners roster that belong to no partner: their
             // costs land on TELESALES PARTNERSHIP but on no partner card.
             'orphanTsas' => \App\Models\TsaShift::whereNotIn('team', array_column(\App\Support\Teams::config(), 'order_team'))
                 ->orderBy('sort_order')->get()->map(fn ($t) => $t->display_name . ' (' . $t->team . ')')->all(),
         ]);
 
-        $combined = $partnerTotals === null ? $tsdTotals['overall'] : $this->combineIncome($tsdTotals['overall'], $partnerTotals['overall']);
+        $combined = $partnerTotals === null ? $tsdTotals['overall'] : $this->tsdOverallIncome($tsdTotals['overall'], $partnerTotals['overall'], $partnerTotals['shareRate']);
         $cards = [
             $this->renderIncomeCard($combined, 'TSD OVERALL : EXPECTED PERFORMANCE', '#000000', '#ffffff', 'eiOverallCardAll'),
             $this->renderIncomeCard($tsdTotals['overall'], 'TSD ' . self::SH_ECOM_LABEL . ' : EXPECTED PERFORMANCE', self::SHEET_YELLOW, '#000000', 'eiOverallCardTsd'),
@@ -156,7 +157,7 @@ class OverallPerformanceController extends Controller
 
         $tally = [[
             'title' => 'TSD OVERALL = SH E-COM + TELESALES PARTNERSHIP',
-            'rows'  => $this->tallyRows($combined, $partnerTotals === null ? [$tsdTotals['overall']] : [$tsdTotals['overall'], $partnerTotals['overall']]),
+            'rows'  => $partnerTotals === null ? $this->tallyRows($combined, [$tsdTotals['overall']]) : $this->overallTallyRows($combined, $tsdTotals['overall'], $partnerTotals['overall']),
         ]];
         if ($partnerTotals !== null) {
             $tally[] = [
@@ -238,9 +239,11 @@ class OverallPerformanceController extends Controller
         'net_income'            => ['Net Income', false],
     ];
 
-    private function tallyRows(array $total, array $parts): array
+    private const SH_ONLY_TALLY_KEYS = ['number_of_leads', 'number_of_orders', 'gross_sales', 'cancelled', 'product_cost', 'total_selling_costs'];
+
+    private function tallyRows(array $total, array $parts, ?array $onlyKeys = null): array
     {
-        return collect(self::TALLY_FIELDS)->map(function (array $field, string $key) use ($total, $parts) {
+        return collect($onlyKeys === null ? self::TALLY_FIELDS : array_intersect_key(self::TALLY_FIELDS, array_flip($onlyKeys)))->map(function (array $field, string $key) use ($total, $parts) {
             [$label, $isCount] = $field;
             $card = round((float) ($total[$key] ?? 0), 2);
             $sum = round(array_sum(array_map(fn ($p) => (float) ($p[$key] ?? 0), $parts)), 2);
@@ -254,26 +257,58 @@ class OverallPerformanceController extends Controller
         })->values()->all();
     }
 
-    /** SH E-COM + Partners on the TSD card shape. Line items are summed;
-     *  Net Income is the two real Net Incomes added (the partners' own
-     *  shared-income rule can't be re-derived on the TSD shape). */
-    private function combineIncome(array $tsd, array $partners): array
+    /** The sheet's TELESALES DEPARTMENT card: SH E-COM's own lines down to
+     *  Total Selling Costs, then TSD's whole Tax Allocation and Operating
+     *  Costs, with the partners counted once as TSD's share of their income.
+     *  Tax is taken above Income Before OPEX, so that line is the partners'
+     *  tax lower than the SH E-COM card's. TSD NET INCOME is before the
+     *  partnership; 'net_income' (WITH TSD PARTNERSHIP) equals SH E-COM's Net
+     *  Income plus the partners', which the Tally Checker confirms. */
+    private function tsdOverallIncome(array $tsd, array $partners, float $shareRate): array
     {
-        $sum = ExpectedIncomeCalculator::addDerivedTotals($tsd, $partners);
+        $partnerTax = (float) $partners['tax_allocation'];
+        $card = $tsd;
+        $card['tax_allocation'] += $partnerTax;
+        $card['gross_profit'] -= $partnerTax;
+        $card['income_before_opex'] -= $partnerTax;
 
-        // Re-deriving charges Fulfillment Fee on every order, but partners
-        // have none: selling costs are the two sides' real lines added.
-        $partnerLines = collect($partners['selling_lines']);
-        $sum['selling_lines'] = collect($tsd['selling_lines'])->map(fn ($amount, $key) => $amount + ($partnerLines[$key] ?? 0.0));
-        $sum['total_selling_costs'] = (float) $tsd['total_selling_costs'] + (float) $partners['total_selling_costs'];
-        $sum['total_selling_costs_pct'] = $sum['gross_sales'] > 0 ? $sum['total_selling_costs'] / $sum['gross_sales'] : 0.0;
-        $sum['income_before_opex'] = $sum['gross_profit'] - $sum['total_selling_costs'];
-        $sum['income_before_opex_pct'] = $sum['gross_sales'] > 0 ? $sum['income_before_opex'] / $sum['gross_sales'] : 0.0;
+        $partnerLines = collect($partners['operating_lines']);
+        $card['operating_lines'] = collect($tsd['operating_lines'])->union($partnerLines->map(fn () => 0.0))
+            ->map(fn ($amount, $key) => $amount + ($partnerLines[$key] ?? 0.0));
+        $card['total_operating_costs'] += (float) $partners['total_operating_costs'];
 
-        $sum['net_income'] = (float) $tsd['net_income'] + (float) $partners['net_income'];
-        $sum['net_income_pct'] = $sum['gross_sales'] > 0 ? $sum['net_income'] / $sum['gross_sales'] : 0.0;
+        $card['partnership_income'] = (float) $partners['shared_income'];
+        $card['partnership_label'] = 'TSD Partnership ' . round($shareRate * 100) . '% IB.OPEX';
+        $card['tsd_net_income'] = $card['income_before_opex'] - $card['total_operating_costs'];
+        $card['net_income'] = $card['tsd_net_income'] + $card['partnership_income'];
 
-        return $sum;
+        foreach (['tax_allocation', 'gross_profit', 'income_before_opex', 'total_operating_costs', 'partnership_income', 'tsd_net_income', 'net_income'] as $key) {
+            $card["{$key}_pct"] = $card['gross_sales'] > 0 ? $card[$key] / $card['gross_sales'] : 0.0;
+        }
+
+        return $card;
+    }
+
+    /** TSD OVERALL's checks: SH-only lines against the SH E-COM card, shared
+     *  lines against both cards, the partnership row against its own card. */
+    private function overallTallyRows(array $card, array $tsd, array $partners): array
+    {
+        $row = fn (string $label, float $shown, float $sum, bool $isCount = false) => [
+            'label'   => $label,
+            'card'    => $isCount ? number_format($shown) : number_format($shown, 2),
+            'sum'     => $isCount ? number_format($sum) : number_format($sum, 2),
+            'tallies' => abs(round($shown, 2) - round($sum, 2)) < 0.01,
+        ];
+        $both = fn (string $key) => (float) $tsd[$key] + (float) $partners[$key];
+
+        return [
+            ...$this->tallyRows($card, [$tsd], self::SH_ONLY_TALLY_KEYS),
+            $row('Tax Allocation', $card['tax_allocation'], $both('tax_allocation')),
+            $row('Income Before OPEX', $card['income_before_opex'], (float) $tsd['income_before_opex'] - (float) $partners['tax_allocation']),
+            $row($card['partnership_label'], $card['partnership_income'], (float) $partners['shared_income']),
+            $row('Total Operating Costs', $card['total_operating_costs'], $both('total_operating_costs')),
+            $row('With TSD Partnership', $card['net_income'], $both('net_income')),
+        ];
     }
 
     private function renderIncomeCard(array $derived, string $label, string $headerBg, ?string $headerText, ?string $cardId): string

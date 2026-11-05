@@ -263,6 +263,14 @@
         <span data-out="income_before_opex_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['income_before_opex_pct']) }}</span>
     </div>
 
+    @isset($d['partnership_income'])
+    <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">
+        <span class="text-blue-600 dark:text-blue-400">{{ $d['partnership_label'] }}</span>
+        <span data-out="partnership_income" class="text-right {{ $d['partnership_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-blue-600 dark:text-blue-400' }}">{{ $fmtMoney($d['partnership_income']) }}</span>
+        <span data-out="partnership_income_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['partnership_income_pct']) }}</span>
+    </div>
+    @endisset
+
     @if($isPartnersPnl)
     <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-1.5 border-y border-ink/10 dark:border-slate-600 font-bold">
         <span class="text-blue-600 dark:text-blue-400">Expected Shared Income from Partnership</span>
@@ -322,8 +330,15 @@
         <span data-out="total_operating_costs_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs font-normal">{{ $fmtPct($d['total_operating_costs_pct']) }}</span>
     </div>
 
+    @isset($d['tsd_net_income'])
     <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-2 mt-2 border-t-2 border-ink/20 dark:border-slate-600">
-        <span class="font-bold text-ink dark:text-slate-100">NET INCOME</span>
+        <span class="font-bold text-ink dark:text-slate-100">TSD NET INCOME</span>
+        <span data-out="tsd_net_income" class="text-right font-bold text-base {{ $d['tsd_net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}">{{ $fmtMoney($d['tsd_net_income']) }}</span>
+        <span data-out="tsd_net_income_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs">{{ $fmtPct($d['tsd_net_income_pct']) }}</span>
+    </div>
+    @endisset
+    <div class="grid grid-cols-[1fr_auto_4.5rem] gap-x-2 items-center py-2 {{ isset($d['tsd_net_income']) ? '' : 'mt-2 border-t-2 border-ink/20 dark:border-slate-600' }}">
+        <span class="font-bold text-ink dark:text-slate-100">{{ isset($d['tsd_net_income']) ? 'WITH TSD PARTNERSHIP' : 'NET INCOME' }}</span>
         <span data-out="net_income" class="text-right font-bold text-base {{ $d['net_income'] < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}">{{ $fmtMoney($d['net_income']) }}</span>
         <span data-out="net_income_pct" class="text-right text-ink-muted dark:text-slate-400 text-xs">{{ $fmtPct($d['net_income_pct']) }}</span>
     </div>

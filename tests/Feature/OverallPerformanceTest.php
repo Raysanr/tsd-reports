@@ -101,26 +101,34 @@ class OverallPerformanceTest extends TestCase
         $content = $this->actingAs($this->admin())
             ->get(route('data.overall.expected-income', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
             ->assertOk()->getContent();
-        $this->assertSame(18, substr_count($content, 'data-tally-row="ok"'));
+        $this->assertSame(20, substr_count($content, 'data-tally-row="ok"'));
         $this->assertStringNotContainsString('data-tally-row="mismatch"', $content);
         $this->assertStringNotContainsString('data-tally-note', $content);
     }
 
-    /** Partners have no Fulfillment Fee, so TSD OVERALL's selling costs must
-     *  be the two sides added, never all orders x the per-order fee. */
-    public function test_tsd_overall_charges_no_fulfillment_fee_on_partner_orders(): void
+    /** The sheet's TELESALES DEPARTMENT card: SH E-COM lines, whole tax and
+     *  operating costs, partners only as TSD's share. */
+    public function test_tsd_overall_follows_the_sheet_and_keeps_the_final_net_income(): void
     {
         $this->migratePartners();
-        $tsd = ExpectedIncomeCalculator::derive(['number_of_orders' => 109, 'gross_sales' => 68909]);
-        $partners = DataSet::onPartners(fn () => ExpectedIncomeCalculator::derive(['number_of_orders' => 139, 'gross_sales' => 108903]));
+        $tsd = ExpectedIncomeCalculator::derive(['number_of_orders' => 61, 'gross_sales' => 37507, 'tax_allocation' => 1041.67, 'salaries' => 7000]);
+        $partners = DataSet::onPartners(function () {
+            \App\Models\Setting::set(ExpectedIncomeCalculator::PARTNERSHIP_SHARE_RATE_SETTING, 0.7);
 
-        $combine = new \ReflectionMethod(OverallPerformanceController::class, 'combineIncome');
-        $overall = $combine->invoke(new OverallPerformanceController, $tsd, $partners);
+            return ExpectedIncomeCalculator::derive(['number_of_orders' => 68, 'gross_sales' => 51105, 'tax_allocation' => 3125, 'salaries' => 11000]);
+        });
 
-        $this->assertEqualsWithDelta(2725.0, collect($overall['selling_lines'])['fulfillment_fee'], 0.001);
-        $this->assertEqualsWithDelta($tsd['total_selling_costs'] + $partners['total_selling_costs'], $overall['total_selling_costs'], 0.001);
-        $this->assertEqualsWithDelta($overall['gross_profit'] - $overall['total_selling_costs'], $overall['income_before_opex'], 0.001);
-        $this->assertEqualsWithDelta($tsd['net_income'] + $partners['net_income'], $overall['net_income'], 0.001);
+        $build = new \ReflectionMethod(OverallPerformanceController::class, 'tsdOverallIncome');
+        $card = $build->invoke(new OverallPerformanceController, $tsd, $partners, 0.7);
+
+        $this->assertSame(37507.0, (float) $card['gross_sales']);
+        $this->assertEqualsWithDelta(4166.67, $card['tax_allocation'], 0.001);
+        $this->assertEqualsWithDelta($tsd['income_before_opex'] - 3125, $card['income_before_opex'], 0.001);
+        $this->assertEqualsWithDelta(18000.0, collect($card['operating_lines'])['salaries'], 0.001);
+        $this->assertEqualsWithDelta($partners['shared_income'], $card['partnership_income'], 0.001);
+        $this->assertEqualsWithDelta($card['income_before_opex'] - $card['total_operating_costs'], $card['tsd_net_income'], 0.001);
+        $this->assertEqualsWithDelta($tsd['net_income'] + $partners['net_income'], $card['net_income'], 0.001);
+        $this->assertSame('TSD Partnership 70% IB.OPEX', $card['partnership_label']);
     }
 
     public function test_projections_total_sums_sh_ecom_and_each_partner(): void
