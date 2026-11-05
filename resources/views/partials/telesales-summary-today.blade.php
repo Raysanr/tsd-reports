@@ -9,7 +9,7 @@
 <div data-tss-today data-date="{{ $date }}">
     <div class="tsa-pad">
         <div class="tsa-head">
-            <h2>Telesales Department</h2>
+            <h2>TELESALES DEPARTMENT</h2>
             <div class="tsa-head-r">
                 <div class="tsa-date relative">
                     <input type="date" data-tss-date-input value="{{ $date }}" max="{{ now()->toDateString() }}" class="tsa-date-input" tabindex="-1" aria-hidden="true">
