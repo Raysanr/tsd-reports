@@ -1,0 +1,9 @@
+/* Dark mode total rows, for every module. Team totals (bg-slate-800) and overall
+   totals (the near-black ones) were the same dark as the rows around them, so
+   they disappeared. Here they take a tint of the viewer's accent, with overall
+   stronger than team. Light mode and PNG exports are untouched: exports remove
+   .dark first. Cells inherit so inline sticky-column colors can't show through. */
+.dark :is(tbody, tfoot) tr:is(.bg-slate-800) { background-color: color-mix(in srgb, var(--color-primary, #CA8A04) 30%, #0f172a); }
+.dark :is(tbody, tfoot) tr:is(.bg-black, .bg-slate-900, .bg-stone-900) { background-color: color-mix(in srgb, var(--color-primary, #CA8A04) 50%, #0f172a); }
+.dark :is(tbody, tfoot) tr:is(.bg-slate-800, .bg-black, .bg-slate-900, .bg-stone-900) > :is(td, th) { background-color: inherit !important; }
+.dark :is(tbody, tfoot) tr:is(.bg-slate-800, .bg-black, .bg-slate-900, .bg-stone-900) :is(.text-red-300, .text-red-400, .text-red-500, .text-red-600) { color: #fecaca !important; }
