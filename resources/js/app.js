@@ -2197,7 +2197,8 @@ function tssAuroraAccent(card) {
 }
 
 function tssAuroraChart(days, accent) {
-    const xs = [16.67, 50, 83.33];
+    // Two points when today has no net income yet: one above each day panel.
+    const xs = days.length === 2 ? [25, 75] : [16.67, 50, 83.33];
     const nets = days.map((d) => d.net);
     const hi = Math.max(0, ...nets);
     const lo = Math.min(0, ...nets);
@@ -2209,7 +2210,7 @@ function tssAuroraChart(days, accent) {
         const mid = (pts[i - 1][0] + pts[i][0]) / 2;
         line += ` C${mid} ${pts[i - 1][1]} ${mid} ${pts[i][1]} ${pts[i][0]} ${pts[i][1]}`;
     }
-    const area = `M0 ${pts[0][1]} L${line.slice(1)} L100 ${pts[2][1]} L100 100 L0 100 Z`;
+    const area = `M0 ${pts[0][1]} L${line.slice(1)} L100 ${pts[pts.length - 1][1]} L100 100 L0 100 Z`;
 
     const marks = pts.map(([px, py], i) => {
         const neg = nets[i] < 0;
@@ -2239,12 +2240,16 @@ function tssRenderAurora() {
         input.classList.toggle('is-neg', parseFloat(input.value.replace(/,/g, '')) < 0);
     });
 
+    // A blank today isn't a ₱0 day: until net income is entered there's nothing
+    // to compare, so no delta and no today point (otherwise every morning reads
+    // as a big loss).
+    const hasToday = tssMoneyValue(today, 'net_income') !== '';
     const change = now.net - previous.net;
-    set('[data-tsa-delta]', `${change < 0 ? '−' : '+'}${TSS_PESO}${tssAmount(change)} vs ${tssShortDate(previous.date)}`);
-    today.querySelector('[data-tsa-delta]')?.classList.toggle('is-neg', change < 0);
+    set('[data-tsa-delta]', hasToday ? `${change < 0 ? '−' : '+'}${TSS_PESO}${tssAmount(change)} vs ${tssShortDate(previous.date)}` : '');
+    today.querySelector('[data-tsa-delta]')?.classList.toggle('is-neg', hasToday && change < 0);
 
-    set('[data-tsa-plot]', tssAuroraChart([...days, now], tssAuroraAccent(card)));
-    set('[data-tsa-margin]', now.gross ? `${(now.net / now.gross * 100).toFixed(1)}%` : '—');
+    set('[data-tsa-plot]', tssAuroraChart(hasToday ? [...days, now] : days, tssAuroraAccent(card)));
+    set('[data-tsa-margin]', hasToday && now.gross ? `${(now.net / now.gross * 100).toFixed(1)}%` : '—');
 
     [['seller', 'top_seller'], ['team', 'top_team']].forEach(([key, field]) => {
         const name = tssField(today, `${field}_name`)?.value.trim() || '';

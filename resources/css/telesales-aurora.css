@@ -10,7 +10,7 @@
     --tsa-a: #CA8A04; --tsa-b: #EAB308; --tsa-a-rgb: 202,138,4; --tsa-b-rgb: 234,179,8; --tsa-on-a: #17120A;
     --tsa-ground: #FFFFFF; --tsa-panel: #F8F9FB; --tsa-edge: rgba(15,23,42,.1);
     --tsa-fg: #0F172A; --tsa-mute: #5B6577; --tsa-soft: rgba(15,23,42,.07); --tsa-soft-2: rgba(15,23,42,.13);
-    --tsa-pos: #047857; --tsa-neg: #DC2626; --tsa-glow: .34; --tsa-glow-2: .26; --tsa-glow-low: .17;
+    --tsa-pos: #047857; --tsa-neg: #DC2626; --tsa-glow: .34; --tsa-glow-2: .26; --tsa-glow-low: .17; --tsa-title: .13;
     --tsa-num: 'Sora', 'Manrope', system-ui, sans-serif;
     container-type: inline-size;
     color: var(--tsa-fg);
@@ -26,7 +26,7 @@
 .dark .tsa-card {
     --tsa-ground: #0D0E13; --tsa-panel: #17181E; --tsa-edge: rgba(255,255,255,.1);
     --tsa-fg: #F6F4F1; --tsa-mute: #A3A3AE; --tsa-soft: rgba(255,255,255,.14); --tsa-soft-2: rgba(255,255,255,.24);
-    --tsa-pos: #62E6AE; --tsa-neg: #FF8F8F; --tsa-glow: .62; --tsa-glow-2: .5; --tsa-glow-low: .3;
+    --tsa-pos: #62E6AE; --tsa-neg: #FF8F8F; --tsa-glow: .62; --tsa-glow-2: .5; --tsa-glow-low: .3; --tsa-title: .26;
 }
 
 /* Peso sign drawn from a P plus two bars: Sora has no reliable ₱ glyph and a
@@ -48,7 +48,7 @@
 
 .tsa-pad { padding: clamp(18px,4cqw,30px) clamp(18px,4.2cqw,32px) 0; }
 .tsa-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.tsa-head h2 { margin: 0; padding: .42em .8em; border-radius: 14px; color: var(--tsa-on-a); background: linear-gradient(135deg,var(--tsa-b),var(--tsa-a)); font: 600 clamp(17px,3.5cqw,26px)/1.15 var(--tsa-num); letter-spacing: .01em; }
+.tsa-head h2 { margin: 0; padding: .42em .8em; border-radius: 14px; color: var(--tsa-fg); background: rgba(var(--tsa-a-rgb),var(--tsa-title)); border: 1px solid rgba(var(--tsa-a-rgb),.28); font: 600 clamp(17px,3.5cqw,26px)/1.15 var(--tsa-num); letter-spacing: .01em; }
 .tsa-head-r { display: flex; align-items: center; gap: 8px; flex: none; }
 .tsa-date { position: relative; display: inline-flex; align-items: center; gap: 7px; font-size: clamp(13px,1.9cqw,14px); font-weight: 600; padding: .4em .85em; border-radius: 99px; background: var(--tsa-soft); }
 .tsa-date-input { position: absolute; right: 8px; top: 50%; width: 14px; height: 14px; margin-top: -7px; opacity: 0; pointer-events: none; border: 0; padding: 0; }
