@@ -471,7 +471,9 @@ document.addEventListener('click', async (e) => {
     // low-contrast PNG. Stripped right before capture, restored in `finally` so
     // a capture error never leaves the page stuck in light mode.
     const wasDark = document.documentElement.classList.contains('dark');
-    if (wasDark) document.documentElement.classList.remove('dark');
+    // data-export-keep-theme opts out: a card that draws its own light and dark
+    // surfaces (Telesales Aurora) exports exactly as it looks on screen.
+    if (wasDark && !btn.hasAttribute('data-export-keep-theme')) document.documentElement.classList.remove('dark');
 
     // Browser zoom (Ctrl/Cmd +/-, not to be confused with OS display scaling)
     // sets a CSS `zoom` factor on the page that html2canvas measures DOM
@@ -663,7 +665,9 @@ document.addEventListener('click', async (e) => {
         // which have nothing to do with this element's own (already
         // zeroed) internal scroll position.
         const tableCanvas = await window.html2canvas(table, {
-            backgroundColor: '#ffffff',
+            // data-export-bg="transparent" — a card with its own rounded dark
+            // surface (Telesales Aurora) would otherwise get white corners.
+            backgroundColor: btn.dataset.exportBg === 'transparent' ? null : '#ffffff',
             scale: 2,
             scrollX: 0,
             scrollY: 0,
@@ -843,6 +847,7 @@ function swapInputsForSnapshot(root) {
             font-size: ${computed.fontSize};
             font-weight: ${computed.fontWeight};
             font-style: ${computed.fontStyle};
+            letter-spacing: ${computed.letterSpacing};
             text-align: ${computed.textAlign};
             opacity: ${hasValue ? '1' : '0.5'};
             vertical-align: middle;
@@ -1872,10 +1877,16 @@ function tssCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
 
+// A saved zero shows as the grey placeholder, never as a real value, so
+// nobody has to erase "0.00" before typing. Save still sends 0 for a blank.
+function tssBlankIfZero(value) {
+    return Number(String(value ?? '').replace(/,/g, '')) === 0 ? '' : value;
+}
+
 function tssSetFieldValue(container, name, value) {
     const el = tssField(container, name);
     if (!el) return;
-    el.value = value ?? '';
+    el.value = el.hasAttribute('data-money-field') ? tssBlankIfZero(value) : (value ?? '');
     if (el.hasAttribute('data-money-field') && el.value !== '') tssFormatMoneyInput(el);
 }
 
@@ -1908,13 +1919,14 @@ async function tssLoadDate(container, date) {
             container.querySelectorAll('[data-subteam-row]').forEach(row => {
                 const countInput = row.querySelector('[data-subteam-count]');
                 const saved = savedBySlug.get(row.dataset.subteamSlug);
-                countInput.value = saved ?? '';
+                countInput.value = tssBlankIfZero(saved);
             });
             tssUpdateOverallTsas(container);
         }
     } catch {
         window.showToast('Failed to load that date — request error.', 'error');
     }
+    tssRenderAurora();
 }
 
 function tssReadSubTeamRows(container) {
@@ -2066,6 +2078,8 @@ document.addEventListener('input', (e) => {
         const today = e.target.closest('[data-tss-today]');
         if (today) tssUpdateOverallTsas(today);
     }
+
+    if (e.target.closest('#telesalesSummaryCard')) tssRenderAurora();
 });
 
 // Friendly date label (explicit request, 2026-09-10: "September 09, 2026"
@@ -2074,6 +2088,12 @@ document.addEventListener('input', (e) => {
 // made invisible via CSS, see the two partials' own comments), so this
 // only ever updates the overlay <span data-tss-date-label> sitting on top
 // of it, never the input's own value.
+const TSS_DATE_FORMATS = {
+    long:  { month: 'long', day: '2-digit', year: 'numeric' },
+    short: { month: 'short', day: 'numeric' },
+    full:  { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' },
+};
+
 function tssFormatDateLabel(container) {
     const dateInput = container.querySelector('[data-tss-date-input]');
     const label = container.querySelector('[data-tss-date-label]');
@@ -2085,7 +2105,7 @@ function tssFormatDateLabel(container) {
     // date-picker partial's own toLocalISO() comment documents.
     const [y, m, d] = dateInput.value.split('-').map(Number);
     const parsed = new Date(y, m - 1, d);
-    label.textContent = parsed.toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' });
+    label.textContent = parsed.toLocaleDateString('en-US', TSS_DATE_FORMATS[label.dataset.dateFormat] ?? TSS_DATE_FORMATS.long);
 }
 
 function tssFormatAllDateLabels() {
@@ -2103,13 +2123,140 @@ function tssFormatAllDateLabels() {
 // labels, at the same two call sites (initial load, softRefresh).
 function tssFormatAllMoneyFields() {
     document.querySelectorAll('[data-money-field]').forEach((el) => {
+        el.value = tssBlankIfZero(el.value);
         if (el.value !== '') tssFormatMoneyInput(el);
+    });
+    document.querySelectorAll('[data-subteam-count]').forEach((el) => {
+        el.value = tssBlankIfZero(el.value);
     });
 }
 
 function tssInitOnLoad() {
     tssFormatAllDateLabels();
     tssFormatAllMoneyFields();
+    tssRenderAurora();
+    // Input widths are measured from the real font; before Sora arrives they
+    // come out too narrow and clip the last digit.
+    document.fonts?.ready.then(tssRenderAurora);
+}
+
+// Telesales Aurora design (2026-11-05): everything here is derived display —
+// the 3-day net curve, vs-previous delta, margin, and share bars.
+// Nothing derived is stored; the saved fields stay exactly as before. Runs on
+// load, softRefresh, every keystroke in the card, and after a date switch.
+// [data-tss-small] blocks are nested inside [data-tss-today], so the hero's
+// gross/net fields must stay FIRST in the DOM: tssField() returns the first
+// match, and Save/load for today depend on that.
+const TSS_PESO = '<span class="tsa-peso" role="img" aria-label="peso">P</span>';
+
+function tssAmount(value, decimals = 2) {
+    return Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function tssMoney(value, decimals = 2) {
+    return (value < 0 ? '−' : '') + TSS_PESO + tssAmount(value, decimals);
+}
+
+function tssShortDate(iso) {
+    const [y, m, d] = (iso || '').split('-').map(Number);
+    return y ? new Date(y, m - 1, d).toLocaleDateString('en-US', TSS_DATE_FORMATS.short) : '';
+}
+
+// Inputs here look like plain text, so each one is sized to its own content —
+// that keeps the peso sign snug against the number at any length.
+function tssFitInput(input) {
+    const probe = document.createElement('span');
+    const cs = getComputedStyle(input);
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};font-weight:${cs.fontWeight};letter-spacing:${cs.letterSpacing}`;
+    probe.textContent = input.value || input.placeholder;
+    document.body.appendChild(probe);
+    input.style.width = `${Math.ceil(probe.getBoundingClientRect().width) + 6}px`;
+    probe.remove();
+}
+
+// The person's accent from Settings → Appearance, as plain values. The chart's
+// SVG is rasterized on export, where CSS variables don't resolve, and the glow
+// needs rgb channels to vary its strength between light and dark mode.
+function tssAuroraAccent(card) {
+    const root = getComputedStyle(document.documentElement);
+    const hex = (name, fallback) => {
+        const value = root.getPropertyValue(name).trim();
+        return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+    };
+    const rgb = (color) => [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+    const primary = hex('--color-primary', '#CA8A04');
+    const secondary = hex('--color-secondary', '#EAB308');
+    const [r, g, b] = rgb(primary);
+
+    card.style.setProperty('--tsa-a', primary);
+    card.style.setProperty('--tsa-b', secondary);
+    card.style.setProperty('--tsa-a-rgb', rgb(primary).join(','));
+    card.style.setProperty('--tsa-b-rgb', rgb(secondary).join(','));
+    card.style.setProperty('--tsa-on-a', (0.299 * r + 0.587 * g + 0.114 * b) > 125 ? '#17120A' : '#FFFFFF');
+    return { primary, fill: rgb(primary).join(',') };
+}
+
+function tssAuroraChart(days, accent) {
+    const xs = [16.67, 50, 83.33];
+    const nets = days.map((d) => d.net);
+    const hi = Math.max(0, ...nets);
+    const lo = Math.min(0, ...nets);
+    const y = (v) => 14 + (hi - v) / ((hi - lo) || 1) * 72;
+    const pts = nets.map((v, i) => [xs[i], y(v)]);
+
+    let line = `M${pts[0][0]} ${pts[0][1]}`;
+    for (let i = 1; i < pts.length; i++) {
+        const mid = (pts[i - 1][0] + pts[i][0]) / 2;
+        line += ` C${mid} ${pts[i - 1][1]} ${mid} ${pts[i][1]} ${pts[i][0]} ${pts[i][1]}`;
+    }
+    const area = `M0 ${pts[0][1]} L${line.slice(1)} L100 ${pts[2][1]} L100 100 L0 100 Z`;
+
+    const marks = pts.map(([px, py], i) => {
+        const neg = nets[i] < 0;
+        return `<i class="tsa-pt ${i === 2 ? 'is-now' : ''}" style="left:${px}%;top:${py}%"></i>`
+            + `<span class="tsa-lab ${neg ? 'is-neg' : ''}" style="left:${px}%;top:calc(${py}% ${neg ? '+ 12px' : '- 26px'})"><em>${tssShortDate(days[i].date)}</em> ${tssMoney(nets[i], 0)}</span>`;
+    }).join('');
+
+    return `<div class="tsa-zero" style="top:${y(0)}%"></div>`
+        + `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="tsaFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(${accent.fill},.3)"/><stop offset="1" stop-color="rgba(${accent.fill},0)"/></linearGradient></defs>`
+        + `<path d="${area}" fill="url(#tsaFill)"/><path d="${line}" fill="none" stroke="${accent.primary}" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/></svg>${marks}`;
+}
+
+function tssRenderAurora() {
+    const card = document.getElementById('telesalesSummaryCard');
+    const today = card?.querySelector('[data-tss-today]');
+    if (!today) return;
+
+    const amount = (container, name) => parseFloat(tssMoneyValue(container, name)) || 0;
+    const slot = (container) => ({ date: container.dataset.date, gross: amount(container, 'gross_sales'), net: amount(container, 'net_income') });
+    const days = [...today.querySelectorAll('[data-tss-small]')].map(slot);
+    const now = slot(today);
+    const previous = days[days.length - 1];
+    const set = (selector, html) => { const el = today.querySelector(selector); if (el) el.innerHTML = html; };
+
+    today.querySelectorAll('[data-money-field]').forEach((input) => {
+        tssFitInput(input);
+        input.classList.toggle('is-neg', parseFloat(input.value.replace(/,/g, '')) < 0);
+    });
+
+    const change = now.net - previous.net;
+    set('[data-tsa-delta]', `${change < 0 ? '−' : '+'}${TSS_PESO}${tssAmount(change)} vs ${tssShortDate(previous.date)}`);
+    today.querySelector('[data-tsa-delta]')?.classList.toggle('is-neg', change < 0);
+
+    set('[data-tsa-plot]', tssAuroraChart([...days, now], tssAuroraAccent(card)));
+    set('[data-tsa-margin]', now.gross ? `${(now.net / now.gross * 100).toFixed(1)}%` : '—');
+
+    [['seller', 'top_seller'], ['team', 'top_team']].forEach(([key, field]) => {
+        const name = tssField(today, `${field}_name`)?.value.trim() || '';
+        const gross = amount(today, `${field}_gross_sales`);
+        const share = now.gross > 0 ? gross / now.gross * 100 : 0;
+        const letters = name.split(/\s+/).map((w) => w[0] || '').slice(0, key === 'team' ? 1 : 2).join('').toUpperCase();
+        const avatar = today.querySelector(`[data-tsa-avatar="${key}"]`);
+        if (avatar) avatar.textContent = letters || '—';
+        const bar = today.querySelector(`[data-tsa-bar="${key}"]`);
+        if (bar) bar.style.width = `${Math.max(0, Math.min(100, share))}%`;
+        set(`[data-tsa-share="${key}"]`, now.gross > 0 ? `${share.toFixed(1)}% of today's gross` : 'No gross yet today');
+    });
 }
 
 // Bare 'DOMContentLoaded' alone risks silently never firing this: app.js is
