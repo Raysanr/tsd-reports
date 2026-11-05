@@ -189,7 +189,7 @@ class ProjectionController extends Controller
         // into the 3 derived cards (×2/÷6/÷24), so the frontend needs all
         // 4 columns' fresh figures back, the same as a rate edit already
         // returns. See ProjectionCalculator's own doc comment.
-        $columns = ProjectionColumn::orderBy('sort_order')->get();
+        $columns = ProjectionColumn::where('month', $column->month)->orderBy('sort_order')->get();
         $all     = ProjectionCalculator::forAllColumns($columns, $rates);
 
         $response = [

@@ -61,4 +61,22 @@ class ProjectionRowsPerMonthTest extends TestCase
         $this->get(route('data.expected-income', ['date_from' => '2026-11-03', 'date_to' => '2026-11-03']))->assertOk()->assertSee('November Only');
         $this->get(route('data.expected-income', ['date_from' => '2026-10-03', 'date_to' => '2026-10-03']))->assertOk()->assertDontSee('November Only');
     }
+
+    /** The save response must show the month just edited, not another month's
+     *  row with the same key, or the screen jumps back until a reload. */
+    public function test_saving_a_column_returns_that_months_figures_when_other_months_exist(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        \App\Models\ProjectionColumn::ensureSeededForMonth('2026-11');
+        \App\Models\ProjectionColumn::ensureSeededForMonth('2026-12');
+        $november = \App\Models\ProjectionColumn::where('month', '2026-11')->where('key', 'opening_shift')->firstOrFail();
+        \App\Models\ProjectionColumn::where('month', '2026-12')->where('key', 'opening_shift')->update(['leads_override' => 8000]);
+
+        $response = $this->patchJson(route('data.projections.update-column', $november), ['leads_override' => 2000])->assertOk();
+
+        $this->assertEqualsWithDelta(2000, $response->json('computed.target_card.leads_needed'), 0.001);
+        $opening = collect($response->json('all'))->firstWhere('column.key', 'opening_shift');
+        $this->assertSame('2026-11', $opening['column']['month']);
+        $this->assertEqualsWithDelta(2000, $opening['target_card']['leads_needed'], 0.001);
+    }
 }
