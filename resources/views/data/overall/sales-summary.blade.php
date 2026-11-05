@@ -11,7 +11,7 @@
     $slate = 'bg-slate-200 dark:bg-slate-600';
     $rose = 'bg-rose-200 dark:bg-rose-800';
     $columns = fn (bool $daily) => [
-        ['key' => 'sales', 'label' => 'Sales', 'bg' => $daily ? $dayMoney : $money, 'shOnly' => true],
+        ['key' => 'gross_sales', 'totalKey' => 'sales', 'label' => 'Sales', 'bg' => $daily ? $dayMoney : $money],
         ['key' => 'income_before_opex', 'label' => $daily ? 'Partners IB OPEX' : 'Partners IBSC', 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
         ['key' => 'shared_income', 'label' => ($daily ? 'Expected Shared Income' : 'Shared Income') . " ({$sharePct}%)", 'bg' => $daily ? $dayMoney : $money, 'partnerOnly' => true],
         ['key' => 'net_income', 'label' => 'Net Income', 'bg' => $daily ? $dayMoney : $money, 'neg' => true],
@@ -24,8 +24,8 @@
         ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'bg' => $rose, 'pct' => true],
     ];
     $fmt = function (array $values, array $col, ?array $row = null) {
-        if ($row && (($col['shOnly'] ?? false) && $row['partner'] || ($col['partnerOnly'] ?? false) && !$row['partner'])) return '-';
-        $v = (float) ($values[$col['key']] ?? 0);
+        if ($row && ($col['partnerOnly'] ?? false) && !$row['partner']) return '-';
+        $v = (float) ($values[$row ? $col['key'] : ($col['totalKey'] ?? $col['key'])] ?? 0);
         if ($col['pct'] ?? false) return number_format($v * 100, 2) . '%';
         if ($col['int'] ?? false) return number_format($v);
         return number_format($v, 2);
@@ -99,6 +99,7 @@
             </tbody>
         </table>
     </div>
+    <p class="px-3 py-2 text-xs font-mono text-ink-muted dark:text-slate-400">OVERALL TOTAL Sales counts SH E-COM only. Partner sales are shown for reference, and TSD's part of them is Shared Income.</p>
 </div>
 
 {{-- Per day, 7 days per table --}}

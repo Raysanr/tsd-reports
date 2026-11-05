@@ -10,7 +10,8 @@ namespace App\Support;
  * SH E-COM earns Sales; partners earn Partners IB OPEX and TSD's Shared Income
  * of it. So NI % divides by Sales for SH E-COM, by Shared Income for a partner,
  * and by both on the TOTAL row, the same as the sheet. 'sales' is SH E-COM's
- * only; a partner's own gross_sales counts toward AOV but never toward Sales.
+ * only: a partner's gross_sales shows on its own row and counts toward AOV, but
+ * never toward the TOTAL row's Sales or NI %.
  *
  * Three things deliberately differ from the sheet's formulas, which are wrong
  * for a range: AOV is sales ÷ orders (the sheet adds each day's AOV), Pick-up
