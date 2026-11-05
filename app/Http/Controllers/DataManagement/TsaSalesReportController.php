@@ -4,6 +4,7 @@ namespace App\Http\Controllers\DataManagement;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaSalesLockedDate;
 use App\Models\TsaShift;
@@ -294,7 +295,8 @@ class TsaSalesReportController extends Controller
 
     /** One dataset's (TSD or partners) whole-department total per day plus
      *  the range total — the same figures this page's own OVERALL TOTAL rows
-     *  show. Used by TSD Overall Performance's sales summary (2026-11-04). */
+     *  show, plus each team's own per-day figures under 'teams'. Used by TSD
+     *  Overall Performance's sales summary (2026-11-04). */
     public function overallByDate(string $dateFrom, string $dateTo): array
     {
         $data = $this->buildReportData($dateFrom, $dateTo);
@@ -302,7 +304,9 @@ class TsaSalesReportController extends Controller
         $tiktokTsas = $data['tiktokSummary']['tsas'];
         $emptyRaw = array_merge(['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0], self::EMPTY_AUTO_FIELDS);
 
+        $products = Product::orderBy('sort_order')->get();
         $days = [];
+        $teams = [];
         foreach ($data['dateChunks']->flatten() as $date) {
             $dateStr = $date->toDateString();
             $teamRows = $groups->flatMap(fn ($g) => $g['tsas']->map(fn ($tsa) => $data['dailyByKey']->get($tsa->id . ':' . $dateStr, $emptyRaw)))->all();
@@ -323,10 +327,47 @@ class TsaSalesReportController extends Controller
             $total['net_income'] = (float) $groups->sum(fn ($g) => (float) ($data['teamNetIncomeByDate']->get($g['orderTeam'] . ':' . $dateStr) ?? 0.0))
                 + (float) array_sum(array_column($tiktokRows, 'net_income'));
             $total['ni_pct'] = $total['gross_sales'] > 0 ? $total['net_income'] / $total['gross_sales'] : 0.0;
+            $total['call_counts'] = self::callCounts($teamRows);
             $days[$dateStr] = $total;
+
+            foreach ($groups as $group) {
+                $rows = $group['tsas']->map(fn ($tsa) => $data['dailyByKey']->get($tsa->id . ':' . $dateStr, $emptyRaw))->all();
+                $card = $data['teamTotalsByDate']->get($group['orderTeam'] . ':' . $dateStr, []);
+                $teams[$group['orderTeam']][$dateStr] = [
+                    'gross_sales'        => (float) ($card['gross_sales'] ?? 0),
+                    'income_before_opex' => (float) ($card['income_before_opex'] ?? 0),
+                    'shared_income'      => (float) ($card['shared_income'] ?? 0),
+                    'net_income'         => (float) ($card['net_income'] ?? 0),
+                    'total_orders'       => (float) ($card['number_of_orders'] ?? 0),
+                    'total_leads'        => (float) ($card['number_of_leads'] ?? 0),
+                    'excess_leads'       => self::excessLeads($group['orderTeam'], $date, $products),
+                    'call_counts'        => self::callCounts($rows),
+                ];
+            }
         }
 
-        return ['range' => $data['overallTotal'], 'days' => $days];
+        return ['range' => $data['overallTotal'], 'days' => $days, 'teams' => $teams];
+    }
+
+    /** A team's Excess Leads for one day, counted exactly like Leads Report's
+     *  ALL view: each visible product's row against that team's own orders,
+     *  added up. SH E-COM's two teams together equal that page's Grand Total. */
+    private static function excessLeads(string $orderTeam, Carbon $date, Collection $products): int
+    {
+        $dayOrders = Order::whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$date->copy()->startOfDay(), $date->copy()->endOfDay()])
+            ->where('team', $orderTeam)
+            ->get();
+
+        return $dayOrders->isEmpty() ? 0 : (int) $products->where('is_hidden', false)
+            ->sum(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products)['excess']);
+    }
+
+    /** The raw counts Pick-up/Upselling Rate come from, so a caller can pool
+     *  several rows and recompute the rates instead of averaging them. */
+    private static function callCounts(array $rows): array
+    {
+        return collect(['answered', 'unanswered', 'confirmed_via_call', 'upsell_confirmation'])
+            ->mapWithKeys(fn ($key) => [$key => array_sum(array_column($rows, $key))])->all();
     }
 
     /** Everything index() renders, for one date range on the current dataset. */
@@ -425,10 +466,11 @@ class TsaSalesReportController extends Controller
         // POOLED team total, NOT TsaSalesCalculator::sum()'s own sum of
         // individually-costed TSA rows, which double-counts shared
         // Operating Costs/Salaries/Tax Allocation across TSAs).
-        $teamNetIncomeByDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamNetIncomeByDate(
+        $teamTotalsByDate = \App\Http\Controllers\DataManagement\ExpectedIncomeController::teamTotalsByDate(
             $dateFrom, $dateTo,
             $leadCountsAndGrossSales['leadCounts'], $leadCountsAndGrossSales['grossSalesAndOrders']
         );
+        $teamNetIncomeByDate = $teamTotalsByDate->map(fn (array $totals) => $totals['net_income']);
 
         // One row per TSA, summed across the whole selected range,
         // grouped by their real team — the sheet's own MTD running
@@ -604,6 +646,7 @@ class TsaSalesReportController extends Controller
             // this page has hit before — see ExpectedIncomeController::
             // teamNetIncomeByDate()'s own doc comment for the full story.
             'teamNetIncomeByDate' => $teamNetIncomeByDate,
+            'teamTotalsByDate'    => $teamTotalsByDate,
         ];
     }
 

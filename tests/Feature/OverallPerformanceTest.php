@@ -41,7 +41,7 @@ class OverallPerformanceTest extends TestCase
             ->assertSee('PEAK.CO')->assertDontSee("Partners data couldn't be loaded");
 
         $this->actingAs($admin)->get(route('data.overall.sales-summary', ['date_from' => '2026-11-01', 'date_to' => '2026-11-03']))
-            ->assertOk()->assertSee('SH E-COM')->assertSee('PARTNERS')->assertSee('Tue, Nov 3');
+            ->assertOk()->assertSee('SH ECOMMERCE')->assertSee('PEAK ENTERPRISE')->assertSee('Partners IBSC')->assertSee('Tue, Nov 3');
 
         $this->actingAs($admin)->get(route('data.overall.expected-income', ['date_from' => '2026-11-01', 'date_to' => '2026-11-01']))
             ->assertOk()->assertSee('TSD SH ECOMMERCE : EXPECTED PERFORMANCE')
@@ -170,5 +170,25 @@ class OverallPerformanceTest extends TestCase
         $this->migratePartners();
 
         $this->actingAs($this->admin())->get('/partners/overall/projections')->assertNotFound();
+    }
+
+    /** Excess = Total - Catered - Restocking, per team, as on Leads Report. */
+    public function test_sales_summary_counts_excess_leads_like_leads_report(): void
+    {
+        $this->migratePartners();
+        $shift = \App\Models\TsaShift::where('team', 'SH Naturals')->first();
+        $order = fn (string $id, array $extra) => \App\Models\Order::create($extra + [
+            'pancake_order_id' => $id, 'team' => 'SH Naturals', 'tsa_name' => $shift->tsa_key, 'product' => 'Sinuxyl',
+            'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => '2026-11-02 10:00:00', 'synced_at' => now(),
+        ]);
+        $order('called', ['disposition' => 'CONFIRMED VIA CALL', 'raw_tags' => [strtoupper($shift->tsa_key), 'CONFIRMED VIA CALL']]);
+        $order('uncalled', ['raw_tags' => []]);
+
+        $this->actingAs($this->admin());
+        $report = app(\App\Http\Controllers\DataManagement\TsaSalesReportController::class)->overallByDate('2026-11-02', '2026-11-02');
+        $summary = \App\Support\OverallSalesSummary::build($report, []);
+
+        $this->assertSame(1.0, (float) $summary['rows'][0]['days']['2026-11-02']['excess_leads']);
+        $this->assertSame(1.0, (float) $summary['total']['range']['excess_leads']);
     }
 }

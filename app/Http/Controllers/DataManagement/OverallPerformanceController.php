@@ -7,6 +7,7 @@ use App\Models\ProjectionColumn;
 use App\Support\DataSet;
 use App\Support\DateRangeFilter;
 use App\Support\ExpectedIncomeCalculator;
+use App\Support\OverallSalesSummary;
 use App\Support\ProjectionCalculator;
 use App\Support\ProjectionMonth;
 use Illuminate\Http\Request;
@@ -19,8 +20,9 @@ use Illuminate\Support\Carbon;
  * page on its own dataset, never re-derived here:
  *  - projections():     Projections' Telesales Department card (SH E-COM) +
  *                       each partner's own monthly target card, plus a total.
- *  - salesSummary():    Summary Sales Report's OVERALL TOTAL per day, one row
- *                       for SH E-COM and one for PARTNERS.
+ *  - salesSummary():    The sheet's SALES SUMMARY REPORT: SH E-COM, each
+ *                       partner, and a total, per day and for the range
+ *                       (see App\Support\OverallSalesSummary).
  *  - expectedIncome():  Expected Income's overall card (SH E-COM), the
  *                       partners' overall card + each partner's card.
  * TSD Data Management only, admins only (partners data is admin-only).
@@ -64,12 +66,13 @@ class OverallPerformanceController extends Controller
         $range = DateRangeFilter::resolve($request, 'overall-sales-summary');
         [$dateFrom, $dateTo] = [$range['from'], $range['to']];
 
-        $rows = [['label' => 'SH E-COM', 'data' => app(TsaSalesReportController::class)->overallByDate($dateFrom, $dateTo)]];
-        $partners = $this->onPartnersOrNull(fn () => app(TsaSalesReportController::class)->overallByDate($dateFrom, $dateTo));
-        $rows[] = ['label' => 'PARTNERS', 'data' => $partners ?? ['range' => [], 'days' => []]];
+        $tsd = app(TsaSalesReportController::class)->overallByDate($dateFrom, $dateTo);
+        $partners = $this->onPartnersOrNull(fn () => app(TsaSalesReportController::class)->overallByDate($dateFrom, $dateTo) + [
+            'shareRate' => ExpectedIncomeCalculator::partnershipShareRate(),
+        ]);
 
-        return view('data.overall.sales-summary', [
-            'rows'          => $rows,
+        return view('data.overall.sales-summary', OverallSalesSummary::build($tsd, $partners['teams'] ?? []) + [
+            'sharePct'      => round((float) ($partners['shareRate'] ?? 0.7) * 100),
             'dateFrom'      => $dateFrom,
             'dateTo'        => $dateTo,
             'dateChunks'    => collect(iterator_to_array(Carbon::parse($dateFrom)->daysUntil(Carbon::parse($dateTo))))->chunk(7)->values(),

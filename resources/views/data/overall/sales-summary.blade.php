@@ -1,34 +1,41 @@
 @extends('layouts.data')
 @section('title', 'Sales Summary (SH E-COM and Partners)')
-@section('subtitle', 'Department totals per day — Summary Sales Report figures')
+@section('subtitle', 'SH E-COM and each partner, for the range and per day')
 
 @section('content')
 @php
-    $columns = [
-        ['key' => 'gross_sales', 'label' => 'Gross Sales'],
-        ['key' => 'net_income', 'label' => 'Net Income'],
-        ['key' => 'ni_pct', 'label' => 'NI %', 'pct' => true],
-        ['key' => 'total_orders', 'label' => 'Total Orders', 'int' => true],
-        ['key' => 'aov', 'label' => 'AOV'],
-        ['key' => 'catered_leads', 'label' => 'Catered Leads', 'int' => true],
-        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'pct' => true],
-        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'pct' => true],
+    // Header colors come from the sheet's SALES SUMMARY REPORT tab.
+    $columns = fn (bool $daily) => [
+        ['key' => 'sales', 'label' => 'Sales', 'bg' => '#d0e0e3', 'shOnly' => true],
+        ['key' => 'income_before_opex', 'label' => $daily ? 'Partners IB.OPEX' : 'Partners IBSC', 'bg' => '#ead1dc', 'partnerOnly' => true],
+        ['key' => 'shared_income', 'label' => ($daily ? 'Expected Shared Income' : 'Shared Income') . " ({$sharePct}%)", 'bg' => '#d0e0e3', 'partnerOnly' => true],
+        ['key' => 'net_income', 'label' => 'Net Income', 'bg' => '#d0e0e3', 'neg' => true],
+        ['key' => 'ni_pct', 'label' => 'NI %', 'bg' => '#d0e0e3', 'pct' => true, 'neg' => true],
+        ['key' => 'total_orders', 'label' => 'Total Orders', 'bg' => '#d9d9d9', 'int' => true],
+        ['key' => 'aov', 'label' => 'AOV', 'bg' => '#b7b7b7'],
+        ['key' => 'total_leads', 'label' => 'Total Leads', 'bg' => '#e6b8af', 'int' => true],
+        ['key' => 'excess_leads', 'label' => 'Excess Leads', 'bg' => '#e6b8af', 'int' => true],
+        ['key' => 'pickup_rate', 'label' => 'Pick-up Rate', 'bg' => '#e6b8af', 'pct' => true],
+        ['key' => 'upselling_rate', 'label' => 'Upselling Rate', 'bg' => '#e6b8af', 'pct' => true],
     ];
-    $fmt = function (array $values, array $col) {
+    $fmt = function (array $values, array $col, ?array $row = null) {
+        if ($row && (($col['shOnly'] ?? false) && $row['partner'] || ($col['partnerOnly'] ?? false) && !$row['partner'])) return '-';
         $v = (float) ($values[$col['key']] ?? 0);
         if ($col['pct'] ?? false) return number_format($v * 100, 2) . '%';
         if ($col['int'] ?? false) return number_format($v);
         return number_format($v, 2);
     };
-    $cellClass = function (array $values, array $col) {
-        return in_array($col['key'], ['net_income', 'ni_pct'], true) && (float) ($values[$col['key']] ?? 0) < 0 ? 'text-red-600 dark:text-red-400' : '';
-    };
+    $isNeg = fn (array $values, array $col) => ($col['neg'] ?? false) && (float) ($values[$col['key']] ?? 0) < 0;
+
     $from = \Illuminate\Support\Carbon::parse($dateFrom);
     $to = \Illuminate\Support\Carbon::parse($dateTo);
-    $rangeLabel = strtoupper($from->format('F j') . ($dateFrom === $dateTo ? '' : ' – ' . $to->format('F j')));
-    $th = 'px-3 py-2 text-[11px] font-mono font-bold uppercase tracking-wide border border-line dark:border-slate-700 whitespace-nowrap';
-    $td = 'px-3 py-2.5 text-right font-mono text-[13px] text-ink dark:text-slate-100 border border-line dark:border-slate-700 whitespace-nowrap';
-    $labelCell = 'px-4 py-2.5 font-mono font-bold text-sm uppercase whitespace-nowrap border border-line dark:border-slate-700 bg-yellow-300 text-ink sticky left-0 z-10';
+    $rangeLabel = strtoupper($from->format('F j') . ($dateFrom === $dateTo ? '' : ' - ' . $to->format('F j')));
+    $line = 'border border-black';
+    $th = "px-3 py-2 text-[11px] font-mono font-bold uppercase text-center text-black whitespace-normal min-w-24 max-w-32 $line";
+    $td = "px-3 py-2.5 text-center font-mono text-[13px] whitespace-nowrap bg-white text-black $line";
+    $label = "px-4 py-2.5 font-mono font-bold text-base text-center uppercase whitespace-nowrap text-black sticky left-0 z-10 min-w-64 $line";
+    $tot = "px-3 py-2.5 text-center font-mono font-bold text-sm whitespace-nowrap $line";
+    $rowBg = fn (array $row) => $row['partner'] ? '#f3f3f3' : '#d0e0e3';
 @endphp
 
 <div class="mb-6 flex items-end justify-between gap-4 flex-wrap">
@@ -40,63 +47,74 @@
 @include('data.overall._partners-warning')
 
 {{-- Range totals --}}
-<div class="flex items-center justify-between mb-2">
-    <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">{{ strtoupper($from->format('F Y')) }} PERFORMANCE</div>
-    @include('partials.table-actions', ['target' => 'overallSalesRange', 'name' => 'sales-summary-ecom-partners', 'title' => 'Sales Summary (SH E-COM and Partners)', 'subtitle' => $rangeLabel, 'pngOnly' => true])
+@php($rangeColumns = $columns(false))
+<div class="flex justify-end mb-2">
+    @include('partials.table-actions', ['target' => 'overallSalesRange', 'name' => 'sales-summary-ecom-partners', 'title' => 'Sales Summary (SH E-COM and Partners)', 'subtitle' => $rangeLabel])
 </div>
-<div class="overflow-x-auto mb-8 bg-white dark:bg-slate-900 rounded-xl shadow-panel">
+<div class="overflow-x-auto mb-8">
     <table class="border-collapse w-max" id="overallSalesRange">
         <thead>
             <tr>
-                <th class="{{ $th }} bg-black text-white sticky left-0 z-10" rowspan="2">Department</th>
-                <th class="{{ $th }} bg-yellow-300 text-ink text-center" colspan="{{ count($columns) }}">{{ $rangeLabel }}</th>
+                <th class="{{ $label }} text-2xl! bg-black text-white! py-4" rowspan="2">{{ strtoupper($from->format('F Y')) }}<br>PERFORMANCE</th>
+                <th class="{{ $th }} max-w-none! bg-black text-white! text-sm!" colspan="{{ count($rangeColumns) }}">{{ $rangeLabel }}</th>
             </tr>
             <tr>
-                @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-100">{{ $col['label'] }}</th>@endforeach
+                @foreach($rangeColumns as $col)<th class="{{ $th }}" style="background: {{ $col['bg'] }}">{{ $col['label'] }}</th>@endforeach
             </tr>
         </thead>
         <tbody>
             @foreach($rows as $row)
             <tr>
-                <td class="{{ $labelCell }}">{{ $row['label'] }}</td>
-                @foreach($columns as $col)<td class="{{ $td }} {{ $cellClass($row['data']['range'], $col) }}">{{ $fmt($row['data']['range'], $col) }}</td>@endforeach
+                <td class="{{ $label }}" style="background: {{ $rowBg($row) }}">{{ $row['label'] }}</td>
+                @foreach($rangeColumns as $col)<td class="{{ $td }} {{ $isNeg($row['range'], $col) ? 'text-red-600!' : '' }}">{{ $fmt($row['range'], $col, $row) }}</td>@endforeach
             </tr>
             @endforeach
+            <tr>
+                <td class="{{ $label }} text-lg! bg-black text-white!">TOTAL :</td>
+                @foreach($rangeColumns as $col)<td class="{{ $tot }} bg-black {{ $isNeg($total['range'], $col) ? 'text-red-400' : 'text-white' }}">{{ $fmt($total['range'], $col) }}</td>@endforeach
+            </tr>
         </tbody>
     </table>
 </div>
 
 {{-- Per day, 7 days per table --}}
+@php($dailyColumns = $columns(true))
 @foreach($dateChunks as $chunkIndex => $chunk)
-<div class="flex items-center justify-between mb-2">
-    <div class="font-mono font-bold text-sm text-ink dark:text-slate-100">Daily Sales Report</div>
-    @include('partials.table-actions', ['target' => 'overallSalesDaily-' . $chunkIndex, 'name' => 'sales-summary-daily-' . $chunk->first()->toDateString(), 'title' => 'Daily Sales Report (SH E-COM and Partners)', 'subtitle' => $chunk->first()->format('F j') . ($chunk->count() > 1 ? ' – ' . $chunk->last()->format('F j, Y') : ', ' . $chunk->first()->format('Y')), 'pngOnly' => true])
+<div class="flex justify-end mb-2">
+    @include('partials.table-actions', ['target' => 'overallSalesDaily-' . $chunkIndex, 'name' => 'sales-summary-daily-' . $chunk->first()->toDateString(), 'title' => "TSA's Daily Sales Report", 'subtitle' => $chunk->first()->format('M j') . ' - ' . $chunk->last()->format('M j')])
 </div>
-<div class="overflow-x-auto mb-8 bg-white dark:bg-slate-900 rounded-xl shadow-panel">
+<div class="overflow-x-auto mb-8">
     <table class="border-collapse w-max" id="overallSalesDaily-{{ $chunkIndex }}">
         <thead>
             <tr>
-                <th class="{{ $th }} bg-black text-white sticky left-0 z-10" rowspan="2">Department</th>
+                <th class="{{ $label }} normal-case! text-xl! bg-[#ffff00]" rowspan="2">TSA's Daily Sales Report</th>
                 @foreach($chunk as $date)
-                <th class="{{ $th }} bg-yellow-300 text-ink text-center" colspan="{{ count($columns) }}">{{ $date->format('D, M j') }}</th>
+                <th class="{{ $th }} max-w-none! bg-[#ffff00] text-sm!" colspan="{{ count($dailyColumns) }}">{{ $date->format('D, M j') }}</th>
                 @endforeach
             </tr>
             <tr>
                 @foreach($chunk as $date)
-                    @foreach($columns as $col)<th class="{{ $th }} bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-100">{{ $col['label'] }}</th>@endforeach
+                    @foreach($dailyColumns as $col)<th class="{{ $th }}" style="background: {{ $col['bg'] }}">{{ $col['label'] }}</th>@endforeach
                 @endforeach
             </tr>
         </thead>
         <tbody>
             @foreach($rows as $row)
             <tr>
-                <td class="{{ $labelCell }}">{{ $row['label'] }}</td>
+                <td class="{{ $label }}" style="background: {{ $rowBg($row) }}">{{ $row['label'] }}</td>
                 @foreach($chunk as $date)
-                    @php($day = $row['data']['days'][$date->toDateString()] ?? [])
-                    @foreach($columns as $col)<td class="{{ $td }} {{ $cellClass($day, $col) }}">{{ $fmt($day, $col) }}</td>@endforeach
+                    @php($day = $row['days'][$date->toDateString()] ?? [])
+                    @foreach($dailyColumns as $col)<td class="{{ $td }} {{ $isNeg($day, $col) ? 'text-red-600!' : '' }}">{{ $fmt($day, $col, $row) }}</td>@endforeach
                 @endforeach
             </tr>
             @endforeach
+            <tr>
+                <td class="{{ $label }} text-lg! bg-[#b7b7b7]">TOTAL:</td>
+                @foreach($chunk as $date)
+                    @php($day = $total['days'][$date->toDateString()] ?? [])
+                    @foreach($dailyColumns as $col)<td class="{{ $tot }} bg-[#b7b7b7] {{ $isNeg($day, $col) ? 'text-red-700' : 'text-black' }}">{{ $fmt($day, $col) }}</td>@endforeach
+                @endforeach
+            </tr>
         </tbody>
     </table>
 </div>

@@ -92,7 +92,16 @@ class ExpectedIncomeController extends Controller
 
     public static function teamNetIncomeByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
-        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::teamNetIncomeByDateInMonth($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders));
+        return self::teamTotalsByDate($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders)
+            ->map(fn (array $totals) => $totals['net_income']);
+    }
+
+    /** Each team's whole "TELESALES" card per day, keyed "{orderTeam}:{date}".
+     *  Same pass as teamNetIncomeByDate(), for callers that also need the
+     *  card's other lines (Income Before OPEX, Shared Income, leads, orders). */
+    public static function teamTotalsByDate(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    {
+        return \App\Support\ProjectionMonth::with(substr($dateFrom, 0, 7), fn () => self::teamTotalsByDateInMonth($dateFrom, $dateTo, $precomputedLeadCounts, $precomputedGrossSalesAndOrders));
     }
 
     public static function grossSalesAndNetIncomeByProductAndDate(string $dateFrom, string $dateTo, ?string $onlyOrderTeam = null): \Illuminate\Support\Collection
@@ -490,7 +499,7 @@ class ExpectedIncomeController extends Controller
      *  (same $teamTsaIds exclusion buildSummary() itself applies), same
      *  scope boundary Summary Sales Report's own TikTok Upsell section
      *  already agrees on. */
-    private static function teamNetIncomeByDateInMonth(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
+    private static function teamTotalsByDateInMonth(string $dateFrom, string $dateTo, ?\Illuminate\Support\Collection $precomputedLeadCounts = null, ?array $precomputedGrossSalesAndOrders = null): \Illuminate\Support\Collection
     {
         $products = self::reportProducts();
         $sellingKeys = array_keys(ExpectedIncomeCalculator::sellingCostRows());
@@ -547,7 +556,7 @@ class ExpectedIncomeController extends Controller
                     $products, $oneDay, $dateStr, $dateStr, $sellingKeys, $operatingKeys, $teamTsaIds, $orderTeam,
                     $leadCounts, $grossSalesAndOrders
                 );
-                $result["{$orderTeam}:{$dateStr}"] = $overallTotal['net_income'];
+                $result["{$orderTeam}:{$dateStr}"] = $overallTotal;
             }
         }
 
