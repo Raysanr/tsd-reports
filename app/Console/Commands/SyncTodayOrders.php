@@ -25,6 +25,9 @@ class SyncTodayOrders extends Command
     // are recognized by the very next sync, no code change/deploy needed.
     private array $tsaMap = [];
 
+    /** Each date's maps, built once per run — see loadTsaMaps(). */
+    private array $rosterByDate = [];
+
     // Built from the tsa_shifts table in handle() — map POS seller account keyword
     // → [name, team]. Used as fallback when the UPSELL TSD tag is missing but the
     // seller account confirms it's a TSA. Keywords must be specific enough to avoid
@@ -41,6 +44,15 @@ class SyncTodayOrders extends Command
      *  that day instead of jumping to whoever holds it now. */
     private function loadTsaMaps(Carbon $date): void
     {
+        $key = $date->toDateString();
+        if (isset($this->rosterByDate[$key])) {
+            [$this->tsaMap, $this->sellerMap] = $this->rosterByDate[$key];
+
+            return;
+        }
+
+        $this->tsaMap = [];
+        $this->sellerMap = [];
         $cutoff = $date->copy()->startOfDay()->toDateTimeString();
         $shifts = TsaShift::withTrashed()
             ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('deleted_at', '>=', $cutoff))
@@ -56,6 +68,8 @@ class SyncTodayOrders extends Command
                 $this->sellerMap[strtolower($kw)] = $info;
             }
         }
+
+        $this->rosterByDate[$key] = [$this->tsaMap, $this->sellerMap];
     }
 
     /** Generous vs. real durations (seconds up to ~1 minute for a big day, per
@@ -492,6 +506,10 @@ class SyncTodayOrders extends Command
             $productName       = $productInfo['name'];
             $bundleDescription = $productInfo['display_id'];
             $baseProductName   = $productInfo['base_name'];
+            // The roster on the order's OWN date, not the sync's: this run also
+            // fetches old orders touched today, and judging those by today's
+            // roster wiped removed TSAs' names (2026-11-06: 247 October orders).
+            $this->loadTsaMaps($carbonPHT ?? $date);
             $tsaInfo           = $this->extractTsaInfo($tagNames, $raw, $productName, $bundleDescription);
 
             // Root-cause fix: $carbonPHT (Pancake's inserted_at) is when the lead/order
@@ -694,6 +712,17 @@ class SyncTodayOrders extends Command
         }
 
         foreach (array_chunk($rows, 200) as $chunk) {
+            // A sync that can't name the TSA never erases a name already saved.
+            $savedNames = Order::whereIn('pancake_order_id', array_column($chunk, 'pancake_order_id'))
+                ->whereNotNull('tsa_name')->where('tsa_name', '!=', '')
+                ->pluck('tsa_name', 'pancake_order_id');
+            foreach ($chunk as &$chunkRow) {
+                if (blank($chunkRow['tsa_name'])) {
+                    $chunkRow['tsa_name'] = $savedNames[$chunkRow['pancake_order_id']] ?? $chunkRow['tsa_name'];
+                }
+            }
+            unset($chunkRow);
+
             Order::upsert(
                 $chunk,
                 ['pancake_order_id'],
