@@ -43,8 +43,17 @@ class TsaManagementController extends Controller
         $shiftMonths = TsaMonths::existing();
         $shiftMonthLabel = Carbon::createFromFormat('Y-m', $shiftMonth)->format('F Y');
 
+        // A past month shows who worked it: TSAs removed since stay listed
+        // (read-only), and anyone who joined later doesn't appear.
+        $isPastMonth = $shiftMonth < TsaMonths::current();
+        if ($isPastMonth) {
+            TsaShift::showDeletedFrom("{$shiftMonth}-01");
+        }
+
         $teamsConfig = Teams::config();
-        $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get();
+        $shifts      = TsaShift::with('restDays')->orderBy('sort_order')->get()
+            ->when($isPastMonth, fn ($list) => $list->reject(fn (TsaShift $s) => $s->created_at?->timezone('Asia/Manila')->format('Y-m') > $shiftMonth))
+            ->values();
 
         // Group TSAs by team for display, using each configured team's real
         // 'order_team' string (e.g. "SH Naturals") as the grouping key.

@@ -114,6 +114,16 @@
                  even narrower device or unusually long name/TSA key). --}}
             <div class="divide-y divide-slate-100 dark:divide-slate-700 overflow-x-auto">
                 @foreach($group['shifts'] as $shift)
+                @if($shift->trashed())
+                <div class="px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 opacity-70">
+                    <div class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center text-white text-[9px] sm:text-[10px] font-bold bg-slate-400 shrink-0">{{ strtoupper(substr($shift->display_name, 0, 2)) }}</div>
+                    <div class="min-w-0">
+                        <p class="text-xs sm:text-sm font-mono font-semibold text-slate-700 dark:text-slate-200">{{ $shift->display_name }}</p>
+                        <p class="text-[9px] sm:text-[10px] text-slate-400 font-mono">Removed · last day {{ $shift->lastWorkingDay()?->format('M j, Y') }}{{ $shift->is_hidden ? ' · Hidden' : '' }}</p>
+                    </div>
+                </div>
+                @continue
+                @endif
                 <div class="tsaRow px-3 sm:px-6 py-3 flex items-center gap-2 sm:gap-4 w-max sm:w-auto min-w-full sm:min-w-0 {{ $shift->is_hidden ? 'opacity-50' : '' }}" data-tsa-row="{{ $shift->id }}">
                     {{-- Selection checkbox — reads by the bulk-action bar's JS. This is a
                          plain input, not a nested <form>, so it's safe to sit inside the

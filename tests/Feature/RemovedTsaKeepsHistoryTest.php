@@ -168,4 +168,21 @@ class RemovedTsaKeepsHistoryTest extends TestCase
 
         $this->assertSame('2026-11-02', $this->restoreAndRemoveGemma()->last_day->toDateString());
     }
+
+    public function test_a_past_month_lists_who_worked_it_and_not_who_joined_later(): void
+    {
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        Carbon::setTestNow('2026-11-06 10:00:00');
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->firstOrFail();
+        $gemma->forceFill(['display_name' => 'Gemma De Guzman', 'created_at' => '2026-08-11 10:00:00'])->saveQuietly();
+        $this->delete(route('tsa-management.destroy', $gemma), ['last_day' => '2026-10-31']);
+        $new = TsaShift::create(['tsa_key' => 'Newbie', 'display_name' => 'New Joiner', 'team' => 'SH Naturals', 'sort_order' => 99]);
+
+        $october = $this->get(route('tsa-management', ['month' => '2026-10']))->assertOk();
+        $october->assertSee('Removed · last day Oct 31, 2026')->assertDontSee('value="New Joiner"', false);
+
+        $november = $this->get(route('tsa-management', ['month' => '2026-11']))->assertOk();
+        $november->assertDontSee('Removed · last day')->assertSee('value="New Joiner"', false);
+        Carbon::setTestNow();
+    }
 }
