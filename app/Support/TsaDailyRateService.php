@@ -444,11 +444,10 @@ class TsaDailyRateService
         // wrong for any roster where a TSA's own id didn't coincidentally
         // match its position in the flattened result. `+` (array union)
         // keeps each sub-array's own keys intact instead.
-        // 2026-11-03: the whole department's tax ÷ every real TSA, no longer
-        // per shift ÷ that team's own TSAs.
-        $monthly = self::monthlyTaxPerTsa();
-
-        return self::allTsas()->groupBy('team')->reduce(function (array $carry, $teamTsas) use ($monthly) {
+        // From November, the whole department's tax ÷ every real TSA; earlier
+        // months keep per shift ÷ that team's own TSAs (see usesPerTsaTax()).
+        return self::allTsas()->groupBy('team')->reduce(function (array $carry, $teamTsas) {
+            $monthly = self::monthlyTaxForTeam($teamTsas);
 
             // A flagged TSA still gets a map ENTRY (every TSA id must be
             // present so callers elsewhere never fall back to a stale/
@@ -486,7 +485,28 @@ class TsaDailyRateService
             return 0.0;
         }
 
-        return self::monthlyTaxPerTsa() / 24;
+        return self::monthlyTaxForTeam(self::allTsas()->where('team', $tsa->team)) / 24;
+    }
+
+    /** From this month on (explicit request, 2026-11-03) tax is split across
+     *  every TSA. Earlier months keep the per-team split, so closed months
+     *  stay as they were reported (2026-11-06). */
+    public const PER_TSA_TAX_FROM = '2026-11';
+
+    public static function usesPerTsaTax(string $month): bool
+    {
+        return $month >= self::PER_TSA_TAX_FROM;
+    }
+
+    private static function monthlyTaxForTeam(\Illuminate\Support\Collection $teamTsas): float
+    {
+        if (self::usesPerTsaTax(substr(self::contextDate(), 0, 7))) {
+            return self::monthlyTaxPerTsa();
+        }
+
+        $count = $teamTsas->where('tiktok_upsell', false)->reject(fn (TsaShift $t) => self::hasNoSalary($t))->count();
+
+        return $count > 0 ? self::departmentTaxAllocationPerShift() / $count : 0.0;
     }
 
     /** Projections' Telesales Department Tax Allocation ÷ every TSA that

@@ -1149,4 +1149,12 @@ class CostBreakdownSmokeTest extends TestCase
         $october = CostBreakdownRole::where('month', '2026-10')->get();
         $this->assertEqualsWithDelta($executive / 12, CostBreakdownRole::overheadByRoleId($october)->get($october->firstWhere('seed_key', 'ceo')->id), 0.01);
     }
+
+    /** Closed months keep the per-team tax split (2026-11-06). */
+    public function test_tax_splits_per_team_before_november_and_per_tsa_from_november(): void
+    {
+        $this->assertFalse(\App\Support\TsaDailyRateService::usesPerTsaTax('2026-10'));
+        $this->assertTrue(\App\Support\TsaDailyRateService::usesPerTsaTax('2026-11'));
+        $this->assertTrue(\App\Support\TsaDailyRateService::usesPerTsaTax('2026-12'));
+    }
 }

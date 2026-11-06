@@ -490,11 +490,14 @@ class CostBreakdownController extends Controller
         // A TSA with 0 base salary takes no tax share either, so the
         // shift's tax is split only among TSAs with a salary (2026-10-23)
         // — same rule as TsaDailyRateService::taxAllocationByTsaId().
-        // 2026-11-03: department tax ÷ every such TSA, the same for every team.
+        // From November, department tax ÷ every such TSA, the same for every
+        // team; earlier months keep the shift's tax ÷ that team's own TSAs.
         $taxed = $tsas->where('tiktok_upsell', false)
             ->filter(fn ($t) => (float) ($entriesByTsaId->get($t->id)?->base_salary ?? 0) > 0);
         $perTsa = $taxed->count() > 0 ? TsaDailyRateService::departmentTaxAllocation() / $taxed->count() : 0.0;
-        $perTsaByTeam = $taxed->groupBy('team')->map(fn () => $perTsa)->all();
+        $perTsaByTeam = $taxed->groupBy('team')->map(fn ($teamTsas) => TsaDailyRateService::usesPerTsaTax($this->sessionMonth())
+            ? $perTsa
+            : $perShift / $teamTsas->count())->all();
 
         return ['perShift' => $perShift, 'perTsaByTeam' => $perTsaByTeam];
     }
