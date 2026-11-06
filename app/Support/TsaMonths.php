@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
 
 /** Shift per month (explicit request, 2026-11-03). Each month someone
  *  "added" on TSA Management owns its own copy of every TSA's team, shift
- *  hours, rest day and TikTok flag, so editing November never rewrites
+ *  hours, rest day, TikTok flag and report eye, so editing November never rewrites
  *  October's reports. Same month rules as CostBreakdownMonths: a month with
  *  no set of its own uses the latest EARLIER month that has one, else the
  *  earliest month there is. Until the first month is added nothing changes
@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Schema;
  *  values); writes go through write(). */
 class TsaMonths
 {
-    public const FIELDS = ['team', 'shift_start', 'shift_end', 'rest_day_of_week', 'tiktok_upsell'];
+    public const FIELDS = ['team', 'shift_start', 'shift_end', 'rest_day_of_week', 'tiktok_upsell', 'is_hidden'];
 
     private static ?\WeakMap $tableExists = null;
 
@@ -160,6 +160,21 @@ class TsaMonths
         RequestMemo::flush();
     }
 
+    /** A new TSA wasn't working in the months already saved, so she stays off
+     *  those months' reports. Months with no set of their own follow these. */
+    public static function hideFromEarlierMonths(TsaShift $shift): void
+    {
+        foreach (self::existing() as $month) {
+            if ($month < self::current()) {
+                TsaMonthSetting::updateOrCreate(
+                    ['month' => $month, 'tsa_shift_id' => $shift->id],
+                    ['is_hidden' => true] + self::liveValues($shift)
+                );
+            }
+        }
+        RequestMemo::flush();
+    }
+
     /** False only before the migration has run (deploy order, or the
      *  partners database not migrated yet); a true result is cached per
      *  live connection. */
@@ -188,6 +203,7 @@ class TsaMonths
             'shift_end'        => $shift->getRawOriginal('shift_end'),
             'rest_day_of_week' => $shift->getRawOriginal('rest_day_of_week'),
             'tiktok_upsell'    => (bool) $shift->getRawOriginal('tiktok_upsell'),
+            'is_hidden'        => (bool) $shift->getRawOriginal('is_hidden'),
         ];
     }
 

@@ -185,6 +185,7 @@ class TsaManagementController extends Controller
         // permanently via ActivityLogger, so it should reflect the team's
         // real display name the same way every other team label in this
         // app does, not the fixed, never-renamed order_team value.
+        TsaMonths::hideFromEarlierMonths($tsaShift);
         $message = "Added \"{$data['display_name']}\" to " . Teams::nameForOrderTeam($data['team'], today()) . '.';
         ActivityLogger::log('tsa.created', $tsaShift, $message);
 
@@ -192,13 +193,18 @@ class TsaManagementController extends Controller
     }
 
     /** Eye toggle (explicit request, 2026-10-15) — hides/shows this TSA's
-     *  ROW on every report page. Display only: her orders still count in
-     *  every total, and lead assignment/login are unchanged. */
-    public function toggleHidden(TsaShift $tsaShift)
+     *  ROW on report pages for the month being viewed, so hiding her in
+     *  November leaves October alone. Display only: her orders still count
+     *  in every total, and lead assignment/login are unchanged. */
+    public function toggleHidden(Request $request, TsaShift $tsaShift)
     {
-        $tsaShift->update(['is_hidden' => !$tsaShift->is_hidden]);
+        $month = $this->shiftMonth($request->input('shift_month'));
+        TsaMonths::view($month);
+        $shift = TsaShift::withTrashed()->findOrFail($tsaShift->id);
+        $hidden = !$shift->is_hidden;
+        TsaMonths::write($shift, ['is_hidden' => $hidden], $month);
 
-        return response()->json(['success' => true, 'hidden' => $tsaShift->is_hidden]);
+        return response()->json(['success' => true, 'hidden' => $hidden]);
     }
 
     public function update(Request $request, TsaShift $tsaShift)

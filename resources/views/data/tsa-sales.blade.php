@@ -127,6 +127,19 @@
         @include('data._date-range-filter', ['fromName' => 'date_from', 'toName' => 'date_to', 'fromValue' => $dateFrom, 'toValue' => $dateTo])
     </form>
     <div class="flex items-center gap-3">
+        @if($monthLock && auth()->user()->isAtLeastAdmin())
+        <form method="POST" action="{{ route($monthLock['lockedAt'] ? 'data.tsa-sales.unlock-month' : 'data.tsa-sales.lock-month') }}" class="flex items-center gap-2">
+            @csrf
+            @if($monthLock['lockedAt']) @method('DELETE') @endif
+            <input type="hidden" name="month" value="{{ $monthLock['month'] }}">
+            @if($monthLock['lockedAt'])
+            <span class="text-[11px] font-mono text-ink-muted dark:text-slate-400">{{ $monthLock['label'] }} locked {{ $monthLock['lockedAt'] }}{{ $monthLock['lockedBy'] ? ' by ' . $monthLock['lockedBy'] : '' }}</span>
+            @endif
+            <button type="submit" class="px-3 py-1.5 rounded-lg text-xs font-semibold font-mono border border-line dark:border-slate-700 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer">
+                {{ $monthLock['lockedAt'] ? 'Unlock' : 'Lock ' . $monthLock['label'] }}
+            </button>
+        </form>
+        @endif
         <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-mono text-ink-muted dark:text-slate-400">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l-5 5m0 0l5 5m-5-5h18m-5-9l5 5m0 0l-5 5"/></svg>
             Drag/scroll right to see more days

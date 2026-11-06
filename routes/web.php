@@ -497,6 +497,8 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
         // rather than an upsert-by-(product,date) pattern.
         Route::middleware('role:super_admin,admin')->group(function () {
             // TSD Overall Performance (2026-11-04): SH E-COM x Partners, TSD only.
+            Route::post('/tsa-sales-month-lock', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'lockMonth'])->name('tsa-sales.lock-month');
+            Route::delete('/tsa-sales-month-lock', [\App\Http\Controllers\DataManagement\TsaSalesReportController::class, 'unlockMonth'])->name('tsa-sales.unlock-month');
             Route::get('/overall/projections', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'projections'])->name('overall.projections');
             Route::get('/overall/sales-summary', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'salesSummary'])->name('overall.sales-summary');
             Route::patch('/overall/sales-summary/tsa-count', [\App\Http\Controllers\DataManagement\OverallPerformanceController::class, 'updateTsaCount'])->name('overall.sales-summary.tsa-count');

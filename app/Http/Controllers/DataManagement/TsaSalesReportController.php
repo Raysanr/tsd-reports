@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\Product;
 use App\Models\TsaSalesEntry;
 use App\Models\TsaSalesLockedDate;
+use App\Models\TsaSalesMonthLock;
 use App\Models\TsaShift;
 use App\Models\TsaTiktokEntry;
 use App\Support\ActivityLogger;
@@ -78,6 +79,9 @@ class TsaSalesReportController extends Controller
     /** Default shape for a TSA/date with no real orders at all — used
      *  anywhere $performanceByKey might miss a key. */
     private const VIP_EXCLUDED_TEAM = 'M&J';
+
+    /** The team card lines Sales Summary and this page read for a closed month. */
+    private const FROZEN_TEAM_FIELDS = ['gross_sales', 'income_before_opex', 'shared_income', 'net_income', 'number_of_orders', 'number_of_leads'];
 
     private const EMPTY_AUTO_FIELDS = [
         'total_orders' => 0, 'catered_leads' => 0, 'pickup_rate' => 0, 'upselling_rate' => 0,
@@ -307,6 +311,7 @@ class TsaSalesReportController extends Controller
         $emptyRaw = array_merge(['gross_sales' => 0, 'net_income' => 0, 'ads_spent' => 0], self::EMPTY_AUTO_FIELDS);
 
         $products = Product::orderBy('sort_order')->get();
+        $frozenLeads = TsaSalesMonthLock::overlay(collect(), 'leads', $dateFrom, $dateTo);
         $days = [];
         $teams = [];
         foreach ($data['dateChunks']->flatten() as $date) {
@@ -342,7 +347,7 @@ class TsaSalesReportController extends Controller
                     'net_income'         => (float) ($card['net_income'] ?? 0),
                     'total_orders'       => (float) ($card['number_of_orders'] ?? 0),
                     'total_leads'        => (float) ($card['number_of_leads'] ?? 0),
-                ] + self::leadBreakdown($group['orderTeam'], $date, $products) + [
+                ] + ($frozenLeads->get($group['orderTeam'] . ':' . $dateStr) ?? self::leadBreakdown($group['orderTeam'], $date, $products)) + [
                     'call_counts'        => self::callCounts($rows),
                 ];
             }
@@ -467,6 +472,8 @@ class TsaSalesReportController extends Controller
             }
         }
 
+        $dailyByKey = TsaSalesMonthLock::overlay($dailyByKey, 'daily', $dateFrom, $dateTo);
+
         // Real team-level pooled Net Income per date, keyed "orderTeam:date"
         // — the exact figure Expected Income's own "TELESALES" card shows
         // for one real team (ExpectedIncomeController::
@@ -480,6 +487,7 @@ class TsaSalesReportController extends Controller
             $dateFrom, $dateTo,
             $leadCountsAndGrossSales['leadCounts'], $leadCountsAndGrossSales['grossSalesAndOrders']
         );
+        $teamTotalsByDate = TsaSalesMonthLock::overlay($teamTotalsByDate, 'teams', $dateFrom, $dateTo);
         $teamNetIncomeByDate = $teamTotalsByDate->map(fn (array $totals) => $totals['net_income']);
 
         // One row per TSA, summed across the whole selected range,
@@ -573,6 +581,7 @@ class TsaSalesReportController extends Controller
             }
         }
 
+        $tiktokDailyByKey = TsaSalesMonthLock::overlay($tiktokDailyByKey, 'tiktok', $dateFrom, $dateTo);
         $tiktokRowSummaries = $tiktokTsas->map(function (TsaShift $tsa) use ($dates, $tiktokDailyByKey) {
             $tsaRows = $dates->map(fn ($date) => $tiktokDailyByKey->get($tsa->id . ':' . $date->toDateString()))->all();
             return ['tsa' => $tsa, 'derived' => TsaSalesCalculator::sum($tsaRows)];
@@ -656,6 +665,7 @@ class TsaSalesReportController extends Controller
             // this page has hit before — see ExpectedIncomeController::
             // teamNetIncomeByDate()'s own doc comment for the full story.
             'teamNetIncomeByDate' => $teamNetIncomeByDate,
+            'monthLock'           => $this->monthLockState($dateFrom),
             'teamTotalsByDate'    => $teamTotalsByDate,
         ];
     }
@@ -687,7 +697,7 @@ class TsaSalesReportController extends Controller
         // locked date refuses a direct PATCH too (explicit request,
         // 2026-10-07 — same guard DsPprReportController::update() already
         // has).
-        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists() || TsaSalesMonthLock::isLocked($entryDate)) {
             return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
         }
 
@@ -733,7 +743,7 @@ class TsaSalesReportController extends Controller
 
         $entryDate = Carbon::parse($date)->toDateString();
 
-        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists()) {
+        if (TsaSalesLockedDate::whereDate('entry_date', $entryDate)->exists() || TsaSalesMonthLock::isLocked($entryDate)) {
             return response()->json(['success' => false, 'message' => 'This date is locked.'], 422);
         }
 
@@ -780,10 +790,79 @@ class TsaSalesReportController extends Controller
      *  7-day chunk that date happens to render in. See
      *  TsaSalesLockedDate's own doc comment for why existence of a row is
      *  the flag. */
+    /** Saves a finished month's figures as they stand now and freezes it. */
+    public function lockMonth(Request $request)
+    {
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m']]);
+        $month = $data['month'];
+        abort_if($month >= now('Asia/Manila')->format('Y-m'), 422, 'Only a finished month can be locked.');
+        if (TsaSalesMonthLock::where('month', $month)->exists()) {
+            return back();
+        }
+
+        set_time_limit(180);
+        $start = Carbon::createFromFormat('Y-m-d', "{$month}-01");
+        [$dateFrom, $dateTo] = [$start->toDateString(), $start->copy()->endOfMonth()->toDateString()];
+        $report = $this->buildReportData($dateFrom, $dateTo);
+        $products = Product::orderBy('sort_order')->get();
+
+        $leads = [];
+        foreach ($report['groupSummaries'] as $group) {
+            foreach ($report['dateChunks']->flatten() as $date) {
+                $leads[$group['orderTeam'] . ':' . $date->toDateString()] = self::leadBreakdown($group['orderTeam'], $date, $products);
+            }
+        }
+
+        TsaSalesMonthLock::create([
+            'month'     => $month,
+            'locked_by' => $request->user()->name,
+            'snapshot'  => [
+                'daily'  => $report['dailyByKey']->all(),
+                'tiktok' => $report['tiktokDailyByKey']->all(),
+                'teams'  => $report['teamTotalsByDate']->map(fn (array $card) => collect($card)->only(self::FROZEN_TEAM_FIELDS)->all())->all(),
+                'leads'  => $leads,
+            ],
+        ]);
+        ActivityLogger::log('tsa_sales.month_locked', null, "Locked {$start->format('F Y')}'s Summary Sales Report figures.");
+
+        return back()->with('success', "{$start->format('F Y')} is locked. Its figures won't change.");
+    }
+
+    public function unlockMonth(Request $request)
+    {
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m']]);
+        TsaSalesMonthLock::where('month', $data['month'])->delete();
+        $label = Carbon::createFromFormat('Y-m-d', "{$data['month']}-01")->format('F Y');
+        ActivityLogger::log('tsa_sales.month_unlocked', null, "Unlocked {$label}'s Summary Sales Report figures.");
+
+        return back()->with('success', "{$label} is unlocked. Its figures will recalculate.");
+    }
+
+    /** What the page's month lock control shows for a range; null for the
+     *  current or a future month, which can't be locked yet. */
+    private function monthLockState(string $dateFrom): ?array
+    {
+        $month = substr($dateFrom, 0, 7);
+        if ($month >= now('Asia/Manila')->format('Y-m')) {
+            return null;
+        }
+        $lock = TsaSalesMonthLock::where('month', $month)->first();
+
+        return [
+            'month'    => $month,
+            'label'    => Carbon::createFromFormat('Y-m-d', "{$month}-01")->format('F Y'),
+            'lockedAt' => $lock?->created_at?->timezone('Asia/Manila')->format('M j, Y'),
+            'lockedBy' => $lock?->locked_by,
+        ];
+    }
+
     public function toggleLock(Request $request, string $date)
     {
         $locked = $request->boolean('locked');
         $entryDate = Carbon::parse($date)->toDateString();
+        if (TsaSalesMonthLock::isLocked($entryDate)) {
+            return response()->json(['success' => false, 'message' => 'This month is locked.'], 422);
+        }
 
         if ($locked) {
             TsaSalesLockedDate::firstOrCreate(['entry_date' => $entryDate]);

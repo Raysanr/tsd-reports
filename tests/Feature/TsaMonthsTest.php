@@ -129,4 +129,63 @@ class TsaMonthsTest extends TestCase
         $this->asReportOn('2026-11-15');
         $this->assertSame($other, $this->gemma()->team);
     }
+
+    public function test_hiding_a_tsa_in_one_month_leaves_the_other_months_alone(): void
+    {
+        $this->actingAs(\App\Models\User::factory()->create(['role' => 'super_admin', 'is_active' => true]));
+        \Illuminate\Support\Carbon::setTestNow('2026-11-10 09:00:00');
+        TsaMonths::create('2026-11');
+        $gemma = $this->gemma();
+
+        $this->postJson(route('tsa-management.toggle-hidden', ['tsaShift' => $gemma, 'shift_month' => '2026-11']))
+            ->assertOk()->assertJson(['hidden' => true]);
+
+        $hiddenIn = fn (string $month) => (bool) \App\Models\TsaMonthSetting::where('month', $month)->where('tsa_shift_id', $gemma->id)->value('is_hidden');
+        $this->assertTrue($hiddenIn('2026-11'));
+        $this->assertFalse($hiddenIn('2026-10'));
+
+        TsaMonths::view('2026-10');
+        $this->assertFalse(\App\Models\TsaShift::find($gemma->id)->is_hidden);
+        TsaMonths::view('2026-11');
+        $this->assertTrue(\App\Models\TsaShift::find($gemma->id)->is_hidden);
+        \Illuminate\Support\Carbon::setTestNow();
+    }
+
+    public function test_a_new_tsa_stays_off_earlier_months_reports(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-11-10 09:00:00');
+        TsaMonths::create('2026-11');
+        $new = \App\Models\TsaShift::create(['tsa_key' => 'newbie', 'display_name' => 'Aguinaldo', 'team' => 'SH Naturals', 'sort_order' => 99]);
+
+        TsaMonths::hideFromEarlierMonths($new);
+
+        \App\Models\TsaShift::showDeletedFrom('2026-10-01');
+        $this->assertTrue(\App\Models\TsaShift::find($new->id)->is_hidden);
+        \App\Models\TsaShift::showDeletedFrom('2026-11-01');
+        $this->assertFalse(\App\Models\TsaShift::find($new->id)->is_hidden);
+        \Illuminate\Support\Carbon::setTestNow();
+    }
+
+    public function test_october_roster_restore_uses_the_old_teams_and_hides_everyone_else(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-11-10 09:00:00');
+        TsaMonths::create('2026-11');
+        $make = fn (string $name, string $team) => \App\Models\TsaShift::create(['tsa_key' => strtolower(strtok($name, ' ')) . 'x', 'display_name' => $name, 'team' => $team, 'sort_order' => 90]);
+        $grace = $make('GRACE OLIVO', 'SH Naturals');
+        $newbie = $make('Aguinaldo', 'SH Naturals');
+        $gemma = $this->gemma();
+        \App\Models\TsaMonthSetting::where('tsa_shift_id', $gemma->id)->update(['team' => 'SH Naturals']);
+
+        (require database_path('migrations/2026_11_06_000002_restore_october_2026_tsa_roster.php'))->up();
+
+        $october = fn ($tsa) => \App\Models\TsaMonthSetting::where('month', '2026-10')->where('tsa_shift_id', $tsa->id)->first();
+        $this->assertSame('Eyecare Team', $october($gemma)->team);
+        $this->assertFalse($october($gemma)->is_hidden);
+        $this->assertSame('Eyecare Team', $october($grace)->team);
+        $this->assertTrue($october($grace)->is_hidden);
+        $this->assertSame('SH Naturals', $october($newbie)->team);
+        $this->assertTrue($october($newbie)->is_hidden);
+        $this->assertSame('SH Naturals', \App\Models\TsaMonthSetting::where('month', '2026-11')->where('tsa_shift_id', $gemma->id)->value('team'));
+        \Illuminate\Support\Carbon::setTestNow();
+    }
 }
