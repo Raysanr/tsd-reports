@@ -241,8 +241,8 @@ class TsaManagementController extends Controller
     {
         $data = $request->validate(['last_day' => ['nullable', 'date', 'before_or_equal:today']]);
         $name = $tsaShift->display_name;
-        $lastDay = \Illuminate\Support\Carbon::parse($data['last_day'] ?? today())->toDateString();
-        $tsaShift->forceFill(['last_day' => $lastDay])->save();
+        $lastDay = $tsaShift->lastDayForRemoval($data['last_day'] ?? null);
+        $tsaShift->forceFill(['last_day' => $lastDay, 'previous_last_day' => null])->save();
         $tsaShift->delete();
 
         $message = "Removed \"{$name}\" from the roster (last working day " . \Illuminate\Support\Carbon::parse($lastDay)->format('M j, Y') . ').';
@@ -257,8 +257,9 @@ class TsaManagementController extends Controller
     public function restore(Request $request, int $id)
     {
         $tsaShift = TsaShift::onlyTrashed()->findOrFail($id);
+        $previous = $tsaShift->lastWorkingDay();
         $tsaShift->restore();
-        $tsaShift->forceFill(['last_day' => null])->save();
+        $tsaShift->forceFill(['last_day' => null, 'previous_last_day' => $previous])->save();
 
         $message = "Restored \"{$tsaShift->display_name}\".";
         ActivityLogger::log('tsa.restored', $tsaShift, $message);
@@ -331,7 +332,9 @@ class TsaManagementController extends Controller
                 $message = "Moved {$count} {$noun} to {$teamName}.";
                 break;
             case 'delete':
-                TsaShift::whereIn('id', $data['ids'])->update(['last_day' => today()->toDateString()]);
+                foreach (TsaShift::whereIn('id', $data['ids'])->get() as $shift) {
+                    $shift->forceFill(['last_day' => $shift->lastDayForRemoval(null), 'previous_last_day' => null])->save();
+                }
                 TsaShift::whereIn('id', $data['ids'])->delete();
                 $message = "Removed {$count} {$noun}.";
                 break;

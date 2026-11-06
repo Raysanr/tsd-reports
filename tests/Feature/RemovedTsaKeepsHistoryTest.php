@@ -136,4 +136,36 @@ class RemovedTsaKeepsHistoryTest extends TestCase
         $this->assertNull(TsaShift::rosterFrom());
         $this->assertNull(TsaShift::find($gemma->id));
     }
+
+    private function restoreAndRemoveGemma(array $removal = []): TsaShift
+    {
+        $gemma = TsaShift::where('tsa_key', 'Gemma')->firstOrFail();
+        $this->actingAs(User::factory()->create(['role' => 'admin']));
+        Carbon::setTestNow('2026-09-29 20:00:00');
+        $this->delete(route('tsa-management.destroy', $gemma), ['last_day' => '2026-09-29']);
+        Carbon::setTestNow('2026-11-02 21:00:00');
+        $this->post(route('tsa-management.restore', $gemma->id));
+        Carbon::setTestNow('2026-11-02 21:45:00');
+        $this->delete(route('tsa-management.destroy', $gemma), $removal + ['last_day' => '2026-11-02']);
+
+        return TsaShift::withTrashed()->find($gemma->id);
+    }
+
+    /** Hannah, 2026-11-02: restored and removed again without working. */
+    public function test_restoring_and_removing_keeps_her_earlier_last_day(): void
+    {
+        $this->assertSame('2026-09-29', $this->restoreAndRemoveGemma()->last_day->toDateString());
+    }
+
+    public function test_a_date_picked_on_purpose_is_kept(): void
+    {
+        $this->assertSame('2026-10-15', $this->restoreAndRemoveGemma(['last_day' => '2026-10-15'])->last_day->toDateString());
+    }
+
+    public function test_she_gets_the_new_date_if_she_really_came_back(): void
+    {
+        \App\Models\Order::create(['pancake_order_id' => 'back', 'team' => 'SH Naturals', 'tsa_name' => 'Gemma', 'status_code' => 1, 'pancake_created_at' => '2026-10-20 10:00:00', 'synced_at' => now()]);
+
+        $this->assertSame('2026-11-02', $this->restoreAndRemoveGemma()->last_day->toDateString());
+    }
 }

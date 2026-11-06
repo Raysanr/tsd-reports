@@ -67,6 +67,29 @@ class TsaShift extends Model
         return app()->bound('request') ? app('request')->attributes->get('tsa_roster_from') : null;
     }
 
+    /** The last working day to save when removing her. Restoring and removing
+     *  someone who never came back must not move her date to today, or she
+     *  rejoins months she never worked (2026-11-06: Hannah left Sep 29, a
+     *  restore and removal on Nov 2 put her back in October's costs). So her
+     *  earlier date stands if nothing was sold since it, unless a different
+     *  date was picked on purpose. */
+    public function lastDayForRemoval(?string $chosen): string
+    {
+        $today = today()->toDateString();
+        $chosen = $chosen ? \Illuminate\Support\Carbon::parse($chosen)->toDateString() : $today;
+        $previous = $this->previous_last_day?->toDateString();
+
+        if ($previous === null || $chosen !== $today) {
+            return $chosen;
+        }
+
+        $workedSince = Order::where('tsa_name', $this->tsa_key)
+            ->whereRaw('DATE(COALESCE(pancake_inserted_at, pancake_created_at)) > ?', [$previous])
+            ->exists();
+
+        return $workedSince ? $chosen : $previous;
+    }
+
     /** The day a removed TSA last appears on reports: her last_day, or her
      *  removal date when none was set. */
     public function lastWorkingDay(): ?\Illuminate\Support\Carbon
@@ -106,6 +129,7 @@ class TsaShift extends Model
         'last_day' => 'date',
         'active' => 'boolean',
         'is_hidden' => 'boolean',
+        'previous_last_day' => 'date',
         'status_changed_at' => 'datetime',
         'tiktok_upsell' => 'boolean',
         'sms_enabled' => 'boolean',
