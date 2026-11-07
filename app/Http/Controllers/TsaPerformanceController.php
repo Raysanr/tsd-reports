@@ -517,6 +517,16 @@ class TsaPerformanceController extends Controller
         // per-team view does, so a plain exclusion here is correct.
         $products = Product::where('is_hidden', false)->orderBy('sort_order')->get();
 
+        // Per-product summary for the whole range (explicit request,
+        // 2026-11-07): each product's leads, how many this TSA catered, and
+        // the same three rates as the hourly table — same product matching
+        // as Leads Report. Only products this TSA had leads for.
+        $productSummaryRows = $products
+            ->map(fn ($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders, $products)])
+            ->filter(fn ($entry) => $entry['row']['total'] > 0)
+            ->values();
+        $productSummaryTotal = ProductPerformance::sumRows($productSummaryRows->pluck('row'));
+
         // Real per-hour call-duration totals synced from Google Drive (see
         // SyncCallRecordings) — keyed by hour-of-day the same way $ordersByHour is,
         // so a multi-day range sums same-hour recordings across every day in it,
@@ -669,6 +679,8 @@ class TsaPerformanceController extends Controller
             'dateTo'            => $dateTo,
             'products'          => $products,
             'productHourlyRows' => $productHourlyRows,
+            'productSummaryRows' => $productSummaryRows,
+            'productSummaryTotal' => $productSummaryTotal,
             'productTotals'     => $productTotals,
             'productAmountTotals' => $productAmountTotals,
             'grandRowTotal'     => $grandRowTotal,

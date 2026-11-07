@@ -202,6 +202,63 @@
 </div>
 @endif
 
+{{-- PER-PRODUCT SUMMARY (2026-11-07): each product's leads for this TSA over
+     the range, how many she catered, and the same three rates as above. --}}
+@php
+    $fmtRate = fn ($v) => $v === null ? '—' : rtrim(rtrim(number_format($v, 1), '0'), '.') . '%';
+@endphp
+<div class="mt-6">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-3">Per-Product Summary</h2>
+    @if($productSummaryRows->isEmpty())
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm py-10 text-center">
+        <p class="text-sm font-mono text-slate-400">No product leads for {{ $rangeLabel }}</p>
+    </div>
+    @else
+    <div class="overflow-x-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <table class="w-full border-collapse text-xs font-mono" style="min-width:720px">
+            <thead>
+                <tr>
+                    <th class="bg-yellow-50 dark:bg-yellow-950 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Product</th>
+                    <th class="bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Total Leads</th>
+                    <th class="bg-emerald-50 dark:bg-emerald-950/60 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">Catered Leads</th>
+                    <th class="bg-blue-50 dark:bg-blue-950/60 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-wide">Pick-up Rate</th>
+                    <th class="bg-orange-50 dark:bg-orange-950/60 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-orange-800 dark:text-orange-300 uppercase tracking-wide">Conversion Rate</th>
+                    <th class="bg-violet-50 dark:bg-violet-950/60 border border-slate-300 dark:border-slate-600 px-3 py-2.5 text-center text-[11px] font-bold text-violet-800 dark:text-violet-300 uppercase tracking-wide">Upselling Rate</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($productSummaryRows as $entry)
+                @php
+                    $r = $entry['row'];
+                    $productIndex = $products->search(fn ($p) => $p->id === $entry['product']->id) + 1;
+                @endphp
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200">
+                        <span data-product-name data-product-real="{{ $entry['product']->display_name }}" data-product-index="{{ $productIndex }}">{{ $entry['product']->display_name }}</span>
+                    </td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ number_format($r['total']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400 font-semibold">{{ number_format($r['catered']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-blue-700 dark:text-blue-400">{{ $fmtRate($r['pick_up_rate']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">{{ $fmtRate($r['conversion_rate']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-violet-700 dark:text-violet-400">{{ $fmtRate($r['upselling_rate']) }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr class="bg-slate-900 text-white font-bold">
+                    <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ number_format($productSummaryTotal['total']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ number_format($productSummaryTotal['catered']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['pick_up_rate']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['conversion_rate']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['upselling_rate']) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    @endif
+</div>
+
 {{-- PER-PRODUCT HOURLY BREAKDOWN — one column per this team's product, matching
      the source sheet's layout: how many of this TSA's leads that hour were each
      product. Uses the same ProductPerformance product-tag matching as Team
