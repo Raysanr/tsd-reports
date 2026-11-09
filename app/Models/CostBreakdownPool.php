@@ -11,6 +11,8 @@ use Illuminate\Database\Eloquent\Model;
  *  CostBreakdownCalculator, not stored per-TSA. */
 class CostBreakdownPool extends Model
 {
+    use \App\Models\Concerns\HasCostBreakdownVariant;
+
     /** A row created without an explicit month belongs to the current
      *  month (monthly Cost Breakdown, 2026-10-15). */
     protected static function booted(): void
@@ -20,7 +22,7 @@ class CostBreakdownPool extends Model
         });
     }
 
-    protected $fillable = ['month', 'key', 'label', 'amount', 'sort_order'];
+    protected $fillable = ['month', 'variant', 'key', 'label', 'amount', 'sort_order'];
 
     protected $casts = [
         'amount' => 'float',

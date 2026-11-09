@@ -31,8 +31,17 @@ class DataManagementDataset
         } else {
             DataSet::reset();
         }
+        // Actual Cost Breakdown's own rows (2026-11-09) — set before
+        // route-model binding, like the data set above.
+        \App\Support\CostBreakdownVariant::set($request->routeIs('data.actual-cost-breakdown*')
+            ? \App\Support\CostBreakdownVariant::ACTUAL
+            : \App\Support\CostBreakdownVariant::BUDGET);
 
-        $response = $next($request);
+        try {
+            $response = $next($request);
+        } finally {
+            \App\Support\CostBreakdownVariant::reset();
+        }
 
         if ($request->isMethod('GET')
             && $request->header('Sec-Fetch-Dest') === 'document'

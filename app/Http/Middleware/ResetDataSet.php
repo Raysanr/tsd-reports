@@ -13,6 +13,7 @@ class ResetDataSet
     public function handle(Request $request, Closure $next): Response
     {
         DataSet::reset();
+        \App\Support\CostBreakdownVariant::reset();
 
         return $next($request);
     }

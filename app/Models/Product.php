@@ -40,7 +40,7 @@ class Product extends Model
         $wanted = substr(\App\Support\TsaDailyRateService::contextDate(), 0, 7);
         $earlier = array_filter($months, fn ($m) => $m <= $wanted);
         $month = $earlier !== [] ? max($earlier) : min($months);
-        $flags = \App\Support\RequestMemo::remember('cost_breakdown.product_flags.' . $month,
+        $flags = \App\Support\RequestMemo::remember('cost_breakdown.product_flags.' . \App\Support\CostBreakdownVariant::current() . '.' . $month,
             fn () => CostBreakdownProductFlag::where('month', $month)->pluck('has_cost_allocation', 'product_id'));
 
         return $flags->has($this->id) ? (bool) $flags[$this->id] : (bool) $value;

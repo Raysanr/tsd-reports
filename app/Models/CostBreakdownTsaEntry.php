@@ -19,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *  combined overhead figure to her own base). */
 class CostBreakdownTsaEntry extends Model
 {
+    use \App\Models\Concerns\HasCostBreakdownVariant;
+
     /** A row created without an explicit month belongs to the current
      *  month (monthly Cost Breakdown, 2026-10-15). */
     protected static function booted(): void
@@ -28,7 +30,7 @@ class CostBreakdownTsaEntry extends Model
         });
     }
 
-    protected $fillable = ['month', 'tsa_id', 'base_salary', 'days'];
+    protected $fillable = ['month', 'variant', 'tsa_id', 'base_salary', 'days'];
 
     protected $casts = [
         'base_salary' => 'float',

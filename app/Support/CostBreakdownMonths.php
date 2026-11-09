@@ -31,7 +31,7 @@ class CostBreakdownMonths
     public static function existing(): array
     {
         // Roles too, not just pools: Partners Data Management has no pools.
-        return RequestMemo::remember('cost_breakdown.months', fn () => CostBreakdownPool::query()->distinct()->pluck('month')
+        return RequestMemo::remember('cost_breakdown.months.' . CostBreakdownVariant::current(), fn () => CostBreakdownPool::query()->distinct()->pluck('month')
             ->merge(CostBreakdownRole::withTrashed()->distinct()->pluck('month'))->unique()->sort()->values()->all());
     }
 
@@ -63,6 +63,13 @@ class CostBreakdownMonths
     /** Fresh default seed for one month (empty install / tests). */
     public static function seed(string $month): void
     {
+        // Actual Cost Breakdown's first month starts as a copy of the
+        // budget Cost Breakdown that month uses (2026-11-09), so the user
+        // only corrects what really differs.
+        if (CostBreakdownVariant::isActual() && self::copyFromBudget($month)) {
+            RequestMemo::flush();
+            return;
+        }
         CostBreakdownRole::ensureSeeded($month);
         CostBreakdownPool::ensureSeeded($month);
         CostBreakdownTsaEntry::ensureSeeded($month);
@@ -95,9 +102,39 @@ class CostBreakdownMonths
         RequestMemo::flush();
     }
 
+    /** Copies the budget rows $month falls back to into the actual
+     *  variant as $month. False when there is no budget Cost Breakdown. */
+    private static function copyFromBudget(string $month): bool
+    {
+        $source = CostBreakdownVariant::using(CostBreakdownVariant::BUDGET, function () {
+            $months = self::existing();
+            return $months === [] ? null : max(array_filter($months, fn ($m) => $m <= self::current()) ?: [min($months)]);
+        });
+        if ($source === null) {
+            return false;
+        }
+
+        DB::transaction(function () use ($source, $month) {
+            foreach ([CostBreakdownRole::class, CostBreakdownPool::class, CostBreakdownTsaEntry::class, \App\Models\CostBreakdownProductFlag::class] as $model) {
+                $rows = CostBreakdownVariant::using(CostBreakdownVariant::BUDGET, function () use ($model, $source) {
+                    $query = $model === CostBreakdownRole::class ? CostBreakdownRole::withTrashed() : $model::query();
+                    return $query->where('month', $source)->get();
+                });
+                foreach ($rows as $row) {
+                    $copy = $row->replicate();
+                    $copy->month = $month;
+                    $copy->variant = CostBreakdownVariant::ACTUAL;
+                    $copy->save();
+                }
+            }
+        });
+
+        return true;
+    }
+
     public static function lockKey(string $table, string $month): string
     {
-        return "cost_breakdown_lock_{$table}_{$month}";
+        return CostBreakdownVariant::slug() . "_lock_{$table}_{$month}";
     }
 
     public static function isLocked(string $table, string $month): bool

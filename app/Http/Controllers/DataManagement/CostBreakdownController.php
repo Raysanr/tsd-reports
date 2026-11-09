@@ -12,6 +12,7 @@ use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\ActivityLogger;
 use App\Support\CostBreakdownCalculator;
+use App\Support\CostBreakdownVariant;
 use App\Support\ProductGrouping;
 use App\Support\TsaDailyRateService;
 use Illuminate\Http\Request;
@@ -339,9 +340,9 @@ class CostBreakdownController extends Controller
     {
         $month = $request->input('month');
         if ($month !== null && CostBreakdownMonths::isValid($month)) {
-            session(['cost_breakdown.month' => $month]);
+            session([CostBreakdownVariant::slug() . '.month' => $month]);
         } else {
-            $month = session('cost_breakdown.month', CostBreakdownMonths::current());
+            $month = session(CostBreakdownVariant::slug() . '.month', CostBreakdownMonths::current());
         }
 
         return CostBreakdownMonths::isValid($month) ? $month : CostBreakdownMonths::current();
@@ -350,7 +351,7 @@ class CostBreakdownController extends Controller
     /** The month the page's AJAX saves belong to (they carry no ?month=). */
     private function sessionMonth(): string
     {
-        $month = session('cost_breakdown.month', CostBreakdownMonths::current());
+        $month = session(CostBreakdownVariant::slug() . '.month', CostBreakdownMonths::current());
 
         return CostBreakdownMonths::isValid($month) ? $month : CostBreakdownMonths::current();
     }
@@ -372,7 +373,7 @@ class CostBreakdownController extends Controller
     private function ensureEditableMonth(string $month): void
     {
         CostBreakdownMonths::effective($month); // seeds the current month on an empty install
-        abort_unless(CostBreakdownMonths::exists($month), 422, 'Add a Cost Breakdown for this month first.');
+        abort_unless(CostBreakdownMonths::exists($month), 422, 'Add a ' . CostBreakdownVariant::label() . ' for this month first.');
     }
 
     /** "Add Cost Breakdown" — copies the month it currently falls back to
@@ -384,10 +385,10 @@ class CostBreakdownController extends Controller
         CostBreakdownMonths::create($data['month']);
         if (!$existed) {
             $label = \Illuminate\Support\Carbon::createFromFormat('Y-m', $data['month'])->format('F Y');
-            ActivityLogger::log('cost_breakdown.month_added', null, "Added the Cost Breakdown for {$label}.");
+            ActivityLogger::log(CostBreakdownVariant::slug() . '.month_added', null, 'Added the ' . CostBreakdownVariant::label() . " for {$label}.");
         }
 
-        return redirect()->route('data.cost-breakdown', ['month' => $data['month']]);
+        return redirect()->route(CostBreakdownVariant::routeName(), ['month' => $data['month']]);
     }
 
     /** Current locked/unlocked state of all 3 tables, keyed by the same
@@ -420,7 +421,7 @@ class CostBreakdownController extends Controller
         $this->ensureEditableMonth($month);
         $locked = $request->boolean('locked');
         Setting::set(CostBreakdownMonths::lockKey($table, $month), $locked ? '1' : '');
-        ActivityLogger::log($locked ? 'cost_breakdown.table_locked' : 'cost_breakdown.table_unlocked', null, ($locked ? 'Locked' : 'Unlocked') . " the \"{$table}\" table.");
+        ActivityLogger::log(CostBreakdownVariant::slug() . ($locked ? '.table_locked' : '.table_unlocked'), null, ($locked ? 'Locked' : 'Unlocked') . " the \"{$table}\" table.");
 
         return response()->json([
             'success' => true,
@@ -552,7 +553,7 @@ class CostBreakdownController extends Controller
         foreach ($data as $field => $newValue) {
             if ((string) ($old[$field] ?? '') === (string) $newValue) continue;
             $formatter = $field === 'base_salary' ? fn ($v) => number_format((float) $v, 2) : null;
-            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $costBreakdownRole, $field, $old[$field], $newValue, $costBreakdownRole->label, $formatter);
+            ActivityLogger::logFieldUpdate(CostBreakdownVariant::slug() . '.field_updated', $costBreakdownRole, $field, $old[$field], $newValue, $costBreakdownRole->label, $formatter);
         }
 
         return response()->json([
@@ -634,7 +635,7 @@ class CostBreakdownController extends Controller
             'overhead_divisor' => $overheadGroup ? $data['overhead_divisor'] : null,
             'sort_order' => $insertAt,
         ]);
-        ActivityLogger::log('cost_breakdown.role_created', $role, "Added role \"{$data['label']}\" to the Salary Breakdown table.");
+        ActivityLogger::log(CostBreakdownVariant::slug() . '.role_created', $role, "Added role \"{$data['label']}\" to the Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
@@ -658,7 +659,7 @@ class CostBreakdownController extends Controller
         $label = $costBreakdownRole->label;
         $costBreakdownRole->delete();
         $monthLabel = \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y');
-        ActivityLogger::log('cost_breakdown.role_deleted', null, "Removed role \"{$label}\" from the {$monthLabel} Salary Breakdown table.");
+        ActivityLogger::log(CostBreakdownVariant::slug() . '.role_deleted', null, "Removed role \"{$label}\" from the {$monthLabel} Salary Breakdown table.");
 
         return response()->json([
             'success' => true,
@@ -721,7 +722,7 @@ class CostBreakdownController extends Controller
         $oldAmount = $costBreakdownPool->amount;
         $costBreakdownPool->update($data);
         if ((float) $oldAmount != (float) $data['amount']) {
-            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $costBreakdownPool, 'amount', $oldAmount, $data['amount'], $costBreakdownPool->label, fn ($v) => number_format((float) $v, 2));
+            ActivityLogger::logFieldUpdate(CostBreakdownVariant::slug() . '.field_updated', $costBreakdownPool, 'amount', $oldAmount, $data['amount'], $costBreakdownPool->label, fn ($v) => number_format((float) $v, 2));
         }
 
         // "Daily Cost per product"/"Daily Cost" mini-table — NOT scoped to
@@ -787,7 +788,7 @@ class CostBreakdownController extends Controller
         foreach ($data as $field => $newValue) {
             if ((float) ($old[$field] ?? 0) == (float) $newValue) continue;
             $formatter = $field === 'base_salary' ? fn ($v) => number_format((float) $v, 2) : null;
-            ActivityLogger::logFieldUpdate('cost_breakdown.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $tsaShift->display_name, $formatter);
+            ActivityLogger::logFieldUpdate(CostBreakdownVariant::slug() . '.field_updated', $entry, $field, $old[$field] ?? 0, $newValue, $tsaShift->display_name, $formatter);
         }
 
         $roles = CostBreakdownRole::where('month', $month)->get();
@@ -862,7 +863,7 @@ class CostBreakdownController extends Controller
         );
         \App\Support\RequestMemo::flush();
         if ((bool) $wasChecked !== (bool) $data['has_cost_allocation']) {
-            ActivityLogger::log('cost_breakdown.product_cost_allocation_toggled', $product, ($data['has_cost_allocation'] ? 'Checked' : 'Unchecked') . " \"{$product->display_name}\" in Cost Allocation Per TSA.");
+            ActivityLogger::log(CostBreakdownVariant::slug() . '.product_cost_allocation_toggled', $product, ($data['has_cost_allocation'] ? 'Checked' : 'Unchecked') . " \"{$product->display_name}\" in Cost Allocation Per TSA.");
         }
 
         return response()->json([

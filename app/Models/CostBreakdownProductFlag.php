@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Model;
  *  has_cost_allocation column. */
 class CostBreakdownProductFlag extends Model
 {
-    protected $fillable = ['month', 'product_id', 'has_cost_allocation'];
+    use \App\Models\Concerns\HasCostBreakdownVariant;
+
+    protected $fillable = ['month', 'variant', 'product_id', 'has_cost_allocation'];
 
     protected $casts = ['has_cost_allocation' => 'boolean'];
 }

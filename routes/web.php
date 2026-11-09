@@ -535,6 +535,22 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
             // CostBreakdownController::LOCK_TABLES, not a model binding.
             Route::patch('/cost-breakdown/lock/{table}', [\App\Http\Controllers\DataManagement\CostBreakdownController::class, 'toggleLock'])->name('cost-breakdown.toggle-lock');
 
+            // Actual Cost Breakdown (2026-11-09: "same as in the cost
+            // breakdown page") — the same controller and view on its own
+            // rows (CostBreakdownVariant::ACTUAL, picked by route name in
+            // DataManagementDataset). Feeds no other page.
+            Route::prefix('/actual-cost-breakdown')->name('actual-cost-breakdown')->controller(\App\Http\Controllers\DataManagement\CostBreakdownController::class)->group(function () {
+                Route::get('/', 'index');
+                Route::post('/months', 'storeMonth')->name('.months.store');
+                Route::post('/roles', 'storeRole')->name('.roles.store');
+                Route::delete('/roles/{costBreakdownRole}', 'destroyRole')->name('.roles.destroy');
+                Route::patch('/roles/{costBreakdownRole}', 'updateRole')->name('.update-role');
+                Route::patch('/pools/{costBreakdownPool}', 'updatePool')->name('.update-pool');
+                Route::patch('/tsa/{tsaShift}', 'updateTsaEntry')->name('.update-tsa-entry');
+                Route::patch('/products/{product}/has-cost-allocation', 'updateProductHasCostAllocation')->name('.update-product-has-cost-allocation');
+                Route::patch('/lock/{table}', 'toggleLock')->name('.toggle-lock');
+            });
+
             // Product Costs (explicit request, 2026-11-04): the sheet's
             // Variation id -> Product Costs list. Admin-only because it is
             // margin data, same reasoning as Cost Breakdown above.

@@ -13,6 +13,7 @@ class CostBreakdownRole extends Model
 {
     /** Removed from a month (2026-10-30) — see the deleted_at migration. */
     use SoftDeletes;
+    use \App\Models\Concerns\HasCostBreakdownVariant;
 
     /** A row created without an explicit month belongs to the current
      *  month (monthly Cost Breakdown, 2026-10-15). */
@@ -23,7 +24,7 @@ class CostBreakdownRole extends Model
         });
     }
 
-    protected $fillable = ['month', 'seed_key', 'label', 'person_name', 'team', 'base_salary', 'overhead_group', 'overhead_divisor', 'sort_order'];
+    protected $fillable = ['month', 'variant', 'seed_key', 'label', 'person_name', 'team', 'base_salary', 'overhead_group', 'overhead_divisor', 'sort_order'];
 
     protected $casts = [
         'base_salary' => 'float',

@@ -1,5 +1,5 @@
 @extends('layouts.data')
-@section('title', 'Cost Breakdown')
+@section('title', \App\Support\CostBreakdownVariant::label())
 @section('subtitle', 'Payroll and shared cost allocation — Days and % are the only editable table cells')
 
 @section('content')
@@ -30,6 +30,9 @@
 </style>
 
 @php
+    // Same view for Cost Breakdown and Actual Cost Breakdown (2026-11-09).
+    $cbRoute = \App\Support\CostBreakdownVariant::routeName();
+    $cbLabel = \App\Support\CostBreakdownVariant::label();
     $fmtMoney = fn ($n) => number_format((float) $n, 2);
     $fmtPct   = fn ($n) => number_format(((float) $n) * 100, 2) . '%';
 @endphp
@@ -44,28 +47,28 @@
     <button type="button" id="cbAddMonthBtn"
             class="inline-flex items-center gap-1.5 text-sm font-mono font-semibold px-3 py-2 rounded-lg border border-line dark:border-slate-600 bg-white dark:bg-slate-800 text-ink dark:text-slate-100 shadow-sm hover:border-primary/50 hover:text-primary transition-colors cursor-pointer">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-        Add Cost Breakdown
+        Add {{ $cbLabel }}
     </button>
 </div>
 
 @unless($hasOwnMonth)
 <div class="mb-6 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm font-mono text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3 flex-wrap" id="cbFallbackBanner">
-    <span><strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</strong> has no Cost Breakdown yet — showing <strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $dataMonth)->format('F Y') }}</strong>'s figures (read-only), which is what this month currently uses.</span>
-    <form method="POST" action="{{ route('data.cost-breakdown.months.store') }}">
+    <span><strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</strong> has no {{ $cbLabel }} yet — showing <strong>{{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $dataMonth)->format('F Y') }}</strong>'s figures (read-only), which is what this month currently uses.</span>
+    <form method="POST" action="{{ route($cbRoute . '.months.store') }}">
         @csrf
         <input type="hidden" name="month" value="{{ $month }}">
-        <button type="submit" class="text-sm px-3 py-1.5 rounded-lg bg-primary text-white font-semibold">Add Cost Breakdown for {{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</button>
+        <button type="submit" class="text-sm px-3 py-1.5 rounded-lg bg-primary text-white font-semibold">Add {{ $cbLabel }} for {{ \Illuminate\Support\Carbon::createFromFormat('Y-m', $month)->format('F Y') }}</button>
     </form>
 </div>
 @endunless
 
 <div id="cbAddMonthModal" hidden class="fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/50" data-close-cb-month-modal></div>
-    <form method="POST" action="{{ route('data.cost-breakdown.months.store') }}" id="cbAddMonthForm"
+    <form method="POST" action="{{ route($cbRoute . '.months.store') }}" id="cbAddMonthForm"
           class="relative bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-sm p-6 font-mono">
         @csrf
-        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add Cost Breakdown</h3>
-        <p class="text-xs text-ink-muted dark:text-slate-400 mb-4">Pick a month — a new month starts as a copy of the latest earlier month; one that already has a Cost Breakdown just opens it.</p>
+        <h3 class="text-sm font-bold uppercase tracking-wide text-ink dark:text-slate-100 mb-4">Add {{ $cbLabel }}</h3>
+        <p class="text-xs text-ink-muted dark:text-slate-400 mb-4">Pick a month — a new month starts as a copy of the latest earlier month; one that already has a {{ $cbLabel }} just opens it.</p>
         @include('data._month-picker', ['name' => 'month', 'value' => now('Asia/Manila')->format('Y-m'), 'navigate' => false])
         <div class="flex justify-end gap-2 pt-5">
             <button type="button" data-close-cb-month-modal class="text-sm px-4 py-2 rounded-lg border border-line dark:border-slate-600 text-ink dark:text-slate-100">Cancel</button>
@@ -176,7 +179,7 @@
                     @php $groupEndClass = $item['group_end'] ? 'border-b-8 border-slate-100 dark:border-slate-800' : ''; @endphp
                     @if($item['type'] === 'role')
                         @php $role = $item['role']; @endphp
-                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route('data.cost-breakdown.update-role', $role) }}">
+                        <tr class="hover:bg-slate-50 dark:hover:bg-slate-800/60" data-role-row data-role-id="{{ $role->id }}" data-action="{{ route($cbRoute . '.update-role', $role) }}">
                             {{-- Role/name editable (explicit request,
                                  2026-10-03: "i want to make it roles is
                                  editable like role and name") — same
@@ -278,7 +281,7 @@
                             $dailyRatePerProduct = $dailyRatePerProductByTsaId[$tsa->id] ?? 0.0;
                         @endphp
                         <tr class="odd:bg-emerald-50/40 dark:odd:bg-emerald-950/10 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                            data-tsa-salary-row data-tsa-id="{{ $tsa->id }}" data-action="{{ route('data.cost-breakdown.update-tsa-entry', $tsa) }}">
+                            data-tsa-salary-row data-tsa-id="{{ $tsa->id }}" data-action="{{ route($cbRoute . '.update-tsa-entry', $tsa) }}">
                             <td class="px-4 py-2 pl-8 font-semibold text-ink dark:text-slate-100 whitespace-nowrap {{ $groupEndClass }}">{{ $tsa->display_name }}</td>
                             @unless(\App\Support\DataSet::isPartners()) {{-- no TikTok in Partners Data Management --}}
                             <td class="px-4 py-2 text-center {{ $groupEndClass }}">
@@ -432,7 +435,7 @@
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line dark:bg-slate-700" id="cbPoolsGrid" data-locked="{{ $tableLocks['pools'] ? '1' : '0' }}">
             @foreach($pools as $pool)
-            <div class="bg-white dark:bg-slate-900 px-5 py-3 flex items-center justify-between gap-3" data-pool-row data-pool-key="{{ $pool->key }}" data-action="{{ route('data.cost-breakdown.update-pool', $pool) }}">
+            <div class="bg-white dark:bg-slate-900 px-5 py-3 flex items-center justify-between gap-3" data-pool-row data-pool-key="{{ $pool->key }}" data-action="{{ route($cbRoute . '.update-pool', $pool) }}">
                 <span class="text-xs font-mono text-ink-muted dark:text-slate-400 truncate">{{ $pool->label }}</span>
                 <input type="text" inputmode="decimal" value="{{ $fmtMoney($pool->amount) }}"
                        data-field="amount" data-money="1"
@@ -463,7 +466,7 @@
         </div>
         <div class="overflow-x-auto" id="cbTsaScroller">
             <table class="cb-table border-collapse text-[13px]" id="cbTsaTable" data-locked="{{ $tableLocks['tsa'] ? '1' : '0' }}"
-                   data-update-url-template="{{ route('data.cost-breakdown.update-tsa-entry', ['tsaShift' => '__TSA__']) }}">
+                   data-update-url-template="{{ route($cbRoute . '.update-tsa-entry', ['tsaShift' => '__TSA__']) }}">
                 <thead>
                     {{-- "Daily Cost per product" / "Daily Cost" mini-table
                          (explicit request, 2026-09-30, real sheet
@@ -530,7 +533,7 @@
                         <th class="text-right px-3 py-2.5 font-bold whitespace-nowrap bg-sky-100 dark:bg-sky-900">
                             <div class="flex items-center justify-end gap-1.5">
                                 <input type="checkbox" data-product-cost-toggle data-product-id="{{ $productModel->id }}"
-                                       data-action="{{ route('data.cost-breakdown.update-product-has-cost-allocation', $productModel) }}"
+                                       data-action="{{ route($cbRoute . '.update-product-has-cost-allocation', $productModel) }}"
                                        {{ $productModel->has_cost_allocation ? 'checked' : '' }}
                                        class="w-3.5 h-3.5 rounded border-slate-400 text-primary focus:ring-primary/40 cursor-pointer">
                                 <span>{{ strtoupper($product['label']) }}</span>
@@ -1060,7 +1063,7 @@
             body.set('overhead_divisor', addRoleForm.querySelector('[name="overhead_divisor"]:checked').value);
         }
 
-        fetch('{{ route('data.cost-breakdown.roles.store') }}', {
+        fetch('{{ route($cbRoute . '.roles.store') }}', {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
@@ -1084,7 +1087,7 @@
         if (!(await window.confirmDataModal(`Remove "${removeBtn.dataset.roleLabel}" from this month? Earlier months keep it.`))) return;
 
         const roleId = removeBtn.dataset.removeRole;
-        fetch(`{{ \App\Support\DataSet::url('cost-breakdown/roles') }}/${roleId}`, {
+        fetch(`{{ \App\Support\DataSet::url(\App\Support\CostBreakdownVariant::path() . '/roles') }}/${roleId}`, {
             method: 'DELETE',
             headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken },
         })
@@ -1162,7 +1165,7 @@
         const nowLocked = lockBtn.dataset.locked !== '1';
 
         lockBtn.disabled = true;
-        fetch(`{{ \App\Support\DataSet::url('cost-breakdown/lock') }}/${table}`, {
+        fetch(`{{ \App\Support\DataSet::url(\App\Support\CostBreakdownVariant::path() . '/lock') }}/${table}`, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
