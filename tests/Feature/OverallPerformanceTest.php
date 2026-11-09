@@ -239,7 +239,7 @@ class OverallPerformanceTest extends TestCase
             ->assertForbidden();
     }
 
-    /** M&J's own Leads Report rule: uncalled VIP orders aren't Excess Leads. */
+    /** Partner Leads Report rule: uncalled VIP / EXCLUDED LEADS orders aren't Excess Leads. */
     public function test_only_uncalled_non_restocking_vip_orders_are_excluded_leads(): void
     {
         $order = fn (string $id, array $extra) => \App\Models\Order::create($extra + [
@@ -251,8 +251,9 @@ class OverallPerformanceTest extends TestCase
             $order('vip-called', ['raw_tags' => ['VIP - CRD', 'CONFIRMED VIA CALL'], 'disposition' => 'CONFIRMED VIA CALL']),
             $order('vip-restocking', ['raw_tags' => ['VIP - CRD', 'RESTOCKING ORDERS']]),
             $order('plain-uncalled', []),
+            $order('excluded-tag-uncalled', ['raw_tags' => ['Excluded Leads']]),
         ]);
 
-        $this->assertSame(['vip-uncalled'], \App\Support\ProductPerformance::excludedVipLeads($orders)->pluck('pancake_order_id')->all());
+        $this->assertSame(['vip-uncalled', 'excluded-tag-uncalled'], \App\Support\ProductPerformance::excludedLeads($orders)->pluck('pancake_order_id')->all());
     }
 }

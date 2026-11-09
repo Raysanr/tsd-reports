@@ -76,10 +76,6 @@ use Illuminate\Support\Collection;
  */
 class TsaSalesReportController extends Controller
 {
-    /** Default shape for a TSA/date with no real orders at all — used
-     *  anywhere $performanceByKey might miss a key. */
-    private const VIP_EXCLUDED_TEAM = 'M&J';
-
     /** The team card lines Sales Summary and this page read for a closed month. */
     private const FROZEN_TEAM_FIELDS = ['gross_sales', 'income_before_opex', 'shared_income', 'net_income', 'number_of_orders', 'number_of_leads'];
 
@@ -369,9 +365,10 @@ class TsaSalesReportController extends Controller
         $visible = $products->where('is_hidden', false);
         $rows = $dayOrders->isEmpty() ? collect() : $visible
             ->map(fn ($product) => ProductPerformance::buildRow($product, $dayOrders, $products));
-        // Only M&J's own Leads Report has an Excluded Leads column.
-        $excluded = $orderTeam !== self::VIP_EXCLUDED_TEAM || $dayOrders->isEmpty() ? 0 : $visible->sum(
-            fn ($product) => ProductPerformance::excludedVipLeads(ProductPerformance::matchingOrders($product, $dayOrders, $products))->count()
+        // Every partner app's Leads Report has an Excluded Leads column; TSD's doesn't.
+        $isPartner = in_array($orderTeam, array_column(config('partners.partners', []), 'name'), true);
+        $excluded = ! $isPartner || $dayOrders->isEmpty() ? 0 : $visible->sum(
+            fn ($product) => ProductPerformance::excludedLeads(ProductPerformance::matchingOrders($product, $dayOrders, $products))->count()
         );
 
         return ['catered_leads' => (int) $rows->sum('catered'), 'excess_leads' => (int) $rows->sum('excess') - $excluded];
