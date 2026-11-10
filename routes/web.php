@@ -544,6 +544,7 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
             Route::prefix('/actual-cost-breakdown')->name('actual-cost-breakdown')->controller(\App\Http\Controllers\DataManagement\CostBreakdownController::class)->group(function () {
                 Route::get('/', 'index');
                 Route::post('/months', 'storeMonth')->name('.months.store');
+                Route::post('/copy-from-budget', 'copyFromBudget')->name('.copy-from-budget');
                 Route::post('/roles', 'storeRole')->name('.roles.store');
                 Route::delete('/roles/{costBreakdownRole}', 'destroyRole')->name('.roles.destroy');
                 Route::patch('/roles/{costBreakdownRole}', 'updateRole')->name('.update-role');

@@ -102,13 +102,36 @@ class CostBreakdownMonths
         RequestMemo::flush();
     }
 
-    /** Copies the budget rows $month falls back to into the actual
-     *  variant as $month. False when there is no budget Cost Breakdown. */
+    /** Actual Cost Breakdown's "Copy from Cost Breakdown" (2026-11-10):
+     *  throws away $month's actual figures and copies the budget Cost
+     *  Breakdown that $month uses in their place. False when there is no
+     *  budget Cost Breakdown to copy. */
+    public static function replaceWithBudget(string $month): bool
+    {
+        if (!CostBreakdownVariant::isActual()) {
+            return false;
+        }
+        $copied = DB::transaction(function () use ($month) {
+            CostBreakdownRole::withTrashed()->where('month', $month)->forceDelete();
+            foreach ([CostBreakdownPool::class, CostBreakdownTsaEntry::class, \App\Models\CostBreakdownProductFlag::class] as $model) {
+                $model::where('month', $month)->delete();
+            }
+
+            return self::copyFromBudget($month);
+        });
+        RequestMemo::flush();
+
+        return $copied;
+    }
+
+    /** Copies the budget rows $month uses (its own month, else the latest
+     *  earlier one) into the actual variant as $month. False when there is
+     *  no budget Cost Breakdown. */
     private static function copyFromBudget(string $month): bool
     {
-        $source = CostBreakdownVariant::using(CostBreakdownVariant::BUDGET, function () {
+        $source = CostBreakdownVariant::using(CostBreakdownVariant::BUDGET, function () use ($month) {
             $months = self::existing();
-            return $months === [] ? null : max(array_filter($months, fn ($m) => $m <= self::current()) ?: [min($months)]);
+            return $months === [] ? null : max(array_filter($months, fn ($m) => $m <= $month) ?: [min($months)]);
         });
         if ($source === null) {
             return false;

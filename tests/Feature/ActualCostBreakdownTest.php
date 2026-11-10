@@ -97,4 +97,44 @@ class ActualCostBreakdownTest extends TestCase
         $this->actingAs(User::factory()->create(['role' => 'normal']))
             ->get(route('data.actual-cost-breakdown'))->assertForbidden();
     }
+
+    /** 2026-11-10: "Copy from Cost Breakdown" replaces a month's actual
+     *  figures (salaries, roles, pools) with the budget's. */
+    public function test_copy_from_cost_breakdown_replaces_the_months_actual_figures(): void
+    {
+        $this->get(route('data.actual-cost-breakdown', ['month' => '2026-11']))->assertOk()->assertSee('Copy from Cost Breakdown');
+        $this->actual(function () {
+            CostBreakdownPool::where('month', '2026-11')->where('key', 'rent')->update(['amount' => 1]);
+            CostBreakdownRole::where('month', '2026-11')->where('seed_key', 'ceo')->update(['base_salary' => 2]);
+            CostBreakdownRole::where('month', '2026-11')->where('seed_key', 'qa_specialist')->first()->delete();
+            \App\Models\CostBreakdownTsaEntry::where('month', '2026-11')->update(['base_salary' => 0]);
+        });
+
+        $this->post(route('data.actual-cost-breakdown.copy-from-budget'), ['month' => '2026-11'])
+            ->assertRedirect()->assertSessionHas('success');
+
+        $budget = [
+            'rent'    => (float) CostBreakdownPool::where('month', '2026-11')->where('key', 'rent')->value('amount'),
+            'ceo'     => (float) CostBreakdownRole::where('month', '2026-11')->where('seed_key', 'ceo')->value('base_salary'),
+            'roles'   => CostBreakdownRole::where('month', '2026-11')->count(),
+            'salaries' => (float) \App\Models\CostBreakdownTsaEntry::where('month', '2026-11')->sum('base_salary'),
+        ];
+        $actual = $this->actual(fn () => [
+            'rent'    => (float) CostBreakdownPool::where('month', '2026-11')->where('key', 'rent')->value('amount'),
+            'ceo'     => (float) CostBreakdownRole::where('month', '2026-11')->where('seed_key', 'ceo')->value('base_salary'),
+            'roles'   => CostBreakdownRole::where('month', '2026-11')->count(),
+            'salaries' => (float) \App\Models\CostBreakdownTsaEntry::where('month', '2026-11')->sum('base_salary'),
+        ]);
+        $this->assertSame($budget, $actual);
+        $this->assertSame(1, $this->actual(fn () => CostBreakdownPool::where('month', '2026-11')->where('key', 'rent')->count()));
+    }
+
+    public function test_copy_from_cost_breakdown_is_refused_while_a_table_is_locked(): void
+    {
+        $this->get(route('data.actual-cost-breakdown', ['month' => '2026-11']))->assertOk();
+        $this->actual(fn () => \App\Models\Setting::set(CostBreakdownMonths::lockKey('pools', '2026-11'), '1'));
+
+        $this->post(route('data.actual-cost-breakdown.copy-from-budget'), ['month' => '2026-11'])->assertSessionHas('error');
+        $this->get(route('data.cost-breakdown'))->assertOk()->assertDontSee('Copy from Cost Breakdown');
+    }
 }

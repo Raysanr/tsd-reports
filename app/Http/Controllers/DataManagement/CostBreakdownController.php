@@ -391,6 +391,30 @@ class CostBreakdownController extends Controller
         return redirect()->route(CostBreakdownVariant::routeName(), ['month' => $data['month']]);
     }
 
+    /** Actual Cost Breakdown only: replace this month's actual figures with
+     *  a fresh copy of the Cost Breakdown (2026-11-10: "make same first the
+     *  actual cost breakdown to orig cost breakdown"). Refused while any of
+     *  the month's tables is locked. */
+    public function copyFromBudget(Request $request)
+    {
+        abort_unless(CostBreakdownVariant::isActual(), 404);
+        $data = $request->validate(['month' => ['required', 'string', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/']]);
+        $label = \Illuminate\Support\Carbon::createFromFormat('Y-m', $data['month'])->format('F Y');
+
+        if (collect(self::LOCK_TABLES)->contains(fn (string $table) => CostBreakdownMonths::isLocked($table, $data['month']))) {
+            return redirect()->route(CostBreakdownVariant::routeName(), ['month' => $data['month']])
+                ->with('error', "Unlock every table for {$label} before copying from Cost Breakdown.");
+        }
+        if (!CostBreakdownMonths::replaceWithBudget($data['month'])) {
+            return redirect()->route(CostBreakdownVariant::routeName(), ['month' => $data['month']])
+                ->with('error', 'There is no Cost Breakdown to copy.');
+        }
+        ActivityLogger::log(CostBreakdownVariant::slug() . '.copied_from_budget', null, "Replaced the Actual Cost Breakdown for {$label} with a copy of the Cost Breakdown.");
+
+        return redirect()->route(CostBreakdownVariant::routeName(), ['month' => $data['month']])
+            ->with('success', "{$label} now matches the Cost Breakdown. Edit what actually differs.");
+    }
+
     /** Current locked/unlocked state of all 3 tables, keyed by the same
      *  short table key the lock button/toggleLock() route both use (see
      *  LOCK_TABLES's own doc comment). */
