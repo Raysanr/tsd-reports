@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * GET /api/external/v1/telesales/daily?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -36,6 +37,10 @@ class TelesalesDailyController extends Controller
 {
     private const MAX_DAYS = 93;
 
+    /** Building a range takes seconds (the partner figures especially), so a
+     *  result is reused for this long. Figures can be up to 10 minutes old. */
+    private const CACHE_SECONDS = 600;
+
     public function __invoke(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -48,6 +53,22 @@ class TelesalesDailyController extends Controller
             return response()->json(['error' => 'Range too long (max ' . self::MAX_DAYS . ' days)'], 422);
         }
 
+        $key = 'telesales-api:v1:' . $data['from'] . ':' . $data['to'];
+        $body = Cache::get($key);
+        if ($body === null) {
+            $body = $this->build($data['from'], $data['to'], $from, $to);
+            // Don't keep a result whose partner data failed to load.
+            if (! collect($body['days'])->contains(fn ($day) => $day['partnership'] === null)) {
+                Cache::put($key, $body, self::CACHE_SECONDS);
+            }
+        }
+
+        return response()->json($body);
+    }
+
+    private function build(string $fromDate, string $toDate, Carbon $from, Carbon $to): array
+    {
+        $data = ['from' => $fromDate, 'to' => $toDate];
         $orderTeams = collect(Teams::config())->pluck('order_team')->all();
         TsaShift::showDeletedFrom($data['from']);
         $tsas = TsaShift::whereIn('team', $orderTeams)->get()->keyBy('tsa_key');
@@ -83,14 +104,15 @@ class TelesalesDailyController extends Controller
             ];
         }
 
-        return response()->json([
-            'department' => 'Telesales',
-            'from'       => $data['from'],
-            'to'         => $data['to'],
-            'timezone'   => config('app.timezone'),
-            'currency'   => 'PHP',
-            'days'       => $days,
-        ]);
+        return [
+            'department'  => 'Telesales',
+            'from'        => $data['from'],
+            'to'          => $data['to'],
+            'timezone'    => config('app.timezone'),
+            'currency'    => 'PHP',
+            'generatedAt' => now()->toIso8601String(),
+            'days'        => $days,
+        ];
     }
 
     /** Partners' per-team daily figures from the partners data set (same

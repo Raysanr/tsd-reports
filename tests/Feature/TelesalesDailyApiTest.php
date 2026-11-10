@@ -115,4 +115,21 @@ class TelesalesDailyApiTest extends TestCase
         $this->assertSame(1, $mj['leads']);
         $this->assertEqualsWithDelta($mj['ibOpex'] * 0.7, $mj['partnershipSales'], 0.01);
     }
+
+    public function test_a_range_is_cached_so_repeat_calls_are_fast(): void
+    {
+        $this->artisan('migrate', ['--database' => DataSet::PARTNERS]);
+        $auth = ['Authorization' => 'Bearer secret-token'];
+        $first = $this->getJson(self::URL, $auth)->assertOk()->json();
+
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        Order::create([
+            'pancake_order_id' => 'late', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key, 'product' => 'Sinuxyl',
+            'raw_tags' => [], 'is_upsell' => false, 'status_code' => 1, 'pancake_created_at' => '2026-11-03 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $this->assertSame($first, $this->getJson(self::URL, $auth)->assertOk()->json());
+        \Illuminate\Support\Facades\Cache::flush();
+        $this->assertSame(1, $this->getJson(self::URL, $auth)->json('days.0.leads'));
+    }
 }
