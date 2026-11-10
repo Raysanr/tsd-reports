@@ -12,3 +12,10 @@ Route::post('/call-events', [App\Http\Controllers\CallEventController::class, 's
 Route::get('/external/v1/telesales/daily', App\Http\Controllers\Api\TelesalesDailyController::class)
     ->middleware([App\Http\Middleware\TelesalesApiToken::class, 'throttle:60,1'])
     ->name('api.telesales.daily');
+
+// Telesales payroll (MC) figures from Cost Breakdown — separate token
+// (TELESALES_MC_TOKEN), optional IP allow-list, see TelesalesApiToken.
+Route::middleware([App\Http\Middleware\TelesalesApiToken::class . ':mc', 'throttle:30,1'])->group(function () {
+    Route::get('/external/v1/tsd/mc/summary', [App\Http\Controllers\Api\TelesalesMcController::class, 'summary'])->name('api.tsd.mc.summary');
+    Route::get('/external/v1/tsd/mc/roster', [App\Http\Controllers\Api\TelesalesMcController::class, 'roster'])->name('api.tsd.mc.roster');
+});

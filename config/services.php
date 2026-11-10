@@ -65,6 +65,10 @@ return [
     // Callers send this as "Authorization: Bearer <token>".
     'telesales_api' => [
         'token' => env('TELESALES_API_TOKEN'),
+        // Payroll (MC) endpoints: a separate token, optionally IP-limited
+        // (comma-separated list of the caller's server IPs).
+        'mc_token' => env('TELESALES_MC_TOKEN'),
+        'mc_allowed_ips' => env('TELESALES_MC_ALLOWED_IPS'),
     ],
 
 ];
