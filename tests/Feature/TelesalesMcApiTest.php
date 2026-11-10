@@ -22,14 +22,24 @@ class TelesalesMcApiTest extends TestCase
         config(['services.telesales_api.token' => 'sales-token', 'services.telesales_api.mc_token' => 'mc-token']);
     }
 
-    public function test_it_needs_its_own_token_and_rejects_the_sales_token(): void
+    public function test_the_sales_token_opens_it_when_no_separate_token_is_set(): void
+    {
+        CostBreakdownMonths::seed('2026-11');
+        config(['services.telesales_api.mc_token' => null]);
+        $url = '/api/external/v1/tsd/mc/summary?month=2026-11';
+
+        $this->getJson($url, ['Authorization' => 'Bearer sales-token'])->assertOk();
+        $this->getJson($url, ['Authorization' => 'Bearer wrong'])->assertStatus(401);
+    }
+
+    public function test_a_separate_token_when_set_replaces_the_sales_token(): void
     {
         $url = '/api/external/v1/tsd/mc/summary?month=2026-11';
         $this->getJson($url)->assertStatus(401);
         $this->getJson($url, ['Authorization' => 'Bearer sales-token'])->assertStatus(401);
         $this->getJson('/api/external/v1/telesales/daily?from=2026-11-01&to=2026-11-01', self::AUTH)->assertStatus(401);
 
-        config(['services.telesales_api.mc_token' => null]);
+        config(['services.telesales_api.mc_token' => null, 'services.telesales_api.token' => null]);
         $this->getJson($url, self::AUTH)->assertStatus(503);
     }
 
