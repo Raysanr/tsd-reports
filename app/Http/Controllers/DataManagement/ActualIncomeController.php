@@ -18,6 +18,10 @@ use Illuminate\Http\Request;
  * Unfulfilled / Fulfilled / Returns / Delivered by its CURRENT Pancake
  * status (ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS). Read-only:
  * costs are typed on Expected Income.
+ *
+ * Operating costs (salaries, shared pools, tax) come from Actual Cost
+ * Breakdown and are split over the month's real days, not 24, so a whole
+ * month adds up to that month's Actual Cost Breakdown (2026-11-10).
  */
 class ActualIncomeController extends ExpectedIncomeController
 {
@@ -40,6 +44,12 @@ class ActualIncomeController extends ExpectedIncomeController
         $request->merge(['date_from' => $start->toDateString(), 'date_to' => max($start, $end)->toDateString()]);
 
         ExpectedIncomeCalculator::$actual = true;
+        // Costs come from Actual Cost Breakdown (2026-11-10) once it has a
+        // month on or before this one; until then, from Cost Breakdown.
+        $useActual = \App\Support\CostBreakdownVariant::using(\App\Support\CostBreakdownVariant::ACTUAL,
+            fn () => collect(\App\Support\CostBreakdownMonths::existing())->contains(fn ($m) => $m <= $month));
+        \App\Support\CostBreakdownVariant::set($useActual ? \App\Support\CostBreakdownVariant::ACTUAL : \App\Support\CostBreakdownVariant::BUDGET);
+        \App\Support\RequestMemo::flush();
         try {
             // Rendered inside the try: the views call derive() too.
             $view = parent::index($request);
@@ -47,6 +57,8 @@ class ActualIncomeController extends ExpectedIncomeController
             return response($view instanceof \Illuminate\Contracts\View\View ? $view->render() : $view);
         } finally {
             ExpectedIncomeCalculator::$actual = false;
+            \App\Support\CostBreakdownVariant::reset();
+            \App\Support\RequestMemo::flush();
         }
     }
 }

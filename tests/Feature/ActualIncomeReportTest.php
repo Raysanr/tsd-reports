@@ -64,4 +64,25 @@ class ActualIncomeReportTest extends TestCase
         $this->assertStringContainsString('value="2026-09"', $html);
         $this->assertStringContainsString('September 1, 2026 – September 30, 2026', $html);
     }
+
+    /** 2026-11-10: Actual Income's operating costs come from Actual Cost
+     *  Breakdown and a whole month adds up to its monthly figures (split
+     *  over the month's real days, not 24). */
+    public function test_a_whole_month_of_costs_adds_up_to_actual_cost_breakdown(): void
+    {
+        $admin = User::factory()->create(['role' => 'admin']);
+        \Illuminate\Support\Carbon::setTestNow('2026-11-10 12:00:00');
+        \App\Support\CostBreakdownMonths::seed('2026-10');
+        \App\Models\CostBreakdownPool::where('month', '2026-10')->where('key', 'rent')->update(['amount' => 99999]);
+        $this->actingAs($admin)->post(route('data.actual-cost-breakdown.copy-from-budget'), ['month' => '2026-10'])->assertSessionHas('success');
+        \App\Support\CostBreakdownVariant::using(\App\Support\CostBreakdownVariant::ACTUAL,
+            fn () => \App\Models\CostBreakdownPool::where('month', '2026-10')->where('key', 'rent')->update(['amount' => 31000]));
+
+        $html = $this->get(route('data.actual-income', ['month' => '2026-10']))->assertOk()->getContent();
+        \Illuminate\Support\Carbon::setTestNow();
+
+        preg_match('/data-out="rent"[^>]*>\s*([\d,.]+)/', $html, $m);
+        $this->assertSame('31,000.00', $m[1] ?? null);
+        $this->assertSame(\App\Support\CostBreakdownVariant::BUDGET, \App\Support\CostBreakdownVariant::current());
+    }
 }

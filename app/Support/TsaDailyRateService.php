@@ -453,7 +453,7 @@ class TsaDailyRateService
             // present so callers elsewhere never fall back to a stale/
             // missing-key default), just worth 0 — her own "no tax"
             // (explicit request above), not her team's own per-TSA share.
-            return $carry + $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => ($tsa->tiktok_upsell || self::hasNoSalary($tsa)) ? 0.0 : $monthly / 24])->all();
+            return $carry + $teamTsas->mapWithKeys(fn (TsaShift $tsa) => [$tsa->id => ($tsa->tiktok_upsell || self::hasNoSalary($tsa)) ? 0.0 : $monthly / CostBreakdownCalculator::daysDivisor()])->all();
         }, []);
     }
 
@@ -485,7 +485,7 @@ class TsaDailyRateService
             return 0.0;
         }
 
-        return self::monthlyTaxForTeam(self::allTsas()->where('team', $tsa->team)) / 24;
+        return self::monthlyTaxForTeam(self::allTsas()->where('team', $tsa->team)) / CostBreakdownCalculator::daysDivisor();
     }
 
     /** From this month on (explicit request, 2026-11-03) tax is split across

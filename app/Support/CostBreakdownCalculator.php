@@ -46,6 +46,21 @@ namespace App\Support;
  */
 class CostBreakdownCalculator
 {
+    /** Days a monthly figure is split over to get one day's cost. Cost
+     *  Breakdown / Expected Income use the sheet's fixed 24. Actual Income
+     *  (ExpectedIncomeCalculator::$actual) uses the real number of days in
+     *  that day's month instead, so a whole month of Actual Income adds up
+     *  to exactly the Actual Cost Breakdown's monthly totals (2026-11-10:
+     *  "it should be tally all data by the end of the month"). */
+    public static function daysDivisor(): int
+    {
+        if (ExpectedIncomeCalculator::$actual) {
+            return \Illuminate\Support\Carbon::parse(TsaDailyRateService::contextDate())->daysInMonth;
+        }
+
+        return 24;
+    }
+
     /** One TSA's own % share of every shared cost pool, from her own Days
      *  and the group's total Days worked. Returns 0.0 for every TSA if
      *  nobody has any days logged at all (division-by-zero guard, same
@@ -104,7 +119,7 @@ class CostBreakdownCalculator
     {
         $row = [];
         $total = 0.0;
-        $divisor = $tsaCount * 24;
+        $divisor = $tsaCount * self::daysDivisor();
 
         foreach ($pools as $key => $amount) {
             $value = $divisor > 0 ? $amount / $divisor : 0.0;
@@ -143,7 +158,7 @@ class CostBreakdownCalculator
      *  this month for the shared-pool split above. */
     public static function tsaDailyRate(float $total): float
     {
-        return $total / 24;
+        return $total / self::daysDivisor();
     }
 
     /** Her own Daily Rate split evenly across every product CARD (explicit
