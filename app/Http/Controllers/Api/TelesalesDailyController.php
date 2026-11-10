@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\DataManagement\TsaSalesReportController;
 use App\Models\Order;
 use App\Models\TsaShift;
 use App\Support\ActualSplit;
+use App\Support\DataSet;
+use App\Support\ExpectedIncomeCalculator;
 use App\Support\ProductPerformance;
 use App\Support\Teams;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +28,9 @@ use Illuminate\Support\Collection;
  *   split by each order's CURRENT Pancake status.
  * - catered: Leads Report's Catered Leads (leads with a call result).
  * - agents: the same per TSA.
+ * - partnership: TSD's partner companies (M&J, PEAK.CO, MLC), exactly as
+ *   TSD Overall Performance's Sales Summary shows them; TSD is credited
+ *   shareRate (70%) of each partner's income before OPEX.
  */
 class TelesalesDailyController extends Controller
 {
@@ -51,6 +57,8 @@ class TelesalesDailyController extends Controller
             ->get())
             ->groupBy(fn (Order $o) => $o->effective_created_at->format('Y-m-d'));
 
+        $partnership = self::partnershipByDate($data['from'], $data['to']);
+
         $days = [];
         for ($date = $from->copy(); $date->lte($to); $date->addDay()) {
             $key = $date->format('Y-m-d');
@@ -71,6 +79,7 @@ class TelesalesDailyController extends Controller
                 'byStatus'       => self::byStatus($dayOrders),
                 'upsellSales'    => round($split['gross_sales'], 2),
                 'agents'         => self::agents($dayOrders, $tsas),
+                'partnership'    => $partnership === null ? null : self::partnershipDay($partnership, $key),
             ];
         }
 
@@ -82,6 +91,51 @@ class TelesalesDailyController extends Controller
             'currency'   => 'PHP',
             'days'       => $days,
         ]);
+    }
+
+    /** Partners' per-team daily figures from the partners data set (same
+     *  call as Sales Summary), or null if that data can't be loaded. */
+    private static function partnershipByDate(string $from, string $to): ?array
+    {
+        try {
+            return DataSet::onPartners(fn () => [
+                'teams'     => app(TsaSalesReportController::class)->overallByDate($from, $to)['teams'] ?? [],
+                'shareRate' => ExpectedIncomeCalculator::partnershipShareRate() ?? 0.7,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
+    }
+
+    private static function partnershipDay(array $partnership, string $date): array
+    {
+        $partners = [];
+        foreach (array_column(DataSet::partnerTeams(), 'name') as $name) {
+            $day = $partnership['teams'][$name][$date] ?? [];
+            $partners[] = [
+                'partner'          => $name,
+                'leads'            => (int) ($day['total_leads'] ?? 0),
+                'catered'          => (int) ($day['catered_leads'] ?? 0),
+                'orders'           => (int) ($day['total_orders'] ?? 0),
+                'grossSales'       => round((float) ($day['gross_sales'] ?? 0), 2),
+                'ibOpex'           => round((float) ($day['income_before_opex'] ?? 0), 2),
+                'partnershipSales' => round((float) ($day['shared_income'] ?? 0), 2),
+            ];
+        }
+        $sum = fn (string $field) => array_sum(array_column($partners, $field));
+
+        return [
+            'shareRate'          => (float) $partnership['shareRate'],
+            'leads'              => $sum('leads'),
+            'catered'            => $sum('catered'),
+            'partnershipOrders'  => $sum('orders'),
+            'grossSales'         => round($sum('grossSales'), 2),
+            'ibOpex'             => round($sum('ibOpex'), 2),
+            'partnershipSales'   => round($sum('partnershipSales'), 2),
+            'partners'           => $partners,
+        ];
     }
 
     /** Leads Report's Total Leads and Catered Leads for these orders. */

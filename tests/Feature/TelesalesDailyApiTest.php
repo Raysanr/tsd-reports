@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Order;
 use App\Models\TsaShift;
+use App\Support\DataSet;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -12,6 +13,12 @@ class TelesalesDailyApiTest extends TestCase
     use RefreshDatabase;
 
     private const URL = '/api/external/v1/telesales/daily?from=2026-11-03&to=2026-11-04';
+
+    protected function tearDown(): void
+    {
+        DataSet::reset();
+        parent::tearDown();
+    }
 
     protected function setUp(): void
     {
@@ -75,5 +82,37 @@ class TelesalesDailyApiTest extends TestCase
 
         $this->assertSame(0, $json['days'][1]['leads']);
         $this->assertSame([], $json['days'][1]['agents']);
+    }
+
+    public function test_partnership_is_null_when_partner_data_cannot_load(): void
+    {
+        $json = $this->getJson(self::URL, ['Authorization' => 'Bearer secret-token'])->assertOk()->json();
+        $this->assertNull($json['days'][0]['partnership']);
+    }
+
+    public function test_it_includes_each_partners_figures_like_sales_summary(): void
+    {
+        $this->artisan('migrate', ['--database' => DataSet::PARTNERS]);
+        DataSet::onPartners(fn () => \App\Models\Setting::set(\App\Support\ExpectedIncomeCalculator::PARTNERSHIP_SHARE_RATE_SETTING, 0.7));
+        DataSet::onPartners(fn () => \App\Models\Product::create(['display_name' => 'Clear Sight', 'match_keyword' => 'CLEAR SIGHT', 'team' => 'M&J', 'sort_order' => 1]));
+        DataSet::onPartners(fn () => TsaShift::create(['tsa_key' => 'mjtsa', 'display_name' => 'MJ TSA', 'team' => 'M&J', 'sort_order' => 1]));
+        DataSet::onPartners(fn () => Order::create([
+            'pancake_order_id' => 'mj-1', 'team' => 'M&J', 'tsa_name' => 'mjtsa', 'product' => 'Clear Sight',
+            'raw_tags' => ['CLEAR SIGHT', 'NOT ANSWERING'], 'disposition' => 'NOT ANSWERING', 'is_upsell' => false, 'status_code' => 1,
+            'pancake_created_at' => '2026-11-03 10:00:00', 'synced_at' => now(),
+        ]));
+
+        $p = $this->getJson(self::URL, ['Authorization' => 'Bearer secret-token'])->assertOk()->json('days.0.partnership');
+
+        $this->assertEqualsWithDelta(0.7, $p['shareRate'], 0.0001);
+        $this->assertEqualsCanonicalizing(['PEAK.CO', 'M&J', 'MLC'], array_column($p['partners'], 'partner'));
+        foreach (['leads', 'catered', 'orders', 'grossSales', 'ibOpex', 'partnershipSales'] as $field) {
+            $this->assertArrayHasKey($field, $p['partners'][0]);
+        }
+        $this->assertSame(array_sum(array_column($p['partners'], 'leads')), $p['leads']);
+        $this->assertSame(array_sum(array_column($p['partners'], 'orders')), $p['partnershipOrders']);
+        $mj = collect($p['partners'])->firstWhere('partner', 'M&J');
+        $this->assertSame(1, $mj['leads']);
+        $this->assertEqualsWithDelta($mj['ibOpex'] * 0.7, $mj['partnershipSales'], 0.01);
     }
 }
