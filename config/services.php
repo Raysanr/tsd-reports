@@ -61,4 +61,10 @@ return [
         'enabled' => env('CALL_TRACKER_ENABLED', true),
     ],
 
+    // External read-only Telesales API (GET /api/external/v1/telesales/daily).
+    // Callers send this as "Authorization: Bearer <token>".
+    'telesales_api' => [
+        'token' => env('TELESALES_API_TOKEN'),
+    ],
+
 ];

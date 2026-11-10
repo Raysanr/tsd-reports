@@ -40,7 +40,7 @@ class ActualSplit
     /** The real-upsell orders every amount here is summed over — tally()'s
      *  upsell_sales basis (Deleted and excluded sellers out, Order::isBroadRealUpsell),
      *  with TikTok upsells and hidden products removed first. */
-    private static function realUpsells(Collection $orders): Collection
+    public static function realUpsells(Collection $orders): Collection
     {
         return ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders))
             ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller)
