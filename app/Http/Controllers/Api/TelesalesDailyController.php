@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\CallEvent;
 use App\Models\Order;
 use App\Models\TsaShift;
 use App\Support\ActualSplit;
@@ -24,7 +23,7 @@ use Illuminate\Support\Collection;
  * - orders / grossSales / cancelledSales / deliveredSales / returnedSales:
  *   ActualSplit (RTS Report, Actual Income) — real upsells, by order date,
  *   split by each order's CURRENT Pancake status.
- * - callsMade: Call Tracker's outgoing call events.
+ * - catered: Leads Report's Catered Leads (leads with a call result).
  * - agents: the same per TSA.
  */
 class TelesalesDailyController extends Controller
@@ -52,23 +51,18 @@ class TelesalesDailyController extends Controller
             ->get())
             ->groupBy(fn (Order $o) => $o->effective_created_at->format('Y-m-d'));
 
-        $calls = CallEvent::where('direction', 'outgoing')
-            ->whereIn('tsa_id', $tsas->pluck('id'))
-            ->whereBetween('occurred_at', [$from, $to])
-            ->get(['occurred_at'])
-            ->countBy(fn ($e) => $e->occurred_at->format('Y-m-d'));
-
         $days = [];
         for ($date = $from->copy(); $date->lte($to); $date->addDay()) {
             $key = $date->format('Y-m-d');
             $dayOrders = $orders->get($key, collect());
             $split = ActualSplit::fromOrders($dayOrders);
 
+            $leads = self::leads($dayOrders);
             $days[] = [
                 'date'           => $key,
-                'leads'          => self::leads($dayOrders),
+                'leads'          => $leads['total'],
                 'leadsFromFsd'   => null,
-                'callsMade'      => (int) $calls->get($key, 0),
+                'catered'        => $leads['catered'],
                 'orders'         => ActualSplit::realUpsells($dayOrders)->count(),
                 'grossSales'     => round($split['gross_sales'], 2),
                 'cancelledSales' => round($split['cancelled'], 2),
@@ -90,9 +84,15 @@ class TelesalesDailyController extends Controller
         ]);
     }
 
-    private static function leads(Collection $orders): int
+    /** Leads Report's Total Leads and Catered Leads for these orders. */
+    private static function leads(Collection $orders): array
     {
-        return $orders->isEmpty() ? 0 : ProductPerformance::tally($orders)['total'];
+        if ($orders->isEmpty()) {
+            return ['total' => 0, 'catered' => 0];
+        }
+        $tally = ProductPerformance::tally($orders);
+
+        return ['total' => $tally['total'], 'catered' => $tally['catered']];
     }
 
     /** {status, orders, sales} for every status the day's real upsells are in. */
@@ -110,19 +110,21 @@ class TelesalesDailyController extends Controller
             ->all();
     }
 
-    /** Per TSA: leads, orders, grossSales, byStatus. Orders with no TSA are left out. */
+    /** Per TSA: leads, catered, orders, grossSales, byStatus. Orders with no TSA are left out. */
     private static function agents(Collection $orders, Collection $tsas): array
     {
         return $orders->filter(fn (Order $o) => filled($o->tsa_name))
             ->groupBy('tsa_name')
             ->map(function (Collection $group, string $tsaKey) use ($tsas) {
                 $split = ActualSplit::fromOrders($group);
+                $leads = self::leads($group);
 
                 return [
                     'tsa'        => $tsaKey,
                     'name'       => $tsas->get($tsaKey)?->display_name ?? $tsaKey,
                     'team'       => $tsas->get($tsaKey)?->team,
-                    'leads'      => self::leads($group),
+                    'leads'      => $leads['total'],
+                    'catered'    => $leads['catered'],
                     'orders'     => ActualSplit::realUpsells($group)->count(),
                     'grossSales' => round($split['gross_sales'], 2),
                     'byStatus'   => self::byStatus($group),

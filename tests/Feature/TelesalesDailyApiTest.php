@@ -56,6 +56,8 @@ class TelesalesDailyApiTest extends TestCase
         $day = $json['days'][0];
         $this->assertSame('2026-11-03', $day['date']);
         $this->assertSame(4, $day['leads']);
+        $this->assertSame(4, $day['catered']);
+        $this->assertArrayNotHasKey('callsMade', $day);
         $this->assertSame(3, $day['orders']);
         $this->assertEquals(1650, $day['grossSales']);
         $this->assertEquals(250, $day['cancelledSales']);
@@ -68,6 +70,7 @@ class TelesalesDailyApiTest extends TestCase
         $this->assertCount(1, $day['agents']);
         $this->assertSame($tsa->tsa_key, $day['agents'][0]['tsa']);
         $this->assertSame(4, $day['agents'][0]['leads']);
+        $this->assertSame(4, $day['agents'][0]['catered']);
         $this->assertEquals(1650, $day['agents'][0]['grossSales']);
 
         $this->assertSame(0, $json['days'][1]['leads']);
