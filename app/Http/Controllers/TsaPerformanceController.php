@@ -452,9 +452,7 @@ class TsaPerformanceController extends Controller
         // rule those other views had — only they needed today's reversal.
         // Hidden products' orders drop out of every number here — explicit
         // request, 2026-10-17 (see withoutHiddenProductOrders()).
-        $orders = ProductPerformance::withoutHiddenProductOrders(Order::where('tsa_name', $tsaKey)
-            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
-            ->get());
+        $orders = self::individualOrders($tsaKey, $from, $to);
 
         $summary = $this->buildRow($shift, $tsaKey, $orders);
         // Pick-up/Conversion rates need 'answered'/'unanswered' subtotals (same
@@ -521,11 +519,19 @@ class TsaPerformanceController extends Controller
         // 2026-11-07): each product's leads, how many this TSA catered, and
         // the same three rates as the hourly table — same product matching
         // as Leads Report. Only products this TSA had leads for.
-        $productSummaryRows = $products
-            ->map(fn ($product) => ['product' => $product, 'row' => ProductPerformance::buildRow($product, $orders, $products)])
+        // 2026-11-10 (explicit report: Per-Product TOTAL 21 vs the hourly Day
+        // Total 22): a lead whose product matches none of the visible products
+        // was silently dropped here. It now gets its own "Other" row, and
+        // TOTAL counts every lead once (not a sum of rows), so it always
+        // equals the hourly table's Day Total.
+        $productSummaryGroups = self::productSummaryGroups($orders, $products);
+        $productSummaryRows = $productSummaryGroups['products']
+            ->map(fn ($group) => ['product' => $group['product'], 'row' => ProductPerformance::tally($group['orders'])])
             ->filter(fn ($entry) => $entry['row']['total'] > 0)
             ->values();
-        $productSummaryTotal = ProductPerformance::sumRows($productSummaryRows->pluck('row'));
+        $productSummaryOther = ProductPerformance::tally($productSummaryGroups['other']);
+        $productSummaryOther = $productSummaryOther['total'] > 0 ? $productSummaryOther : null;
+        $productSummaryTotal = ProductPerformance::tally($orders);
 
         // Real per-hour call-duration totals synced from Google Drive (see
         // SyncCallRecordings) — keyed by hour-of-day the same way $ordersByHour is,
@@ -680,6 +686,7 @@ class TsaPerformanceController extends Controller
             'products'          => $products,
             'productHourlyRows' => $productHourlyRows,
             'productSummaryRows' => $productSummaryRows,
+            'productSummaryOther' => $productSummaryOther,
             'productSummaryTotal' => $productSummaryTotal,
             'productTotals'     => $productTotals,
             'productAmountTotals' => $productAmountTotals,
@@ -711,6 +718,68 @@ class TsaPerformanceController extends Controller
      *  e.g. "Upsell w/ Confirmation: 3" can show which 3 orders those are.
      *  'tsa' omitted/'__all__' = every TSA on the team (an hour-block TOTAL row
      *  or the Grand Total row); 'hour' omitted = every hour (Grand Total). */
+    /** Every order credited to this TSA in the range, as the individual page
+     *  counts them: any team, by created/inserted time, hidden products out. */
+    private static function individualOrders(string $tsaKey, Carbon $from, Carbon $to): Collection
+    {
+        return ProductPerformance::withoutHiddenProductOrders(Order::where('tsa_name', $tsaKey)
+            ->whereRaw('COALESCE(pancake_inserted_at, pancake_created_at) BETWEEN ? AND ?', [$from, $to])
+            ->get());
+    }
+
+    /** The Per-Product Summary's order groups: each visible product's matching
+     *  orders (same matching as Leads Report), and 'other' = orders no visible
+     *  product claims. The table and its pop-up both read this. */
+    private static function productSummaryGroups(Collection $orders, Collection $products): array
+    {
+        $groups = $products->map(fn ($product) => [
+            'product' => $product,
+            'orders'  => ProductPerformance::matchingOrders($product, $orders, $products)->values(),
+        ]);
+        $matchedIds = $groups->flatMap(fn ($group) => $group['orders']->pluck('id'))->unique();
+
+        return ['products' => $groups, 'other' => $orders->whereNotIn('id', $matchedIds)->values()];
+    }
+
+    /** Order IDs behind a Per-Product Summary cell on the individual TSA page.
+     *  product = a product id, 'other', or absent for the TOTAL row;
+     *  column = 'total' (Total Leads) or 'catered'. */
+    public function productSummaryDrilldown(Request $request, string $team, string $tsaKey)
+    {
+        $teamsConfig = Teams::config();
+        abort_if(!array_key_exists($team, $teamsConfig), 404);
+        TsaShift::where('team', $teamsConfig[$team]['order_team'])->where('tsa_key', $tsaKey)->firstOrFail();
+
+        $dateFrom = $request->query('date_from');
+        abort_if(!$dateFrom, 422);
+        \App\Models\TsaShift::showDeletedFrom($dateFrom);
+        $from = Carbon::parse($dateFrom)->startOfDay();
+        $to   = Carbon::parse($request->query('date_to', $dateFrom))->endOfDay();
+
+        $orders  = self::individualOrders($tsaKey, $from, $to);
+        $product = (string) $request->query('product', '');
+        if ($product !== '') {
+            $groups = self::productSummaryGroups($orders, Product::where('is_hidden', false)->orderBy('sort_order')->get());
+            $orders = $product === 'other'
+                ? $groups['other']
+                : ($groups['products']->first(fn ($group) => (string) $group['product']->id === $product)['orders'] ?? collect());
+        }
+
+        // Same counted set as tally()'s 'total' (Deleted / excluded seller out).
+        $orders = $request->query('column') === 'catered'
+            ? ProductPerformance::ordersForColumn($orders, 'catered')
+            : $orders->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller);
+
+        return response()->json($orders
+            ->sortByDesc(fn ($o) => $o->effective_created_at)
+            ->map(fn ($o) => [
+                'id'     => $o->pancake_order_id,
+                'status' => Order::STATUS_LABELS[$o->status_code] ?? null,
+                'time'   => $o->effective_created_at?->format('M j, g:i A'),
+            ])
+            ->values());
+    }
+
     public function drilldown(Request $request)
     {
         $teamsConfig = Teams::config();

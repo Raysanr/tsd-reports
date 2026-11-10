@@ -214,7 +214,11 @@
         <p class="text-sm font-mono text-slate-400">No product leads for {{ $rangeLabel }}</p>
     </div>
     @else
-    <div class="overflow-x-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+    {{-- Clicking Total Leads / Catered Leads lists the order IDs behind it
+         (same pop-up as the hourly table), from the same order groups. --}}
+    <div class="overflow-x-auto bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm"
+         data-dd-team="{{ $team }}" data-dd-date-from="{{ $dateFrom }}" data-dd-date-to="{{ $dateTo }}"
+         data-dd-endpoint="{{ route('tsa-performance.individual.product-drilldown', [$team, $tsaKey]) }}">
         <table class="w-full border-collapse text-xs font-mono" style="min-width:720px">
             <thead>
                 <tr>
@@ -236,19 +240,28 @@
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-700 dark:text-slate-200">
                         <span data-product-name data-product-real="{{ $entry['product']->display_name }}" data-product-index="{{ $productIndex }}">{{ $entry['product']->display_name }}</span>
                     </td>
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-700 dark:text-slate-200">{{ number_format($r['total']) }}</td>
-                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400 font-semibold">{{ number_format($r['catered']) }}</td>
+                    @include('partials.tsa-product-summary-counts', ['r' => $r, 'ddProduct' => $entry['product']->id])
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-blue-700 dark:text-blue-400">{{ $fmtRate($r['pick_up_rate']) }}</td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">{{ $fmtRate($r['conversion_rate']) }}</td>
                     <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-violet-700 dark:text-violet-400">{{ $fmtRate($r['upselling_rate']) }}</td>
                 </tr>
                 @endforeach
+                @if($productSummaryOther)
+                @php $r = $productSummaryOther; @endphp
+                <tr class="hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 font-semibold text-slate-500 dark:text-slate-400" title="Leads whose product doesn't match any product in Product Management">Other (no product match)</td>
+                    @include('partials.tsa-product-summary-counts', ['r' => $r, 'ddProduct' => 'other'])
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-blue-700 dark:text-blue-400">{{ $fmtRate($r['pick_up_rate']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-orange-700 dark:text-orange-400">{{ $fmtRate($r['conversion_rate']) }}</td>
+                    <td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-violet-700 dark:text-violet-400">{{ $fmtRate($r['upselling_rate']) }}</td>
+                </tr>
+                @endif
             </tbody>
             <tfoot>
                 <tr class="bg-slate-900 text-white font-bold">
                     <td class="border border-slate-700 px-3 py-3 uppercase tracking-wider text-[11px]">Total</td>
-                    <td class="border border-slate-700 px-3 py-3 text-center">{{ number_format($productSummaryTotal['total']) }}</td>
-                    <td class="border border-slate-700 px-3 py-3 text-center">{{ number_format($productSummaryTotal['catered']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center {{ $productSummaryTotal['total'] ? 'cursor-pointer hover:bg-slate-800' : '' }}" @if($productSummaryTotal['total']) data-drilldown data-dd-column="total" title="Click to see the orders behind this number" @endif>{{ number_format($productSummaryTotal['total']) }}</td>
+                    <td class="border border-slate-700 px-3 py-3 text-center {{ $productSummaryTotal['catered'] ? 'cursor-pointer hover:bg-slate-800' : '' }}" @if($productSummaryTotal['catered']) data-drilldown data-dd-column="catered" title="Click to see the orders behind this number" @endif>{{ number_format($productSummaryTotal['catered']) }}</td>
                     <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['pick_up_rate']) }}</td>
                     <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['conversion_rate']) }}</td>
                     <td class="border border-slate-700 px-3 py-3 text-center">{{ $fmtRate($productSummaryTotal['upselling_rate']) }}</td>

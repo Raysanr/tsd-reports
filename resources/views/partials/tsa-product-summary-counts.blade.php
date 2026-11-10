@@ -1,0 +1,4 @@
+{{-- Total Leads + Catered Leads cells of one Per-Product Summary row,
+     clickable for their order IDs (tsa-performance-individual). --}}
+<td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-slate-700 dark:text-slate-200 {{ $r['total'] ? 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700' : '' }}" @if($r['total']) data-drilldown data-dd-cell-product="{{ $ddProduct }}" data-dd-column="total" title="Click to see the orders behind this number" @endif>{{ number_format($r['total']) }}</td>
+<td class="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-center text-emerald-700 dark:text-emerald-400 font-semibold {{ $r['catered'] ? 'cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/40' : '' }}" @if($r['catered']) data-drilldown data-dd-cell-product="{{ $ddProduct }}" data-dd-column="catered" title="Click to see the orders behind this number" @endif>{{ number_format($r['catered']) }}</td>

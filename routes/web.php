@@ -65,6 +65,7 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
     Route::get('/tsa-performance', [TsaPerformanceController::class, 'index'])->name('tsa-performance');
     Route::get('/tsa-performance/drilldown', [TsaPerformanceController::class, 'drilldown'])->name('tsa-performance.drilldown');
     Route::get('/tsa-performance/{team}/{tsaKey}', [TsaPerformanceController::class, 'showTsa'])->name('tsa-performance.individual');
+    Route::get('/tsa-performance/{team}/{tsaKey}/product-drilldown', [TsaPerformanceController::class, 'productSummaryDrilldown'])->name('tsa-performance.individual.product-drilldown');
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
     Route::get('/rts-report/drilldown', [RtsReportController::class, 'drilldown'])->name('rts-report.drilldown');
