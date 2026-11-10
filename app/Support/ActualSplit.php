@@ -22,22 +22,65 @@ use Illuminate\Support\Collection;
  */
 class ActualSplit
 {
+    /** Status codes that land an upsell in each non-delivered bucket. Anything
+     *  else (Received, Collected money) is Delivered. Same codes tally() sums
+     *  for cancelled_upsell_sales and ACTUAL_STATUS_BUCKETS. */
+    private static function bucketCodes(): array
+    {
+        $buckets = ExpectedIncomeCalculator::ACTUAL_STATUS_BUCKETS;
+
+        return [
+            'cancelled'   => [6, 11],
+            'unfulfilled' => $buckets['unfulfilled'],
+            'fulfilled'   => $buckets['fulfilled'],
+            'returns'     => $buckets['actual_returns'],
+        ];
+    }
+
+    /** The real-upsell orders every amount here is summed over — tally()'s
+     *  upsell_sales basis (Deleted and excluded sellers out, Order::isBroadRealUpsell),
+     *  with TikTok upsells and hidden products removed first. */
+    private static function realUpsells(Collection $orders): Collection
+    {
+        return ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders))
+            ->reject(fn ($o) => $o->status_code === 7 || $o->excluded_upsell_seller)
+            ->filter(fn ($o) => Order::isBroadRealUpsell($o))
+            ->values();
+    }
+
+    /** Which bucket one real-upsell order falls in, by its current Pancake status. */
+    private static function bucketOf(Order $order): string
+    {
+        foreach (self::bucketCodes() as $bucket => $codes) {
+            if (in_array($order->status_code, $codes, true)) {
+                return $bucket;
+            }
+        }
+
+        return 'delivered';
+    }
+
     /** @param Collection<int, Order> $orders already scoped to the TSAs/date range */
     public static function fromOrders(Collection $orders): array
     {
-        $tally = ProductPerformance::tally(
-            ProductPerformance::withoutHiddenProductOrders(Order::withoutTiktokUpsells($orders))
-        );
-        $split = [
-            'gross_sales' => (float) $tally['upsell_sales'],
-            'cancelled'   => (float) $tally['cancelled_upsell_sales'],
-            'unfulfilled' => (float) $tally['unfulfilled_upsell_sales'],
-            'fulfilled'   => (float) $tally['fulfilled_upsell_sales'],
-            'returns'     => (float) $tally['actual_returns_upsell_sales'],
-        ];
+        $real = self::realUpsells($orders);
+        $byBucket = $real->groupBy(fn (Order $o) => self::bucketOf($o));
+        $sum = fn (Collection $os) => (float) $os->sum(fn (Order $o) => $o->realUpsellAmount());
+
+        $split = ['gross_sales' => $sum($real)];
+        foreach (array_keys(self::bucketCodes()) as $bucket) {
+            $split[$bucket] = $sum($byBucket->get($bucket, collect()));
+        }
         $split['delivered'] = $split['gross_sales'] - $split['cancelled'] - $split['unfulfilled'] - $split['fulfilled'] - $split['returns'];
 
         return $split;
+    }
+
+    /** The orders behind one of fromOrders()'s amounts ('returns', 'fulfilled' =
+     *  Shipped, 'delivered', …) — same classifier, so the list sums to the cell. */
+    public static function ordersInBucket(Collection $orders, string $bucket): Collection
+    {
+        return self::realUpsells($orders)->filter(fn (Order $o) => self::bucketOf($o) === $bucket)->values();
     }
 
     /** Orders of these TSA keys whose COALESCE(inserted, created) date is in range. */

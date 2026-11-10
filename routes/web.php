@@ -67,6 +67,7 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
     Route::get('/tsa-performance/{team}/{tsaKey}', [TsaPerformanceController::class, 'showTsa'])->name('tsa-performance.individual');
     Route::get('/charts',          [ChartsController::class,         'index'])->name('charts');
     Route::get('/rts-report',      [RtsReportController::class,      'index'])->name('rts-report');
+    Route::get('/rts-report/drilldown', [RtsReportController::class, 'drilldown'])->name('rts-report.drilldown');
     Route::get('/search',          [SearchController::class,         'search'])->name('search');
 
     // Direct messaging (explicit request, 2026-09-18: "is it possible that
