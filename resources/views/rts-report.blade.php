@@ -7,7 +7,7 @@
     $rangeLabel = $dateFrom === $dateTo ? $dateFrom : ($dateFrom . ' → ' . $dateTo);
     // Running % over the selected range, by amount: share of (RTS + Delivered).
     $pct = fn ($part, $rts, $del) => ($rts + $del) > 0 ? $part / ($rts + $del) * 100 : null;
-    $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 1) . '%';
+    $fmtPct = fn ($v) => $v === null ? '—' : number_format($v, 2) . '%';
 @endphp
 
 {{-- UI/UX review finding: a range with genuinely no RTS/Delivered activity
