@@ -252,6 +252,11 @@ Schedule::command(LogoutAllTsasAtMidnight::class)->dailyAt('00:00')->timezone('A
 // above have settled. Same withoutOverlapping() convention as every job here.
 Schedule::command(SnapshotTsaPerformance::class)->monthlyOn(1, '03:00')->timezone('Asia/Manila')->withoutOverlapping(30);
 
+// Expired database-cache rows are never removed by Laravel itself (only when
+// the same key is read again) — the cache table had grown to 46% of the DB.
+// See PruneExpiredCache's own doc comment. Railway cost audit, 2026-11-11.
+Schedule::command(\App\Console\Commands\PruneExpiredCache::class)->dailyAt('03:30')->timezone('Asia/Manila')->withoutOverlapping(10);
+
 // Partners Data Management (2026-10-29): pull PEAK.CO / M&J / MLC products,
 // TSAs and orders into the partners database (App\Services\PartnerSync).
 // Incremental, so a run is short; one partner failing doesn't stop the rest.
