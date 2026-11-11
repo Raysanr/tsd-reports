@@ -107,6 +107,27 @@ class ReconcileOrderStatuses extends Command
         $page           = 1;
         $apiError       = null;
 
+        // Per-pass timing (Railway cost audit, 2026-11-11): the scheduled run
+        // is cut off by ScheduleRuntimeCap's 570 s timeout before the summary
+        // below ever prints, so each pass logs its own duration as soon as it
+        // finishes. A cut-off run's last line then shows which pass was still
+        // running. Logging only, nothing about what the passes do changes.
+        $runStarted = microtime(true);
+        $passStarted = $runStarted;
+        $logPass = function (string $pass, int $checked, int $corrected) use (&$passStarted, $runStarted, $from, $to) {
+            $now = microtime(true);
+            Log::info('pancake:reconcile-statuses pass', [
+                'pass'      => $pass,
+                'seconds'   => round($now - $passStarted, 1),
+                'total'     => round($now - $runStarted, 1),
+                'checked'   => $checked,
+                'corrected' => $corrected,
+                'from'      => $from->toDateString(),
+                'to'        => $to->toDateString(),
+            ]);
+            $passStarted = $now;
+        };
+
         while ($page <= 500) {
             $query = http_build_query($baseParams + ['page_number' => $page]) . '&' . $statusQuery . '&include_removed=1';
 
@@ -192,22 +213,27 @@ class ReconcileOrderStatuses extends Command
             if (count($orders) < 100) break;
             $page++;
         }
+        $logPass('removed-orders', $checkedCount, $correctedCount);
 
         [$upsellChecked, $upsellCorrected] = $apiError === null
             ? $this->reconcileStaleUpsellTags($apiKey, $shopId, $from, $to)
             : [0, 0];
+        $logPass('stale-upsell-tags', $upsellChecked, $upsellCorrected);
 
         [$amountChecked, $amountCorrected] = $apiError === null
             ? $this->reconcileUpsellAmounts($apiKey, $shopId, $from, $to)
             : [0, 0];
+        $logPass('upsell-amounts', $amountChecked, $amountCorrected);
 
         [$voidedFlagChecked, $voidedFlagCorrected] = $apiError === null
             ? $this->reconcileMissingUpsellOnVoidedFlags($apiKey, $shopId, $from, $to)
             : [0, 0];
+        $logPass('voided-upsell-flags', $voidedFlagChecked, $voidedFlagCorrected);
 
         [$tagsChecked, $tagsCorrected] = $apiError === null
             ? $this->reconcileVanishedAppTags(app(\App\Support\PancakeOrderTagApi::class))
             : [0, 0];
+        $logPass('vanished-app-tags', $tagsChecked, $tagsCorrected);
 
         Setting::set('order_status_reconcile_last_run', now()->toIso8601String());
         Setting::set('order_status_reconcile_last_checked', $checkedCount + $upsellChecked + $amountChecked + $voidedFlagChecked + $tagsChecked);

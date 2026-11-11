@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 /**
@@ -47,6 +48,34 @@ class ReconcileOrderStatusesTest extends TestCase
 
         Artisan::call('pancake:reconcile-statuses');
 
+        $this->assertSame(7, Order::where('pancake_order_id', '1335548')->first()->status_code);
+    }
+
+    /** Railway cost audit (2026-11-11): each pass logs its own duration as it
+     *  finishes, so a run cut off by the 570 s scheduler cap still shows
+     *  which pass was running. */
+    public function test_logs_one_timing_line_per_pass_in_order(): void
+    {
+        Order::factory()->create(['pancake_order_id' => '1335548', 'status_code' => 0]);
+        Http::fake([
+            'pos.pages.fm/api/v1/shops/*/orders?*' => Http::response(['data' => [['id' => 1335548, 'status' => 7]]], 200),
+        ]);
+        $passes = [];
+        Log::listen(function ($e) use (&$passes) {
+            if ($e->message === 'pancake:reconcile-statuses pass') {
+                $passes[] = $e->context;
+            }
+        });
+
+        $this->artisan('pancake:reconcile-statuses')->assertSuccessful();
+
+        $this->assertSame(
+            ['removed-orders', 'stale-upsell-tags', 'upsell-amounts', 'voided-upsell-flags', 'vanished-app-tags'],
+            array_column($passes, 'pass')
+        );
+        $this->assertSame(1, $passes[0]['checked']);
+        $this->assertSame(1, $passes[0]['corrected']);
+        $this->assertIsFloat($passes[4]['total']);
         $this->assertSame(7, Order::where('pancake_order_id', '1335548')->first()->status_code);
     }
 
