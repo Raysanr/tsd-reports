@@ -18,6 +18,8 @@ class TsaShift extends Model
     protected $fillable = [
         'tsa_key', 'pos_user_id', 'display_name', 'team', 'tag_keywords', 'seller_keywords',
         'shift_start', 'shift_end', 'sort_order', 'rest_day_of_week',
+        // Optional exact Drive recordings-folder name (2026-11-12).
+        'drive_folder_name',
         // Ported from call-tracker's own `Tsa` model (merged into one app
         // 2026-08-12) — see the add_call_tracker_columns_to_tsa_shifts_table
         // migration.

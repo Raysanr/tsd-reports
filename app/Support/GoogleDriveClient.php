@@ -134,30 +134,16 @@ class GoogleDriveClient
      *  folder seen while mapping this out was 3 levels deep). */
     private const MAX_WALK_DEPTH = 4;
 
-    /**
-     * True when a Drive folder's name could plausibly be THIS TSA's own —
-     * checked against display_name, tsa_key, AND every one of her
-     * tag_keywords (root-caused 2026-09-08, real production case: Angel
-     * Margallo's real Pancake tag/tsa_key is "Angelica" — 851 real orders
-     * already attributed under that exact string — but her real Drive
-     * folder is just "ANGEL", her tag_keywords' OTHER entry; Grace Olivo's
-     * is the identical shape, tsa_key "Joanna" vs. folder "GRACE"). Before
-     * this, resolveTsaFolder() only ever tried display_name/tsa_key, so a
-     * TSA whose team happens to label her Drive folder by a DIFFERENT one
-     * of her own real aliases than her tsa_key had zero recordings ever
-     * sync, with no error — the sync just silently never found her folder.
-     * tag_keywords already exists specifically to hold every name/alias a
-     * TSA is legitimately tagged under (see buildTagKeywords()'s own doc
-     * comment) — reusing it here for folder-matching needs no new data.
-     */
-    private function folderBelongsToTsa(string $folderName, TsaShift $tsa): bool
-    {
-        if ($this->namesMatch($folderName, $tsa->display_name) || $this->namesMatch($folderName, $tsa->tsa_key)) {
-            return true;
-        }
+    /** Words too generic to identify a TSA from a folder name. */
+    private const IGNORED_MATCH_WORDS = ['TSA'];
 
-        foreach ($tsa->tag_keywords_array as $keyword) {
-            if ($this->namesMatch($folderName, $keyword)) {
+    /** Exact match (ignoring case) against display_name, tsa_key or any of
+     *  her tag_keywords (2026-09-08: Angel's tsa_key is "Angelica" but her
+     *  folder is "ANGEL", one of her tag keywords). */
+    private function exactFolderMatch(string $folderName, TsaShift $tsa): bool
+    {
+        foreach (array_merge([$tsa->display_name, $tsa->tsa_key], $tsa->tag_keywords_array) as $name) {
+            if ($name !== null && $name !== '' && $this->namesMatch($folderName, $name)) {
                 return true;
             }
         }
@@ -165,47 +151,51 @@ class GoogleDriveClient
         return false;
     }
 
+    /** Word match (2026-11-12): display_name and tag keywords split on spaces,
+     *  dashes and underscores; words under 3 letters and "TSA" ignored. So
+     *  "Trocio LIKA" matches folder LIKA and tag "ANGEL-TSA" matches ANGEL. */
+    private function wordFolderMatch(string $folderName, TsaShift $tsa): bool
+    {
+        foreach (array_merge([$tsa->display_name], $tsa->tag_keywords_array) as $name) {
+            foreach (preg_split('/[\s\-_]+/', (string) $name, -1, PREG_SPLIT_NO_EMPTY) as $word) {
+                if (mb_strlen($word) >= 3 && !in_array(strtoupper($word), self::IGNORED_MATCH_WORDS, true) && $this->namesMatch($folderName, $word)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /**
-     * TSA folders now sit under a MONTH folder under their team's root
-     * (confirmed live, 2026-08-25: TSD 2026 RECORDING > TEAM SH NATURALS >
-     * AUGUST > <tsa_key or display_name>) — an outer layer added on top of
-     * the flat Team > TSA structure this previously assumed. Looks for a
-     * folder matching $forDate's full month name (e.g. "August" — matches
-     * "AUGUST" case-insensitively via namesMatch()) directly under the team
-     * root first; if found, resolves the TSA inside THAT. Falls back to
-     * treating the team root itself as the TSA's parent (the old flat
-     * lookup) when no matching month folder exists — keeps this working
-     * for a team that hasn't adopted the month layer yet, or the first few
-     * days of a new month before that month's folder has been created.
+     * Drive layout (2026-11-12): each team's recordings folder (Settings:
+     * CLOSING / OPENING Folder ID) holds one subfolder per TSA; inside it are
+     * day folders (any name) holding "<phone> YYYY-MM-DD HH-MM-SS.m4a" files.
+     * A TSA is only ever looked for inside her own team's folder.
+     *
+     * Matching: a TSA with drive_folder_name set matches only the subfolder
+     * with exactly that name (ignoring case). Otherwise: an exact match on
+     * display name, TSA key or tag keyword first, then a word match.
      */
     public function resolveTsaFolder(string $token, TsaShift $tsa, ?\Illuminate\Support\Carbon $forDate = null): ?array
     {
         $settingKey = self::FOLDER_SETTING_KEYS[$tsa->team] ?? null;
-        if (!$settingKey) return null;
-
-        $teamRootId = Setting::get($settingKey);
-        if (!$teamRootId) return null;
-
-        $forDate ??= now('Asia/Manila');
-        $monthFolder = collect($this->listChildren($token, $teamRootId))->first(
-            fn ($f) => $f['mimeType'] === 'application/vnd.google-apps.folder' && $this->namesMatch($f['name'], $forDate->format('F'))
-        );
-
-        $tsaParentId = $monthFolder['id'] ?? $teamRootId;
-        $tsaFolder   = collect($this->listChildren($token, $tsaParentId))->first(
-            fn ($f) => $this->folderBelongsToTsa($f['name'], $tsa)
-        );
-
-        // Month folder existed but didn't have this TSA (e.g. genuinely no
-        // recordings yet this month) — still try the team root directly
-        // before giving up, same fallback reasoning as above.
-        if (!$tsaFolder && $monthFolder) {
-            $tsaFolder = collect($this->listChildren($token, $teamRootId))->first(
-                fn ($f) => $this->folderBelongsToTsa($f['name'], $tsa)
-            );
+        $teamRootId = $settingKey ? Setting::get($settingKey) : null;
+        if (!$teamRootId) {
+            return null;
         }
 
-        return $tsaFolder;
+        $folders = collect($this->listChildren($token, $teamRootId))
+            ->filter(fn ($f) => ($f['mimeType'] ?? null) === 'application/vnd.google-apps.folder')
+            ->values();
+
+        $override = trim((string) $tsa->drive_folder_name);
+        if ($override !== '') {
+            return $folders->first(fn ($f) => $this->namesMatch($f['name'], $override));
+        }
+
+        return $folders->first(fn ($f) => $this->exactFolderMatch($f['name'], $tsa))
+            ?? $folders->first(fn ($f) => $this->wordFolderMatch($f['name'], $tsa));
     }
 
     /** Shared recursive file walk (extracted from SyncCallRecordings, which

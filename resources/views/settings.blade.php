@@ -362,7 +362,11 @@
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Client ID</label>
+                            {{-- Autofill guards (2026-11-12): browsers/password managers were
+                                 filling these and overwriting the saved secret, causing
+                                 "Could not get an access token" on save. --}}
                             <input type="text" name="drive_client_id" value="{{ old('drive_client_id', $driveClientId) }}"
+                                autocomplete="off" data-1p-ignore data-lpignore="true" spellcheck="false"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                         </div>
                         <div>
@@ -376,27 +380,22 @@
                                  old() still redisplays what the admin actually typed if a
                                  save attempt just failed. --}}
                             <input type="password" name="drive_client_secret" value="{{ old('drive_client_secret') }}"
+                                autocomplete="new-password" data-1p-ignore data-lpignore="true" spellcheck="false"
                                 placeholder="{{ $driveClientSecretMasked ? 'Saved: ' . $driveClientSecretMasked . ' — leave blank to keep it' : 'Paste your Client Secret' }}"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">Refresh Token</label>
                             <input type="password" name="drive_refresh_token" value="{{ old('drive_refresh_token') }}"
+                                autocomplete="new-password" data-1p-ignore data-lpignore="true" spellcheck="false"
                                 placeholder="{{ $driveRefreshTokenMasked ? 'Saved: ' . $driveRefreshTokenMasked . ' — leave blank to keep it' : 'Paste your Refresh Token' }}"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
                         </div>
-                        {{-- Folder tree confirmed live 2026-08-25 (see
-                             GoogleDriveClient::resolveTsaFolder()'s own doc comment
-                             for the full history) — each ID below is the TEAM-level
-                             folder id, i.e. whatever's at TSD 2026 RECORDING > TEAM
-                             SH NATURALS (or > TEAM EYECARE) — copy it from that
-                             folder's URL in Drive, the long id after /folders/.
-                             Inside each, SyncCallRecordings expects a folder per
-                             month (e.g. "AUGUST"), then one subfolder per TSA
-                             (named either their tsa_key or full display name — see
-                             TSA Management for which); day-subfolders under a TSA
-                             can be named however that TSA happens to name them —
-                             never matched by name, only walked. --}}
+                        {{-- Drive layout (2026-11-12, see GoogleDriveClient::
+                             resolveTsaFolder()): each ID below is a team's main
+                             recordings folder (copy the long id after /folders/ in
+                             its Drive URL). Inside it: one subfolder per TSA, then
+                             day folders (any name), then the .m4a recordings. --}}
                         @php
                             // Renamed-team-aware labels (explicit request,
                             // 2026-09-09: "why is it not reflecting the
@@ -417,14 +416,16 @@
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">{{ $driveFolderLabels['SH Naturals'] ?? 'SH Naturals' }} Folder ID</label>
                             <input type="text" name="drive_folder_sh_naturals" value="{{ old('drive_folder_sh_naturals', $driveFolderShNaturals) }}"
-                                placeholder="TSD 2026 RECORDING &gt; TEAM SH NATURALS folder id"
+                                placeholder="{{ $driveFolderLabels['SH Naturals'] ?? 'SH Naturals' }} recordings folder id" autocomplete="off" data-1p-ignore data-lpignore="true"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                            <p class="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Paste the ID of the team folder that contains one subfolder per TSA.</p>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">{{ $driveFolderLabels['Eyecare Team'] ?? 'Eyecare' }} Folder ID</label>
                             <input type="text" name="drive_folder_eyecare" value="{{ old('drive_folder_eyecare', $driveFolderEyecare) }}"
-                                placeholder="TSD 2026 RECORDING &gt; TEAM EYECARE folder id"
+                                placeholder="{{ $driveFolderLabels['Eyecare Team'] ?? 'Eyecare' }} recordings folder id" autocomplete="off" data-1p-ignore data-lpignore="true"
                                 class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2.5 text-sm font-mono text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent">
+                            <p class="mt-1 text-[11px] text-slate-400 dark:text-slate-500">Paste the ID of the team folder that contains one subfolder per TSA.</p>
                         </div>
                     </div>
 

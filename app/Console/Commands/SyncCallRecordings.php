@@ -22,14 +22,11 @@ use Illuminate\Support\Facades\Log;
  *
  * Folder tree (confirmed live, 2026-08-25 — reintroduced a month layer this
  * class briefly went without, see git history around 2026-08-19 for the flat
- * version this replaced): TSD 2026 RECORDING > TEAM SH NATURALS|EYECARE >
- * <full month name, e.g. "AUGUST"> > <TSA tsa_key or display_name, either
- * matches — see namesMatch()> > <day-subfolder(s), naming inconsistent per
- * TSA (e.g. "AUGUST 7" vs "August 13-- Recording uploaded") — never matched
- * by name, only walked> > the actual recordings.
- * GoogleDriveClient::resolveTsaFolder() finds the TSA's own folder through
- * the month layer (falling back to a flat team-root lookup if a team/month
- * hasn't adopted this structure yet); listFilesRecursively() from there
+ * version this replaced), as of 2026-11-12: <team recordings folder
+ * (Settings: CLOSING / OPENING Folder ID)> > <one subfolder per TSA> >
+ * <day folder(s), any name — never matched by name, only walked> > the
+ * actual recordings. GoogleDriveClient::resolveTsaFolder() finds the TSA's
+ * own subfolder inside her own team's folder only; listFilesRecursively() from there
  * walks whatever day-subfolders exist regardless of their naming. Every
  * recording's own filename ("<phone> <YYYY-MM-DD> <HH-MM-SS>.m4a") is still
  * the single source of truth for which date/hour it counts toward
@@ -207,12 +204,9 @@ class SyncCallRecordings extends Command
                 // resource guard, not a per-TSA fault, so it's left able to
                 // escape this catch.
                 try {
-                    // TSA folders now sit under a MONTH folder under the
-                    // team root (see GoogleDriveClient::resolveTsaFolder()'s
-                    // own doc comment) — $date (this run's target date,
-                    // defaults to today) picks which month to look in, so a
-                    // manual re-sync for a past date still finds the right
-                    // month even after the calendar has moved on.
+                    // Her own subfolder inside her team's folder (see
+                    // GoogleDriveClient::resolveTsaFolder()); the date
+                    // filter is applied per file name below.
                     $tsaFolder = $this->drive->resolveTsaFolder($token, $shift, $date);
                     if (!$tsaFolder) {
                         // Silent until 2026-10-05 — a TSA whose Drive folder

@@ -174,6 +174,7 @@
                             data-extra="{{ $shift->extra_tag_keywords }}"
                             data-pos-user-id="{{ $shift->pos_user_id }}"
                             data-rest-day="{{ $shift->rest_day_of_week }}"
+                            data-drive-folder="{{ $shift->drive_folder_name }}"
                             data-tiktok-upsell="{{ $shift->tiktok_upsell ? '1' : '0' }}">
                             <svg class="w-3 h-3 sm:w-3.5 sm:h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
@@ -406,6 +407,16 @@
                 </select>
             </div>
 
+            <div>
+                <label for="tsaDriveFolderInput" class="block text-xs font-semibold text-slate-700 dark:text-slate-200 mb-1">
+                    Drive folder name <span class="text-slate-400 font-normal">(optional)</span>
+                </label>
+                <input type="text" name="drive_folder_name" id="tsaDriveFolderInput" maxlength="100" autocomplete="off"
+                    placeholder="e.g. LIKA"
+                    class="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-yellow-500">
+                <p class="mt-1 text-[11px] text-slate-400">Her recordings subfolder in the team's Drive folder. Leave blank to match it by name automatically.</p>
+            </div>
+
             <div class="flex items-center gap-2">
                 <input type="checkbox" name="tiktok_upsell" id="tsaTiktokUpsellCheckbox" value="1"
                     class="rounded border-slate-300 dark:border-slate-600 text-yellow-700 focus:ring-yellow-500">
@@ -523,6 +534,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
     const tagResults    = document.getElementById('tsaTagResults');
     const tagChips      = document.getElementById('tsaTagChips');
     const restDaySelect = document.getElementById('tsaRestDaySelect');
+    const driveFolderInput = document.getElementById('tsaDriveFolderInput');
     const submitBtn     = document.getElementById('tsaSubmitBtn');
     const resultsBox    = document.getElementById('tsaNameResults');
     const linkedHint    = document.getElementById('tsaLinkedHint');
@@ -596,6 +608,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
         tagSearch.value = '';
         setSelectedTags([]);
         restDaySelect.value = '';
+        driveFolderInput.value = '';
         teamSelect.selectedIndex = 0;
         tiktokUpsellCheckbox.checked = false;
         currentTsaKey = '';
@@ -622,6 +635,7 @@ document.querySelectorAll('.toggleHiddenTsaBtn').forEach((btn) => {
             const existingTags = (btn.dataset.extra || '').split(',').map(t => t.trim()).filter(Boolean);
             setSelectedTags(existingTags);
             restDaySelect.value = btn.dataset.restDay || '';
+            driveFolderInput.value = btn.dataset.driveFolder || '';
             tiktokUpsellCheckbox.checked = btn.dataset.tiktokUpsell === '1';
             posUserIdInput.value = btn.dataset.posUserId || '';
             if (btn.dataset.posUserId) linkedHint.classList.remove('hidden');

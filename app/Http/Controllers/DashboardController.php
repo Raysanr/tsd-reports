@@ -869,7 +869,7 @@ class DashboardController extends Controller
         $lastRunIdBeforeSync = SyncRun::max('id') ?? 0;
         $expectedRuns        = $from->diffInDays($to) + 1;
 
-        $php     = escapeshellarg(PHP_BINARY);
+        $php     = escapeshellarg(\App\Support\PhpCli::binary());
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/manual-sync.log'));
 

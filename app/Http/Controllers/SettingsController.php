@@ -452,7 +452,7 @@ class SettingsController extends Controller
         ]);
         $date = $data['date'] ?? now('Asia/Manila')->toDateString();
 
-        $php     = escapeshellarg(PHP_BINARY);
+        $php     = escapeshellarg(\App\Support\PhpCli::binary());
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/drive-sync-manual.log'));
         $dateArg = escapeshellarg($date);

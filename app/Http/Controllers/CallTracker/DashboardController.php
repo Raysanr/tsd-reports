@@ -460,7 +460,7 @@ class DashboardController extends Controller
     {
         $lastRunIdBeforeSync = LeadSyncRun::max('id') ?? 0;
 
-        $php     = escapeshellarg(PHP_BINARY);
+        $php     = escapeshellarg(\App\Support\PhpCli::binary());
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/manual-lead-sync.log'));
         exec("{$php} {$artisan} pancake:sync-leads >> {$logFile} 2>&1 &");

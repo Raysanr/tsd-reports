@@ -185,6 +185,7 @@ class TsaManagementController extends Controller
             // Fresh record: only set if a real POS account was picked, otherwise leave null.
             'seller_keywords'  => !empty($data['pos_user_id']) ? strtolower($data['display_name']) : null,
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
+            'drive_folder_name' => $this->driveFolderName($data),
             'sort_order'       => $nextSort,
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ]);
@@ -239,6 +240,8 @@ class TsaManagementController extends Controller
             'rest_day_of_week' => $data['rest_day_of_week'] ?? null,
             'tiktok_upsell'    => $data['tiktok_upsell'] ?? false,
         ], $shiftMonth);
+        // Not month-specific: the TSA's Drive folder is one folder.
+        $tsaShift->forceFill(['drive_folder_name' => $this->driveFolderName($data)])->save();
 
         $message = "Updated \"{$data['display_name']}\"" . (TsaMonths::existing() !== [] ? ' for ' . Carbon::createFromFormat('Y-m', $shiftMonth)->format('F Y') : '') . '.';
         ActivityLogger::log('tsa.updated', $tsaShift, $message);
@@ -560,7 +563,16 @@ class TsaManagementController extends Controller
             'extra_keywords'   => 'nullable|string|max:255',
             'rest_day_of_week' => 'nullable|string|in:sunday,monday,tuesday,wednesday,thursday,friday,saturday',
             'tiktok_upsell'    => 'nullable|boolean',
+            'drive_folder_name' => 'nullable|string|max:100',
         ]);
+    }
+
+    /** Optional exact Drive recordings-folder name; blank clears it. */
+    private function driveFolderName(array $data): ?string
+    {
+        $name = trim((string) ($data['drive_folder_name'] ?? ''));
+
+        return $name !== '' ? $name : null;
     }
 
     /** tag_keywords always includes the TSA's first name (tsa_key) plus any extras typed in. */

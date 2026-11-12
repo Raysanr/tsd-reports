@@ -50,7 +50,7 @@ class SyncCallRecordingsFastPathTest extends TestCase
         return ['id' => $id, 'name' => $name, 'mimeType' => 'audio/mp4'];
     }
 
-    public function test_resolves_the_tsa_folder_through_the_month_layer_and_walks_its_day_subfolders(): void
+    public function test_resolves_the_tsa_folder_inside_the_team_folder_and_walks_its_day_subfolders(): void
     {
         $this->configureDrive();
         TsaShift::where('team', 'Eyecare Team')->where('tsa_key', 'Julie')->update(['tsa_key' => 'Julie']);
@@ -58,13 +58,8 @@ class SyncCallRecordingsFastPathTest extends TestCase
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
 
-            // Team root -> month folders (only AUGUST matters — the target
-            // date below is in August).
+            // Team folder -> one subfolder per TSA (2026-11-12 layout).
             'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
-                $this->folderListResponse([$this->folder('month-august', 'AUGUST'), $this->folder('month-july', 'JULY')])
-            ),
-            // AUGUST -> per-TSA folders.
-            'https://www.googleapis.com/drive/v3/files?q=%27month-august%27*' => Http::response(
                 $this->folderListResponse([$this->folder('julie-root', 'JULIE'), $this->folder('other-root', 'OTHER TSA')])
             ),
             // Julie's own folder -> a day-subfolder with a real, messy name
@@ -81,14 +76,11 @@ class SyncCallRecordingsFastPathTest extends TestCase
 
         $this->artisan('calls:sync-recordings', ['--date' => '2026-08-29'])->assertSuccessful();
 
-        // JULY's own children and the sibling "OTHER TSA" folder must never
-        // have been listed — proves this went straight to the right month
-        // and TSA instead of enumerating siblings.
-        Http::assertNotSent(fn ($request) => str_contains($request->url(), "q=%27month-july%27"));
+        // The sibling "OTHER TSA" folder must never have been listed.
         Http::assertNotSent(fn ($request) => str_contains($request->url(), "q=%27other-root%27"));
     }
 
-    public function test_falls_back_to_a_flat_team_root_lookup_when_there_is_no_month_folder(): void
+    public function test_finds_the_tsa_folder_directly_under_the_team_folder(): void
     {
         $this->configureDrive();
 
@@ -127,9 +119,6 @@ class SyncCallRecordingsFastPathTest extends TestCase
         Http::fake([
             'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
             'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response(
-                $this->folderListResponse([$this->folder('month-august', 'AUGUST')])
-            ),
-            'https://www.googleapis.com/drive/v3/files?q=%27month-august%27*' => Http::response(
                 $this->folderListResponse([$this->folder('julie-root', 'JULIE')])
             ),
             // Real per-TSA naming is inconsistent (confirmed live) — this
@@ -351,5 +340,110 @@ class SyncCallRecordingsFastPathTest extends TestCase
         $nextDayRow = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-08-30')->first();
         $this->assertNotNull($targetRow);
         $this->assertNull($nextDayRow, 'An explicit --date must sync only that one day.');
+    }
+
+    // ── 2026-11-12: team folder > TSA subfolder > day folders ──────────
+
+    private function m4a(int $seconds): string
+    {
+        $ftyp = "\x00\x00\x00\x10ftypM4A \x00\x00\x00\x00";
+        $mvhdBody = str_repeat("\x00", 12) . pack('N', 1000) . pack('N', $seconds * 1000) . str_repeat("\x00", 80);
+        $mvhd = pack('N', 8 + strlen($mvhdBody)) . 'mvhd' . $mvhdBody;
+
+        return $ftyp . pack('N', 8 + strlen($mvhd)) . 'moov' . $mvhd;
+    }
+
+    private function onlyTsa(string $team, array $attrs): TsaShift
+    {
+        TsaShift::query()->forceDelete();
+
+        return TsaShift::create($attrs + ['team' => $team, 'sort_order' => 1]);
+    }
+
+    public function test_each_team_only_reads_its_own_folder(): void
+    {
+        $this->configureDrive();
+        Setting::set('drive_folder_sh_naturals', 'root-closing');
+        $this->onlyTsa('SH Naturals', ['tsa_key' => 'Lika', 'display_name' => 'Trocio LIKA', 'tag_keywords' => 'LIKA']);
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-closing%27*' => Http::response($this->folderListResponse([$this->folder('lika-closing', 'LIKA')])),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response($this->folderListResponse([$this->folder('lika-opening', 'LIKA')])),
+            'https://www.googleapis.com/drive/v3/files?q=%27lika-closing%27*' => Http::response($this->folderListResponse([])),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-11-11'])->assertSuccessful();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'q=%27lika-closing%27'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'q=%27root-eyecare%27'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'q=%27lika-opening%27'));
+    }
+
+    public function test_a_drive_folder_name_matches_only_that_folder(): void
+    {
+        $this->configureDrive();
+        $this->onlyTsa('Eyecare Team', ['tsa_key' => 'Julie', 'display_name' => 'Julie', 'tag_keywords' => 'JULIE', 'drive_folder_name' => 'jf recordings']);
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response($this->folderListResponse([
+                $this->folder('julie-name', 'JULIE'), $this->folder('julie-override', 'JF RECORDINGS'),
+            ])),
+            'https://www.googleapis.com/drive/v3/files?q=%27julie-override%27*' => Http::response($this->folderListResponse([])),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-11-11'])->assertSuccessful();
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), 'q=%27julie-override%27'));
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'q=%27julie-name%27'));
+    }
+
+    public function test_word_and_tag_matching_find_the_folder(): void
+    {
+        $drive = app(\App\Support\GoogleDriveClient::class);
+        $this->configureDrive();
+        Http::fake([
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response($this->folderListResponse([
+                $this->folder('lika', 'LIKA'), $this->folder('angel', 'ANGEL'), $this->folder('tsa', 'TSA'),
+            ])),
+        ]);
+
+        $lika = new TsaShift(['tsa_key' => 'Trocio', 'display_name' => 'Trocio LIKA', 'team' => 'Eyecare Team', 'tag_keywords' => 'TROCIO']);
+        $angel = new TsaShift(['tsa_key' => 'Angelica', 'display_name' => 'Angelica Margallo', 'team' => 'Eyecare Team', 'tag_keywords' => 'ANGELICA,ANGEL-TSA']);
+        $nobody = new TsaShift(['tsa_key' => 'Mo', 'display_name' => 'Mo TSA', 'team' => 'Eyecare Team', 'tag_keywords' => 'MO']);
+
+        $this->assertSame('lika', $drive->resolveTsaFolder('t', $lika)['id'] ?? null);
+        $this->assertSame('angel', $drive->resolveTsaFolder('t', $angel)['id'] ?? null);
+        $this->assertNull($drive->resolveTsaFolder('t', $nobody));
+    }
+
+    public function test_recordings_in_any_day_folder_count_for_their_file_name_date(): void
+    {
+        $this->configureDrive();
+        $this->onlyTsa('Eyecare Team', ['tsa_key' => 'Julie', 'display_name' => 'Julie', 'tag_keywords' => 'JULIE']);
+
+        Http::fake([
+            'oauth2.googleapis.com/*' => Http::response(['access_token' => 'test-token']),
+            'https://www.googleapis.com/drive/v3/files?q=%27root-eyecare%27*' => Http::response($this->folderListResponse([$this->folder('julie', 'JULIE')])),
+            'https://www.googleapis.com/drive/v3/files?q=%27julie%27*' => Http::response($this->folderListResponse([
+                $this->folder('day-a', 'whatever'), $this->folder('day-b', 'Nov 11 uploads'),
+            ])),
+            'https://www.googleapis.com/drive/v3/files?q=%27day-a%27*' => Http::response($this->folderListResponse([
+                $this->file('r1', '09171234567 2026-11-11 09-05-00.m4a'), $this->file('r-old', '09171234567 2026-11-10 09-05-00.m4a'),
+            ])),
+            'https://www.googleapis.com/drive/v3/files?q=%27day-b%27*' => Http::response($this->folderListResponse([
+                $this->file('r2', '09179999999 2026-11-11 09-40-00.m4a'),
+            ])),
+            'https://www.googleapis.com/drive/v3/files/r1*' => Http::response($this->m4a(5)),
+            'https://www.googleapis.com/drive/v3/files/r2*' => Http::response($this->m4a(7)),
+        ]);
+
+        $this->artisan('calls:sync-recordings', ['--date' => '2026-11-11'])->assertSuccessful();
+
+        $row = CallRecordingHour::where('tsa_key', 'Julie')->whereDate('date', '2026-11-11')->where('hour', 9)->first();
+        $this->assertSame(12, $row?->total_seconds);
+        $this->assertSame(2, $row?->call_count);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'files/r-old'));
     }
 }

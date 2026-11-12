@@ -42,7 +42,7 @@ class CronController extends Controller
             abort(403);
         }
 
-        $php     = escapeshellarg(PHP_BINARY);
+        $php     = escapeshellarg(\App\Support\PhpCli::binary());
         $artisan = escapeshellarg(base_path('artisan'));
         $logFile = escapeshellarg(storage_path('logs/cron-schedule-run.log'));
         exec("{$php} {$artisan} schedule:run >> {$logFile} 2>&1 &");
