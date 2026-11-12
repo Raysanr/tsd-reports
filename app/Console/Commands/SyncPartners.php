@@ -33,7 +33,7 @@ class SyncPartners extends Command
             }
             try {
                 $counts = $sync->sync($slug);
-                $this->info(PartnerFeed::name($slug) . ": {$counts['products']} products, {$counts['tsas']} TSAs, {$counts['orders']} orders updated.");
+                $this->info(PartnerFeed::name($slug) . ": {$counts['products']} products, {$counts['tsas']} TSAs, {$counts['orders']} orders updated, {$counts['product_costs']} product costs.");
             } catch (\Throwable $e) {
                 // One partner being down must not stop the others.
                 $failed = true;

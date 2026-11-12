@@ -3129,7 +3129,9 @@ class ExpectedIncomeController extends Controller
             // Delivered") — deliberately not accepted here so a stray POST
             // can't write a stale value the view no longer reflects.
             'tax_allocation'       => ['sometimes', 'numeric', 'min:0'],
-            'product_cost'         => ['sometimes', 'numeric', 'min:0'],
+            // Partners: copied from each partner's own system by
+            // partners:sync (2026-11-12), never typed here.
+            'product_cost'         => \App\Support\DataSet::isPartners() ? ['prohibited'] : ['sometimes', 'numeric', 'min:0'],
             'advertising_cost'     => ['sometimes', 'numeric', 'min:0'],
             'ads_vat'              => ['sometimes', 'numeric', 'min:0'],
             'ai_expense'           => ['sometimes', 'numeric', 'min:0'],

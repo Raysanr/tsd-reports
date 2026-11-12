@@ -26,7 +26,10 @@ class PartnerSync
 
     public function __construct(private PartnerFeed $feed) {}
 
-    /** @return array{products: int, tsas: int, orders: int} */
+    /** Days of Product Cost copied each sync (partners can still edit recent days). */
+    private const PRODUCT_COST_DAYS = 62;
+
+    /** @return array{products: int, tsas: int, orders: int, product_costs: int} */
     public function sync(string $slug): array
     {
         return DataSet::onPartners(function () use ($slug) {
@@ -36,6 +39,7 @@ class PartnerSync
                 'products' => $this->syncProducts($slug, $team),
                 'tsas'     => $this->syncTsas($slug, $team),
                 'orders'   => $this->syncOrders($slug, $team),
+                'product_costs' => $this->syncProductCosts($slug),
             ];
         });
     }
@@ -100,6 +104,66 @@ class PartnerSync
         }
 
         return $count;
+    }
+
+    /**
+     * Product Cost is typed on each partner's own Expected Income; it's
+     * copied here per product / TSA / day (2026-11-12: "not editable, auto
+     * from each partner's system"), so the Partners pages show the same
+     * figure. Days in the window the partner no longer has a cost for go
+     * back to 0. A partner that doesn't serve this feed yet is skipped.
+     */
+    private function syncProductCosts(string $slug): int
+    {
+        $from = now('Asia/Manila')->subDays(self::PRODUCT_COST_DAYS)->toDateString();
+        $to = now('Asia/Manila')->toDateString();
+        try {
+            $rows = $this->feed->rows($slug, 'product-costs', ['from' => $from, 'to' => $to]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return 0;
+        }
+
+        $products = DB::table('partner_imports')->where(['partner' => $slug, 'resource' => 'product'])->pluck('local_id', 'source_id');
+        $tsas = DB::table('partner_imports')->where(['partner' => $slug, 'resource' => 'tsa'])->pluck('local_id', 'source_id');
+
+        $wanted = [];
+        foreach ($rows as $row) {
+            $productId = $products[$row['product_id']] ?? null;
+            $tsaId = $row['tsa_id'] === null ? null : ($tsas[$row['tsa_id']] ?? false);
+            if ($productId === null || $tsaId === false) {
+                continue;
+            }
+            $wanted[$productId . ':' . ($tsaId ?? '') . ':' . $row['entry_date']] = [$productId, $tsaId, $row['entry_date'], (float) $row['product_cost']];
+        }
+
+        DB::transaction(function () use ($products, $from, $to, $wanted) {
+            $existing = DB::table('expected_income_entries')
+                ->whereIn('product_id', $products->values())
+                ->whereDate('entry_date', '>=', $from)->whereDate('entry_date', '<=', $to)
+                ->get(['id', 'product_id', 'tsa_id', 'entry_date', 'product_cost']);
+
+            foreach ($existing as $entry) {
+                $key = $entry->product_id . ':' . ($entry->tsa_id ?? '') . ':' . substr((string) $entry->entry_date, 0, 10);
+                $cost = isset($wanted[$key]) ? $wanted[$key][3] : 0.0;
+                unset($wanted[$key]);
+                if ((float) $entry->product_cost !== $cost) {
+                    DB::table('expected_income_entries')->where('id', $entry->id)->update(['product_cost' => $cost, 'updated_at' => now()]);
+                }
+            }
+
+            foreach ($wanted as [$productId, $tsaId, $date, $cost]) {
+                if ($cost != 0.0) {
+                    DB::table('expected_income_entries')->insert([
+                        'product_id' => $productId, 'tsa_id' => $tsaId, 'entry_date' => $date,
+                        'product_cost' => $cost, 'created_at' => now(), 'updated_at' => now(),
+                    ]);
+                }
+            }
+        });
+
+        return count($rows);
     }
 
     /**

@@ -328,4 +328,36 @@ class PartnersDataManagementTest extends TestCase
         $supervisorAt = strpos($html, 'Telesales Supervisor');
         $this->assertGreaterThan($supervisorAt, strpos($html, 'data-tsa-salary-row'), 'TSA rows follow the supervisor');
     }
+
+    /** 2026-11-12: Product Cost is copied from each partner's own Expected
+     *  Income on every sync and can't be typed on the Partners pages. */
+    public function test_product_cost_is_copied_from_the_partner_and_not_editable(): void
+    {
+        \Illuminate\Support\Carbon::setTestNow('2026-11-12 12:00:00');
+        Http::fake(['peak-co*/api/tsd-feed/product-costs*' => Http::response(['rows' => [
+            ['product_id' => 7, 'tsa_id' => null, 'entry_date' => '2026-11-10', 'product_cost' => 941],
+            ['product_id' => 7, 'tsa_id' => 3, 'entry_date' => '2026-11-10', 'product_cost' => 120.5],
+            ['product_id' => 99, 'tsa_id' => null, 'entry_date' => '2026-11-10', 'product_cost' => 5], // unknown product: ignored
+        ]])]);
+        $this->syncPeak();
+        Http::assertSent(fn (HttpRequest $r) => str_contains($r->url(), 'product-costs') && ($r->data()['from'] ?? null) === '2026-09-11');
+
+        [$productId, $tsaId] = DataSet::onPartners(fn () => [Product::sole()->id, TsaShift::sole()->id]);
+        DataSet::onPartners(function () use ($productId, $tsaId) {
+            $cost = fn ($tsa) => (float) ExpectedIncomeEntry::where('product_id', $productId)->where('tsa_id', $tsa)->whereDate('entry_date', '2026-11-10')->value('product_cost');
+            $this->assertSame(941.0, $cost(null));
+            $this->assertSame(120.5, $cost($tsaId));
+            $this->assertSame(2, ExpectedIncomeEntry::count());
+            // A day the partner no longer has a cost for goes back to 0 on the next sync.
+            ExpectedIncomeEntry::create(['product_id' => $productId, 'tsa_id' => null, 'entry_date' => '2026-11-11', 'product_cost' => 50]);
+        });
+        app(PartnerSync::class)->sync('peak-co');
+        DataSet::onPartners(fn () => $this->assertSame(0.0, (float) ExpectedIncomeEntry::whereDate('entry_date', '2026-11-11')->value('product_cost')));
+
+        $admin = $this->admin();
+        $this->actingAs($admin)->patchJson("/partners/expected-income/{$productId}/2026-11-10", ['product_cost' => 1])->assertStatus(422);
+        $html = $this->actingAs($admin)->get('/partners/expected-income?date_from=2026-11-10&date_to=2026-11-10')->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-field="product_cost"', $html);
+        \Illuminate\Support\Carbon::setTestNow();
+    }
 }
