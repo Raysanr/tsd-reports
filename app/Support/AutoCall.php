@@ -80,7 +80,7 @@ class AutoCall
             ->where('status', 'unassigned')
             ->where('high_rts', false) // HIGH RTS waits for a supervisor (2026-10-26)
             ->whereIn('product_id', $productIds)
-            ->orderBy('pancake_created_at')
+            ->tap(fn ($q) => self::hotLeadsFirst($q))
             ->limit(5)
             ->get();
 
@@ -100,6 +100,28 @@ class AutoCall
         }
 
         return null;
+    }
+
+    /** When this shift's leads started: 3:00 PM during the Closing shift,
+     *  midnight during Opening (TeamShiftWindow, same split as the reports). */
+    public static function hotSince(): Carbon
+    {
+        $now = Carbon::now('Asia/Manila');
+
+        return $now->copy()->startOfDay()->setHour(TeamShiftWindow::startHourFor(TeamShiftWindow::forHour((int) $now->format('G'))));
+    }
+
+    /** Waiting-lead order (2026-11-12: "hot leads will go first to the
+     *  closing, and when there's no hot leads the excess leads from opening"):
+     *  leads that came in this shift first, then older leftovers from an
+     *  earlier shift (e.g. Opening's excess after they log out), each oldest
+     *  first. During Opening every lead today is "this shift", so nothing
+     *  changes there. */
+    public static function hotLeadsFirst($query)
+    {
+        return $query
+            ->orderByRaw('CASE WHEN pancake_created_at >= ? THEN 0 ELSE 1 END', [self::hotSince()->toDateTimeString()])
+            ->orderBy('pancake_created_at');
     }
 
     /** Leads that came in today, aren't a scheduled callback, haven't been

@@ -188,4 +188,37 @@ class AutoCallTest extends TestCase
         $this->assertSame($waiting->id, AutoCall::next($gemma)->id);
         $this->assertTrue(AutoCall::canTakeNewLead($this->tsa('Julie', 'login')));
     }
+
+    /** 2026-11-12: during Closing, leads that came in this shift are dialed
+     *  before Opening's leftovers; the leftovers go only once none are left. */
+    public function test_closing_gets_hot_leads_before_openings_excess(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-12 16:00:00', 'Asia/Manila'));
+        $tsa = $this->tsa('Mariel', 'ready_to_call');
+        $excess = $this->lead(null, ['pancake_created_at' => Carbon::parse('2026-11-12 10:00:00', 'Asia/Manila')]);
+        $hotOld = $this->lead(null, ['pancake_created_at' => Carbon::parse('2026-11-12 15:10:00', 'Asia/Manila')]);
+        $hotNew = $this->lead(null, ['pancake_created_at' => Carbon::parse('2026-11-12 15:50:00', 'Asia/Manila')]);
+
+        $order = [];
+        foreach (range(1, 3) as $i) {
+            $lead = AutoCall::next($tsa->fresh());
+            $order[] = $lead->id;
+            $lead->update(['dialed_at' => now()]);
+        }
+        Carbon::setTestNow();
+
+        $this->assertSame([$hotOld->id, $hotNew->id, $excess->id], $order);
+    }
+
+    public function test_opening_still_dials_the_oldest_lead_first(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-12 10:00:00', 'Asia/Manila'));
+        $tsa = $this->tsa('Gemma', 'ready_to_call');
+        $later = $this->lead(null, ['pancake_created_at' => Carbon::parse('2026-11-12 09:00:00', 'Asia/Manila')]);
+        $earlier = $this->lead(null, ['pancake_created_at' => Carbon::parse('2026-11-12 07:00:00', 'Asia/Manila')]);
+
+        $this->assertSame($earlier->id, AutoCall::next($tsa->fresh())->id);
+        $this->assertSame('2026-11-12 00:00:00', AutoCall::hotSince()->toDateTimeString());
+        Carbon::setTestNow();
+    }
 }

@@ -1015,7 +1015,9 @@ class SyncPancakeLeads extends Command
             ->whereNotNull('product_id')
             ->where('pancake_created_at', '>=', self::productBackfillCutoff())
             ->with('product')
-            ->orderBy('pancake_created_at')
+            // Auto-call on: this shift's leads before an earlier shift's
+            // leftovers (AutoCall::hotLeadsFirst(), 2026-11-12).
+            ->when(\App\Support\AutoCall::enabled(), fn ($q) => \App\Support\AutoCall::hotLeadsFirst($q), fn ($q) => $q->orderBy('pancake_created_at'))
             ->limit(self::CATCH_UP_BATCH_LIMIT)
             ->get();
 
