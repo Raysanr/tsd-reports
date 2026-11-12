@@ -41,7 +41,7 @@ class PartnerSyncController extends Controller
         }
 
         return $failed === []
-            ? back()->with('success', 'Synced — latest products, TSAs and orders from PEAK.CO, M&J and MLC.')
+            ? back()->with('success', 'Synced — latest products, TSAs, orders and product costs from PEAK.CO, M&J and MLC.')
             : back()->with('error', 'Could not sync ' . implode(', ', $failed) . ' — the others are up to date.');
     }
 }
