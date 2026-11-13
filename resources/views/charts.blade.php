@@ -427,8 +427,9 @@
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6 overflow-x-auto">
     <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Never retried</h2>
     <p class="text-xs text-slate-400 font-mono mt-0.5 mb-4">Latest {{ count($followUp['neverRetried']) }} leads left after one unanswered call. Click an order ID to copy it.</p>
+    <div class="max-h-96 overflow-y-auto">
     <table class="w-full text-xs font-mono" style="min-width:520px">
-        <thead>
+        <thead class="sticky top-0 z-10 bg-white dark:bg-slate-900">
             <tr class="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                 <th class="py-2 pr-3">Order ID</th><th class="py-2 px-3">Customer</th><th class="py-2 px-3">TSA</th><th class="py-2 pl-3 text-right">First call</th>
             </tr>
@@ -444,6 +445,7 @@
             @endforeach
         </tbody>
     </table>
+    </div>
 </div>
 @endif
 </div>{{-- /data-analytics-panel="followup" --}}
