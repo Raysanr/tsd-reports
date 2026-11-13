@@ -25,6 +25,7 @@
         @foreach([
             'connection'  => ['Pancake Connection', 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.78 7.78 5.5 5.5 0 017.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4'],
             'team-names'  => ['Team Names', 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75'],
+            'page-access' => ['Page Access', 'M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178zM15 12a3 3 0 11-6 0 3 3 0 016 0z'],
             'google-drive'=> ['Google Drive', 'M8 3h8l6 10-4 7H6l-4-7 6-10zM2 13h20M8 3l6 10M16 3l-6 10'],
             'appearance'  => ['Appearance', 'M12 22a10 10 0 110-20c5.5 0 10 4 10 9 0 3-2.5 5-5.5 5H15a2 2 0 00-1.5 3.3A1.5 1.5 0 0112 22zM7.5 11.5h.01M10.5 7.5h.01M15.5 7.5h.01M17.5 11.5h.01'],
             'access-token'=> ['Access Token', 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 01-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 011-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 011.52 0C14.51 3.81 17 5 19 5a1 1 0 011 1v7z'],
@@ -249,6 +250,123 @@
                 </form>
             </div>
         </div>
+    </div>
+
+    {{-- ================= Page Access ================= --}}
+    {{-- Explicit request, 2026-11-13: admins switch every module and page on
+         or off for Normal users (TSAs) — see App\Support\NormalUserPages. --}}
+    <div data-settings-panel="page-access" class="hidden">
+        @php
+            $NUP = \App\Support\NormalUserPages::class;
+            $moduleCards = [
+                'leads'    => ['pages' => 'leads',   'icon' => 'M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z', 'tint' => 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'],
+                'calls'    => ['pages' => 'calls',   'icon' => 'M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z', 'tint' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'],
+                'data'     => ['pages' => 'data',    'icon' => 'M3 7.125C3 6.504 3.504 6 4.125 6h4.243c.3 0 .587.12.8.331l1.383 1.383c.211.211.498.331.8.331h8.524c.621 0 1.125.504 1.125 1.125v9.705c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 013 18.875V7.125z', 'tint' => 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300'],
+                'partners' => ['pages' => null,      'icon' => 'M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0z', 'tint' => 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'],
+                'archive'  => ['pages' => 'archive', 'icon' => 'M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z', 'tint' => 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'],
+            ];
+            $switch = 'relative h-5 w-9 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600 transition-colors peer-checked:bg-emerald-500 peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-slate-900 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:after:translate-x-4';
+        @endphp
+
+        <div class="flex flex-col gap-1 mb-6">
+            <h3 class="text-base font-semibold text-slate-900 dark:text-slate-100">Page Access for Normal users</h3>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Switch whole modules or single pages on and off for Normal users (TSAs). Admins always see everything. Hub, Messages, Settings, Search and lead details are always available.</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <span class="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20">Admin page</span>
+                = normally admin-only. Switched on, Normal users can view it but can't save or change anything on it.
+            </p>
+        </div>
+
+        <form method="POST" action="{{ route('settings.page-access') }}" id="pageAccessForm" class="space-y-4">
+            @csrf
+            <input type="hidden" name="_redirect_route" value="{{ request()->routeIs('calls.*') ? 'calls.settings' : 'settings' }}">
+
+            @foreach($moduleCards as $moduleKey => $card)
+            @php
+                $pages = $card['pages'] ? $NUP::PAGES[$card['pages']] : [];
+                $moduleOn = $NUP::moduleOn($moduleKey);
+            @endphp
+            <section data-module-card class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+                <header class="flex items-center gap-4 px-4 py-3.5 sm:px-5 bg-slate-50/80 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800">
+                    <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg {{ $card['tint'] }}">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ $card['icon'] }}"/></svg>
+                    </span>
+                    <div class="min-w-0 flex-1">
+                        <h4 class="text-sm font-semibold text-slate-900 dark:text-slate-100">{{ $NUP::MODULE_LABELS[$moduleKey] }}</h4>
+                        <p class="text-xs text-slate-500 dark:text-slate-400" data-module-summary>
+                            @if($pages)
+                                <span data-on-count></span> of {{ count($pages) }} pages on
+                            @else
+                                Uses the same page switches as TSD Data Management
+                            @endif
+                        </p>
+                    </div>
+                    @if($pages)
+                    <div class="hidden sm:flex items-center gap-1 text-xs" data-bulk>
+                        <button type="button" data-all="1" class="rounded-md px-2 py-1 font-medium text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-700">All on</button>
+                        <button type="button" data-all="0" class="rounded-md px-2 py-1 font-medium text-slate-600 hover:bg-slate-200/70 dark:text-slate-300 dark:hover:bg-slate-700">All off</button>
+                    </div>
+                    @endif
+                    <label class="inline-flex items-center gap-2 cursor-pointer" title="Module on/off">
+                        <span class="text-xs font-medium text-slate-600 dark:text-slate-300" data-module-state>{{ $moduleOn ? 'On' : 'Off' }}</span>
+                        <input type="checkbox" name="modules[{{ $moduleKey }}]" value="1" class="peer sr-only" data-module-toggle @checked($moduleOn)>
+                        <span class="{{ $switch }}" aria-hidden="true"></span>
+                        <span class="sr-only">{{ $NUP::MODULE_LABELS[$moduleKey] }} module</span>
+                    </label>
+                </header>
+
+                @if($pages)
+                <ul role="list" data-module-pages class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 divide-slate-100 dark:divide-slate-800 transition-opacity {{ $moduleOn ? '' : 'opacity-40' }}">
+                    @foreach($pages as $pageKey => $page)
+                    <li class="sm:border-b sm:border-slate-100 sm:dark:border-slate-800 sm:odd:border-r">
+                        <label class="flex items-center justify-between gap-3 px-4 py-3 sm:px-5 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <span class="flex min-w-0 items-center gap-2">
+                                <span class="truncate text-sm text-slate-700 dark:text-slate-200">{{ $page[0] }}</span>
+                                @if($page[2])
+                                <span class="inline-flex shrink-0 items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20">Admin page</span>
+                                @endif
+                            </span>
+                            <input type="checkbox" name="pages[{{ $pageKey }}]" value="1" class="peer sr-only" data-page-toggle @checked($NUP::pageOn($pageKey))>
+                            <span class="{{ $switch }}" aria-hidden="true"></span>
+                        </label>
+                    </li>
+                    @endforeach
+                </ul>
+                @endif
+            </section>
+            @endforeach
+
+            <div class="sticky bottom-0 -mx-5 md:-mx-7 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 px-5 md:px-7 py-3 backdrop-blur">
+                <span class="mr-auto text-xs text-slate-500 dark:text-slate-400">Changes apply as soon as you save.</span>
+                <button type="submit"
+                    class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white cursor-pointer">
+                    Save Page Access
+                </button>
+            </div>
+        </form>
+        <script>
+        (() => {
+            document.querySelectorAll('#pageAccessForm [data-module-card]').forEach((card) => {
+                const moduleToggle = card.querySelector('[data-module-toggle]');
+                const list = card.querySelector('[data-module-pages]');
+                const pages = [...card.querySelectorAll('[data-page-toggle]')];
+                const count = card.querySelector('[data-on-count]');
+                const state = card.querySelector('[data-module-state]');
+                const refresh = () => {
+                    if (count) count.textContent = pages.filter((p) => p.checked).length;
+                    if (state) state.textContent = moduleToggle.checked ? 'On' : 'Off';
+                    list?.classList.toggle('opacity-40', !moduleToggle.checked);
+                };
+                moduleToggle.addEventListener('change', refresh);
+                pages.forEach((p) => p.addEventListener('change', refresh));
+                card.querySelectorAll('[data-all]').forEach((btn) => btn.addEventListener('click', () => {
+                    pages.forEach((p) => { p.checked = btn.dataset.all === '1'; });
+                    refresh();
+                }));
+                refresh();
+            });
+        })();
+        </script>
     </div>
 
     {{-- ================= Google Drive ================= --}}

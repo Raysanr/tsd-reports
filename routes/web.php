@@ -44,7 +44,7 @@ Route::get('/cron/run', [CronController::class, 'run'])->name('cron.run');
 // anyone deactivated mid-session (see EnsureUserIsActive). 'last-seen' stamps
 // last_seen_at here too, so User Management's online indicator (User::isOnline())
 // covers Call Tracker's pages as well, not just TSD Reports' own.
-Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(function () {
+Route::middleware(['auth', 'active', 'last-seen', 'guest-modules', 'normal-pages'])->group(function () {
     Route::get('/hub', fn () => view('hub'))->name('hub');
 
     Route::get('/',                [DashboardController::class,      'index'])->name('dashboard');
@@ -146,6 +146,7 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
         Route::post('/settings/clear',   [SettingsController::class, 'clear'])->name('settings.clear');
         Route::post('/settings/shifts',  [SettingsController::class, 'saveShifts'])->name('settings.shifts');
         Route::post('/settings/team-names', [SettingsController::class, 'saveTeamNames'])->name('settings.team-names');
+        Route::post('/settings/page-access', [SettingsController::class, 'savePageAccess'])->name('settings.page-access');
         Route::post('/settings/drive',           [SettingsController::class, 'saveDrive'])->name('settings.drive.save');
         Route::post('/settings/drive/clear',     [SettingsController::class, 'clearDrive'])->name('settings.drive.clear');
         Route::post('/settings/drive/sync-now',  [SettingsController::class, 'syncDriveNow'])->name('settings.drive.sync-now');
@@ -317,7 +318,8 @@ Route::middleware(['auth', 'active', 'last-seen', 'guest-modules'])->group(funct
     // URL::defaults() fills {dm} in, so route('data.*') needs no change.
     Route::prefix('{dm}')->where(['dm' => 'data|partners'])->name('data.')->middleware(['role:super_admin,admin,normal,guest', \App\Http\Middleware\DataManagementDataset::class])->group(function () {
         Route::get('/', fn (\Illuminate\Http\Request $request) => redirect(
-            $request->session()->get(\App\Http\Middleware\DataManagementDataset::lastPageKey()) ?? route('data.projections')
+            $request->session()->get(\App\Http\Middleware\DataManagementDataset::lastPageKey())
+                ?? route(\App\Support\NormalUserPages::firstVisibleDataPage())
         ))->name('home');
 
         // Activity Log (explicit request, 2026-10-07: "can you add another

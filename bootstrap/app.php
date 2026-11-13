@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role'      => \App\Http\Middleware\EnsureUserHasRole::class,
             'last-seen' => \App\Http\Middleware\TrackLastSeen::class,
             'guest-modules' => \App\Http\Middleware\EnsureGuestModuleAccess::class,
+            'normal-pages'  => \App\Http\Middleware\EnsureNormalUserPageAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

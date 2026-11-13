@@ -422,16 +422,16 @@
     <div class="eyebrow">
         <span>Internal Tools</span>
         <span class="greeting">
-            @if(auth()->user()->isAtLeastAdmin())
+            @if(\App\Support\NormalUserPages::anyVisible(['user-management', 'tsa-management', 'product-management']))
             <span class="manage-dropdown" data-manage-dropdown>
                 <button type="button" class="manage-dropdown-toggle" aria-haspopup="true" aria-expanded="false">
                     Management
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 9l6 6 6-6"/></svg>
                 </button>
                 <span class="manage-dropdown-menu">
-                    <a href="{{ route('hub.users') }}">User Management</a>
-                    <a href="{{ route('hub.tsa-management') }}">TSA Management</a>
-                    <a href="{{ route('hub.product-management') }}">Product Management</a>
+                    @if(\App\Support\NormalUserPages::canSee('user-management'))<a href="{{ route('hub.users') }}">User Management</a>@endif
+                    @if(\App\Support\NormalUserPages::canSee('tsa-management'))<a href="{{ route('hub.tsa-management') }}">TSA Management</a>@endif
+                    @if(\App\Support\NormalUserPages::canSee('product-management'))<a href="{{ route('hub.product-management') }}">Product Management</a>@endif
                 </span>
             </span>
             ·
@@ -490,6 +490,9 @@
     </div>
 
     <p class="section-label">Select a system</p>
+    @if(session('error'))
+    <p role="alert" style="margin:0 0 16px;padding:10px 14px;border-radius:10px;background:rgba(225,29,72,0.12);color:#e11d48;font-size:14px;font-weight:600">{{ session('error') }}</p>
+    @endif
     <div class="grid">
 
         @if(auth()->user()->canAccessModule('leads'))
@@ -581,8 +584,8 @@
         {{-- TSD Archiving System (explicit request, 2026-10-19). Admin-only
              like its route group — it holds HR records (contracts, IDs).
              Route::has(): hidden until the archive routes are deployed. --}}
-        @if(auth()->user()->isAtLeastAdmin() && Route::has('archive.overview'))
-        <a class="card" style="--card-accent:#0284c7; --card-accent-soft:rgba(2,132,199,0.12)" href="{{ route('archive.overview') }}">
+        @if(\App\Support\NormalUserPages::canSeeModule('archive') && Route::has('archive.overview') && \App\Support\NormalUserPages::firstVisibleArchivePage())
+        <a class="card" style="--card-accent:#0284c7; --card-accent-soft:rgba(2,132,199,0.12)" href="{{ route(\App\Support\NormalUserPages::firstVisibleArchivePage() ?? 'archive.overview') }}">
             <div class="card-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>

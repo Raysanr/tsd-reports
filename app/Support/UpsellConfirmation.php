@@ -36,7 +36,26 @@ class UpsellConfirmation
 
     public static function isConfirmation(string $text): bool
     {
-        return (bool) preg_match(self::CONFIRM_PATTERN, $text) || (bool) preg_match(self::CONFIRM_EMOJI_PATTERN, $text);
+        if (preg_match(self::CONFIRM_PATTERN, $text) || preg_match(self::CONFIRM_EMOJI_PATTERN, $text)) {
+            return true;
+        }
+
+        // Misspellings customers really send (2026-11-13: "COMFIRM" left a
+        // confirmed lead on the page): any word within 2 letters of
+        // CONFIRM / CONFIRMED (comfirm, confrim, cofirm, confirmd, …), and
+        // stretched yes/okay (yess, yesss, okey, oki, okie).
+        foreach (preg_split('/[^\p{L}]+/u', mb_strtolower($text), -1, PREG_SPLIT_NO_EMPTY) as $word) {
+            if (preg_match('/^(y+e+s+|o+k+(a+y+|e+y+|i+e*)?)$/u', $word)) {
+                return true;
+            }
+            $len = mb_strlen($word);
+            if ($len >= 6 && $len <= 10 && \in_array($word[0], ['c', 'k'], true)
+                && min(levenshtein($word, 'confirm'), levenshtein($word, 'confirmed')) <= 2) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Customer sent Messenger's thumbs-up "like" sticker. */

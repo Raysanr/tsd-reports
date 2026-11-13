@@ -83,6 +83,7 @@
         </button>
         <div class="nav-group-body"><div class="nav-group-inner"><div class="mt-1 space-y-1">
 
+        @if(\App\Support\NormalUserPages::canSee('data.projections'))
         <a href="{{ route('data.projections') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.projections') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -90,9 +91,11 @@
             </svg>
             Projections
         </a>
+        @endif
 
         {{-- DSPPR - TSM Report, right next to Projections (explicit
              request, 2026-09-24: "it is next to the projections page"). --}}
+        @if(\App\Support\NormalUserPages::canSee('data.dsppr'))
         <a href="{{ route('data.dsppr') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.dsppr') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -100,10 +103,12 @@
             </svg>
             DSPPR - TSM Report
         </a>
+        @endif
 
         {{-- Summary Sales Report, right next to DSPPR (explicit request,
              2026-09-24: "add page summary sales report in data
              management"). --}}
+        @if(\App\Support\NormalUserPages::canSee('data.tsa-sales'))
         <a href="{{ route('data.tsa-sales') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.tsa-sales*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -111,10 +116,12 @@
             </svg>
             Summary Sales Report
         </a>
+        @endif
 
         {{-- Expected Income 2026, right next to Summary Sales Report
              (explicit request, 2026-09-26: "add that EXPECTED INCOME to the
              data management module"). --}}
+        @if(\App\Support\NormalUserPages::canSee('data.expected-income'))
         <a href="{{ route('data.expected-income') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.expected-income*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -122,8 +129,10 @@
             </svg>
             Expected Income
         </a>
+        @endif
 
         {{-- Actual Income, right after Expected Income (2026-10-21). --}}
+        @if(\App\Support\NormalUserPages::canSee('data.actual-income'))
         <a href="{{ route('data.actual-income') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.actual-income*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -131,6 +140,7 @@
             </svg>
             Actual Income
         </a>
+        @endif
 
         {{-- Cost Breakdown, right next to Expected Income (explicit
              request, 2026-09-29: "add new page in data management (COST
@@ -142,7 +152,8 @@
              a TSA the same way the route group itself is gated
              (role:super_admin,admin, nested inside this module's own
              route group in routes/web.php). --}}
-        @if(auth()->user()->isAtLeastAdmin())
+        @if(\App\Support\NormalUserPages::anyVisible(['data.cost-breakdown', 'data.actual-cost-breakdown', 'data.product-costs']))
+        @if(\App\Support\NormalUserPages::canSee('data.cost-breakdown'))
         <a href="{{ route('data.cost-breakdown') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.cost-breakdown*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -150,9 +161,11 @@
             </svg>
             Cost Breakdown
         </a>
+        @endif
 
         {{-- Actual Cost Breakdown (2026-11-09) — same page on its own
              figures (CostBreakdownVariant::ACTUAL), admin-only too. --}}
+        @if(\App\Support\NormalUserPages::canSee('data.actual-cost-breakdown'))
         <a href="{{ route('data.actual-cost-breakdown') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.actual-cost-breakdown*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -160,9 +173,11 @@
             </svg>
             Actual Cost Breakdown
         </a>
+        @endif
 
         {{-- Product Costs (explicit request, 2026-11-04), admin-only like
              Cost Breakdown above. --}}
+        @if(\App\Support\NormalUserPages::canSee('data.product-costs'))
         <a href="{{ route('data.product-costs') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.product-costs*') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -172,10 +187,11 @@
             Product Costs
         </a>
         @endif
+        @endif
         </div></div></div>
         </div>
 
-        @if(!\App\Support\DataSet::isPartners() && auth()->user()->isAtLeastAdmin())
+        @if(!\App\Support\DataSet::isPartners() && \App\Support\NormalUserPages::anyVisible(['data.overall.projections', 'data.overall.sales-summary', 'data.overall.expected-income']))
         <div class="nav-group mt-2" data-nav-group="overall" data-open="1">
         <button type="button" class="nav-group-toggle w-full flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer text-left text-[11px] font-mono font-bold tracking-[0.15em] text-yellow-300 uppercase hover:bg-white/10" aria-expanded="true">
             TSD Overall Performance
@@ -187,6 +203,7 @@
                 ['data.overall.sales-summary', 'Sales Summary (SH E-COM and Partners)', 'M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5'],
                 ['data.overall.expected-income', 'Expected Income (SH E-COM and Partners)', 'M2.25 18L9 11.25l4.306 4.306a11.95 11.95 0 015.814-5.518l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941'],
             ] as [$routeName, $navLabel, $iconPath])
+            @continue(!\App\Support\NormalUserPages::canSee($routeName))
             <a href="{{ route($routeName) }}"
                class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs($routeName) ? 'nav-active' : '' }}">
                 <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -269,6 +286,7 @@
              users too (its own controller hides Cost Breakdown's own
              entries from anyone who isn't at least an admin, same
              filtering this module's other 4 pages already get). --}}
+        @if(\App\Support\NormalUserPages::canSee('data.activity-log'))
         <a href="{{ route('data.activity-log') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('data.activity-log') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -276,6 +294,7 @@
             </svg>
             Activity Log
         </a>
+        @endif
     </nav>
 
     <div class="px-4 py-4 border-t border-white/10">

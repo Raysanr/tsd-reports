@@ -443,6 +443,7 @@
 
         <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Main</p>
 
+        @if(\App\Support\NormalUserPages::canSee('dashboard'))
         <a href="{{ route('dashboard') }}" title="Dashboard"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('dashboard') ? 'nav-active' : '' }}">
@@ -452,7 +453,9 @@
             </svg>
             <span class="sidebar-label">Dashboard</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('leads-report'))
         <a href="{{ route('leads-report') }}" title="Leads Report"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('leads-report') ? 'nav-active' : '' }}">
@@ -462,7 +465,9 @@
             </svg>
             <span class="sidebar-label">Leads Report</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('tsa-performance'))
         <a href="{{ route('tsa-performance') }}" title="TSA Performance"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('tsa-performance') ? 'nav-active' : '' }}">
@@ -472,7 +477,9 @@
             </svg>
             <span class="sidebar-label">TSA Performance</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('charts'))
         <a href="{{ route('charts') }}" title="Analytics"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('charts') ? 'nav-active' : '' }}">
@@ -482,7 +489,9 @@
             </svg>
             <span class="sidebar-label">Analytics</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('rts-report'))
         <a href="{{ route('rts-report') }}" title="RTS / Delivered"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('rts-report') ? 'nav-active' : '' }}">
@@ -492,13 +501,14 @@
             </svg>
             <span class="sidebar-label">RTS / Delivered</span>
         </a>
+        @endif
 
         {{-- Admin-only (explicit request, 2026-08-26) — the only conditionally-
              gated single item inside Main; every other Main link is visible to
              everyone. Route itself is also gated (role:super_admin,admin in
              routes/web.php, same group Settings/User Management sit in) — this
              hides the link, the route middleware is what actually enforces it. --}}
-        @if(auth()->user()?->isAtLeastAdmin())
+        @if(\App\Support\NormalUserPages::canSee('insights'))
         <a href="{{ route('insights') }}" title="Insights"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('insights') ? 'nav-active' : '' }}">
@@ -510,10 +520,11 @@
         </a>
         @endif
 
-        @if(auth()->user()?->isAtLeastAdmin())
+        @if(\App\Support\NormalUserPages::anyVisible(['tsa-management', 'product-management', 'user-management', 'sync-health', 'audit-log']))
         <div class="my-3 border-t border-white/10"></div>
         <p class="sidebar-section-label px-3 mb-2 text-[10px] font-mono font-semibold tracking-widest text-yellow-400/60 uppercase">Config</p>
 
+        @if(\App\Support\NormalUserPages::canSee('tsa-management'))
         <a href="{{ route('tsa-management') }}" title="TSA Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('tsa-management*') ? 'nav-active' : '' }}">
@@ -523,7 +534,9 @@
             </svg>
             <span class="sidebar-label">TSA Management</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('product-management'))
         <a href="{{ route('product-management') }}" title="Product Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('product-management*') ? 'nav-active' : '' }}">
@@ -533,7 +546,9 @@
             </svg>
             <span class="sidebar-label">Product Management</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('user-management'))
         <a href="{{ route('user-management') }}" title="User Management"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('user-management*') ? 'nav-active' : '' }}">
@@ -543,7 +558,9 @@
             </svg>
             <span class="sidebar-label">User Management</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('sync-health'))
         <a href="{{ route('sync-health') }}" title="Sync Health"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('sync-health*') ? 'nav-active' : '' }}">
@@ -552,7 +569,9 @@
             </svg>
             <span class="sidebar-label">Sync Health</span>
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::canSee('audit-log'))
         <a href="{{ route('audit-log') }}" title="Activity Log"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('audit-log*') ? 'nav-active' : '' }}">
@@ -563,7 +582,10 @@
             </svg>
             <span class="sidebar-label">Activity Log</span>
         </a>
+        @endif
 
+        @endif
+        @if(auth()->user()?->isAtLeastAdmin())
         <a href="{{ route('settings') }}" title="Settings"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer
                   {{ request()->routeIs('settings*') ? 'nav-active' : '' }}">

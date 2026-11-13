@@ -50,10 +50,10 @@ class UpsellConfirmationTest extends TestCase
 
     public function test_confirmation_words(): void
     {
-        foreach (['YES', 'yes po', 'Confirm', 'confirmed na', 'Oo', 'opo', 'Sige po', 'ok', 'Okay po'] as $text) {
+        foreach (['YES', 'yes po', 'Confirm', 'confirmed na', 'Oo', 'opo', 'Sige po', 'ok', 'Okay po', 'COMFIRM', 'confrim po', 'cofirm', 'Konfirm', 'confirmd', 'Yesss', 'okey', 'oki po'] as $text) {
             $this->assertTrue(UpsellConfirmation::isConfirmation($text), $text);
         }
-        foreach (['Yesterday', 'pakiconfirmahan', 'magkano po', 'book', 'hello'] as $text) {
+        foreach (['Yesterday', 'pakiconfirmahan', 'magkano po', 'book', 'hello', 'comfort', 'confused po', 'okra', 'conference'] as $text) {
             $this->assertFalse(UpsellConfirmation::isConfirmation($text), $text);
         }
     }

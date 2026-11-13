@@ -90,6 +90,8 @@
         </a>
 
         @foreach($nav as $section => $items)
+            @php $items = array_values(array_filter($items, fn ($item) => \App\Support\NormalUserPages::canSee($item[0]))); @endphp
+            @continue($items === [])
             <div class="my-3 border-t border-white/10"></div>
             <p class="px-3 mb-2 text-[10px] font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">{{ $section }}</p>
             @foreach($items as [$route, $pattern, $label, $icon])

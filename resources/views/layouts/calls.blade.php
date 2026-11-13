@@ -259,6 +259,7 @@
 
         <div class="my-3 border-t border-white/10"></div>
 
+        @if(\App\Support\NormalUserPages::canSee('calls.dashboard'))
         <a href="{{ route('calls.dashboard') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.dashboard') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -266,6 +267,7 @@
             </svg>
             Dashboard
         </a>
+        @endif
 
         @php
             $leadsGroupActive = request()->routeIs('calls.leads.index');
@@ -283,6 +285,7 @@
             $leadsTsaParam = $leadsGroupActive ? request()->only(['tsa', 'date_from', 'date_to']) : [];
         @endphp
         <div class="nav-item flex items-center rounded-lg {{ $leadsBaseActive ? 'nav-active' : '' }}">
+            @if(\App\Support\NormalUserPages::canSee('calls.leads'))
             <a id="leadsNavLink" href="{{ route('calls.leads.index', $leadsTsaParam) }}"
                class="flex-1 min-w-0 flex items-center justify-between gap-3 pl-3 pr-2 py-2.5 text-yellow-200 text-sm font-medium cursor-pointer">
                 <span class="flex items-center gap-3 min-w-0">
@@ -293,6 +296,7 @@
                 </span>
                 <span id="badge-assigned" class="hidden bg-yellow-500 text-slate-900 text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
             </a>
+            @endif
             <button type="button" onclick="toggleLeadsNav(event)" aria-label="Toggle Leads submenu" aria-expanded="{{ $leadsGroupActive ? 'true' : 'false' }}"
                     class="shrink-0 p-2 mr-1 rounded-md text-yellow-200/70 hover:text-white hover:bg-white/10 transition-colors cursor-pointer">
                 <svg id="leadsNavChevron" class="w-3.5 h-3.5 transition-transform duration-200 {{ $leadsGroupActive ? 'rotate-180' : '' }}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -304,6 +308,7 @@
         <div id="leadsNavSubmenu" class="grid transition-[grid-template-rows] duration-200 ease-out {{ $leadsGroupActive ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]' }}">
             <div class="overflow-hidden">
                 <div id="leadsNavSubmenuInner" class="ml-4 pl-3 border-l border-white/10 space-y-1 mt-1 mb-1 transition-opacity duration-150 {{ $leadsGroupActive ? 'opacity-100' : 'opacity-0' }}">
+                    @if(\App\Support\NormalUserPages::canSee('calls.overdue'))
                     <a href="{{ route('calls.leads.index', ['view' => 'overdue'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'overdue' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
@@ -314,7 +319,9 @@
                         </span>
                         <span id="badge-overdue" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+                    @endif
 
+                    @if(\App\Support\NormalUserPages::canSee('calls.callbacks'))
                     <a href="{{ route('calls.leads.index', ['view' => 'callbacks'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'callbacks' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
@@ -325,7 +332,9 @@
                         </span>
                         <span id="badge-callbacks" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+                    @endif
 
+                    @if(\App\Support\NormalUserPages::canSee('calls.unanswered'))
                     <a href="{{ route('calls.leads.index', ['view' => 'unanswered'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'unanswered' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
@@ -336,7 +345,9 @@
                         </span>
                         <span id="badge-unanswered" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+                    @endif
 
+                    @if(\App\Support\NormalUserPages::canSee('calls.no-confirmation'))
                     <a href="{{ route('calls.leads.index', ['view' => 'no_confirmation'] + $leadsTsaParam) }}"
                        class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'no_confirmation' ? 'nav-active' : '' }}">
                         <span class="flex items-center gap-3">
@@ -347,6 +358,7 @@
                         </span>
                         <span id="badge-no-confirmation" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+                    @endif
                 </div>
             </div>
         </div>
@@ -356,6 +368,7 @@
              moved out of the admin-only block below since a TSA's own view
              here is already correctly scoped to just their own row
              (CallLogController::index()'s own comment). --}}
+        @if(\App\Support\NormalUserPages::canSee('calls.call-log'))
         <a href="{{ route('calls.call-log') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.call-log') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -363,9 +376,11 @@
             </svg>
             Call Log
         </a>
+        @endif
 
         {{-- Monitor TSA opened to TSAs too (explicit request, 2026-10-14) —
              moved out of the admin-only Reports block below. --}}
+        @if(\App\Support\NormalUserPages::canSee('calls.monitor'))
         <a href="{{ route('calls.monitor') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.monitor') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -373,6 +388,7 @@
             </svg>
             Monitor TSA
         </a>
+        @endif
         {{-- TSAs get Settings too (2026-10-30), for their own personal
              Appearance only — admins reach it from Config below. --}}
         @unless(auth()->user()?->isAtLeastAdmin())
@@ -391,9 +407,12 @@
              isAdmin() — matches the merged app's role convention (super_admin
              is a real tier here that call-tracker never had; every ported
              CallTracker\* controller/route already gates the same way). --}}
-        @if(auth()->user()?->isAtLeastAdmin())
+        @if(\App\Support\NormalUserPages::anyVisible(['calls.analytics', 'calls.call-recordings', 'calls.sync-health', 'calls.tsa-management', 'calls.round-robin-setup', 'calls.tsa-logs']))
+        @if(\App\Support\NormalUserPages::anyVisible(['calls.analytics', 'calls.call-recordings', 'calls.sync-health']))
         <div class="my-3 border-t border-white/10"></div>
         <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">Reports</p>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.analytics'))
         <a href="{{ route('calls.analytics') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.analytics') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -401,6 +420,8 @@
             </svg>
             Analytics
         </a>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.call-recordings'))
         <a href="{{ route('calls.call-recordings') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.call-recordings') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -408,6 +429,8 @@
             </svg>
             Call Recordings
         </a>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.sync-health'))
         <a href="{{ route('calls.sync-health') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.sync-health') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -415,9 +438,13 @@
             </svg>
             Sync Health
         </a>
+        @endif
 
+        @if(\App\Support\NormalUserPages::anyVisible(['calls.tsa-management', 'calls.round-robin-setup', 'calls.tsa-logs']))
         <div class="my-3 border-t border-white/10"></div>
         <p class="px-3 mb-2 text-[10px] font-mono font-semibold tracking-[0.15em] text-yellow-400/50 uppercase">Config</p>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.tsa-management'))
         <a href="{{ route('calls.tsa-management') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.tsa-management') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -425,6 +452,8 @@
             </svg>
             TSA Management
         </a>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.round-robin-setup'))
         <a href="{{ route('calls.round-robin-setup') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.round-robin-setup') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -432,6 +461,8 @@
             </svg>
             Leads Setup
         </a>
+        @endif
+        @if(\App\Support\NormalUserPages::canSee('calls.tsa-logs'))
         <a href="{{ route('calls.tsa-logs') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.tsa-logs') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -439,6 +470,7 @@
             </svg>
             TSA Logs
         </a>
+        @endif
         {{-- Same shared SettingsController@index as TSD Reports' own
              /settings (2026-08-13) — Call Tracker's own Settings page wasn't
              ported separately; its two fields (access token, overdue
@@ -446,6 +478,7 @@
              otherwise edit the same underlying Pancake connection. Routed
              through calls.settings so it renders in THIS layout, not TSD
              Reports' own. --}}
+        @if(auth()->user()?->isAtLeastAdmin())
         <a href="{{ route('calls.settings') }}"
            class="nav-item flex items-center gap-3 px-3 py-2.5 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ request()->routeIs('calls.settings') ? 'nav-active' : '' }}">
             <svg class="w-4.5 h-4.5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -454,6 +487,7 @@
             </svg>
             Settings
         </a>
+        @endif
         @endif
     </nav>
 

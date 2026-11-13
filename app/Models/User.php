@@ -107,7 +107,12 @@ class User extends Authenticatable
     /** Non-guests aren't limited here; their role gates decide. */
     public function canAccessModule(string $module): bool
     {
-        return $this->role !== 'guest' || in_array($module, $this->guestModules(), true);
+        return match ($this->role) {
+            'guest'  => in_array($module, $this->guestModules(), true),
+            // Settings → Page Access can switch modules off for Normal users.
+            'normal' => \App\Support\NormalUserPages::moduleOn($module),
+            default  => true,
+        };
     }
 
     public function guestModules(): array

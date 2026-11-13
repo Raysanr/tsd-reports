@@ -301,6 +301,23 @@ class SettingsController extends Controller
         return $this->redirectToCaller($request)->with('success', 'Team names saved.');
     }
 
+    /** Settings → Page Access: modules and pages Normal users can open (NormalUserPages). */
+    public function savePageAccess(Request $request)
+    {
+        $modules = array_keys(array_filter((array) $request->input('modules', [])));
+        $pages = array_keys(array_filter((array) $request->input('pages', [])));
+        \App\Support\NormalUserPages::save(array_map('strval', $modules), array_map('strval', $pages));
+
+        $off = array_merge(
+            array_map(fn ($m) => \App\Support\NormalUserPages::MODULE_LABELS[$m] . ' (module)',
+                array_values(array_diff(array_keys(\App\Support\NormalUserPages::MODULE_LABELS), $modules))),
+            array_values(array_diff(\App\Support\NormalUserPages::allKeys(), $pages)),
+        );
+        ActivityLogger::log('settings.page_access_saved', null, 'Page access for Normal users saved. Off: ' . ($off === [] ? 'none' : implode(', ', $off)) . '.');
+
+        return $this->redirectToCaller($request)->with('success', 'Page access saved.');
+    }
+
     public function saveShifts(Request $request)
     {
         // Shift hours are per month once a month was added on TSA
