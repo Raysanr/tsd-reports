@@ -238,6 +238,11 @@ class ChartsController extends Controller
         $hourlyLabels = [];
         $hourlyLeads  = [];
         $hourlyExcess = [];
+        // Answered vs Unanswered per hour (2026-11-13: "what hours have so
+        // many unanswered and answered calls") — same tally as the daily
+        // Answered/Unanswered mix chart, by the hour the lead came in.
+        $hourlyAnswered   = [];
+        $hourlyUnanswered = [];
         for ($hour = 0; $hour <= 23; $hour++) {
             $hourOrders = $ordersByHour->get($hour, collect());
             if ($hourOrders->isEmpty()) continue;
@@ -246,13 +251,15 @@ class ChartsController extends Controller
             $hourlyLabels[] = HourFormatter::label($hour);
             $hourlyLeads[]  = $tally['total'];
             $hourlyExcess[] = $tally['excess'];
+            $hourlyAnswered[]   = $tally['answered'];
+            $hourlyUnanswered[] = $tally['unanswered'];
         }
 
         return view('charts', compact(
             'dateFrom', 'dateTo', 'dailyLabels', 'kpis',
             'rateSeries', 'calledSeries', 'salesSeries', 'excessSeries', 'answeredSeries', 'unansweredSeries',
             'deliveredSeries', 'rtsSeries',
-            'productRows', 'tsaRankings', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess',
+            'productRows', 'tsaRankings', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess', 'hourlyAnswered', 'hourlyUnanswered',
             'orderTeams', 'teamNames'
         ));
     }

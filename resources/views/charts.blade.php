@@ -235,6 +235,21 @@
         <canvas id="hourlyChart" height="140"></canvas>
     </div>
 
+    {{-- ANSWERED VS UNANSWERED BY HOUR (2026-11-13) --}}
+    <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
+            <div>
+                <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Answered vs Unanswered by Hour</h2>
+                <p class="text-xs text-slate-400 font-mono mt-0.5">Total across the range, by the hour the lead came in — spot the hours with the most unanswered calls</p>
+            </div>
+            <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
+                <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 rounded-full inline-block bg-green-500"></span> Answered</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 rounded-full inline-block bg-red-400"></span> Unanswered</span>
+            </div>
+        </div>
+        <canvas id="hourlyCallsChart" height="140"></canvas>
+    </div>
+
 </div>
 </div>{{-- /data-analytics-panel="trends" --}}
 
@@ -404,6 +419,8 @@ const tsaRankings  = @json($tsaRankings);
 const hourlyLabels = @json($hourlyLabels);
 const hourlyLeads  = @json($hourlyLeads);
 const hourlyExcess = @json($hourlyExcess);
+const hourlyAnswered   = @json($hourlyAnswered);
+const hourlyUnanswered = @json($hourlyUnanswered);
 
 // Read the current theme's chart colors from the CSS custom properties defined
 // in app.css (--chart-grid / --chart-label, light + .dark values) instead of
@@ -590,6 +607,24 @@ new Chart(document.getElementById('hourlyChart'), {
     },
 });
 
+/* --- Answered vs Unanswered by hour (line) --- */
+new Chart(document.getElementById('hourlyCallsChart'), {
+    type: 'line',
+    data: {
+        labels: hourlyLabels,
+        datasets: [
+            { label: 'Answered',   data: hourlyAnswered,   borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)',  fill: true, tension: 0.35, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 },
+            { label: 'Unanswered', data: hourlyUnanswered, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.12)', fill: true, tension: 0.35, pointRadius: 3, pointHoverRadius: 5, borderWidth: 2 },
+        ],
+    },
+    options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { grid: gridStyle, beginAtZero: true, ticks: { precision: 0 } } },
+    },
+});
+
 /* --- Product name anonymizer (explicit request, 2026-10-09: "all in the
    leads report module" — the shared toggle in layouts/app.blade.php, wired
    in app.js's wireProductNameAnonymizer() for every plain-text
@@ -747,7 +782,7 @@ tsaRateChart('tsaUpsellingChart', 'upselling_rate');
     const STORAGE_KEY = 'analyticsActiveTab';
 
     const canvasIdsByPanel = {
-        trends:   ['rateChart-pick_up_rate', 'rateChart-conversion_rate', 'rateChart-upselling_rate', 'calledChart', 'excessChart', 'rtsDeliveredChart', 'salesChart', 'mixChart', 'hourlyChart'],
+        trends:   ['rateChart-pick_up_rate', 'rateChart-conversion_rate', 'rateChart-upselling_rate', 'calledChart', 'excessChart', 'rtsDeliveredChart', 'salesChart', 'mixChart', 'hourlyChart', 'hourlyCallsChart'],
         products: ['productChart', 'productSalesChart'],
         tsa:      ['tsaPickUpChart', 'tsaConversionChart', 'tsaUpsellingChart'],
     };
