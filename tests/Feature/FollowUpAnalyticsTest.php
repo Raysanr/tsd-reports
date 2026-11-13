@@ -9,6 +9,8 @@ use App\Models\Order;
 use App\Models\TsaShift;
 use App\Models\User;
 use App\Support\FollowUpAnalytics;
+use App\Support\LeadCallResults;
+use App\Support\PancakeOrderTagApi;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -104,5 +106,75 @@ class FollowUpAnalyticsTest extends TestCase
         $this->actingAs(User::factory()->create())
             ->get(route('charts', ['date_from' => '2026-11-12', 'date_to' => '2026-11-12']))
             ->assertOk()->assertSee('Follow-up')->assertSee('Unanswered-Call Follow-up')->assertSee('2001');
+    }
+
+    private function tagChange(array $old, array $new, string $atUtc, ?string $editor = null): array
+    {
+        $names = fn ($l) => array_map(fn ($n) => ['id' => crc32($n), 'name' => $n], $l);
+
+        return ['tags' => ['old' => $names($old), 'new' => $names($new)], 'updated_at' => $atUtc, 'editor_id' => $editor];
+    }
+
+    /** Pancake history: exact times, untracked leads, quick add/remove, tagging TSA credited. */
+    public function test_it_uses_pancake_tag_history(): void
+    {
+        $other = TsaShift::where('id', '!=', $this->tsa->id)->firstOrFail();
+        $other->update(['pos_user_id' => 'pos-other']);
+
+        // Status 'called' + already had a disposition: the sync never logged this one.
+        $lead = $this->lead('3001', '09170000031');
+        $lead->update(['disposition' => 'CALL BACK']);
+        // Tagged Not answering at 09:10 Manila by the other TSA, removed a minute later
+        // (between sync ticks), then the lead was reassigned.
+        LeadCallResults::recordFromHistories($lead, [
+            $this->tagChange(['SINUXYL'], ['SINUXYL', 'Not answering'], '2026-11-12T01:10:00', 'pos-other'),
+            $this->tagChange(['SINUXYL', 'Not answering'], ['SINUXYL'], '2026-11-12T01:11:00', 'pos-other'),
+        ]);
+        // The sync noticed the earlier dial only later; retry 2 min after the real tag.
+        $this->dial($lead, '2026-11-12 09:12:00');
+
+        // Re-running is harmless.
+        LeadCallResults::recordFromHistories($lead, [
+            $this->tagChange(['SINUXYL'], ['SINUXYL', 'Not answering'], '2026-11-12T01:10:00', 'pos-other'),
+        ]);
+
+        $data = FollowUpAnalytics::build(Carbon::parse('2026-11-12')->startOfDay(), Carbon::parse('2026-11-12')->endOfDay());
+
+        $this->assertSame(1, $data['totals']['first_unanswered']);
+        $this->assertSame(1, $data['totals']['retried']);
+        $this->assertSame(2, $data['totals']['avg_retry_min']);
+        $this->assertSame($other->display_name, $data['byTsa'][0]['name']);
+    }
+
+    /** A number-only call goes to the customer's latest lead, not an older order. */
+    public function test_phone_calls_belong_to_the_latest_lead_for_that_number(): void
+    {
+        $old = $this->lead('4001', '09170000041');
+        $this->unansweredTag($old, 'Not answering ', '2026-11-12 09:10:00');
+        $new = Lead::create(['pancake_order_id' => '4002', 'customer_name' => 'Customer 4002', 'phone_number' => '09170000041',
+            'tsa_id' => $this->tsa->id, 'status' => 'new', 'pancake_created_at' => '2026-11-12 12:00:00']);
+        CallEvent::create(['tsa_id' => $this->tsa->id, 'phone_number' => '09170000041', 'direction' => 'outgoing', 'occurred_at' => '2026-11-12 12:05:00']);
+
+        $data = FollowUpAnalytics::build(Carbon::parse('2026-11-12')->startOfDay(), Carbon::parse('2026-11-12')->endOfDay());
+
+        $this->assertSame(0, $data['totals']['retried']);
+        $this->assertSame(['4001'], array_column($data['neverRetried'], 'order_id'));
+    }
+
+    /** The sync reads Pancake history only when a lead's result tags change. */
+    public function test_sync_refreshes_only_on_result_tag_change(): void
+    {
+        $lead = $this->lead('5001', '09170000051');
+        $api = $this->mock(PancakeOrderTagApi::class);
+        $api->shouldReceive('getOrderHistories')->once()->with('5001')->andReturn([
+            $this->tagChange([], ['Not answering'], '2026-11-12T01:10:00'),
+        ]);
+
+        $raw = ['tags' => [['name' => 'SINUXYL'], ['name' => 'Not answering']]];
+        $this->assertTrue(LeadCallResults::refreshIfChanged($lead, $raw, $api));
+        $this->assertFalse(LeadCallResults::refreshIfChanged($lead->fresh(), $raw, $api));
+        $this->assertFalse(LeadCallResults::refreshIfChanged($lead->fresh(), ['tags' => [['name' => 'SINUXYL'], ['name' => 'NOT ANSWERING']]], $api));
+
+        $this->assertDatabaseHas('lead_call_results', ['lead_id' => $lead->id, 'result' => 'NOT ANSWERING', 'tsa_id' => $this->tsa->id]);
     }
 }

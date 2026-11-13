@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\Setting;
 use App\Models\TsaShift;
 use App\Support\LeadAutoText;
+use App\Support\LeadCallResults;
 use App\Support\PancakeOrderTagApi;
 use App\Models\LeadSyncSkip;
 use App\Support\RoundRobinAssigner;
@@ -129,9 +130,13 @@ class SyncPancakeLeads extends Command
         return $wait > 0 && $releaseAt->isFuture() ? $releaseAt : null;
     }
 
+    /** Max Pancake history reads per run for LeadCallResults. */
+    private const RESULT_REFRESHES_PER_RUN = 25;
+
     private function doSync(): int
     {
         $runStart = now();
+        $resultRefreshes = 0;
         $apiKey   = Setting::get('pancake_api_key', env('PANCAKE_API_KEY', ''));
         $shopId   = Setting::get('shop_id', '');
 
@@ -247,6 +252,15 @@ class SyncPancakeLeads extends Command
                 // though — see backfillCallbackFromTags()'s own comment.
                 $existing = Lead::where('pancake_order_id', $id)->first();
                 if ($existing) {
+                    // Exact call-result record for Analytics' follow-up
+                    // (LeadCallResults) — before the backfills below, which
+                    // can reassign the lead. Capped per run so a burst of
+                    // tag changes never stalls the sync; the rest catch up
+                    // next tick.
+                    if ($resultRefreshes < self::RESULT_REFRESHES_PER_RUN
+                        && LeadCallResults::refreshIfChanged($existing, $raw, app(PancakeOrderTagApi::class))) {
+                        $resultRefreshes++;
+                    }
                     $this->backfillCallbackFromTags($existing, $raw);
                     $this->backfillUnansweredDispositionFromTags($existing, $raw);
                     $this->pullBackIfMarkedHighRts($existing, $raw);

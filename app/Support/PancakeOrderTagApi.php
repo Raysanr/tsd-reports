@@ -523,6 +523,19 @@ class PancakeOrderTagApi
      */
     private const LIVE_ORDER_CACHE_SECONDS = 5;
 
+    /**
+     * Fresh (uncached) tag/field history for one order — FollowUp analytics'
+     * exact call-result record (LeadCallResults). Read-only. Null when
+     * Pancake can't be reached or the order isn't visible.
+     */
+    public function getOrderHistories(string $orderId): ?array
+    {
+        $this->invalidateRawOrderCache($orderId);
+        $order = $this->fetchRawOrder($orderId);
+
+        return $order === null ? null : ($order['histories'] ?? []);
+    }
+
     private function fetchRawOrder(string $orderId): ?array
     {
         $apiKey = Setting::get('pancake_api_key', '');
