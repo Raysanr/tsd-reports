@@ -11,19 +11,23 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * Unanswered-call follow-up (Analytics, 2026-11-13). For leads that came in
- * during the range and whose FIRST call result logged in Call Tracker was
- * Not Answering or Unattended (the results worth calling again):
+ * Unanswered-call follow-up (Analytics, 2026-11-13). Built from what Call
+ * Tracker really records (checked on production, 2026-11-13):
+ * - each dial: a 'call_clicked' activity and an outgoing call event (lead_id
+ *   set), plus phone call events matched by number;
+ * - call results: Pancake tags picked up by the lead sync — 'callback_scheduled'
+ *   ("Tagged for Unanswered Calls (Pancake tag "Not answering", …)",
+ *   "Callback due now (Pancake tag "CALL BACK", …)"), 'tag_added'
+ *   ("Added tag "CONFIRMED VIA CALL" by …") and the rare logged Outcome
+ *   ('called': "Logged "…" by …"); plus the lead's and order's final result.
  *
- * - called again: a later call result logged in Call Tracker, OR an outgoing
- *   call from a TSA's phone to that customer (call events, matched by lead or
- *   by phone number) after the first result was logged;
- * - answered later: a later logged result in the Answered group;
- * - converted later: a later result of Confirmed via Call, Upsell, Repeat
- *   Order or Relatives Confirmation, or the order became a real upsell.
- *
- * Call results come from LeadActivity 'called' entries ('Logged "<result>"
- * by <name>.'), written each time a TSA logs a result.
+ * For leads that came in during the range whose FIRST result was Not
+ * Answering or Unattended:
+ * - called again: any dial after that result was recorded;
+ * - answered later: a later result in the Answered group, or the final
+ *   result is in it;
+ * - converted later: a later/final result of Confirmed via Call, Upsell,
+ *   Repeat Order or Relatives Confirmation, or the order became a real upsell.
  */
 class FollowUpAnalytics
 {
@@ -34,57 +38,66 @@ class FollowUpAnalytics
 
     private const CONVERTED = ['confirmed via call', 'upsell', 'repeat order', 'relatives'];
 
+    /** Every call result we recognise (results vs. product/other tags). */
+    private const RESULTS = ['not answering', 'unattended', 'invalid number', 'dfr', 'double order', 'fsd',
+        'confirmed via call', 'upsell', 'call back', 'call dropped', 'repeat order', 'rude customer', 'relatives'];
+
     /** How many never-retried leads to list. */
     private const NEVER_RETRIED_LIMIT = 50;
 
     public static function build(Carbon $from, Carbon $to): array
     {
         $leads = Lead::whereBetween('pancake_created_at', [$from, $to])
-            ->get(['id', 'pancake_order_id', 'customer_name', 'phone_number', 'tsa_id', 'pancake_created_at'])
+            ->get(['id', 'pancake_order_id', 'customer_name', 'phone_number', 'tsa_id', 'disposition', 'pancake_created_at'])
             ->keyBy('id');
 
-        $attemptsByLead = LeadActivity::where('type', 'called')
+        $activities = LeadActivity::whereIn('type', ['called', 'callback_scheduled', 'tag_added', 'call_clicked'])
             ->whereIn('lead_id', $leads->keys())
             ->orderBy('created_at')->orderBy('id')
-            ->get(['lead_id', 'description', 'created_at'])
-            ->map(fn (LeadActivity $a) => ['lead_id' => $a->lead_id, 'at' => $a->created_at, 'result' => self::resultOf($a->description)])
-            ->filter(fn ($a) => $a['result'] !== null)
+            ->get(['lead_id', 'type', 'description', 'created_at'])
             ->groupBy('lead_id');
 
-        $firstUnanswered = $attemptsByLead->filter(fn (Collection $attempts) => self::matches($attempts->first()['result'], self::RETRYABLE));
+        $results = $activities->map(fn (Collection $rows) => $rows
+            ->map(fn (LeadActivity $a) => ['at' => $a->created_at, 'result' => self::resultOf($a)])
+            ->filter(fn ($r) => $r['result'] !== null)
+            ->values())
+            ->filter(fn (Collection $r) => $r->isNotEmpty() && self::matches($r->first()['result'], self::RETRYABLE));
 
-        // Outgoing phone calls that could be a retry: from the earliest first
-        // attempt to a week after the range.
-        $phoneCalls = $firstUnanswered->isEmpty() ? collect() : CallEvent::where('direction', 'outgoing')
-            ->whereBetween('occurred_at', [$firstUnanswered->min(fn ($a) => $a->first()['at']), $to->copy()->addDays(7)])
+        $dialsFromActivity = $activities->map(fn (Collection $rows) => $rows->where('type', 'call_clicked')->pluck('created_at'));
+
+        $phoneCalls = $results->isEmpty() ? collect() : CallEvent::where('direction', 'outgoing')
+            ->whereBetween('occurred_at', [$results->min(fn ($r) => $r->first()['at']), $to->copy()->addDays(7)])
             ->get(['lead_id', 'phone_number', 'occurred_at']);
         $callsByLead = $phoneCalls->whereNotNull('lead_id')->groupBy('lead_id');
         $callsByPhone = $phoneCalls->groupBy(fn (CallEvent $e) => CallEvent::normalizePhone($e->phone_number));
 
-        $upsoldOrderIds = Order::whereIn('pancake_order_id', $leads->only($firstUnanswered->keys()->all())->pluck('pancake_order_id'))
-            ->get()->filter(fn (Order $o) => Order::isBroadRealUpsell($o))->pluck('pancake_order_id')->flip();
+        $orders = Order::whereIn('pancake_order_id', $leads->only($results->keys()->all())->pluck('pancake_order_id'))
+            ->get()->keyBy('pancake_order_id');
 
-        $rows = $firstUnanswered->map(function (Collection $attempts, $leadId) use ($leads, $callsByLead, $callsByPhone, $upsoldOrderIds) {
+        $rows = $results->map(function (Collection $leadResults, $leadId) use ($leads, $dialsFromActivity, $callsByLead, $callsByPhone, $orders) {
             $lead = $leads[$leadId];
-            $firstAt = $attempts->first()['at'];
-            $later = $attempts->slice(1);
+            $firstAt = $leadResults->first()['at'];
+            $laterResults = $leadResults->slice(1)->pluck('result');
 
             $phone = CallEvent::normalizePhone($lead->phone_number);
-            $laterPhoneCall = collect($callsByLead->get($leadId, []))
-                ->merge($phone ? $callsByPhone->get($phone, []) : [])
-                ->filter(fn (CallEvent $e) => $e->occurred_at->gt($firstAt))
-                ->min(fn (CallEvent $e) => $e->occurred_at->getTimestamp());
+            $retryAt = collect($dialsFromActivity->get($leadId, []))
+                ->merge(collect($callsByLead->get($leadId, []))->pluck('occurred_at'))
+                ->merge($phone ? collect($callsByPhone->get($phone, []))->pluck('occurred_at') : [])
+                ->filter(fn ($at) => $at->gt($firstAt))
+                ->sort()->first();
 
-            $retryTimes = array_filter([$later->first()['at'] ?? null, $laterPhoneCall ? Carbon::createFromTimestamp($laterPhoneCall) : null]);
-            $retryAt = $retryTimes === [] ? null : min($retryTimes);
+            $order = $orders->get($lead->pancake_order_id);
+            $final = array_filter([$order?->disposition, $lead->disposition]);
+            $finalMatches = fn (array $keywords) => collect($final)->contains(fn ($d) => self::matches($d, $keywords));
 
             return [
                 'lead'      => $lead,
                 'first_at'  => $firstAt,
                 'retried'   => $retryAt !== null,
-                'retry_min' => $retryAt ? max(0, $firstAt->diffInMinutes($retryAt)) : null,
-                'answered'  => $later->contains(fn ($a) => self::matches($a['result'], self::ANSWERED)),
-                'converted' => $later->contains(fn ($a) => self::matches($a['result'], self::CONVERTED)) || isset($upsoldOrderIds[$lead->pancake_order_id]),
+                'retry_min' => $retryAt ? $firstAt->diffInMinutes($retryAt) : null,
+                'answered'  => $laterResults->contains(fn ($r) => self::matches($r, self::ANSWERED)) || $finalMatches(self::ANSWERED),
+                'converted' => $laterResults->contains(fn ($r) => self::matches($r, self::CONVERTED)) || $finalMatches(self::CONVERTED)
+                    || ($order && Order::isBroadRealUpsell($order)),
             ];
         })->values();
 
@@ -124,10 +137,18 @@ class FollowUpAnalytics
         ];
     }
 
-    /** 'Logged "NOT ANSWERING" by Joana.' -> 'NOT ANSWERING'. */
-    private static function resultOf(?string $description): ?string
+    /** The call result an activity records, or null (dials, product tags…). */
+    private static function resultOf(LeadActivity $activity): ?string
     {
-        return preg_match('/^Logged "(.+)" by /', (string) $description, $m) ? $m[1] : null;
+        $text = (string) $activity->description;
+        $result = match ($activity->type) {
+            'called'             => preg_match('/^Logged "(.+)" by /', $text, $m) ? $m[1] : null,
+            'callback_scheduled' => preg_match('/Pancake tag "([^"]+)"/', $text, $m) ? $m[1] : null,
+            'tag_added'          => preg_match('/^Added tag "([^"]+)"/', $text, $m) ? $m[1] : null,
+            default              => null,
+        };
+
+        return $result !== null && self::matches($result, self::RESULTS) ? trim($result) : null;
     }
 
     private static function matches(string $result, array $keywords): bool

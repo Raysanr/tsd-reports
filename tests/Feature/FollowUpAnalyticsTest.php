@@ -34,36 +34,52 @@ class FollowUpAnalyticsTest extends TestCase
         ]);
     }
 
-    private function logResult(Lead $lead, string $result, string $at): void
+    private function activity(Lead $lead, string $type, string $description, string $at): void
     {
-        LeadActivity::create(['lead_id' => $lead->id, 'type' => 'called', 'description' => "Logged \"{$result}\" by Joana.", 'created_at' => $at]);
+        LeadActivity::create(['lead_id' => $lead->id, 'type' => $type, 'description' => $description, 'created_at' => $at]);
     }
 
+    private function unansweredTag(Lead $lead, string $tag, string $at): void
+    {
+        $this->activity($lead, 'callback_scheduled', "Tagged for Unanswered Calls (Pancake tag \"{$tag}\", not a logged Outcome).", $at);
+    }
+
+    private function dial(Lead $lead, string $at): void
+    {
+        $this->activity($lead, 'call_clicked', 'Joana clicked to call Customer.', $at);
+    }
+
+    /** Same record shapes as production (checked 2026-11-13). */
     public function test_it_follows_unanswered_first_calls(): void
     {
-        // Retried and converted (later result logged).
+        // Dialed, tagged Not answering, dialed again, then confirmed.
         $converted = $this->lead('1001', '09170000001');
-        $this->logResult($converted, 'NOT ANSWERING', '2026-11-12 09:10:00');
-        $this->logResult($converted, 'CONFIRMED VIA CALL', '2026-11-12 10:10:00');
+        $this->dial($converted, '2026-11-12 09:05:00');
+        $this->unansweredTag($converted, 'Not answering ', '2026-11-12 09:10:00');
+        $this->dial($converted, '2026-11-12 10:10:00');
+        $this->activity($converted, 'tag_added', 'Added tag "CONFIRMED VIA CALL" by Joana.', '2026-11-12 10:15:00');
 
-        // Retried only by the TSA's phone (no new result logged).
+        // Retried only by a phone call event matched by number.
         $phoneOnly = $this->lead('1002', '+63 917 000 0002');
-        $this->logResult($phoneOnly, 'UNATTENDED', '2026-11-12 09:20:00');
+        $this->unansweredTag($phoneOnly, 'UNATTENDED - EYECARE', '2026-11-12 09:20:00');
         CallEvent::create(['tsa_id' => $this->tsa->id, 'phone_number' => '09170000002', 'direction' => 'outgoing', 'occurred_at' => '2026-11-12 09:50:00']);
-        CallEvent::create(['tsa_id' => $this->tsa->id, 'phone_number' => '09170000002', 'direction' => 'outgoing', 'occurred_at' => '2026-11-12 09:15:00']); // the first call itself
+        CallEvent::create(['tsa_id' => $this->tsa->id, 'phone_number' => '09170000002', 'direction' => 'outgoing', 'occurred_at' => '2026-11-12 09:15:00']); // before the result
 
-        // Never retried.
+        // Never retried (only the first dial).
         $never = $this->lead('1003', '09170000003');
-        $this->logResult($never, 'NOT ANSWERING', '2026-11-12 09:30:00');
+        $this->dial($never, '2026-11-12 09:25:00');
+        $this->unansweredTag($never, 'Not answering ', '2026-11-12 09:30:00');
 
-        // First call answered: not part of follow-up.
+        // First result answered (Call Back): not part of follow-up; product tags ignored.
         $answered = $this->lead('1004', '09170000004');
-        $this->logResult($answered, 'CALL BACK', '2026-11-12 09:40:00');
+        $this->activity($answered, 'tag_added', 'Added tag "PTERYGIUM" by Joana.', '2026-11-12 09:35:00');
+        $this->activity($answered, 'callback_scheduled', 'Callback due now (Pancake tag "CALL BACK", not a logged Outcome).', '2026-11-12 09:40:00');
 
-        // Unanswered first, later answered, and the order became a real upsell.
+        // Unanswered first, retried, final result Call Back, and the order became a real upsell.
         $upsold = $this->lead('1005', '09170000005');
-        $this->logResult($upsold, 'NOT ANSWERING', '2026-11-12 09:00:00');
-        $this->logResult($upsold, 'CALL BACK', '2026-11-12 11:00:00');
+        $this->unansweredTag($upsold, 'Unattended', '2026-11-12 09:00:00');
+        $this->dial($upsold, '2026-11-12 11:00:00');
+        $upsold->update(['disposition' => 'CALL BACK']);
         Order::create(['pancake_order_id' => '1005', 'team' => 'SH Naturals', 'tsa_name' => $this->tsa->tsa_key, 'product' => 'Sinuxyl',
             'is_upsell' => true, 'amount' => 500, 'status_code' => 1, 'raw_tags' => [], 'pancake_created_at' => '2026-11-12 09:00:00', 'synced_at' => now()]);
 
@@ -80,7 +96,7 @@ class FollowUpAnalyticsTest extends TestCase
     public function test_the_follow_up_tab_renders(): void
     {
         $lead = $this->lead('2001', '09170000009');
-        $this->logResult($lead, 'NOT ANSWERING', '2026-11-12 09:10:00');
+        $this->unansweredTag($lead, 'Not answering ', '2026-11-12 09:10:00');
         Order::create(['pancake_order_id' => '2001', 'team' => 'SH Naturals', 'tsa_name' => $this->tsa->tsa_key, 'product' => 'Sinuxyl',
             'disposition' => 'NOT ANSWERING', 'raw_tags' => ['NOT ANSWERING'], 'is_upsell' => false, 'status_code' => 1,
             'pancake_created_at' => '2026-11-12 09:00:00', 'synced_at' => now()]);
