@@ -91,7 +91,7 @@
      time regardless of which tab is showing. --}}
 <div class="border-b border-slate-200 dark:border-slate-700 mb-6">
     <nav class="flex gap-6 overflow-x-auto" role="tablist" aria-label="Analytics sections">
-        @foreach(['trends' => 'Trends', 'products' => 'Products', 'tsa' => 'TSA'] as $tabKey => $tabLabel)
+        @foreach(['trends' => 'Trends', 'products' => 'Products', 'tsa' => 'TSA', 'followup' => 'Follow-up'] as $tabKey => $tabLabel)
         <button type="button" role="tab" data-analytics-tab="{{ $tabKey }}"
                 class="analytics-tab-btn shrink-0 px-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer whitespace-nowrap">
             {{ $tabLabel }}
@@ -356,6 +356,97 @@
 </div>
 @endif
 </div>{{-- /data-analytics-panel="tsa" --}}
+
+{{-- ===== FOLLOW-UP (2026-11-13) — FollowUpAnalytics ===== --}}
+@php
+    $fu = $followUp['totals'];
+    $fmtPct = fn ($v) => $v === null ? '—' : rtrim(rtrim(number_format($v, 1), '0'), '.') . '%';
+    $fmtMin = fn ($m) => $m === null ? '—' : ($m >= 60 ? intdiv($m, 60) . 'h ' . ($m % 60) . 'm' : $m . 'm');
+@endphp
+<div data-analytics-panel="followup" class="hidden">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    <div class="mb-5">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Unanswered-Call Follow-up</h2>
+        <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }} · leads whose first call result was Not Answering or Unattended, and what happened next. "Called again" counts a later result logged in Call Tracker or a later call from the TSA's phone.</p>
+    </div>
+    @if($fu['first_unanswered'] === 0)
+        <p class="text-sm font-mono text-slate-400 py-6 text-center">No unanswered first calls logged in Call Tracker for this range.</p>
+    @else
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        @foreach([
+            ['First call unanswered', number_format($fu['first_unanswered']), null, 'text-slate-800 dark:text-slate-100'],
+            ['Called again', number_format($fu['retried']), $fmtPct($fu['retried_pct']), 'text-blue-600 dark:text-blue-400'],
+            ['Answered later', number_format($fu['answered']), $fmtPct($fu['answered_pct']), 'text-green-600 dark:text-green-400'],
+            ['Converted later', number_format($fu['converted']), $fmtPct($fu['converted_pct']), 'text-emerald-700 dark:text-emerald-400'],
+            ['Avg. time to retry', $fmtMin($fu['avg_retry_min']), null, 'text-slate-800 dark:text-slate-100'],
+            ['Never retried', number_format($fu['never_retried']), null, 'text-rose-600 dark:text-rose-400'],
+        ] as [$label, $value, $sub, $tone])
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-3">
+            <p class="text-[11px] font-mono uppercase tracking-wide text-slate-400">{{ $label }}</p>
+            <p class="mt-1 text-xl font-bold font-mono {{ $tone }}">{{ $value }}</p>
+            @if($sub)<p class="text-xs font-mono text-slate-400">{{ $sub }} of unanswered</p>@endif
+        </div>
+        @endforeach
+    </div>
+    @endif
+</div>
+
+@if($followUp['byTsa'] !== [])
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6 overflow-x-auto">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-4">Follow-up by TSA</h2>
+    <table class="w-full text-xs font-mono" style="min-width:640px">
+        <thead>
+            <tr class="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                <th class="py-2 pr-3">TSA</th>
+                <th class="py-2 px-3 text-right">Unanswered first</th>
+                <th class="py-2 px-3 text-right">Called again</th>
+                <th class="py-2 px-3 text-right">Answered later</th>
+                <th class="py-2 px-3 text-right">Converted later</th>
+                <th class="py-2 px-3 text-right">Avg. time to retry</th>
+                <th class="py-2 pl-3 text-right">Never retried</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($followUp['byTsa'] as $row)
+            <tr class="border-b border-slate-100 dark:border-slate-800">
+                <td class="py-2 pr-3 font-semibold text-slate-700 dark:text-slate-200">{{ $row['name'] }}</td>
+                <td class="py-2 px-3 text-right">{{ $row['first_unanswered'] }}</td>
+                <td class="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{{ $row['retried'] }} <span class="text-slate-400">({{ $fmtPct($row['retried_pct']) }})</span></td>
+                <td class="py-2 px-3 text-right text-green-600 dark:text-green-400">{{ $row['answered'] }} <span class="text-slate-400">({{ $fmtPct($row['answered_pct']) }})</span></td>
+                <td class="py-2 px-3 text-right text-emerald-700 dark:text-emerald-400">{{ $row['converted'] }} <span class="text-slate-400">({{ $fmtPct($row['converted_pct']) }})</span></td>
+                <td class="py-2 px-3 text-right">{{ $fmtMin($row['avg_retry_min']) }}</td>
+                <td class="py-2 pl-3 text-right text-rose-600 dark:text-rose-400">{{ $row['never_retried'] }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+
+@if($followUp['neverRetried'] !== [])
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6 overflow-x-auto">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Never retried</h2>
+    <p class="text-xs text-slate-400 font-mono mt-0.5 mb-4">Latest {{ count($followUp['neverRetried']) }} leads left after one unanswered call. Click an order ID to copy it.</p>
+    <table class="w-full text-xs font-mono" style="min-width:520px">
+        <thead>
+            <tr class="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                <th class="py-2 pr-3">Order ID</th><th class="py-2 px-3">Customer</th><th class="py-2 px-3">TSA</th><th class="py-2 pl-3 text-right">First call</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($followUp['neverRetried'] as $row)
+            <tr class="border-b border-slate-100 dark:border-slate-800">
+                <td class="py-2 pr-3"><span class="text-primary font-semibold cursor-pointer hover:underline order-id-copy" data-copy-order-id="{{ $row['order_id'] }}" title="Click to copy">{{ $row['order_id'] }}</span></td>
+                <td class="py-2 px-3 text-slate-700 dark:text-slate-200">{{ $row['customer'] ?: '—' }}</td>
+                <td class="py-2 px-3 text-slate-700 dark:text-slate-200">{{ $row['tsa'] }}</td>
+                <td class="py-2 pl-3 text-right text-slate-500">{{ $row['first_at'] }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+</div>{{-- /data-analytics-panel="followup" --}}
 
 @endif
 

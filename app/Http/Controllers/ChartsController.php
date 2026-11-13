@@ -255,12 +255,15 @@ class ChartsController extends Controller
             $hourlyUnanswered[] = $tally['unanswered'];
         }
 
+        // Unanswered-call follow-up (2026-11-13) — see FollowUpAnalytics.
+        $followUp = \App\Support\FollowUpAnalytics::build($from, $to);
+
         return view('charts', compact(
             'dateFrom', 'dateTo', 'dailyLabels', 'kpis',
             'rateSeries', 'calledSeries', 'salesSeries', 'excessSeries', 'answeredSeries', 'unansweredSeries',
             'deliveredSeries', 'rtsSeries',
             'productRows', 'tsaRankings', 'hourlyLabels', 'hourlyLeads', 'hourlyExcess', 'hourlyAnswered', 'hourlyUnanswered',
-            'orderTeams', 'teamNames'
+            'orderTeams', 'teamNames', 'followUp'
         ));
     }
 }
