@@ -15,12 +15,21 @@ use Illuminate\Console\Command;
  */
 class CheckUpsellConfirmations extends Command
 {
-    protected $signature = 'leads:check-upsell-confirmations {--days=3} {--limit=60}';
+    protected $signature = 'leads:check-upsell-confirmations {--days=3} {--limit=60}
+        {--show= : Print one order\'s raw Messenger messages (to inspect reaction data) and exit}';
 
     protected $description = 'Check upsold leads for a customer YES/CONFIRM reply in Messenger';
 
     public function handle(PancakeConversationApi $conversations, PancakeOrderTagApi $orders): int
     {
+        if ($orderId = $this->option('show')) {
+            $lead = \App\Models\Lead::where('pancake_order_id', $orderId)->firstOrFail();
+            $result = $conversations->getMessages($lead->pancake_page_id, $lead->pancake_conversation_id);
+            $this->line(json_encode(\array_slice($result['messages'] ?? [], -10), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '');
+
+            return self::SUCCESS;
+        }
+
         $since = now()->subDays((int) $this->option('days'))->startOfDay();
 
         $leads = UpsellConfirmation::candidates($since)

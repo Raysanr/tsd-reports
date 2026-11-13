@@ -114,4 +114,36 @@ class UpsellConfirmationTest extends TestCase
         $this->assertSame('unconfirmed', $lead->refresh()->upsell_confirmation);
         $this->assertNull(Lead::where('pancake_order_id', '6')->first()->upsell_confirmation);
     }
+
+    public function test_reactions_emoji_and_like_sticker_confirm(): void
+    {
+        $staffAsk = fn (array $extra = []) => $this->msg('Reply YES to confirm', '2026-11-13T02:05:00', staff: true) + $extra;
+
+        // Customer reacted 👍 to the page's message (list of objects).
+        $lead = $this->check($this->upsoldLead('7'), ['success' => true, 'error' => null, 'messages' => [
+            $staffAsk(['reactions' => [['reaction' => '👍', 'from' => ['id' => 'cust1']]]]),
+        ]]);
+        $this->assertSame('confirmed', $lead->upsell_confirmation);
+        $this->assertSame('Reacted to: Reply YES to confirm', $lead->upsell_confirmation_text);
+
+        // Reaction given by name.
+        $this->assertSame('confirmed', $this->check($this->upsoldLead('8'), ['success' => true, 'error' => null, 'messages' => [
+            $staffAsk(['reaction' => 'love']),
+        ]])->upsell_confirmation);
+
+        // Thumbs-up like sticker from the customer.
+        $sticker = $this->msg('', '2026-11-13T02:10:00') + ['attachments' => [['type' => 'sticker', 'url' => 'https://x/369239263222822_n.png']]];
+        $this->assertSame('confirmed', $this->check($this->upsoldLead('9'), ['success' => true, 'error' => null, 'messages' => [$sticker]])->upsell_confirmation);
+
+        // Emoji reply.
+        $this->assertSame('confirmed', $this->check($this->upsoldLead('10'), ['success' => true, 'error' => null, 'messages' => [
+            $this->msg('👍🏻', '2026-11-13T02:10:00'),
+        ]])->upsell_confirmation);
+
+        // A reaction on the CUSTOMER's own message, or an angry one, doesn't count.
+        $this->assertSame('unconfirmed', $this->check($this->upsoldLead('11'), ['success' => true, 'error' => null, 'messages' => [
+            $this->msg('magkano?', '2026-11-13T02:10:00') + ['reactions' => ['👍']],
+            $staffAsk(['reactions' => ['😠']]),
+        ]])->upsell_confirmation);
+    }
 }

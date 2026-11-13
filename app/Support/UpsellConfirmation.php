@@ -14,7 +14,8 @@ use Illuminate\Support\Carbon;
  * the CUSTOMER replied a confirmation after the upsell was added.
  *
  * Results on the lead (upsell_confirmation):
- * - confirmed   — a customer reply matching CONFIRM_PATTERN after upsell_at;
+ * - confirmed   — after upsell_at the customer replied a confirm word or
+ *   emoji, sent the 👍 like sticker, or reacted 👍/❤️ to the page's message;
  * - unconfirmed — readable conversation, no such reply (listed on the page);
  * - unreadable  — Pancake refused the conversation (page not on this
  *   account's token) — never listed, per the request.
@@ -24,9 +25,60 @@ class UpsellConfirmation
     /** YES, CONFIRM(ED), OO, OPO, SIGE, OK/OKAY as whole words. */
     public const CONFIRM_PATTERN = '/\b(yes|confirm|confirmed|oo|opo|sige|ok|okay)\b/iu';
 
+    /** Thumbs-up / heart / OK-hand / check-mark emoji also confirm. */
+    public const CONFIRM_EMOJI_PATTERN = '/(\x{1F44D}|\x{2764}|\x{2665}|\x{1F44C}|\x{2705}|\x{2714})/u';
+
+    /** Messenger's own "like" thumbs-up stickers (small, medium, large). */
+    public const LIKE_STICKER_IDS = ['369239263222822', '369239343222814', '369239383222810'];
+
+    /** Reaction names Pancake/Messenger may report instead of the emoji. */
+    private const CONFIRM_REACTION_NAMES = ['like', 'love', 'yes', 'thumbs_up', 'thumbsup', 'heart'];
+
     public static function isConfirmation(string $text): bool
     {
-        return (bool) preg_match(self::CONFIRM_PATTERN, $text);
+        return (bool) preg_match(self::CONFIRM_PATTERN, $text) || (bool) preg_match(self::CONFIRM_EMOJI_PATTERN, $text);
+    }
+
+    /** Customer sent Messenger's thumbs-up "like" sticker. */
+    public static function isLikeSticker(array $msg): bool
+    {
+        foreach ($msg['attachments'] ?? [] as $a) {
+            if (!\is_array($a) || ($a['type'] ?? null) !== 'sticker') {
+                continue;
+            }
+            $haystack = ($a['sticker_id'] ?? '') . ' ' . ($a['id'] ?? '') . ' ' . ($a['url'] ?? '');
+            foreach (self::LIKE_STICKER_IDS as $id) {
+                if (str_contains($haystack, $id)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A confirming reaction (👍 / ❤️ / like / love) on one of the page's
+     * messages — the customer reacting to the TSA's "reply YES" message.
+     * Accepts the shapes Messenger APIs use: a list under `reactions` or a
+     * single `reaction`, each a plain string or {reaction|emoji|type|name}.
+     */
+    public static function hasConfirmReaction(array $msg): bool
+    {
+        $reactions = $msg['reactions'] ?? ($msg['reaction'] ?? []);
+        $reactions = \is_array($reactions) && !array_is_list($reactions) ? [$reactions] : (array) $reactions;
+
+        foreach ($reactions as $r) {
+            $value = \is_array($r) ? (string) ($r['reaction'] ?? $r['emoji'] ?? $r['type'] ?? $r['name'] ?? '') : (string) $r;
+            if ($value === '') {
+                continue;
+            }
+            if (\in_array(strtolower(trim($value)), self::CONFIRM_REACTION_NAMES, true) || preg_match(self::CONFIRM_EMOJI_PATTERN, $value)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Same rule as calls.js renderMessage(): staff reply or the page itself. */
@@ -84,18 +136,31 @@ class UpsellConfirmation
             return;
         }
 
-        $reply = collect($result['messages'])->first(function ($msg) use ($lead) {
-            $text = trim(strip_tags((string) ($msg['original_message'] ?? $msg['message'] ?? '')));
+        $proof = null;
+        foreach ($result['messages'] as $msg) {
             $at = isset($msg['inserted_at']) ? Carbon::parse($msg['inserted_at'], 'UTC') : null;
+            if ($at === null || $at->lt($lead->upsell_at)) {
+                continue;
+            }
+            $text = trim(strip_tags((string) ($msg['original_message'] ?? $msg['message'] ?? '')));
 
-            return $text !== '' && $at !== null && $at->gte($lead->upsell_at)
-                && self::isFromCustomer($msg) && self::isConfirmation($text);
-        });
+            if (self::isFromCustomer($msg)) {
+                if ($text !== '' && self::isConfirmation($text)) {
+                    $proof = $text;
+                } elseif (self::isLikeSticker($msg)) {
+                    $proof = '👍 (like sticker)';
+                }
+            } elseif (self::hasConfirmReaction($msg)) {
+                // Customer reacted to the page's own message.
+                $proof = 'Reacted to: ' . ($text !== '' ? $text : 'page message');
+            }
+            if ($proof !== null) {
+                break;
+            }
+        }
 
-        $lead->upsell_confirmation = $reply ? 'confirmed' : 'unconfirmed';
-        $lead->upsell_confirmation_text = $reply
-            ? mb_substr(trim(strip_tags((string) ($reply['original_message'] ?? $reply['message']))), 0, 255)
-            : null;
+        $lead->upsell_confirmation = $proof !== null ? 'confirmed' : 'unconfirmed';
+        $lead->upsell_confirmation_text = $proof !== null ? mb_substr($proof, 0, 255) : null;
         $lead->saveQuietly();
     }
 
