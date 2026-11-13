@@ -262,6 +262,10 @@ Schedule::command(\App\Console\Commands\PruneExpiredCache::class)->dailyAt('03:3
 // Incremental, so a run is short; one partner failing doesn't stop the rest.
 Schedule::command(\App\Console\Commands\SyncPartners::class)->everyTenMinutes()->withoutOverlapping(30);
 
+// No Confirmation page (2026-11-13): read upsold leads' Messenger threads for
+// a customer YES/CONFIRM reply. Read-only, capped at 60 leads a run.
+Schedule::command(\App\Console\Commands\CheckUpsellConfirmations::class)->everyFiveMinutes()->withoutOverlapping(10);
+
 // Hard runtime cap (2026-10-17, Railway cost spike): every withoutOverlapping()
 // job above is killed 30s before its own overlap lock expires. The short locks
 // are deliberate (2026-08-18/21 — an interrupted run must self-heal in

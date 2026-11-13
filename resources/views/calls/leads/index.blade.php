@@ -3,12 +3,14 @@
     'overdue'    => 'Overdue Leads',
     'callbacks'  => "Today's Callbacks",
     'unanswered' => 'Unanswered Calls',
+    'no_confirmation' => 'No Confirmation',
     default      => 'Leads',
 })
 @section('subtitle', match($view) {
     'overdue'    => "Assigned but not catered within {$overdueThresholdMinutes}min",
     'callbacks'  => 'Callbacks due now or already past due',
     'unanswered' => 'Not Answering, Unattended, or Invalid Number · shared across every TSA',
+    'no_confirmation' => 'Upsold, but the customer hasn\'t replied YES / CONFIRM in Messenger since the upsell',
     default      => 'Round-robin assigned leads · click to call',
 })
 

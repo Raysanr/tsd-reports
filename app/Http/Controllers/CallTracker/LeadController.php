@@ -370,6 +370,17 @@ class LeadController extends Controller
                         ->orWhereNull('pancake_created_at');
                 })
                 ->orderByDesc('pancake_created_at');
+        } elseif ($view === 'no_confirmation') {
+            // No Confirmation (explicit request, 2026-11-13): upsold leads
+            // whose readable Messenger thread has no customer YES/CONFIRM
+            // reply after the upsell — see UpsellConfirmation. Leads whose
+            // conversation Pancake won't show this account are left out.
+            $query->where('upsell_confirmation', 'unconfirmed')
+                ->where(function ($q) use ($rangeFrom, $rangeTo) {
+                    $q->whereBetween('pancake_created_at', [$rangeFrom, $rangeTo])
+                        ->orWhereNull('pancake_created_at');
+                })
+                ->orderByDesc('upsell_at');
         }
         // Status filter, brought back (explicit request, 2026-08-21) — the
         // old Assigned/Called/Unassigned filter that lived here was removed

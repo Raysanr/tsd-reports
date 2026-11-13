@@ -26,6 +26,8 @@ class Lead extends Model
         'callback_at'        => 'datetime',
         'pancake_created_at' => 'datetime',
         'synced_at'          => 'datetime',
+        'upsell_at'          => 'datetime',
+        'upsell_confirmation_checked_at' => 'datetime',
         'pinned_at'          => 'datetime',
     ];
 

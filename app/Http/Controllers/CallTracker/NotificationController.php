@@ -113,6 +113,13 @@ class NotificationController extends Controller
         // callbacks for a non-admin too, not just their own, or the number
         // shown here would silently disagree with what the Callbacks page
         // itself now displays.
+        $noConfirmationQuery = Lead::where('upsell_confirmation', 'unconfirmed')->where($createdTodayFilter);
+        if (!$user->isAtLeastAdmin()) {
+            $noConfirmationQuery->where('tsa_id', $user->tsa_id);
+        } elseif ($request->filled('tsa')) {
+            $noConfirmationQuery->where('tsa_id', $request->integer('tsa'));
+        }
+
         if (!$user->isAtLeastAdmin()) {
             $assignedQuery->where('tsa_id', $user->tsa_id);
         } elseif ($request->filled('tsa')) {
@@ -143,6 +150,7 @@ class NotificationController extends Controller
             'overdue'     => $overdueQuery->count(),
             'callbacks'   => $callbackQuery->count(),
             'unanswered'  => $unansweredQuery->count(),
+            'no_confirmation' => $noConfirmationQuery->count(),
             'unassigned'  => $user->isAtLeastAdmin() ? $unassignedQuery->count() : 0,
         ]);
     }

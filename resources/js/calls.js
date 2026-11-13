@@ -257,6 +257,7 @@ function pollNotificationCounts() {
             updateBadge('badge-overdue', data.overdue);
             updateBadge('badge-callbacks', data.callbacks);
             updateBadge('badge-unanswered', data.unanswered);
+            updateBadge('badge-no-confirmation', data.no_confirmation);
         })
         .catch(() => {});
 }
@@ -273,7 +274,7 @@ function pollWhileVisible(fn, ms) {
     return id;
 }
 
-if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered')) {
+if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered') || document.getElementById('badge-no-confirmation')) {
     pollNotificationCounts();
     pollWhileVisible(pollNotificationCounts, 30000);
 }
