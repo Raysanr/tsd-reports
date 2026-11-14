@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\DataManagement\TsaSalesReportController;
+use App\Models\ExpectedIncomeEntry;
 use App\Models\Order;
+use App\Models\Product;
 use App\Models\TsaShift;
 use App\Support\ActualSplit;
 use App\Support\DataSet;
@@ -28,6 +30,14 @@ use Illuminate\Support\Facades\Cache;
  *   ActualSplit (RTS Report, Actual Income) — real upsells, by order date,
  *   split by each order's CURRENT Pancake status.
  * - catered: Leads Report's Catered Leads (leads with a call result).
+ * - leadsFromFsd: every Telesales lead is a Facebook-page Pancake order, so
+ *   it equals leads.
+ * - cancelledOrders: count behind cancelledSales (Cancelled + Restocking).
+ * - separateParcelOrders: real upsells shipped as their own parcel
+ *   (SEPARATE PARCEL tag or note); a normal upsell rides in the FB parcel.
+ * - productCost / shippingFee: Expected Income's manual Product Cost and
+ *   Shipping Fee entries for that day (every product, every TSA plus the
+ *   product-level row); null when nothing was entered that day.
  * - agents: the same per TSA.
  * - partnership: TSD's partner companies (M&J, PEAK.CO, MLC), exactly as
  *   TSD Overall Performance's Sales Summary shows them; TSD is credited
@@ -53,7 +63,7 @@ class TelesalesDailyController extends Controller
             return response()->json(['error' => 'Range too long (max ' . self::MAX_DAYS . ' days)'], 422);
         }
 
-        $key = 'telesales-api:v1:' . $data['from'] . ':' . $data['to'];
+        $key = 'telesales-api:v2:' . $data['from'] . ':' . $data['to'];
         $body = Cache::get($key);
         if ($body === null) {
             $body = $this->build($data['from'], $data['to'], $from, $to);
@@ -79,6 +89,7 @@ class TelesalesDailyController extends Controller
             ->groupBy(fn (Order $o) => $o->effective_created_at->format('Y-m-d'));
 
         $partnership = self::partnershipByDate($data['from'], $data['to']);
+        $costs = self::expectedIncomeCosts($data['from'], $data['to']);
 
         $days = [];
         for ($date = $from->copy(); $date->lte($to); $date->addDay()) {
@@ -87,19 +98,24 @@ class TelesalesDailyController extends Controller
             $split = ActualSplit::fromOrders($dayOrders);
 
             $leads = self::leads($dayOrders);
+            $dayCosts = $costs->get($key, collect());
             $days[] = [
                 'date'           => $key,
                 'leads'          => $leads['total'],
-                'leadsFromFsd'   => null,
+                'leadsFromFsd'   => $leads['total'],
                 'catered'        => $leads['catered'],
                 'orders'         => ActualSplit::realUpsells($dayOrders)->count(),
+                'cancelledOrders' => ActualSplit::ordersInBucket($dayOrders, 'cancelled')->count(),
+                'separateParcelOrders' => ActualSplit::realUpsells($dayOrders)->filter(fn (Order $o) => Order::isSeparateParcel($o))->count(),
                 'grossSales'     => round($split['gross_sales'], 2),
                 'cancelledSales' => round($split['cancelled'], 2),
                 'deliveredSales' => round($split['delivered'], 2),
                 'returnedSales'  => round($split['returns'], 2),
                 'byStatus'       => self::byStatus($dayOrders),
                 'upsellSales'    => round($split['gross_sales'], 2),
-                'agents'         => self::agents($dayOrders, $tsas),
+                'productCost'    => self::costSum($dayCosts, 'product_cost'),
+                'shippingFee'    => self::costSum($dayCosts, 'shipping_fee'),
+                'agents'         => self::agents($dayOrders, $tsas, $dayCosts),
                 'partnership'    => $partnership === null ? null : self::partnershipDay($partnership, $key),
             ];
         }
@@ -160,6 +176,24 @@ class TelesalesDailyController extends Controller
         ];
     }
 
+    /** Expected Income entries (visible products) in range, grouped by day. */
+    private static function expectedIncomeCosts(string $from, string $to): Collection
+    {
+        return ExpectedIncomeEntry::whereIn('product_id', Product::where('is_hidden', false)->pluck('id'))
+            ->whereDate('entry_date', '>=', $from)
+            ->whereDate('entry_date', '<=', $to)
+            ->get(['entry_date', 'tsa_id', 'product_cost', 'shipping_fee'])
+            ->groupBy(fn (ExpectedIncomeEntry $e) => $e->entry_date->toDateString());
+    }
+
+    /** Sum of one entered cost, or null when no entry has it (not entered yet). */
+    private static function costSum(Collection $entries, string $field): ?float
+    {
+        $entered = $entries->filter(fn (ExpectedIncomeEntry $e) => (float) $e->{$field} != 0.0);
+
+        return $entered->isEmpty() ? null : round((float) $entered->sum($field), 2);
+    }
+
     /** Leads Report's Total Leads and Catered Leads for these orders. */
     private static function leads(Collection $orders): array
     {
@@ -186,14 +220,15 @@ class TelesalesDailyController extends Controller
             ->all();
     }
 
-    /** Per TSA: leads, catered, orders, grossSales, byStatus. Orders with no TSA are left out. */
-    private static function agents(Collection $orders, Collection $tsas): array
+    /** Per TSA: leads, catered, orders, cancelledOrders, grossSales, productCost (her own entries only), byStatus. Orders with no TSA are left out. */
+    private static function agents(Collection $orders, Collection $tsas, Collection $dayCosts): array
     {
         return $orders->filter(fn (Order $o) => filled($o->tsa_name))
             ->groupBy('tsa_name')
-            ->map(function (Collection $group, string $tsaKey) use ($tsas) {
+            ->map(function (Collection $group, string $tsaKey) use ($tsas, $dayCosts) {
                 $split = ActualSplit::fromOrders($group);
                 $leads = self::leads($group);
+                $tsaId = $tsas->get($tsaKey)?->id;
 
                 return [
                     'tsa'        => $tsaKey,
@@ -202,7 +237,9 @@ class TelesalesDailyController extends Controller
                     'leads'      => $leads['total'],
                     'catered'    => $leads['catered'],
                     'orders'     => ActualSplit::realUpsells($group)->count(),
+                    'cancelledOrders' => ActualSplit::ordersInBucket($group, 'cancelled')->count(),
                     'grossSales' => round($split['gross_sales'], 2),
+                    'productCost' => $tsaId === null ? null : self::costSum($dayCosts->where('tsa_id', $tsaId), 'product_cost'),
                     'byStatus'   => self::byStatus($group),
                 ];
             })

@@ -35,6 +35,17 @@ class TelesalesMcController extends Controller
         'product_research'        => 'productResearch',
     ];
 
+    /** Roles shared with other departments (seed_key): only
+     *  services.telesales_api.mc_shared_exec_pct of their salary is charged. */
+    private const SHARED_EXEC_ROLES = ['ceo', 'sales_director'];
+
+    private static function allocationPct(CostBreakdownRole $role): float
+    {
+        return in_array($role->seed_key, self::SHARED_EXEC_ROLES, true)
+            ? (float) config('services.telesales_api.mc_shared_exec_pct', 100)
+            : 100.0;
+    }
+
     public function summary(Request $request): JsonResponse
     {
         return $this->forMonth($request, function (string $month, string $sourceMonth, string $variant) {
@@ -53,7 +64,7 @@ class TelesalesMcController extends Controller
                 'sourceMonth'    => $sourceMonth,
                 'source'         => $variant,
                 'headcount'      => $roles->count() + $tsas->count(),
-                'salaries'       => round((float) $roles->sum('base_salary') + (float) $tsas->sum('base_salary'), 2),
+                'salaries'       => round((float) $roles->sum(fn (CostBreakdownRole $r) => $r->base_salary * self::allocationPct($r) / 100) + (float) $tsas->sum('base_salary'), 2),
                 'thirteenthMonth' => $pool('thirteenth_month_allowance'),
                 'sil'            => $pool('sil'),
                 'govBenefits'    => $pool('government_benefits'),
@@ -73,7 +84,7 @@ class TelesalesMcController extends Controller
                 'group'         => self::groupOf($role->overhead_group),
                 'team'          => $role->team,
                 'monthlySalary' => round((float) $role->base_salary, 2),
-                'allocationPct' => 100,
+                'allocationPct' => round(self::allocationPct($role), 2),
                 'status'        => 'active',
                 'startDate'     => null,
                 'endDate'       => null,

@@ -69,6 +69,9 @@ return [
         // (comma-separated list of the caller's server IPs).
         'mc_token' => env('TELESALES_MC_TOKEN'),
         'mc_allowed_ips' => env('TELESALES_MC_ALLOWED_IPS'),
+        // Share of the CEO and Sales Director salaries charged to Telesales
+        // (they are shared with other departments). 100 = all of it.
+        'mc_shared_exec_pct' => env('TELESALES_MC_SHARED_EXEC_PCT', 100),
     ],
 
 ];

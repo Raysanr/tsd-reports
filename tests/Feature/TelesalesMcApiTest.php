@@ -92,4 +92,20 @@ class TelesalesMcApiTest extends TestCase
         $this->getJson('/api/external/v1/tsd/mc/roster?month=2020-01', self::AUTH)->assertStatus(404);
         $this->getJson('/api/external/v1/tsd/mc/roster?month=bad', self::AUTH)->assertStatus(422);
     }
+
+    public function test_telesales_mc_paths_work_and_shared_executives_can_be_charged_a_share(): void
+    {
+        CostBreakdownMonths::seed('2026-11');
+        $full = $this->getJson('/api/external/v1/telesales/mc/summary?month=2026-11', self::AUTH)->assertOk()->json();
+        $this->assertSame($full, $this->getJson('/api/external/v1/tsd/mc/summary?month=2026-11', self::AUTH)->json());
+
+        config(['services.telesales_api.mc_shared_exec_pct' => 33.33]);
+        $execs = CostBreakdownRole::where('month', '2026-11')->whereIn('seed_key', ['ceo', 'sales_director'])->sum('base_salary');
+        $shared = $this->getJson('/api/external/v1/telesales/mc/summary?month=2026-11', self::AUTH)->json();
+        $this->assertEqualsWithDelta($full['salaries'] - $execs * 0.6667, $shared['salaries'], 0.05);
+
+        $roster = $this->getJson('/api/external/v1/telesales/mc/roster?month=2026-11', self::AUTH)->assertOk()->json('employees');
+        $this->assertEquals(33.33, collect($roster)->firstWhere('position', 'CEO')['allocationPct']);
+        $this->assertEquals(100, collect($roster)->firstWhere('position', 'Telesales Manager')['allocationPct']);
+    }
 }

@@ -70,7 +70,11 @@ class TelesalesDailyApiTest extends TestCase
         $this->assertEquals(250, $day['cancelledSales']);
         $this->assertEquals(400, $day['returnedSales']);
         $this->assertEquals(1000, $day['deliveredSales']);
-        $this->assertNull($day['leadsFromFsd']);
+        $this->assertSame(4, $day['leadsFromFsd']);
+        $this->assertSame(1, $day['cancelledOrders']);
+        $this->assertSame(0, $day['separateParcelOrders']);
+        $this->assertNull($day['productCost']);
+        $this->assertNull($day['shippingFee']);
         $this->assertEqualsCanonicalizing(['Received', 'Returned', 'Canceled'], array_column($day['byStatus'], 'status'));
         $this->assertSame(1650.0, (float) array_sum(array_column($day['byStatus'], 'sales')));
 
@@ -82,6 +86,26 @@ class TelesalesDailyApiTest extends TestCase
 
         $this->assertSame(0, $json['days'][1]['leads']);
         $this->assertSame([], $json['days'][1]['agents']);
+    }
+
+    public function test_it_adds_entered_product_cost_shipping_and_separate_parcels(): void
+    {
+        $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();
+        $product = \App\Models\Product::where('is_hidden', false)->firstOrFail();
+        \App\Models\ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => null, 'entry_date' => '2026-11-03', 'product_cost' => 100, 'shipping_fee' => 60]);
+        \App\Models\ExpectedIncomeEntry::create(['product_id' => $product->id, 'tsa_id' => $tsa->id, 'entry_date' => '2026-11-03', 'product_cost' => 46]);
+        Order::create([
+            'pancake_order_id' => 'sep', 'team' => 'SH Naturals', 'tsa_name' => $tsa->tsa_key, 'product' => 'Sinuxyl',
+            'raw_tags' => [strtoupper($tsa->tsa_key), 'UPSELL TSD - SINUXYL', 'SEPARATE PARCEL'], 'is_upsell' => true, 'amount' => 500,
+            'status_code' => 2, 'disposition' => 'UPSELL W/ CONFIRMATION', 'pancake_created_at' => '2026-11-03 10:00:00', 'synced_at' => now(),
+        ]);
+
+        $day = $this->getJson(self::URL, ['Authorization' => 'Bearer secret-token'])->assertOk()->json('days.0');
+
+        $this->assertEquals(146, $day['productCost']);
+        $this->assertEquals(60, $day['shippingFee']);
+        $this->assertSame(1, $day['separateParcelOrders']);
+        $this->assertEquals(46, $day['agents'][0]['productCost']);
     }
 
     public function test_partnership_is_null_when_partner_data_cannot_load(): void

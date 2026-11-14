@@ -18,4 +18,7 @@ Route::get('/external/v1/telesales/daily', App\Http\Controllers\Api\TelesalesDai
 Route::middleware([App\Http\Middleware\TelesalesApiToken::class . ':mc', 'throttle:30,1'])->group(function () {
     Route::get('/external/v1/tsd/mc/summary', [App\Http\Controllers\Api\TelesalesMcController::class, 'summary'])->name('api.tsd.mc.summary');
     Route::get('/external/v1/tsd/mc/roster', [App\Http\Controllers\Api\TelesalesMcController::class, 'roster'])->name('api.tsd.mc.roster');
+    // Same endpoints under /telesales/mc/ (the path CRD's format uses).
+    Route::get('/external/v1/telesales/mc/summary', [App\Http\Controllers\Api\TelesalesMcController::class, 'summary'])->name('api.telesales.mc.summary');
+    Route::get('/external/v1/telesales/mc/roster', [App\Http\Controllers\Api\TelesalesMcController::class, 'roster'])->name('api.telesales.mc.roster');
 });
