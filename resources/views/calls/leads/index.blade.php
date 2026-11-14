@@ -4,6 +4,7 @@
     'callbacks'  => "Today's Callbacks",
     'unanswered' => 'Unanswered Calls',
     'no_confirmation' => 'No Confirmation',
+    'missed_calls' => 'Missed Calls',
     default      => 'Leads',
 })
 @section('subtitle', match($view) {
@@ -11,6 +12,7 @@
     'callbacks'  => 'Callbacks due now or already past due',
     'unanswered' => 'Not Answering, Unattended, or Invalid Number · shared across every TSA',
     'no_confirmation' => 'Upsold, but the customer hasn\'t replied YES / CONFIRM in Messenger since the upsell',
+    'missed_calls' => 'Customers who called a TSA\'s phone and haven\'t been called back yet · last ' . \App\Support\MissedCalls::DAYS . ' days · newest first',
     default      => 'Round-robin assigned leads · click to call',
 })
 

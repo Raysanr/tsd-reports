@@ -126,6 +126,12 @@ class LeadController extends Controller
             return true;
         }
 
+        // Missed Calls (2026-11-14): the customer called THIS TSA's phone,
+        // so she can call them back even if the lead is someone else's.
+        if ($user->tsa_id && in_array($lead->id, \App\Support\MissedCalls::leadIds($user->tsa_id), true)) {
+            return true;
+        }
+
         // Unanswered Calls (added 2026-09-22) is shared the same way — a
         // lead matching UNANSWERED_CALLS_TRIGGER_KEYWORDS can genuinely
         // have no callback_at at all (see index()'s own 'unanswered'
@@ -202,7 +208,7 @@ class LeadController extends Controller
         // isn't any one TSA's private problem, any TSA logged in should be
         // able to see and act on it — so it gets the identical carve-out
         // from the per-TSA scoping below.
-        if ($view !== 'callbacks' && $view !== 'unanswered') {
+        if ($view !== 'callbacks' && $view !== 'unanswered' && $view !== 'missed_calls') {
             if (!$user->isAtLeastAdmin()) {
                 $query->where('tsa_id', $user->tsa_id);
             } elseif ($request->filled('tsa')) {
@@ -370,6 +376,17 @@ class LeadController extends Controller
                         ->orWhereNull('pancake_created_at');
                 })
                 ->orderByDesc('pancake_created_at');
+        } elseif ($view === 'missed_calls') {
+            // Missed Calls (2026-11-14): customers who called a TSA's phone
+            // and haven't been called back yet (last MissedCalls::DAYS days),
+            // newest missed call first. A TSA sees calls that rang on her
+            // own phone; an admin sees all, or one TSA's phone via ?tsa=.
+            $tsaFilter = !$user->isAtLeastAdmin() ? (int) $user->tsa_id : ($request->filled('tsa') ? $request->integer('tsa') : null);
+            $missedIds = \App\Support\MissedCalls::leadIds($tsaFilter);
+            $query->whereIn('id', $missedIds ?: [0])->reorder();
+            if ($missedIds !== []) {
+                $query->orderByRaw('CASE id ' . collect($missedIds)->map(fn ($id, $i) => 'WHEN ' . (int) $id . ' THEN ' . $i)->implode(' ') . ' END');
+            }
         } elseif ($view === 'no_confirmation') {
             // No Confirmation (explicit request, 2026-11-13): upsold leads
             // whose readable Messenger thread has no customer YES/CONFIRM

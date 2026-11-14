@@ -44,6 +44,32 @@
 </div>
 @endif
 
+{{-- UNASSIGNED LEADS ALERT (2026-11-14) — admins only, see UnassignedLeads --}}
+@if(!empty($unassignedLeads) && $unassignedLeads['total'] > 0)
+<div class="mb-6 flex items-start gap-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl px-6 py-4">
+    <svg class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+    </svg>
+    <div class="text-sm font-mono text-amber-800 dark:text-amber-300 space-y-1 min-w-0">
+        <p class="font-bold">{{ number_format($unassignedLeads['total']) }} lead{{ $unassignedLeads['total'] === 1 ? '' : 's' }} in this range {{ $unassignedLeads['total'] === 1 ? 'has' : 'have' }} no TSA</p>
+        <p class="text-xs">
+            {{ $unassignedLeads['waiting'] }} waiting to be assigned in Call Tracker
+            · {{ $unassignedLeads['notTagged'] }} assigned but the TSA tag is missing in Pancake
+            · {{ $unassignedLeads['notInTracker'] }} not in Call Tracker
+        </p>
+        @if($unassignedLeads['byProduct'] !== [])
+        <p class="text-xs text-amber-700/80 dark:text-amber-400/80">Top products:
+            @foreach($unassignedLeads['byProduct'] as $i => $p)<span data-product-name data-product-real="{{ $p['product'] }}" data-product-index="{{ $i + 1 }}">{{ $p['product'] }}</span> ({{ $p['count'] }}){{ $loop->last ? '' : ', ' }}@endforeach
+        </p>
+        @endif
+        @if($unassignedLeads['waiting'] > 0)
+        <a href="{{ route('calls.leads.index', ['status' => 'unassigned', 'date_from' => $dateFrom->toDateString(), 'date_to' => $dateTo->toDateString()]) }}"
+           class="inline-block mt-1 text-xs font-bold underline">Assign them in Call Tracker →</a>
+        @endif
+    </div>
+</div>
+@endif
+
 {{-- KPI CARDS — icon-badge layout: a tinted circular icon on the left identifies
      the metric at a glance, label/value/subtitle stack to its right. Every card
      shares the .stat-card hover-lift (defined in app.css, previously unused

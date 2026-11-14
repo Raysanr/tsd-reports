@@ -68,6 +68,12 @@ class AutoCall
         if (! self::isOn($tsa) || ! in_array($tsa->status, self::AVAILABLE_STATUSES, true)) {
             return null;
         }
+        // A customer who called this TSA's phone back comes first
+        // (Missed Calls, 2026-11-14); dialing them clears it.
+        // Only leads with a TSA: click-to-call records the dial for those.
+        if ($missed = MissedCalls::pending($tsa->id)->first(fn (array $row) => $row['lead']->tsa_id !== null)) {
+            return $missed['lead'];
+        }
         if ($own = self::pendingLead($tsa)) {
             return $own;
         }

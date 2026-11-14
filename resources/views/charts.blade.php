@@ -91,7 +91,7 @@
      time regardless of which tab is showing. --}}
 <div class="border-b border-slate-200 dark:border-slate-700 mb-6">
     <nav class="flex gap-6 overflow-x-auto" role="tablist" aria-label="Analytics sections">
-        @foreach(['trends' => 'Trends', 'products' => 'Products', 'tsa' => 'TSA', 'followup' => 'Follow-up'] as $tabKey => $tabLabel)
+        @foreach(['trends' => 'Trends', 'products' => 'Products', 'tsa' => 'TSA', 'followup' => 'Follow-up', 'besttime' => 'Best Time'] as $tabKey => $tabLabel)
         <button type="button" role="tab" data-analytics-tab="{{ $tabKey }}"
                 class="analytics-tab-btn shrink-0 px-1 pb-3 text-sm font-semibold border-b-2 border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors cursor-pointer whitespace-nowrap">
             {{ $tabLabel }}
@@ -450,6 +450,81 @@
 @endif
 </div>{{-- /data-analytics-panel="followup" --}}
 
+{{-- ===== BEST TIME TO CALL (2026-11-14) — BestTimeToCall ===== --}}
+<div data-analytics-panel="besttime" class="hidden">
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    <div class="mb-5">
+        <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Best Time to Call</h2>
+        <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }} · answer rate by the hour the call was made (Pancake call-result history). Answered = Confirmed, Upsell, Call Back, Call Dropped, Repeat Order, Rude, Relatives; unanswered = Not Answering, Unattended. An hour needs {{ \App\Support\BestTimeToCall::MIN_CALLS }}+ calls to be ranked.</p>
+    </div>
+    @if($bestTime['calls'] === 0)
+        <p class="text-sm font-mono text-slate-400 py-6 text-center">No call results recorded for this range.</p>
+    @else
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-3">
+            <p class="text-[11px] font-mono uppercase tracking-wide text-slate-400">Overall answer rate</p>
+            <p class="mt-1 text-xl font-bold font-mono text-slate-800 dark:text-slate-100">{{ $bestTime['rate'] }}%</p>
+            <p class="text-xs font-mono text-slate-400">{{ number_format($bestTime['calls']) }} calls</p>
+        </div>
+        @foreach([['Best hours to call', $bestTime['best'], 'text-green-600 dark:text-green-400'], ['Best hours to retry unanswered', $bestTime['bestRetry'], 'text-blue-600 dark:text-blue-400']] as [$label, $list, $tone])
+        <div class="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-3">
+            <p class="text-[11px] font-mono uppercase tracking-wide text-slate-400">{{ $label }}</p>
+            @forelse($list as $i => $h)
+                <p class="mt-1 font-mono text-sm"><span class="font-bold {{ $tone }}">{{ $i + 1 }}. {{ $h['label'] }}</span> <span class="text-slate-500">{{ $h['rate'] }}% · {{ $h['calls'] }} calls</span></p>
+            @empty
+                <p class="mt-1 text-xs font-mono text-slate-400">Not enough calls yet in any hour.</p>
+            @endforelse
+        </div>
+        @endforeach
+    </div>
+    @endif
+</div>
+
+@if($bestTime['calls'] > 0)
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
+    <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
+        <div>
+            <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Answer Rate by Hour of Call</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">Bars: all calls · line: retries of leads that were unanswered before</p>
+        </div>
+        <div class="flex items-center gap-3 text-xs font-mono text-slate-600 dark:text-slate-400">
+            <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm inline-block bg-green-500"></span> All calls</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 rounded-full inline-block bg-blue-500"></span> Retries</span>
+        </div>
+    </div>
+    <canvas id="bestTimeChart" height="140"></canvas>
+</div>
+
+<div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6 overflow-x-auto">
+    <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono mb-4">By Hour</h2>
+    <table class="w-full text-xs font-mono" style="min-width:560px">
+        <thead>
+            <tr class="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                <th class="py-2 pr-3">Hour</th>
+                <th class="py-2 px-3 text-right">Calls</th>
+                <th class="py-2 px-3 text-right">Answered</th>
+                <th class="py-2 px-3 text-right">Answer rate</th>
+                <th class="py-2 px-3 text-right">Retries</th>
+                <th class="py-2 pl-3 text-right">Retry answer rate</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($bestTime['rows'] as $row)
+            <tr class="border-b border-slate-100 dark:border-slate-800">
+                <td class="py-2 pr-3 font-semibold text-slate-700 dark:text-slate-200">{{ $row['label'] }}</td>
+                <td class="py-2 px-3 text-right">{{ $row['calls'] }}</td>
+                <td class="py-2 px-3 text-right text-green-600 dark:text-green-400">{{ $row['answered'] }}</td>
+                <td class="py-2 px-3 text-right">{{ $row['rate'] === null ? '—' : $row['rate'] . '%' }}</td>
+                <td class="py-2 px-3 text-right">{{ $row['retryCalls'] }}</td>
+                <td class="py-2 pl-3 text-right text-blue-600 dark:text-blue-400">{{ $row['retryRate'] === null ? '—' : $row['retryRate'] . '%' }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+</div>
+@endif
+</div>{{-- /data-analytics-panel="besttime" --}}
+
 @endif
 
 @endsection
@@ -514,6 +589,7 @@ const hourlyLeads  = @json($hourlyLeads);
 const hourlyExcess = @json($hourlyExcess);
 const hourlyAnswered   = @json($hourlyAnswered);
 const hourlyUnanswered = @json($hourlyUnanswered);
+const bestTimeRows     = @json($bestTime['rows']);
 
 // Read the current theme's chart colors from the CSS custom properties defined
 // in app.css (--chart-grid / --chart-label, light + .dark values) instead of
@@ -718,6 +794,34 @@ new Chart(document.getElementById('hourlyCallsChart'), {
     },
 });
 
+/* --- Best time to call: answer rate by hour of call (2026-11-14) --- */
+if (document.getElementById('bestTimeChart')) {
+    new Chart(document.getElementById('bestTimeChart'), {
+        type: 'bar',
+        data: {
+            labels: bestTimeRows.map(r => r.label),
+            datasets: [
+                { type: 'bar',  label: 'All calls', data: bestTimeRows.map(r => r.rate), backgroundColor: 'rgba(34,197,94,0.7)', borderRadius: 4, order: 2 },
+                { type: 'line', label: 'Retries',   data: bestTimeRows.map(r => r.retryRate), borderColor: '#3b82f6', backgroundColor: '#3b82f6', tension: 0.35, pointRadius: 3, borderWidth: 2, spanGaps: true, order: 1 },
+            ],
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (ctx) => {
+                    const r = bestTimeRows[ctx.dataIndex];
+                    return ctx.datasetIndex === 0
+                        ? `All calls: ${r.rate}% (${r.answered}/${r.calls})`
+                        : `Retries: ${r.retryRate === null ? '—' : r.retryRate + '%'} (${r.retryAnswered}/${r.retryCalls})`;
+                } } },
+            },
+            scales: { x: { grid: { display: false } }, y: { grid: gridStyle, beginAtZero: true, max: 100, ticks: { callback: v => v + '%' } } },
+        },
+    });
+}
+
 /* --- Product name anonymizer (explicit request, 2026-10-09: "all in the
    leads report module" — the shared toggle in layouts/app.blade.php, wired
    in app.js's wireProductNameAnonymizer() for every plain-text
@@ -878,6 +982,7 @@ tsaRateChart('tsaUpsellingChart', 'upselling_rate');
         trends:   ['rateChart-pick_up_rate', 'rateChart-conversion_rate', 'rateChart-upselling_rate', 'calledChart', 'excessChart', 'rtsDeliveredChart', 'salesChart', 'mixChart', 'hourlyChart', 'hourlyCallsChart'],
         products: ['productChart', 'productSalesChart'],
         tsa:      ['tsaPickUpChart', 'tsaConversionChart', 'tsaUpsellingChart'],
+        besttime: ['bestTimeChart'],
     };
     const resizedPanels = new Set();
 

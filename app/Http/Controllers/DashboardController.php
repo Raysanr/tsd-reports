@@ -60,6 +60,7 @@ class DashboardController extends Controller
         $dbError               = null;
         $hasSyncedData         = false;
         $reconciliationIssues  = json_decode(Setting::get('reconciliation_issues', '[]'), true) ?: [];
+        $unassignedLeads       = null;
 
         // Whiteboard-style editable summary card (explicit request, 2026-09-09:
         // replaces the old Recent Orders table with a manually-entered daily
@@ -721,6 +722,12 @@ class DashboardController extends Controller
                     ];
                 })->values();
 
+            // Unassigned leads alert (2026-11-14) — admins only, they're the
+            // ones who can assign in Call Tracker. See UnassignedLeads.
+            if ($request->user()?->isAtLeastAdmin()) {
+                $unassignedLeads = \App\Support\UnassignedLeads::summary($dateFrom, $dateTo, $orderTeams);
+            }
+
         } catch (QueryException $e) {
             $dbError = 'Database schema not ready — run: php artisan migrate';
             Log::error('DashboardController DB error: ' . $e->getMessage());
@@ -730,7 +737,7 @@ class DashboardController extends Controller
             'stats', 'recentOrders', 'apiConnected', 'dbError',
             'dateFrom', 'dateTo', 'hasSyncedData', 'syncRuns',
             'tsaLeaderboard', 'topProducts', 'hourlyActivity', 'hourlyLeads', 'teamComparison',
-            'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues',
+            'restockingByTsa', 'restockingByTeam', 'topTsa', 'reconciliationIssues', 'unassignedLeads',
             'teams', 'selectedTeam', 'includeRestocking',
             'telesalesToday', 'telesalesTodaySummary', 'telesalesPriorDates', 'telesalesPriorSummaries', 'telesalesTeams'
         ));

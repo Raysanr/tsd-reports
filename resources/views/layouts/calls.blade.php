@@ -358,6 +358,17 @@
                         </span>
                         <span id="badge-no-confirmation" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
                     </a>
+
+                    <a href="{{ route('calls.leads.index', ['view' => 'missed_calls'] + $leadsTsaParam) }}"
+                       class="nav-item flex items-center justify-between gap-3 px-3 py-2 rounded-lg text-yellow-200 text-sm font-medium cursor-pointer {{ $leadsGroupActive && request('view') === 'missed_calls' ? 'nav-active' : '' }}">
+                        <span class="flex items-center gap-3">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 3.75L18 6m0 0l2.25 2.25M18 6l2.25-2.25M18 6l-2.25 2.25m1.5 13.5c-8.284 0-15-6.716-15-15V4.5A2.25 2.25 0 014.5 2.25h1.372c.516 0 .966.351 1.091.852l1.106 4.423c.11.44-.054.902-.417 1.173l-1.293.97a1.062 1.062 0 00-.38 1.21 12.035 12.035 0 007.143 7.143c.441.162.928-.004 1.21-.38l.97-1.293a1.125 1.125 0 011.173-.417l4.423 1.106c.5.125.852.575.852 1.091V19.5a2.25 2.25 0 01-2.25 2.25h-2.25z"/>
+                            </svg>
+                            Missed Calls
+                        </span>
+                        <span id="badge-missed-calls" class="hidden bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"></span>
+                    </a>
                     @endif
                 </div>
             </div>

@@ -151,6 +151,11 @@ class NotificationController extends Controller
             'callbacks'   => $callbackQuery->count(),
             'unanswered'  => $unansweredQuery->count(),
             'no_confirmation' => $noConfirmationQuery->count(),
+            // Missed Calls (2026-11-14): last MissedCalls::DAYS days, not the
+            // page's date range — a missed call waits until it's returned.
+            'missed_calls' => count(\App\Support\MissedCalls::leadIds(
+                !$user->isAtLeastAdmin() ? (int) $user->tsa_id : ($request->filled('tsa') ? $request->integer('tsa') : null)
+            )),
             'unassigned'  => $user->isAtLeastAdmin() ? $unassignedQuery->count() : 0,
         ]);
     }

@@ -39,9 +39,9 @@ use Illuminate\Support\Collection;
 class FollowUpAnalytics
 {
     /** First results that count as "unanswered, worth calling again". */
-    private const RETRYABLE = ['not answering', 'unattended'];
+    public const RETRYABLE = ['not answering', 'unattended'];
 
-    private const ANSWERED = ['confirmed via call', 'upsell', 'call back', 'call dropped', 'repeat order', 'rude customer', 'relatives'];
+    public const ANSWERED = ['confirmed via call', 'upsell', 'call back', 'call dropped', 'repeat order', 'rude customer', 'relatives'];
 
     private const CONVERTED = ['confirmed via call', 'upsell', 'repeat order', 'relatives'];
 

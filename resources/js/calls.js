@@ -258,6 +258,7 @@ function pollNotificationCounts() {
             updateBadge('badge-callbacks', data.callbacks);
             updateBadge('badge-unanswered', data.unanswered);
             updateBadge('badge-no-confirmation', data.no_confirmation);
+            updateBadge('badge-missed-calls', data.missed_calls);
         })
         .catch(() => {});
 }
@@ -274,7 +275,7 @@ function pollWhileVisible(fn, ms) {
     return id;
 }
 
-if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered') || document.getElementById('badge-no-confirmation')) {
+if (document.getElementById('badge-assigned') || document.getElementById('badge-overdue') || document.getElementById('badge-callbacks') || document.getElementById('badge-unanswered') || document.getElementById('badge-no-confirmation') || document.getElementById('badge-missed-calls')) {
     pollNotificationCounts();
     pollWhileVisible(pollNotificationCounts, 30000);
 }
