@@ -55,11 +55,19 @@ class BestTimeToCall
             ->get(['lead_id', 'result', 'occurred_at'])
             ->groupBy('lead_id');
 
+        $final = self::finalResults($dialsByLead->keys());
+
         $hours = collect(range(0, 23))->mapWithKeys(fn ($h) => [$h => ['calls' => 0, 'answered' => 0, 'retryCalls' => 0, 'retryAnswered' => 0]])->all();
 
         foreach ($dialsByLead as $leadId => $dials) {
             $results = collect($resultsByLead->get($leadId, []));
             $wasUnanswered = false;
+            // Tag history misses many results (checked on production, 2026-11-16:
+            // 1,014 recorded for 3,462 dialed leads). When none of a lead's
+            // recorded results says answered, its final result (the one Pick-up
+            // Rate uses) decides its LAST dial: answered there = that call got through.
+            $useFinal = ! $results->contains(fn ($r) => LeadCallResults::matches($r->result, FollowUpAnalytics::ANSWERED));
+            $lastIndex = count($dials) - 1;
 
             foreach ($dials as $i => $dial) {
                 $dialAt = $dial['at'];
@@ -77,8 +85,16 @@ class BestTimeToCall
                     continue; // only Invalid number, DFR, … — says nothing about picking up
                 }
                 // An answered tag decides; else a Not answering / Unattended tag;
-                // else the phone's own call length (connected time) decides.
+                // else the phone's own call length (connected time); else, for
+                // the lead's last dial, its final result.
                 $answered = $answeredTag || (! $unansweredTag && $dial['seconds'] >= self::CONNECTED_SECONDS);
+                if (! $answered && ! $unansweredTag && $after->isEmpty() && $useFinal && $i === $lastIndex) {
+                    $outcome = $final->get($leadId);
+                    if ($outcome === 'other') {
+                        continue; // final result is Invalid number, DFR, …
+                    }
+                    $answered = $outcome === 'answered';
+                }
                 if ($dialAt->lt($from)) {
                     $wasUnanswered = ! $answered; // before the range: retry history only
 
@@ -179,6 +195,36 @@ class BestTimeToCall
 
                 return $merged;
             });
+    }
+
+    /**
+     * Each lead's final result, from the lead's and its order's current
+     * disposition (and a real upsell on the order), like FollowUpAnalytics:
+     * 'answered', 'unanswered', 'other' (Invalid number, DFR, …) or absent.
+     */
+    private static function finalResults(Collection $leadIds): Collection
+    {
+        if ($leadIds->isEmpty()) {
+            return collect();
+        }
+        $leads = \App\Models\Lead::whereIn('id', $leadIds)->get(['id', 'disposition', 'pancake_order_id']);
+        $orders = \App\Models\Order::whereIn('pancake_order_id', $leads->pluck('pancake_order_id')->filter())
+            ->get()->keyBy('pancake_order_id');
+
+        return $leads->mapWithKeys(function ($lead) use ($orders) {
+            $order = $orders->get($lead->pancake_order_id);
+            $dispositions = array_filter([$order?->disposition, $lead->disposition]);
+            $any = fn (array $keywords) => collect($dispositions)->contains(fn ($d) => LeadCallResults::matches($d, $keywords));
+
+            $outcome = match (true) {
+                $any(FollowUpAnalytics::ANSWERED) || ($order && \App\Models\Order::isBroadRealUpsell($order)) => 'answered',
+                $any(FollowUpAnalytics::RETRYABLE) => 'unanswered',
+                collect($dispositions)->contains(fn ($d) => LeadCallResults::isResult($d)) => 'other',
+                default => null,
+            };
+
+            return [$lead->id => $outcome];
+        })->filter();
     }
 
     /** The TOP hours by rate among hours with enough calls. */

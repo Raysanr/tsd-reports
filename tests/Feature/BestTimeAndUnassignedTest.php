@@ -91,6 +91,27 @@ class BestTimeAndUnassignedTest extends TestCase
         $this->assertSame(3, $rows->sum('calls'));
     }
 
+    public function test_with_no_tag_history_the_final_result_decides_the_last_dial(): void
+    {
+        $day = Carbon::parse('2026-11-10', 'Asia/Manila');
+        $click = fn (Lead $l, int $hour) => LeadActivity::create(['lead_id' => $l->id, 'type' => 'call_clicked', 'description' => 'clicked', 'created_at' => $day->copy()->setTime($hour, 0)]);
+        $lead = fn (string $id, string $disposition) => Lead::create(['pancake_order_id' => $id, 'product_id' => Product::first()->id,
+            'status' => 'called', 'disposition' => $disposition, 'pancake_created_at' => $day->copy()->setTime(7, 0)]);
+
+        $confirmed = $lead('901', 'CONFIRMED VIA CALL'); // dialed at 9 and 13, no tag history
+        $click($confirmed, 9);
+        $click($confirmed, 13);
+        $never = $lead('902', 'NOT ANSWERING');
+        $click($never, 9);
+        $invalid = $lead('903', 'INVALID NUMBER');
+        $click($invalid, 9);
+
+        $rows = collect(BestTimeToCall::build($day->copy()->startOfDay(), $day->copy()->endOfDay())['rows'])->keyBy('hour');
+
+        $this->assertSame([2, 0], [$rows[9]['calls'], $rows[9]['answered']]);          // invalid left out
+        $this->assertSame([1, 1, 1, 1], [$rows[13]['calls'], $rows[13]['answered'], $rows[13]['retryCalls'], $rows[13]['retryAnswered']]);
+    }
+
     public function test_dashboard_alerts_admins_about_leads_with_no_tsa_and_why(): void
     {
         $tsa = TsaShift::where('team', 'SH Naturals')->firstOrFail();

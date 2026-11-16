@@ -12,6 +12,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Ported from call-tracker (merged into one app 2026-08-12): Tsa -> TsaShift,
@@ -219,77 +220,52 @@ class TsaStatusController extends Controller
         $wantsCallRows     = empty($selectedStatuses) || in_array('call', $selectedStatuses, true);
         $statusOnlyFilters = array_values(array_diff($selectedStatuses, ['call']));
 
-        $statusQuery = TsaStatusLog::with('tsa');
-        if ($tsaId) {
-            $statusQuery->where('tsa_id', $tsaId);
-        }
-        if ($range) {
-            $statusQuery->whereBetween('created_at', $range);
-        }
-        // Selecting ONLY "Call" must show call rows and nothing else — an
-        // empty $statusOnlyFilters here means "no real status survived the
-        // 'call' diff above", not "no filter", so this must still narrow
-        // to zero status rows rather than falling through to unfiltered
-        // (the ORIGINAL $selectedStatuses is what decides "no filter at
-        // all", not the post-diff list).
-        if (!empty($selectedStatuses)) {
-            $statusQuery->whereIn('status', $statusOnlyFilters);
-        }
-        // stdClass, not a plain array — ->status/->tsa_id/->created_at
-        // property access (not ['status']/['tsa_id']) matches how a real
-        // TsaStatusLog model already reads everywhere else this page's
-        // data is used, even though these rows are now a synthetic merge
-        // instead of one model's rows.
-        $statusRows = $statusQuery->get()->map(fn (TsaStatusLog $log) => (object) [
-            'created_at' => $log->created_at,
-            'id'         => $log->id,
-            'tsa'        => $log->tsa,
-            'tsa_id'     => $log->tsa_id,
-            'kind'       => 'status',
-            'status'     => $log->status,
-            'detail'     => null,
-        ]);
-
-        $callRows = collect();
-        if ($wantsCallRows) {
-            $callQuery = LeadActivity::where('type', 'call_clicked')->with('lead.tsa');
-            if ($tsaId) {
-                $callQuery->whereHas('lead', fn ($q) => $q->where('tsa_id', $tsaId));
-            }
-            if ($range) {
-                $callQuery->whereBetween('created_at', $range);
-            }
-            $callRows = $callQuery->get()->map(fn (LeadActivity $activity) => (object) [
-                'created_at' => $activity->created_at,
-                'id'         => $activity->id,
-                'tsa'        => $activity->lead->tsa ?? null,
-                'tsa_id'     => $activity->lead->tsa_id ?? null,
-                'kind'       => 'call',
-                'status'     => null,
-                'detail'     => $activity->description,
-            ]);
-        }
-
-        // Sort key mixes both sources' ids into one lexicographic string —
-        // not a meaningful cross-table identity, just a stable tiebreak so
-        // two rows in the same second never swap order between page loads.
-        // Eye-hidden in TSA Management (2026-10-15) — display only.
+        // Status changes and call clicks merged, sorted and paginated IN THE
+        // DATABASE (fix, 2026-11-16: loading every row of both tables into
+        // memory to show 30 hit the 256 MB limit on production once the
+        // history grew — HTTP 500 on every visit without a date range).
+        // Eye-hidden TSAs (TSA Management, 2026-10-15) — display only.
         $hiddenTsaIds = TsaShift::hiddenTsaIds();
-        $merged = $statusRows->concat($callRows)
-            ->reject(fn ($row) => in_array((int) $row->tsa_id, $hiddenTsaIds, true))
-            ->sortByDesc(fn ($row) => $row->created_at->format('Y-m-d H:i:s') . '-' . sprintf('%010d', $row->id))
-            ->values();
 
-        $perPage = 30;
-        $page    = Paginator::resolveCurrentPage() ?: 1;
-        $logs    = new LengthAwarePaginator(
-            $merged->slice(($page - 1) * $perPage, $perPage)->values(),
-            $merged->count(),
-            $perPage,
-            $page,
-            ['path' => Paginator::resolveCurrentPath()]
-        );
-        $logs->withQueryString();
+        $statusQuery = DB::table('tsa_status_logs')
+            ->select(['id', 'tsa_id', 'created_at', 'status', DB::raw('CAST(NULL AS VARCHAR(255)) AS detail'), DB::raw("'status' AS kind")])
+            ->when($tsaId, fn ($q) => $q->where('tsa_id', $tsaId))
+            ->when($range, fn ($q) => $q->whereBetween('created_at', $range))
+            // Selecting ONLY "Call" must show call rows and nothing else — an
+            // empty $statusOnlyFilters here means "no real status survived the
+            // 'call' diff above", not "no filter" (the ORIGINAL
+            // $selectedStatuses decides "no filter at all").
+            ->when(!empty($selectedStatuses), fn ($q) => $q->whereIn('status', $statusOnlyFilters))
+            ->when($hiddenTsaIds !== [], fn ($q) => $q->whereNotIn('tsa_id', $hiddenTsaIds));
+
+        if ($wantsCallRows) {
+            $callQuery = DB::table('lead_activities')
+                ->leftJoin('leads', 'leads.id', '=', 'lead_activities.lead_id')
+                ->where('lead_activities.type', 'call_clicked')
+                ->select(['lead_activities.id', 'leads.tsa_id', 'lead_activities.created_at', DB::raw('CAST(NULL AS VARCHAR(255)) AS status'),
+                    'lead_activities.description AS detail', DB::raw("'call' AS kind")])
+                ->when($tsaId, fn ($q) => $q->where('leads.tsa_id', $tsaId))
+                ->when($range, fn ($q) => $q->whereBetween('lead_activities.created_at', $range))
+                ->when($hiddenTsaIds !== [], fn ($q) => $q->where(fn ($w) => $w->whereNull('leads.tsa_id')->orWhereNotIn('leads.tsa_id', $hiddenTsaIds)));
+            $statusQuery->unionAll($callQuery);
+        }
+
+        // Same second: higher id first, so rows never swap between loads.
+        $logs = DB::query()->fromSub($statusQuery, 'tsa_log_rows')
+            ->orderByDesc('created_at')->orderByDesc('id')
+            ->paginate(30)->withQueryString();
+
+        // stdClass rows with ->tsa / ->created_at, as the view reads them.
+        $tsasById = TsaShift::withTrashed()->whereIn('id', collect($logs->items())->pluck('tsa_id')->filter()->unique())->get()->keyBy('id');
+        $logs->setCollection($logs->getCollection()->map(fn ($row) => (object) [
+            'created_at' => Carbon::parse($row->created_at),
+            'id'         => (int) $row->id,
+            'tsa'        => $row->tsa_id ? $tsasById->get($row->tsa_id) : null,
+            'tsa_id'     => $row->tsa_id,
+            'kind'       => $row->kind,
+            'status'     => $row->status,
+            'detail'     => $row->detail,
+        ]));
 
         $data = [
             'logs'             => $logs,
