@@ -85,6 +85,12 @@ class DashboardController extends Controller
         $telesalesByDate = TelesalesSummary::whereIn('summary_date', [$telesalesToday, ...$telesalesPriorDates])
             ->get()
             ->keyBy(fn ($row) => $row->summary_date->toDateString());
+        // Days nobody saved fill in from Sales Summary (2026-11-16, TelesalesCardAuto).
+        try {
+            $telesalesByDate = collect(\App\Support\TelesalesCardAuto::forDates([$telesalesToday, ...$telesalesPriorDates]))->merge($telesalesByDate);
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         $telesalesTodaySummary = $telesalesByDate->get($telesalesToday);
         $telesalesPriorSummaries = collect($telesalesPriorDates)->map(fn ($date) => $telesalesByDate->get($date));
@@ -816,7 +822,7 @@ class DashboardController extends Controller
     {
         $date = $request->validate(['date' => ['required', 'date']])['date'];
 
-        return response()->json(['summary' => TelesalesSummary::whereDate('summary_date', $date)->first()]);
+        return response()->json(['summary' => \App\Support\TelesalesCardAuto::summaryFor(\Illuminate\Support\Carbon::parse($date)->toDateString())]);
     }
 
     /** Deletes one whiteboard summary row, e.g. an entry added by mistake. */

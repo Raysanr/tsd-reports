@@ -310,8 +310,22 @@ class TsaSalesReportController extends Controller
         $frozenLeads = TsaSalesMonthLock::overlay(collect(), 'leads', $dateFrom, $dateTo);
         $days = [];
         $teams = [];
+        $tsaDays = [];
         foreach ($data['dateChunks']->flatten() as $date) {
             $dateStr = $date->toDateString();
+            // Each TSA's own figures that day (Telesales card's top seller
+            // and working-TSA counts, 2026-11-16).
+            $tsaDays[$dateStr] = $groups->flatMap(fn ($g) => $g['tsas']->map(function ($tsa) use ($data, $dateStr, $emptyRaw, $g) {
+                $row = $data['dailyByKey']->get($tsa->id . ':' . $dateStr, $emptyRaw);
+
+                return [
+                    'name'          => $tsa->display_name,
+                    'team'          => $g['orderTeam'],
+                    'gross_sales'   => (float) ($row['gross_sales'] ?? 0),
+                    'net_income'    => (float) ($row['net_income'] ?? 0),
+                    'catered_leads' => (float) ($row['catered_leads'] ?? 0),
+                ];
+            }))->values()->all();
             $teamRows = $groups->flatMap(fn ($g) => $g['tsas']->map(fn ($tsa) => $data['dailyByKey']->get($tsa->id . ':' . $dateStr, $emptyRaw)))->all();
             $tiktokRows = $tiktokTsas->map(fn ($tsa) => $data['tiktokDailyByKey']->get($tsa->id . ':' . $dateStr, []))->all();
 
@@ -349,7 +363,7 @@ class TsaSalesReportController extends Controller
             }
         }
 
-        return ['range' => $data['overallTotal'], 'days' => $days, 'teams' => $teams];
+        return ['range' => $data['overallTotal'], 'days' => $days, 'teams' => $teams, 'tsas' => $tsaDays];
     }
 
     /** A team's Catered and Excess Leads for one day, counted exactly like Leads
