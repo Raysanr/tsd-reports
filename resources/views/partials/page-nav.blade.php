@@ -5,8 +5,8 @@
         content area right away; sidebar and header stay as they are.
      2. Pages swap with a short fade instead of a white flash (cross-document
         view transitions; browsers without it just navigate normally).
-     3. Resting the mouse on a link prefetches that page, so it often opens
-        at once. Links with a query string, downloads/exports and auth links
+     3. Pressing the mouse button on a link prefetches that page ("conservative": on press, not hover — 2026-11-16, keeps Railway cost down), so it opens
+        a little sooner. Links with a query string, downloads/exports and auth links
         are never prefetched (a prefetch would save a filter or start a file).
      Opt out per link with data-no-nav-loading / data-no-prefetch. --}}
 <style>
@@ -44,7 +44,7 @@
             { "not": { "href_matches": "*stream*" } },
             { "not": { "selector_matches": "a[href*='?'], a[download], a[target='_blank'], [data-no-prefetch], [data-no-prefetch] a" } }
         ] },
-        "eagerness": "moderate"
+        "eagerness": "conservative"
     }]
 }
 </script>
