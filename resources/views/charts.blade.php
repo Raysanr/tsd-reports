@@ -455,7 +455,7 @@
 <div class="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm p-6 mb-6">
     <div class="mb-5">
         <h2 class="text-sm font-bold text-slate-700 dark:text-slate-200 font-mono">Best Time to Call</h2>
-        <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }} · answer rate by the hour the call was made (Pancake call-result history). Answered = Confirmed, Upsell, Call Back, Call Dropped, Repeat Order, Rude, Relatives; unanswered = Not Answering, Unattended. An hour needs {{ \App\Support\BestTimeToCall::MIN_CALLS }}+ calls to be ranked.</p>
+        <p class="text-xs text-slate-400 font-mono mt-0.5">{{ $dateFrom }} – {{ $dateTo }} · every dial (Call Tracker click-to-call / auto-call, and calls the TSA's phone reports, matched to the lead by number), by the hour it started. Answered = a Confirmed, Upsell, Call Back, Call Dropped, Repeat Order, Rude or Relatives result tagged after the dial; or, with no new tag, a call that connected for 10+ seconds. Not Answering / Unattended, or no connection = unanswered. Invalid Number, DFR, Double Order and FSD are left out. Retries = dials to a lead that was already unanswered. An hour needs {{ \App\Support\BestTimeToCall::MIN_CALLS }}+ calls to be ranked.</p>
     </div>
     @if($bestTime['calls'] === 0)
         <p class="text-sm font-mono text-slate-400 py-6 text-center">No call results recorded for this range.</p>

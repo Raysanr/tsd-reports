@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Models\CallEvent;
 use App\Models\Lead;
+use App\Models\LeadActivity;
 use App\Models\LeadCallResult;
 use App\Models\Order;
 use App\Models\Product;
@@ -23,25 +25,37 @@ class BestTimeAndUnassignedTest extends TestCase
     {
         $day = Carbon::parse('2026-11-10', 'Asia/Manila');
         $lead = fn () => Lead::create(['pancake_order_id' => (string) random_int(100000, 999999), 'product_id' => Product::first()->id, 'status' => 'called', 'pancake_created_at' => $day]);
-        $result = fn (Lead $l, string $r, int $hour, int $min = 0) => LeadCallResult::create(['lead_id' => $l->id, 'result' => $r, 'occurred_at' => $day->copy()->setTime($hour, $min)]);
+        $at = fn (int $hour, int $min = 0) => $day->copy()->setTime($hour, $min);
+        $result = fn (Lead $l, string $r, int $hour, int $min = 0) => LeadCallResult::create(['lead_id' => $l->id, 'result' => $r, 'occurred_at' => $at($hour, $min)]);
+        // A click-to-call: the activity plus the outgoing call event it logs (one dial).
+        $dial = function (Lead $l, int $hour, int $min = 0) use ($at) {
+            LeadActivity::create(['lead_id' => $l->id, 'type' => 'call_clicked', 'description' => 'clicked to call', 'created_at' => $at($hour, $min)]);
+            CallEvent::create(['tsa_id' => TsaShift::first()->id, 'lead_id' => $l->id, 'phone_number' => '0917', 'direction' => 'outgoing', 'occurred_at' => $at($hour, $min)->addMinute()]);
+        };
 
-        // 10 AM: 10 calls, 8 answered. 2 PM: 10 calls, 3 answered. 6 AM: 1 call, answered (too few to rank).
+        // 10 AM: 10 dials, 8 answered. 2 PM: 10 dials, 3 answered. 6 AM: 1 dial, answered (too few to rank).
         foreach (range(1, 10) as $i) {
-            $result($lead(), $i <= 8 ? 'CONFIRMED VIA CALL' : 'NOT ANSWERING', 10);
-            $result($lead(), $i <= 3 ? 'CALL BACK' : 'UNATTENDED', 14);
+            $l = $lead(); $dial($l, 10); $result($l, $i <= 8 ? 'CONFIRMED VIA CALL' : 'NOT ANSWERING', 10, 5);
+            $l = $lead(); $dial($l, 14); $result($l, $i <= 3 ? 'CALL BACK' : 'UNATTENDED', 14, 5);
         }
-        $result($lead(), 'CONFIRMED VIA CALL', 6);
-        // A retry: unanswered at 9 AM, answered at 7 PM. Invalid number is ignored.
+        $l = $lead(); $dial($l, 6); $result($l, 'CONFIRMED VIA CALL', 6, 5);
+
+        // Retries: tagged Not answering at 9 AM; called again at 11 AM with no new
+        // tag (still unanswered — invisible in tag history), then answered at 7 PM.
         $retry = $lead();
-        $result($retry, 'NOT ANSWERING', 9);
-        $result($retry, 'CONFIRMED VIA CALL', 19);
-        $result($lead(), 'INVALID NUMBER', 10, 30);
+        $dial($retry, 9); $result($retry, 'NOT ANSWERING', 9, 5);
+        $dial($retry, 11);
+        $dial($retry, 19); $result($retry, 'CONFIRMED VIA CALL', 19, 5);
+        // Invalid number is left out.
+        $l = $lead(); $dial($l, 10, 30); $result($l, 'INVALID NUMBER', 10, 35);
 
         $best = BestTimeToCall::build($day->copy()->startOfDay(), $day->copy()->endOfDay());
 
-        $this->assertSame(23, $best['calls']);
+        $this->assertSame(24, $best['calls']);
         $this->assertSame([HourFormatter::label(10), HourFormatter::label(14)], array_column($best['best'], 'label'));
         $this->assertEquals(80, $best['best'][0]['rate']);
+        $eleven = collect($best['rows'])->firstWhere('hour', 11);
+        $this->assertSame([1, 0], [$eleven['retryCalls'], $eleven['retryAnswered']]); // failed retry counted
         $seven = collect($best['rows'])->firstWhere('hour', 19);
         $this->assertSame([1, 1], [$seven['retryCalls'], $seven['retryAnswered']]);
         $this->assertSame([], $best['bestRetry']); // under MIN_CALLS retries
@@ -51,6 +65,30 @@ class BestTimeAndUnassignedTest extends TestCase
         $this->actingAs(User::factory()->create())
             ->get(route('charts', ['date_from' => '2026-11-10', 'date_to' => '2026-11-10']))
             ->assertOk()->assertSee('Best Time to Call')->assertSee('bestTimeChart');
+    }
+
+    public function test_phone_calls_count_by_number_and_a_connected_call_with_no_tag_is_answered(): void
+    {
+        $day = Carbon::parse('2026-11-10', 'Asia/Manila');
+        $tsa = TsaShift::first()->id;
+        $lead = Lead::create(['pancake_order_id' => '777', 'product_id' => Product::first()->id, 'status' => 'called',
+            'phone_number' => '0917 123 4567', 'pancake_created_at' => $day->copy()->setTime(8, 0)]);
+        $phone = fn (int $hour, int $min, int $seconds) => CallEvent::create(['tsa_id' => $tsa, 'lead_id' => null,
+            'phone_number' => '+639171234567', 'direction' => 'outgoing', 'duration_seconds' => $seconds,
+            'occurred_at' => $day->copy()->setTime($hour, $min)->addSeconds($seconds)]); // reported when it ends
+
+        $phone(9, 0, 0);    // dialed from the phone, nobody picked up
+        $phone(15, 0, 300); // 5-minute call, no new tag (the TSA forgot)
+        // Click-to-call at 17:00 plus the phone's end-of-call report 4 minutes later: one dial.
+        LeadActivity::create(['lead_id' => $lead->id, 'type' => 'call_clicked', 'description' => 'clicked', 'created_at' => $day->copy()->setTime(17, 0)]);
+        $phone(17, 0, 240);
+
+        $rows = collect(BestTimeToCall::build($day->copy()->startOfDay(), $day->copy()->endOfDay())['rows'])->keyBy('hour');
+
+        $this->assertSame([1, 0], [$rows[9]['calls'], $rows[9]['answered']]);
+        $this->assertSame([1, 1, 1, 1], [$rows[15]['calls'], $rows[15]['answered'], $rows[15]['retryCalls'], $rows[15]['retryAnswered']]);
+        $this->assertSame([1, 1], [$rows[17]['calls'], $rows[17]['answered']]);
+        $this->assertSame(3, $rows->sum('calls'));
     }
 
     public function test_dashboard_alerts_admins_about_leads_with_no_tsa_and_why(): void
