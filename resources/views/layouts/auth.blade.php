@@ -19,6 +19,7 @@
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @include('partials.theme-color')
+    @include('partials.page-nav')
 </head>
 <body class="min-h-screen bg-slate-100 dark:bg-slate-950">
 

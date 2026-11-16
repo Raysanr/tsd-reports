@@ -14,7 +14,8 @@ use Illuminate\Support\Facades\Cache;
  * - top seller: the TSA with the highest net income, SH E-COM and partner
  *   TSAs together; top team: SH E-COM TEAM vs PARTNERS TEAM (M&J,
  *   PEAK.CO and MLC added together), higher net income;
- * - team counts: SH E-COM TSAs who catered a lead or sold that day.
+ * - TSA counts: SH ECOM and PARTNERS, each TSA with gross sales that day
+ *   counting 1; Working TSAs is their sum.
  *
  * The card is read-only (2026-11-16): always these figures, never typed or
  * saved ones. Built for a range at once and kept 5 minutes.
@@ -22,6 +23,9 @@ use Illuminate\Support\Facades\Cache;
 class TelesalesCardAuto
 {
     private const CACHE_SECONDS = 300;
+
+    /** The card's two TSA-count slots. */
+    public const COUNT_SLOTS = [['slug' => 'sh_ecom', 'name' => 'SH ECOM'], ['slug' => 'partners', 'name' => 'PARTNERS']];
 
     /** The automatic summary for $date, or null when there's nothing yet (or it can't be built). */
     public static function summaryFor(string $date): ?TelesalesSummary
@@ -42,7 +46,7 @@ class TelesalesCardAuto
         $from = reset($dates);
         $to = end($dates);
 
-        $built = Cache::remember("telesales-card-auto:v2:{$from}:{$to}", self::CACHE_SECONDS, fn () => self::build($from, $to));
+        $built = Cache::remember("telesales-card-auto:v3:{$from}:{$to}", self::CACHE_SECONDS, fn () => self::build($from, $to));
 
         return collect($built)->only($dates)->filter()
             ->map(fn (array $attributes) => new TelesalesSummary($attributes))->all();
@@ -58,7 +62,6 @@ class TelesalesCardAuto
             $partners = ['teams' => [], 'tsas' => []];
         }
         $summary = OverallSalesSummary::build($tsd, $partners['teams'] ?? []);
-        $shTeams = collect(Teams::config())->mapWithKeys(fn ($config, $slug) => [$config['order_team'] => ['slug' => $slug, 'name' => $config['name']]]);
 
         $out = [];
         foreach (array_keys($tsd['days']) as $date) {
@@ -83,10 +86,12 @@ class TelesalesCardAuto
             ]);
             $topTeam = $teams->filter($hasFigures)->sortByDesc('net_income')->first();
 
-            $counts = $shTeams->map(fn (array $team, $orderTeam) => $team + [
-                'count' => $shTsas->where('team', $orderTeam)
-                    ->filter(fn (array $t) => $t['catered_leads'] > 0 || $t['gross_sales'] > 0)->count(),
-            ])->values()->all();
+            // TSAs with gross sales that day: 1 each, SH E-COM and partners.
+            $selling = fn ($tsas) => collect($tsas)->filter(fn (array $t) => $t['gross_sales'] > 0)->count();
+            $counts = [
+                ['slug' => 'sh_ecom', 'name' => 'SH ECOM', 'count' => $selling($shTsas)],
+                ['slug' => 'partners', 'name' => 'PARTNERS', 'count' => $selling($partners['tsas'][$date] ?? [])],
+            ];
 
             if ($gross == 0.0 && $net == 0.0 && $topSeller === null) {
                 $out[$date] = null; // nothing yet that day

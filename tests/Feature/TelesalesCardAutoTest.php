@@ -64,8 +64,9 @@ class TelesalesCardAutoTest extends TestCase
         $this->assertSame('PARTNERS TEAM', $auto->top_team_name); // -3,477.26 vs SH E-COM -11,585.03
         $this->assertEqualsWithDelta(-5376.15 + 1898.89, $auto->top_team_net_income, 0.01);
         $this->assertEquals(17000, $auto->top_team_gross_sales);
-        $this->assertSame([1, 1], array_column($auto->sub_team_counts, 'count'));
-        $this->assertSame(2, $auto->overall_working_tsas);
+        // TSAs with gross sales: Jhun + Mariel (Idle has none), and MLC Star.
+        $this->assertSame(['SH ECOM' => 2, 'PARTNERS' => 1], array_column($auto->sub_team_counts, 'count', 'name'));
+        $this->assertSame(3, $auto->overall_working_tsas);
         $this->assertFalse($auto->exists);
     }
 
@@ -83,5 +84,16 @@ class TelesalesCardAutoTest extends TestCase
             ->assertSee('value="6000', false)->assertSee('MLC Star')
             ->assertSee('readonly tabindex="-1"', false)
             ->assertDontSee('data-tss-today-save', false)->assertDontSee('data-tss-small-save', false);
+    }
+
+    public function test_the_card_shows_sh_ecom_and_partners_tsa_counts_read_only(): void
+    {
+        $this->actingAs(User::factory()->create());
+
+        $this->get(route('dashboard'))->assertOk()
+            ->assertSee('SH ECOM')->assertSee('PARTNERS')
+            ->assertSee('data-subteam-count value="2" placeholder="0" class="tsa-in" readonly', false)
+            ->assertSee('data-subteam-count value="1" placeholder="0" class="tsa-in" readonly', false)
+            ->assertDontSee('Automatic from Sales Summary');
     }
 }

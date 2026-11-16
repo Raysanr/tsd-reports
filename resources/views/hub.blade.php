@@ -416,6 +416,7 @@
      cards keep their own colors so they stay easy to tell apart. --}}
 @php $hubThemeCss = \App\Support\ThemeColor::hubCss(); @endphp
 @if($hubThemeCss)<style id="themeColorVars">{!! $hubThemeCss !!}</style>@endif
+    @include('partials.page-nav')
 </head>
 <body>
 <header>

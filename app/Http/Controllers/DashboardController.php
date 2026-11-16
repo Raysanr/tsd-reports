@@ -102,10 +102,7 @@ class DashboardController extends Controller
         // config(), not a hardcoded "Team Opening"/"Team Closing" literal —
         // this app has renamed these teams before and every other widget
         // tracks that automatically).
-        $telesalesTeams = collect(Teams::config())->map(fn ($config, $slug) => [
-            'slug' => $slug,
-            'name' => $config['name'],
-        ])->values();
+        $telesalesTeams = collect(\App\Support\TelesalesCardAuto::COUNT_SLOTS); // SH ECOM / PARTNERS TSAs with sales (2026-11-16)
 
         $stats          = ['total_sales' => 0, 'total_orders' => 0, 'restocking_count' => 0, 'restocking_value' => 0, 'cancelled_orders_count' => 0, 'cancelled_orders_value' => 0, 'last_synced' => null, 'sync_interval' => 2, 'sync_stale' => true, 'total_leads' => 0, 'catered_leads' => 0, 'pick_up_rate' => null, 'upselling_rate' => null, 'aov' => 0];
         $recentOrders   = collect();

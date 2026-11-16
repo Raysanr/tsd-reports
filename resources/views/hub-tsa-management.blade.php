@@ -318,6 +318,7 @@
         .row-actions { margin-left: 0; }
     }
 </style>
+    @include('partials.page-nav')
 </head>
 <body>
 <header>

@@ -87,5 +87,4 @@
         @endforeach
     </div>
 
-    <p class="tsa-auto-note" data-snapshot-hide>Automatic from Sales Summary (SH E-COM and Partners) · updates every 5 minutes</p>
 </div>

@@ -195,6 +195,7 @@
         main { padding: 32px 20px 56px; }
     }
 </style>
+    @include('partials.page-nav')
 </head>
 <body>
 <header>

@@ -27,6 +27,7 @@
     }
     </style>
     @stack('head')
+    @include('partials.page-nav')
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950 text-ink dark:text-slate-100">
 

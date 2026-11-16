@@ -199,6 +199,7 @@
         color: #64748b !important;
     }
     </style>
+    @include('partials.page-nav')
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950" data-notifications-url="{{ auth()->check() ? route('calls.notifications.counts') : '' }}">
 

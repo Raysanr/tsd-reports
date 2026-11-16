@@ -337,6 +337,7 @@
     }
     </style>
     @stack('head')
+    @include('partials.page-nav')
 </head>
 <body class="flex h-screen overflow-hidden bg-slate-100 dark:bg-slate-950">
 

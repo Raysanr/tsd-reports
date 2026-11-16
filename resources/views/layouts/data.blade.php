@@ -28,6 +28,7 @@
     .nav-item:hover { background-color: rgba(255,255,255,0.08); color: #fff; }
     .nav-active { background-color: color-mix(in srgb, var(--color-yellow-500) 16%, transparent); color: var(--color-yellow-200) !important; }
     </style>
+    @include('partials.page-nav')
 </head>
 <body class="flex h-screen overflow-hidden bg-canvas dark:bg-slate-950">
 
