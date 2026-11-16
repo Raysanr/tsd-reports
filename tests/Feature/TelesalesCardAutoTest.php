@@ -69,17 +69,19 @@ class TelesalesCardAutoTest extends TestCase
         $this->assertFalse($auto->exists);
     }
 
-    public function test_a_saved_day_keeps_its_figures_and_the_dashboard_shows_the_automatic_ones(): void
+    public function test_the_card_is_automatic_and_read_only(): void
     {
         $this->actingAs(User::factory()->create());
-        $this->getJson(route('telesales-summary.show', ['date' => $this->date]))
-            ->assertJsonPath('summary.top_seller_name', 'MLC Star');
-
+        // An old typed entry no longer overrides Sales Summary.
         TelesalesSummary::create(['summary_date' => $this->date, 'gross_sales' => 123, 'net_income' => 45, 'sub_team_counts' => [], 'overall_working_tsas' => 0]);
-        $this->getJson(route('telesales-summary.show', ['date' => $this->date]))
-            ->assertJsonPath('summary.gross_sales', '123.00');
 
-        TelesalesSummary::query()->delete();
-        $this->get(route('dashboard'))->assertOk()->assertSee('value="6000', false)->assertSee('MLC Star');
+        $this->getJson(route('telesales-summary.show', ['date' => $this->date]))
+            ->assertJsonPath('summary.top_seller_name', 'MLC Star')
+            ->assertJsonPath('summary.gross_sales', '6000.00');
+
+        $this->get(route('dashboard'))->assertOk()
+            ->assertSee('value="6000', false)->assertSee('MLC Star')
+            ->assertSee('readonly tabindex="-1"', false)
+            ->assertDontSee('data-tss-today-save', false)->assertDontSee('data-tss-small-save', false);
     }
 }

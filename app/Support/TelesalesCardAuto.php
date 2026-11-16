@@ -16,26 +16,22 @@ use Illuminate\Support\Facades\Cache;
  *   PEAK.CO and MLC added together), higher net income;
  * - team counts: SH E-COM TSAs who catered a lead or sold that day.
  *
- * A day someone saved on the card keeps its saved figures (summaryFor()),
- * so a correction sticks. Built for a range at once and kept 5 minutes.
+ * The card is read-only (2026-11-16): always these figures, never typed or
+ * saved ones. Built for a range at once and kept 5 minutes.
  */
 class TelesalesCardAuto
 {
     private const CACHE_SECONDS = 300;
 
-    /** The saved summary for $date, or the automatic one (unsaved), or null when there's nothing yet. */
+    /** The automatic summary for $date, or null when there's nothing yet (or it can't be built). */
     public static function summaryFor(string $date): ?TelesalesSummary
     {
-        $saved = TelesalesSummary::whereDate('summary_date', $date)->first();
-        if ($saved !== null) {
-            return $saved;
-        }
         try {
             return self::forDates([$date])[$date] ?? null;
         } catch (\Throwable $e) {
             report($e);
 
-            return null; // blank card, same as before automation
+            return null;
         }
     }
 

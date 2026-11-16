@@ -82,14 +82,13 @@ class DashboardController extends Controller
         // columns.
         $telesalesToday = now()->toDateString();
         $telesalesPriorDates = [now()->subDays(2)->toDateString(), now()->subDay()->toDateString()];
-        $telesalesByDate = TelesalesSummary::whereIn('summary_date', [$telesalesToday, ...$telesalesPriorDates])
-            ->get()
-            ->keyBy(fn ($row) => $row->summary_date->toDateString());
-        // Days nobody saved fill in from Sales Summary (2026-11-16, TelesalesCardAuto).
+        // Automatic and read-only (2026-11-16): always Sales Summary's
+        // figures (TelesalesCardAuto); saved whiteboard rows are no longer used.
         try {
-            $telesalesByDate = collect(\App\Support\TelesalesCardAuto::forDates([$telesalesToday, ...$telesalesPriorDates]))->merge($telesalesByDate);
+            $telesalesByDate = collect(\App\Support\TelesalesCardAuto::forDates([$telesalesToday, ...$telesalesPriorDates]));
         } catch (\Throwable $e) {
             report($e);
+            $telesalesByDate = collect();
         }
 
         $telesalesTodaySummary = $telesalesByDate->get($telesalesToday);

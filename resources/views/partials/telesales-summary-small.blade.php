@@ -11,16 +11,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
             </svg>
         </div>
-        <button type="button" data-tss-small-save data-snapshot-hide class="tsa-mini">Save</button>
     </div>
     <div class="tsa-pair">
         <div>
             <span class="tsa-k">Gross Sales</span>
-            <div class="tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="gross_sales" data-money-field aria-label="Gross sales" value="{{ $summary?->gross_sales }}" placeholder="0.00" class="tsa-in"></div>
+            <div class="tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="gross_sales" data-money-field aria-label="Gross sales" value="{{ $summary?->gross_sales }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
         </div>
         <div>
             <span class="tsa-k">Net Income</span>
-            <div class="tsa-money tsa-pos"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="net_income" data-money-field aria-label="Net income" value="{{ $summary?->net_income }}" placeholder="0.00" class="tsa-in"></div>
+            <div class="tsa-money tsa-pos"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="net_income" data-money-field aria-label="Net income" value="{{ $summary?->net_income }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
         </div>
     </div>
 </div>

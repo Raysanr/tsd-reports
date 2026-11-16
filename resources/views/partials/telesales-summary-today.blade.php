@@ -31,11 +31,11 @@
         <div class="tsa-tot">
             <div>
                 <div class="tsa-k">Gross sales today</div>
-                <div class="tsa-g tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="gross_sales" data-money-field aria-label="Gross sales today" value="{{ $summary?->gross_sales }}" placeholder="0.00" class="tsa-in"></div>
+                <div class="tsa-g tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="gross_sales" data-money-field aria-label="Gross sales today" value="{{ $summary?->gross_sales }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
             </div>
             <div>
                 <div class="tsa-k">Net income today</div>
-                <div class="tsa-n tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="net_income" data-money-field aria-label="Net income today" value="{{ $summary?->net_income }}" placeholder="0.00" class="tsa-in"></div>
+                <div class="tsa-n tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="net_income" data-money-field aria-label="Net income today" value="{{ $summary?->net_income }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
                 <span class="tsa-up" data-tsa-delta></span>
             </div>
         </div>
@@ -55,7 +55,7 @@
             @php $saved = $savedCountsBySlug->get($team['slug']); @endphp
             <div data-subteam-row data-subteam-slug="{{ $team['slug'] }}" data-subteam-name="{{ $team['name'] }}">
                 <label class="tsa-k" for="tsa-count-{{ $team['slug'] }}">{{ $team['name'] }}</label>
-                <input id="tsa-count-{{ $team['slug'] }}" type="number" min="0" data-subteam-count value="{{ $saved['count'] ?? '' }}" placeholder="0" class="tsa-in">
+                <input id="tsa-count-{{ $team['slug'] }}" type="number" min="0" data-subteam-count value="{{ $saved['count'] ?? '' }}" placeholder="0" class="tsa-in" readonly tabindex="-1">
             </div>
         @endforeach
         <div><span class="tsa-k">Working TSAs</span><b data-overall-tsas>{{ $savedCountsBySlug->sum('count') ?: 0 }}</b></div>
@@ -68,17 +68,17 @@
                     <div class="tsa-ava" data-tsa-avatar="{{ $key }}">—</div>
                     <div>
                         <div class="tsa-k">{{ $title }}</div>
-                        <input type="text" data-field="{{ $field }}_name" aria-label="{{ $title }}" placeholder="{{ $placeholder }}" value="{{ $summary?->{$field.'_name'} }}" class="tsa-in tsa-name">
+                        <input type="text" data-field="{{ $field }}_name" aria-label="{{ $title }}" placeholder="{{ $placeholder }}" value="{{ $summary?->{$field.'_name'} }}" class="tsa-in tsa-name" readonly tabindex="-1">
                     </div>
                 </div>
                 <div class="tsa-pair">
                     <div>
                         <span class="tsa-k">Gross Sales</span>
-                        <div class="tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="{{ $field }}_gross_sales" data-money-field aria-label="{{ $title }} gross" value="{{ $summary?->{$field.'_gross_sales'} }}" placeholder="0.00" class="tsa-in"></div>
+                        <div class="tsa-money"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="{{ $field }}_gross_sales" data-money-field aria-label="{{ $title }} gross" value="{{ $summary?->{$field.'_gross_sales'} }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
                     </div>
                     <div>
                         <span class="tsa-k">Net Income</span>
-                        <div class="tsa-money tsa-pos"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="{{ $field }}_net_income" data-money-field aria-label="{{ $title }} net" value="{{ $summary?->{$field.'_net_income'} }}" placeholder="0.00" class="tsa-in"></div>
+                        <div class="tsa-money tsa-pos"><span class="tsa-peso" role="img" aria-label="peso">P</span><input type="text" inputmode="decimal" data-field="{{ $field }}_net_income" data-money-field aria-label="{{ $title }} net" value="{{ $summary?->{$field.'_net_income'} }}" placeholder="0.00" class="tsa-in" readonly tabindex="-1"></div>
                     </div>
                 </div>
                 <div class="tsa-bar"><i data-tsa-bar="{{ $key }}"></i></div>
@@ -87,10 +87,5 @@
         @endforeach
     </div>
 
-    <div class="tsa-save-row" data-snapshot-hide>
-        <button type="button" data-tss-today-save class="tsa-save">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-            Save today
-        </button>
-    </div>
+    <p class="tsa-auto-note" data-snapshot-hide>Automatic from Sales Summary (SH E-COM and Partners) · updates every 5 minutes</p>
 </div>
